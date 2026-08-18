@@ -1,0 +1,19 @@
+# Keep the build context small and deterministic. The UI is rebuilt inside the
+# image, so never ship a local dist or node_modules; the Docker build compiles
+# the UI in stage 1 and copies ui/dist into the runtime stage.
+.git
+.github
+.env
+.env.*
+silo.toml
+node_modules
+server/test
+dist/
+silo
+silo_data/
+*.db
+*.db-wal
+*.db-shm
+ui/node_modules
+ui/dist
+**/.DS_Store

@@ -10,10 +10,12 @@ export function RefTarget({
   target,
   collections,
   onChange,
+  isArray = false,
 }: {
   target: string
   collections: Collection[]
   onChange: (target: string) => void
+  isArray?: boolean
 }) {
   const [mode, setMode] = useState<'local' | 'remote'>(SiloRef.isRemote(target) ? 'remote' : 'local')
   const switchMode = (m: 'local' | 'remote') => {
@@ -50,7 +52,7 @@ export function RefTarget({
             ))}
           </select>
           <span className={styles.hint}>
-            Values must match the collection's schema (
+            {isArray ? 'Each array item must match the collection' : 'Values must match the collection'}'s schema (
             <span className="mono">{localName ? SiloRef.url(localName) : `${SiloRef.CollectionScheme}…`}</span>).
           </span>
         </>

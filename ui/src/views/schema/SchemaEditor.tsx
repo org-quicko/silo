@@ -17,7 +17,7 @@ import { RefTarget } from './RefTarget'
 import { EnumValues } from './EnumValues'
 import styles from './SchemaEditor.module.css'
 
-type Kind = 'string' | 'number' | 'integer' | 'boolean' | 'object' | 'array' | 'enum' | 'ref' | 'media'
+type Kind = 'string' | 'number' | 'integer' | 'boolean' | 'object' | 'array' | 'enum' | 'ref' | 'ref-array' | 'media'
 
 interface Field {
   name: string
@@ -39,6 +39,7 @@ const KIND_LABEL: Record<Kind, string> = {
   array: 'array',
   enum: 'enum',
   ref: 'reference',
+  'ref-array': 'reference list',
   media: 'media',
 }
 
@@ -51,19 +52,21 @@ const DEFAULT_SCHEMA = {
 
 function propToField(name: string, prop: any, required: boolean): Field {
   const refTarget = typeof prop?.$ref === 'string' ? prop.$ref : ''
+  const itemsRef = typeof prop?.$ref !== 'string' && prop?.type === 'array' && typeof prop?.items?.$ref === 'string' ? prop.items.$ref : ''
   let kind: Kind = 'string'
   if (MediaField.is(prop)) kind = 'media'
   else if (refTarget) kind = 'ref'
+  else if (itemsRef) kind = 'ref-array'
   else if (prop?.enum) kind = 'enum'
   else if (prop?.type && KIND_LABEL[prop.type as Kind]) kind = prop.type
-  const construct = refTarget ? undefined : prop?.oneOf ? 'oneOf' : prop?.anyOf ? 'anyOf' : prop?.allOf ? 'allOf' : undefined
+  const construct = refTarget || itemsRef ? undefined : prop?.oneOf ? 'oneOf' : prop?.anyOf ? 'anyOf' : prop?.allOf ? 'allOf' : undefined
   return {
     name,
     kind,
     required,
     description: prop?.description || '',
     enumValues: Array.isArray(prop?.enum) ? prop.enum.map(String) : [],
-    refTarget,
+    refTarget: refTarget || itemsRef,
     raw: prop || {},
     construct,
   }
@@ -97,22 +100,34 @@ function fieldToProp(f: Field): any {
     out[MediaField.TypeKeyword] = MediaField.MediaType
     delete out.enum
     delete out.$ref
+    delete out.items
   } else if (f.kind === 'ref') {
     delete out.type
     delete out.enum
     delete out[MediaField.TypeKeyword]
+    delete out.items
     // An empty target keeps the property valid (permissive) until one is picked.
     if (f.refTarget) out.$ref = f.refTarget
     else delete out.$ref
+  } else if (f.kind === 'ref-array') {
+    out.type = 'array'
+    delete out.enum
+    delete out.$ref
+    delete out[MediaField.TypeKeyword]
+    // An empty target keeps the property permissive until one is picked.
+    if (f.refTarget) out.items = { $ref: f.refTarget }
+    else delete out.items
   } else if (f.kind === 'enum') {
     out.type = 'string'
     out.enum = f.enumValues
     delete out.$ref
+    delete out.items
     delete out[MediaField.TypeKeyword]
   } else {
     out.type = f.kind
     delete out.enum
     delete out.$ref
+    delete out.items
     delete out[MediaField.TypeKeyword]
   }
   if (f.description) out.description = f.description
@@ -343,12 +358,12 @@ export function SchemaEditorView({ collection, collections, url, apiKey, scope, 
                     <span className={styles.fieldDescription}>
                       {f.construct
                         ? `${f.construct} · edit in Code view`
-                        : f.kind === 'ref'
+                        : f.kind === 'ref' || f.kind === 'ref-array'
                           ? SiloRef.isLocal(f.refTarget)
-                            ? `References collection · ${SiloRef.collectionOf(f.refTarget)}`
+                            ? `${f.kind === 'ref-array' ? 'List of' : 'References'} collection · ${SiloRef.collectionOf(f.refTarget)}`
                             : f.refTarget
-                              ? `References remote schema · ${f.refTarget}`
-                              : 'Reference · no target yet'
+                              ? `${f.kind === 'ref-array' ? 'List of' : 'References'} remote schema · ${f.refTarget}`
+                              : `${f.kind === 'ref-array' ? 'Reference list' : 'Reference'} · no target yet`
                           : f.kind === 'enum' && f.enumValues.length
                             ? `Enum · ${f.enumValues.join(', ')}`
                             : f.description || KIND_LABEL[f.kind]}
@@ -391,6 +406,7 @@ export function SchemaEditorView({ collection, collections, url, apiKey, scope, 
                             <option value="object">Object</option>
                             <option value="enum">Enum</option>
                             <option value="ref">Reference</option>
+                            <option value="ref-array">Reference list</option>
                             <option value="media">Media</option>
                           </select>
                         )}
@@ -407,10 +423,11 @@ export function SchemaEditorView({ collection, collections, url, apiKey, scope, 
                       </div>
                     )}
 
-                    {f.kind === 'ref' && (
+                    {(f.kind === 'ref' || f.kind === 'ref-array') && (
                       <RefTarget
                         target={f.refTarget}
                         collections={collections}
+                        isArray={f.kind === 'ref-array'}
                         onChange={(refTarget) => updateField(i, { refTarget })}
                       />
                     )}

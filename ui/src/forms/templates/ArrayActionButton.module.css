@@ -1,0 +1,8 @@
+.fullWidth {
+  width: 100%;
+  justify-content: center;
+}
+
+.action {
+  padding: 6px 8px;
+}

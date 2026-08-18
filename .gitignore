@@ -1,0 +1,12 @@
+/silo
+silo_data*/
+*.db
+*.db-wal
+*.db-shm
+dist/
+.claude/design_handoff_silo_admin/README.md
+.claude/design_handoff_silo_admin/Silo Admin - Slate.dc.html
+.claude/design_handoff_silo_admin/Silo Admin Directions.dc.html
+.claude/design_handoff_silo_admin/support.js
+.claude/launch.json
+node_modules/

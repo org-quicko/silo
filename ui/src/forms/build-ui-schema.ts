@@ -38,7 +38,24 @@ export function buildUiSchema(schema: any, root: any = schema): any {
       p[SiloRefs.markerKey] || p.oneOf || p.anyOf || p.allOf || (p.type === 'object' && !p.properties && !p.additionalProperties)
     if (xui.widget === 'json' || unrenderable) {
       ui[key] = { 'ui:field': 'json' }
-    } else if (p.type === 'array' && (p.items?.type === 'string' || !p.items?.type) && !p.items?.enum) {
+    } else if (p.type === 'array' && (typeof p.items?.$ref === 'string' || p.items?.[SiloRefs.markerKey])) {
+      // Array of referenced collection entries: let RJSF's ArrayField render
+      // each item through the referenced schema (SiloRefs has already
+      // rewritten items.$ref to an internal #/$defs/... pointer). A marker
+      // means the ref didn't resolve (remote/missing/cycle), so each item
+      // falls back to the raw-JSON field. When the ref did resolve, recurse
+      // into the target so widget selection applies inside referenced
+      // collections too (e.g. a media field inside a referenced schema).
+      if (p.items?.[SiloRefs.markerKey]) {
+        ui[key] = { items: { 'ui:field': 'json' } }
+      } else {
+        const itemTarget = p.items.$ref.startsWith('#') ? derefLocal(p.items.$ref, root) : null
+        if (itemTarget && typeof itemTarget === 'object') {
+          const itemUi = buildUiSchema(itemTarget, root)
+          if (Object.keys(itemUi).length > 0) ui[key] = { items: itemUi }
+        }
+      }
+    } else if (p.type === 'array' && (p.items?.type === 'string' || !p.items?.type) && !p.items?.enum && !p.items?.$ref && !p.items?.[SiloRefs.markerKey]) {
       if (MediaField.is(p.items) || p.items?.['x-silo-ui']?.widget === 'media') {
         ui[key] = { items: { 'ui:widget': 'media' } }
       } else {

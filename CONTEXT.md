@@ -13,7 +13,53 @@ A minimal, self-hostable headless CMS. Users define collections with JSON Schema
 
 ## Where things stand
 
-*Last updated: 2026-08-18*
+*Last updated: 2026-08-19*
+
+- **Array of reference types in schema (2026-08-19):** a schema property can
+  now be `type: array, items: { $ref: "silo://collections/<name>" }` end to
+  end, not just a single-item `$ref`. Server-side this already worked — AJV
+  follows `$ref` inside `items`, `SchemaBundler.collectRefs` walks `items`,
+  and `Service.findSchemaReferrers` already matched array-items refs for the
+  delete-conflict check — so no server domain/service/bundler change was
+  needed. Three UI gaps were fixed:
+  - **Visual schema editor:** a new `ref-array` field kind ("Reference list"
+    in the Type dropdown) emits `type: array, items: { $ref }`, round-trips
+    through `propToField`/`fieldToProp`, and reuses `RefTarget` (with an
+    `isArray` flag so the hint reads "Each array item must match the
+    collection's schema"). `SchemaEditor.tsx` is the only place the kind
+    list lives.
+  - **Entry form rendering:** `buildUiSchema` mis-routed arrays whose
+    `items` is a `$ref` into the tags widget (the condition `!p.items?.type`
+    matched `{ $ref }`), so the entry form showed a chip input instead of
+    nested object fields. Arrays with `items.$ref` (or an
+    `x-silo-unresolved-ref` marker on `items`) now fall through to RJSF's
+    stock `ArrayField`, which renders each item through the referenced
+    collection's schema after `SiloRefs.resolveForForm` has rewritten
+    `items.$ref` to an internal `#/$defs/...` pointer. The resolved-item
+    branch recurses into the target so widget selection applies inside
+    referenced collections too; the marker branch routes each item to the
+    raw-JSON fallback field. The tags branch gained a `!p.items?.$ref`
+    guard so a `{ $ref }` items never silently matches it.
+  - **Field constraint hint:** `FieldTemplate.constraintHint` now reports
+    `array<reference>` when `items` carries a `$ref` or the unresolved-ref
+    marker, instead of the bare `array` it produced before.
+  - **Array templates:** the slate RJSF theme now supplies array-specific
+    templates (`ArrayFieldTemplate`, `ArrayFieldItemTemplate`,
+    `ArrayFieldItemButtonsTemplate`, `ArrayFieldTitleTemplate`,
+    `ArrayFieldDescriptionTemplate`) and a slate `ButtonTemplates` set
+    (`AddButton`, `MoveUpButton`, `MoveDownButton`, `CopyButton`,
+    `RemoveButton`) built from the shared `Button` component and Lucide
+    icons. Previously, reference-list arrays fell back to RJSF's default
+    Bootstrap templates, so the add button and item toolboxes rendered with
+    `btn btn-info`, `glyphicon`, and `col-xs-*` classes that do not exist in
+    the Slate CSS, breaking the form visually. Each array item is now a
+    card with the object fields on the left and move/copy/remove actions
+    on the right; the add action is a full-width dashed button. These
+    templates live under `ui/src/forms/templates/` and are wired into the
+    theme in `ui/src/forms/theme.ts`.
+  Tests: `server/test/core/schema-refs.test.ts` gained three cases pinning
+  array-of-refs validation, bundling (items `$ref` preserved + `$defs`
+  populated), and the delete-conflict check. 157 tests pass across 17 files.
 
 - **READMEs rewritten (2026-08-18):** `README.md` restructured along
   conventional open-source lines (why, quick start, concepts, configuration,

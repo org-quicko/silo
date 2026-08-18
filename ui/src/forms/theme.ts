@@ -4,6 +4,12 @@ import { ObjectFieldTemplate } from './templates/ObjectFieldTemplate'
 import { TitleFieldTemplate } from './templates/TitleFieldTemplate'
 import { DescriptionFieldTemplate } from './templates/DescriptionFieldTemplate'
 import { ErrorListTemplate } from './templates/ErrorListTemplate'
+import { ArrayFieldTemplate } from './templates/ArrayFieldTemplate'
+import { ArrayFieldItemTemplate } from './templates/ArrayFieldItemTemplate'
+import { ArrayFieldItemButtonsTemplate } from './templates/ArrayFieldItemButtonsTemplate'
+import { ArrayFieldTitleTemplate } from './templates/ArrayFieldTitleTemplate'
+import { ArrayFieldDescriptionTemplate } from './templates/ArrayFieldDescriptionTemplate'
+import { slateButtonTemplates } from './templates/ButtonTemplates'
 import { TextareaWidget } from './widgets/TextareaWidget'
 import { CheckboxWidget } from './widgets/CheckboxWidget'
 import { SelectWidget } from './widgets/SelectWidget'
@@ -18,6 +24,12 @@ export const slateTemplates = {
   TitleFieldTemplate,
   DescriptionFieldTemplate,
   ErrorListTemplate,
+  ArrayFieldTemplate,
+  ArrayFieldItemTemplate,
+  ArrayFieldItemButtonsTemplate,
+  ArrayFieldTitleTemplate,
+  ArrayFieldDescriptionTemplate,
+  ButtonTemplates: slateButtonTemplates,
 }
 
 export const slateWidgets = {
