@@ -1,0 +1,28 @@
+{
+  "name": "silo",
+  "version": "0.1.0",
+  "description": "A minimal, self-hostable headless CMS in TypeScript on Bun and Hono",
+  "main": "server/main.ts",
+  "type": "module",
+  "workspaces": ["shared"],
+  "scripts": {
+    "start": "bun run server/main.ts serve",
+    "test": "bun test",
+    "build": "bun build ./server/main.ts --compile --outfile silo && codesign -s - silo"
+  },
+  "dependencies": {
+    "@aws-sdk/client-s3": "^3.1112.0",
+    "ajv": "^8.20.0",
+    "ajv-formats": "^3.0.1",
+    "@silo/shared": "workspace:*",
+    "hono": "^4.13.2",
+    "tar": "^7.5.22",
+    "ulidx": "^2.4.1"
+  },
+  "devDependencies": {
+    "@types/bun": "^1.3.14",
+    "@types/node": "^20.19.43",
+    "@types/tar": "^6.1.13",
+    "typescript": "^7.0.2"
+  }
+}

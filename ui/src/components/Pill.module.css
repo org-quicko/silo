@@ -1,0 +1,51 @@
+.pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 9px;
+  border-radius: 999px;
+  font-size: 11.5px;
+  font-weight: 500;
+  line-height: 1.4;
+}
+
+.dot {
+  width: 6px;
+  height: 6px;
+  flex: none;
+  border-radius: 99px;
+}
+
+.ok {
+  background: color-mix(in oklab, var(--ok) 14%, transparent);
+  color: var(--ok);
+}
+
+.ok .dot { background: var(--ok); }
+
+.warn {
+  background: color-mix(in oklab, var(--warn) 14%, transparent);
+  color: var(--warn);
+}
+
+.warn .dot { background: var(--warn); }
+
+.bad {
+  background: color-mix(in oklab, var(--bad) 14%, transparent);
+  color: var(--bad);
+}
+
+.bad .dot { background: var(--bad); }
+
+.muted {
+  background: var(--panel-2);
+  color: var(--text-3);
+}
+
+.muted .dot { background: var(--text-3); }
+
+.accent {
+  border: 1px solid color-mix(in oklab, var(--accent) 26%, transparent);
+  background: var(--accent-soft);
+  color: var(--accent);
+}

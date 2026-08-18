@@ -1,0 +1,8 @@
+.labelCell { display: flex; align-items: center; }
+.avatar { display: inline-flex; width: 20px; height: 20px; flex: none; align-items: center; justify-content: center; border: 1px solid var(--line); border-radius: 6px; background: var(--panel-2); color: var(--text-2); }
+.label { margin-left: 9px; font-weight: 500; }
+.prefix { font-family: var(--font-mono); font-size: 12px; }
+.date { font-size: 12.5px; }
+.actions { display: flex; justify-content: flex-end; }
+.current { color: var(--text-3); font-size: 12px; }
+.empty { display: flex; align-items: center; justify-content: center; gap: 8px; padding: 44px 16px; color: var(--text-3); }

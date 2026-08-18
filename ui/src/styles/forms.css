@@ -1,0 +1,38 @@
+/* Shared controls used by RJSF templates and small administrative forms. */
+.input {
+  width: 100%;
+  padding: 11px 13px;
+  border: 1px solid var(--line-2);
+  border-radius: var(--radius-sm);
+  outline: none;
+  background: var(--panel);
+  color: var(--text);
+  font-family: var(--font-ui);
+  font-size: 13.5px;
+  transition: border-color 0.12s, box-shadow 0.12s;
+}
+
+.input::placeholder { color: var(--text-3); }
+.input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px color-mix(in oklab, var(--accent) 20%, transparent); }
+.input.mono { font-family: var(--font-mono); }
+
+.input.error,
+.input[aria-invalid='true'] {
+  border-color: var(--bad);
+  box-shadow: 0 0 0 3px color-mix(in oklab, var(--bad) 16%, transparent);
+}
+
+select.input {
+  padding-right: 30px;
+  appearance: none;
+  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%236c7482' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><path d='m6 9 6 6 6-6'/></svg>");
+  background-repeat: no-repeat;
+  background-position: right 11px center;
+}
+
+.field { display: flex; flex-direction: column; gap: 7px; }
+.field-label-row { display: flex; align-items: baseline; gap: 8px; }
+.field-label { color: var(--text); font-size: 13px; font-weight: 600; }
+.field-hint { color: var(--text-3); font-family: var(--font-mono); font-size: 10.5px; }
+.field-hint.warn { color: var(--warn); }
+.field-error { display: flex; align-items: center; gap: 6px; color: var(--bad); font-size: 12px; }

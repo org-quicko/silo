@@ -1,0 +1,298 @@
+.grid {
+  display: flex;
+  align-items: stretch;
+  gap: 20px;
+}
+
+.panel {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: var(--bg);
+  box-shadow: var(--shadow-panel);
+}
+
+.exportPanel {
+  width: 400px;
+  flex: none;
+}
+
+.importPanel {
+  min-width: 0;
+  flex: 1;
+}
+
+.copyPanel { margin-top: 20px; }
+
+.header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 18px 20px;
+  border-bottom: 1px solid var(--line);
+  background: var(--panel);
+}
+
+.heading {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.title {
+  color: var(--text);
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.body {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 16px;
+  padding: 20px;
+}
+
+.body p {
+  margin: 0;
+  color: var(--text-3);
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+.fill { flex: 1; }
+.fullWidth { width: 100%; }
+
+.importOptions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 14px;
+}
+
+.modeField { width: 130px; }
+.preferField { width: 150px; }
+
+.validateToggle {
+  display: flex;
+  height: 42px;
+  align-items: center;
+  gap: 9px;
+  cursor: pointer;
+}
+
+.validateLabel { color: var(--text-2); font-size: 12.5px; }
+.hiddenInput { display: none; }
+.errorBanner { font-size: 12.5px; }
+.successText { color: var(--text-2); }
+
+.previewActions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.previewMeta { color: var(--text-3); font-size: 12px; }
+.previewMeta b { color: var(--text-2); }
+.previewButtons { display: flex; gap: 10px; }
+.archiveHint { margin: 0; color: var(--text-3); font-size: 12.5px; }
+
+.file {
+  padding: 3px 8px;
+  border: 1px solid var(--line);
+  border-radius: 5px;
+  background: var(--bg);
+  color: var(--text-2);
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+}
+
+.checklist {
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+}
+
+.checkItem {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 11px 13px;
+  border: 1px solid var(--line-2);
+  border-radius: var(--radius-sm);
+  background: var(--panel);
+  cursor: pointer;
+}
+
+.checkbox {
+  display: flex;
+  width: 16px;
+  height: 16px;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--line-2);
+  border-radius: 5px;
+}
+
+.checkLabel {
+  flex: 1;
+  color: var(--text-2);
+  font-size: 13px;
+}
+
+.checkCount {
+  color: var(--text-3);
+  font-family: var(--font-mono);
+  font-size: 11px;
+}
+
+.checked {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+}
+
+.checked .checkbox {
+  border-color: transparent;
+  background: var(--accent);
+  color: var(--accent-ink);
+}
+
+.checked .checkLabel { color: var(--text); }
+
+.disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
+}
+
+.stats {
+  display: flex;
+  gap: 12px;
+}
+
+.stat {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 5px;
+  padding: 13px 15px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: var(--panel);
+}
+
+.statNumber {
+  font-family: var(--font-mono);
+  font-size: 22px;
+  font-weight: 600;
+}
+
+.ok { color: var(--ok); }
+.warn { color: var(--warn); }
+.bad { color: var(--bad); }
+.muted { color: var(--text-3); }
+
+.statLabel {
+  color: var(--text-3);
+  font-size: 11.5px;
+}
+
+.sourceFields {
+  display: grid;
+  grid-template-columns: minmax(240px, 1fr) minmax(280px, 1fr);
+  gap: 14px;
+}
+
+.sourceFields :global(.field-label) {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.options {
+  display: grid;
+  grid-template-columns: minmax(180px, 240px) minmax(180px, 240px) minmax(260px, 1fr);
+  align-items: end;
+  gap: 14px;
+}
+
+.keyToggle {
+  display: flex;
+  min-height: 42px;
+  align-items: center;
+  gap: 10px;
+  padding: 7px 12px;
+  border: 1px solid var(--line-2);
+  border-radius: var(--radius-sm);
+  background: var(--panel);
+  cursor: pointer;
+}
+
+.keyToggle > span {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.keyToggle b {
+  color: var(--text-2);
+  font-size: 12.5px;
+  font-weight: 600;
+}
+
+.keyToggle small {
+  color: var(--text-3);
+  font-size: 10.5px;
+}
+
+.progress {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--text-3);
+  font-size: 13px;
+}
+
+.actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+}
+
+.actions > span {
+  max-width: 620px;
+  color: var(--text-3);
+  font-size: 11.5px;
+  line-height: 1.5;
+}
+
+.actions > div {
+  display: flex;
+  gap: 10px;
+  margin-left: auto;
+}
+
+@media (max-width: 720px) {
+  .grid { flex-direction: column; }
+  .exportPanel { width: auto; }
+
+  .sourceFields,
+  .options {
+    grid-template-columns: 1fr;
+  }
+
+  .actions {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .actions > div {
+    justify-content: flex-end;
+    margin-left: 0;
+  }
+}

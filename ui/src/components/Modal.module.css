@@ -1,0 +1,85 @@
+.backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 40px;
+  background: rgba(6, 7, 10, 0.6);
+  background-image: repeating-linear-gradient(
+    45deg,
+    transparent,
+    transparent 9px,
+    rgba(255, 255, 255, 0.012) 9px,
+    rgba(255, 255, 255, 0.012) 10px
+  );
+  backdrop-filter: blur(2px);
+}
+
+.dialog {
+  width: 420px;
+  max-width: 100%;
+  overflow: hidden;
+  border: 1px solid var(--line-2);
+  border-radius: 13px;
+  background: var(--panel);
+  box-shadow: var(--shadow-modal);
+}
+
+.large {
+  width: 640px;
+}
+
+.dialog h3 {
+  margin: 0;
+  color: var(--text);
+  font-size: 17px;
+  font-weight: 600;
+}
+
+.header { display: flex; flex-direction: column; gap: 13px; padding: 22px 22px 0; }
+
+.icon {
+  display: flex;
+  width: 40px;
+  height: 40px;
+  align-items: center;
+  justify-content: center;
+  border-radius: 11px;
+}
+
+.bad { border: 1px solid color-mix(in oklab, var(--bad) 34%, transparent); background: color-mix(in oklab, var(--bad) 15%, transparent); color: var(--bad); }
+.ok { border: 1px solid color-mix(in oklab, var(--ok) 32%, transparent); background: color-mix(in oklab, var(--ok) 16%, transparent); color: var(--ok); }
+.copy { display: flex; flex-direction: column; gap: 7px; }
+.body { margin: 0; color: var(--text-3); font-size: 13px; line-height: 1.6; }
+.body b,
+.body strong { color: var(--text-2); font-weight: 600; }
+
+.subject {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  margin: 18px 22px 0;
+  padding: 11px 13px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: var(--bg);
+}
+
+.subjectMark { display: flex; width: 26px; height: 26px; align-items: center; justify-content: center; border-radius: 6px; background: var(--accent); color: var(--accent-ink); font-family: var(--font-mono); font-size: 11px; font-weight: 600; }
+.subjectCopy { display: flex; flex-direction: column; gap: 1px; }
+.subjectTitle { color: var(--text); font-size: 12.5px; }
+.subjectSubtitle { color: var(--text-3); font-family: var(--font-mono); font-size: 10.5px; }
+.actions { display: flex; gap: 10px; padding: 18px 22px 22px; }
+.actions > * { flex: 1; }
+
+@media (max-width: 720px) {
+  .backdrop {
+    padding: 16px;
+  }
+
+  .large {
+    width: 100%;
+  }
+}

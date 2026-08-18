@@ -1,0 +1,8 @@
+.group { display: flex; flex-direction: column; gap: 22px; }
+
+.label {
+  color: var(--text-3);
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  letter-spacing: 0.14em;
+}

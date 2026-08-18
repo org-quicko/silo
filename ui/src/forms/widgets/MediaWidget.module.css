@@ -1,0 +1,252 @@
+.root {
+  width: 100%;
+  min-width: 0;
+}
+
+.hiddenInput { display: none; }
+
+.selectedCard {
+  display: flex;
+  min-width: 0;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+  padding: 10px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: var(--panel);
+}
+
+.selectedThumb {
+  display: flex;
+  width: 52px;
+  height: 52px;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--panel-2);
+  color: var(--text-3);
+}
+
+.selectedThumb img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.selectedMeta {
+  display: flex;
+  min-width: 0;
+  flex: 1 1 150px;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.selectedName,
+.selectedPath {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.selectedName {
+  color: var(--text);
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.selectedPath {
+  color: var(--text-3);
+  font-size: 11px;
+}
+
+.selectedActions {
+  display: flex;
+  flex: 0 1 auto;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-left: auto;
+}
+
+.dropzone {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  padding: 16px;
+  border: 1px dashed var(--line);
+  border-radius: var(--radius-sm);
+  background: var(--panel);
+  text-align: center;
+}
+
+.dropzoneHint {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--text-3);
+  font-size: 13px;
+}
+
+.dropzoneActions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 8px;
+}
+
+.manualToggle {
+  margin-top: 2px;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--text-3);
+  font-size: 11.5px;
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+.manualInput {
+  width: 100%;
+  max-width: 360px;
+  margin-top: 4px;
+}
+
+.pickerHeader {
+  flex-flow: row wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.pickerHeading {
+  min-width: 0;
+  flex: 1 1 220px;
+}
+
+.pickerHeading h3 {
+  margin: 0;
+  font-size: 16px;
+}
+
+.pickerHeading span {
+  color: var(--text-3);
+  font-size: 12px;
+}
+
+.search {
+  position: relative;
+  margin: 12px 22px 16px;
+}
+
+.search > svg {
+  position: absolute;
+  top: 50%;
+  left: 10px;
+  transform: translateY(-50%);
+  color: var(--text-3);
+  pointer-events: none;
+}
+
+.searchInput { padding-left: 30px; }
+
+.list {
+  min-height: 180px;
+  max-height: min(48vh, 360px);
+  padding: 0 22px;
+  overflow-y: auto;
+}
+
+.empty {
+  min-height: 180px;
+  flex-direction: column;
+  gap: 8px;
+  color: var(--text-3);
+  text-align: center;
+}
+
+.grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
+  gap: 10px;
+}
+
+.card {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  padding: 0;
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--panel-2);
+  text-align: left;
+  cursor: pointer;
+  transition: border-color 0.15s, transform 0.1s;
+}
+
+.card:hover {
+  transform: translateY(-1px);
+  border-color: var(--accent);
+}
+
+.selected {
+  border-color: var(--accent);
+  outline: 1px solid var(--accent);
+}
+
+.cardPreview {
+  display: flex;
+  height: 90px;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  background: var(--panel);
+  color: var(--text-3);
+}
+
+.cardPreview img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.cardInfo {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 2px;
+  padding: 6px 8px;
+}
+
+.cardName {
+  overflow: hidden;
+  color: var(--text);
+  font-size: 11px;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.cardSize {
+  color: var(--text-3);
+  font-size: 10px;
+}
+
+.pickerActions {
+  justify-content: flex-end;
+  margin-top: 16px;
+}
+
+.pickerActions > * { flex: 0 0 auto; }
+
+@media (max-width: 720px) {
+  .pickerHeader { padding-inline: 16px; }
+  .search { margin-inline: 16px; }
+  .list { padding-inline: 16px; }
+  .pickerActions { padding-inline: 16px; }
+}

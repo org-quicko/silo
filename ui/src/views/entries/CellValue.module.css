@@ -1,0 +1,6 @@
+.tags { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.chip { display: inline-flex; align-items: center; gap: 6px; padding: 2px 8px; border: 1px solid var(--line); border-radius: 6px; background: var(--panel-2); color: var(--text-2); font-size: 11px; }
+.more { color: var(--text-3); font-size: 11px; }
+.boolean { font-family: var(--font-mono); font-size: 12px; }
+.object { font-family: var(--font-mono); font-size: 11px; }
+.text { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

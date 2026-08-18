@@ -1,0 +1,21 @@
+/* Cross-screen page frame. Feature layout remains in colocated CSS Modules. */
+.content {
+  flex: 1;
+  min-height: 0;
+  padding: 22px 24px;
+  overflow-y: auto;
+}
+
+.page-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; margin-bottom: 18px; }
+.page-title-group { display: flex; flex-direction: column; gap: 6px; }
+.page-title-row { display: flex; align-items: center; gap: 11px; }
+.page-title { margin: 0; color: var(--text); font-size: 24px; font-weight: 600; letter-spacing: -0.02em; }
+.page-sub { color: var(--text-3); font-size: 13px; }
+.head-actions { display: flex; align-items: center; gap: 10px; }
+
+.card {
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--bg);
+}

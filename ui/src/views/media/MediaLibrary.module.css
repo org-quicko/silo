@@ -1,0 +1,126 @@
+.hiddenInput { display: none; }
+.pageHeader { margin-bottom: 12px; }
+.refresh { align-self: flex-start; }
+
+.uploadZone {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  margin-bottom: 20px;
+  padding: 24px;
+  border: 2px dashed var(--line);
+  border-radius: var(--radius-sm);
+  background: var(--panel);
+  text-align: center;
+  cursor: pointer;
+  transition: border-color 0.2s, background-color 0.2s;
+}
+
+.uploadZone:hover,
+.dragActive {
+  border-color: var(--accent);
+  background: var(--panel-2);
+}
+
+.uploadIcon { color: var(--text-3); }
+
+.uploadText {
+  color: var(--text-2);
+  font-size: 13.5px;
+}
+
+.loading {
+  min-height: 200px;
+}
+
+.empty {
+  min-height: 200px;
+  flex-direction: column;
+  gap: 8px;
+  color: var(--text-3);
+}
+
+.grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+  gap: 16px;
+  margin-top: 16px;
+}
+
+.card {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: var(--panel);
+  transition: transform 0.2s, box-shadow 0.2s;
+}
+
+.card:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.05);
+}
+
+.preview {
+  position: relative;
+  display: flex;
+  height: 120px;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  border-bottom: 1px solid var(--line);
+  background: var(--panel-2);
+}
+
+.preview img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.previewIcon { color: var(--text-3); }
+
+.info {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 4px;
+  padding: 10px 12px;
+}
+
+.name {
+  overflow: hidden;
+  color: var(--text);
+  font-size: 13px;
+  font-weight: 500;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.meta {
+  display: flex;
+  justify-content: space-between;
+  color: var(--text-3);
+  font-size: 11px;
+}
+
+.actions {
+  display: flex;
+  gap: 6px;
+  margin-top: auto;
+  padding: 8px 12px;
+  border-top: 1px solid var(--line);
+  background: var(--panel-2);
+}
+
+.copyAction {
+  flex: 1;
+  gap: 4px;
+  padding: 4px;
+}
+
+.deleteAction { padding: 4px; }

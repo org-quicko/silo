@@ -1,0 +1,50 @@
+.editor {
+  overflow: hidden;
+  border: 1px solid var(--line-2);
+  border-radius: var(--radius-sm);
+  background: var(--panel);
+}
+
+.toolbar {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 6px 8px;
+  border-bottom: 1px solid var(--line);
+}
+
+.tool {
+  display: flex;
+  width: 26px;
+  height: 26px;
+  align-items: center;
+  justify-content: center;
+  border: 0;
+  border-radius: 5px;
+  background: none;
+  color: var(--text-2);
+  font-size: 13px;
+}
+
+.bold { font-weight: 700; }
+.italic { font-style: italic; }
+.code { font-family: var(--font-mono); font-size: 12px; }
+.heading { font-size: 12px; font-weight: 600; }
+.separator { width: 1px; height: 16px; margin: 0 5px; background: var(--line); }
+
+.area {
+  width: 100%;
+  min-height: 96px;
+  padding: 13px 14px;
+  border: 0;
+  outline: 0;
+  background: transparent;
+  color: var(--text);
+  font-family: var(--font-ui);
+  font-size: 13.5px;
+  line-height: 1.7;
+  resize: vertical;
+}
+
+.area::placeholder { color: var(--text-3); }
+.invalid { box-shadow: inset 0 0 0 1px var(--bad); }

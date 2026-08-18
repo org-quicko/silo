@@ -1,0 +1,53 @@
+.root {
+  display: flex;
+  gap: 6px;
+  padding: 4px;
+  border: 1px solid var(--line-2);
+  border-radius: var(--radius-sm);
+  background: var(--panel);
+}
+
+.option {
+  flex: 1;
+  padding: 6px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-3);
+  font-family: var(--font-ui);
+  font-size: 12.5px;
+  text-align: center;
+  cursor: pointer;
+}
+
+.option:hover:not(:disabled, [aria-selected='true']) {
+  color: var(--text-2);
+}
+
+.option[aria-selected='true'] {
+  background: var(--accent);
+  color: var(--accent-ink);
+  font-weight: 600;
+}
+
+.option:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+.compact {
+  align-self: flex-start;
+  gap: 4px;
+  width: fit-content;
+  padding: 3px;
+  border-color: var(--line);
+  background: var(--bg);
+}
+
+.compact .option {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 11px;
+}

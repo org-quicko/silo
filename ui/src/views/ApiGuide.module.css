@@ -1,0 +1,121 @@
+.header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 18px 22px;
+  border-bottom: 1px solid var(--line);
+  background: var(--panel);
+}
+
+.heading {
+  color: var(--text);
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.base {
+  color: var(--text-3);
+  font-size: 12px;
+}
+
+.baseValue { color: var(--text-2); }
+.body { background: var(--bg); }
+
+.endpoints {
+  display: flex;
+  flex-direction: column;
+  padding: 8px 12px;
+}
+
+.endpoint {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 11px 12px;
+  border-bottom: 1px solid var(--line);
+}
+
+.endpoint:last-child { border-bottom: 0; }
+
+.method {
+  min-width: 52px;
+  flex: none;
+  padding: 3px 7px;
+  border-radius: 5px;
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  font-weight: 600;
+  text-align: center;
+}
+
+.get {
+  border: 1px solid color-mix(in oklab, var(--ok) 32%, transparent);
+  color: var(--ok);
+}
+
+.post {
+  border: 1px solid color-mix(in oklab, var(--accent) 36%, transparent);
+  color: var(--accent);
+}
+
+.put {
+  border: 1px solid color-mix(in oklab, var(--warn) 34%, transparent);
+  color: var(--warn);
+}
+
+.delete {
+  border: 1px solid color-mix(in oklab, var(--bad) 34%, transparent);
+  color: var(--bad);
+}
+
+.path {
+  min-width: 0;
+  flex: 1;
+  overflow: hidden;
+  color: var(--text-2);
+  font-family: var(--font-mono);
+  font-size: 12.5px;
+  text-overflow: ellipsis;
+}
+
+.verb {
+  color: var(--text-3);
+  font-size: 11.5px;
+}
+
+.codeCard {
+  margin: 6px 14px 16px;
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: var(--ink-2);
+}
+
+.codeHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--line);
+}
+
+.codeLabel {
+  color: var(--text-3);
+  font-family: var(--font-mono);
+  font-size: 11px;
+}
+
+.code {
+  padding: 12px 14px;
+  overflow-x: auto;
+  color: var(--text-2);
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  line-height: 1.75;
+  white-space: pre;
+}
+
+.string { color: var(--ok); }
+.closeAction { flex: none; margin-left: auto; }
+.titleBlock { display: flex; flex-direction: column; gap: 3px; }

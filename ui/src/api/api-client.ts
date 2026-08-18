@@ -1,0 +1,364 @@
+// Typed client for the silo REST API (§8 of IMPLEMENTATION.md).
+// The key lives in localStorage and is sent as `Authorization: Bearer <key>`.
+import { ApiError } from './api-error'
+import type { ValidationDetail } from '@silo/shared/validation-detail'
+import type { Collection } from './types/collection'
+import { EntryMapper } from './entry-mapper'
+import type { KeyView } from './types/key-view'
+import type { CreatedKey } from './types/created-key'
+import type { SessionInfo } from './types/session-info'
+import type { ImportResult } from './types/import-result'
+import type { CopyFromServerOptions } from './types/copy-options'
+import type { MediaMetadata } from './types/media-metadata'
+import type { EntryQuery } from './types/entry-query'
+import type { ScopeRef } from './types/scope-ref'
+
+export class ApiClient {
+  private onUnauthorized: (() => void) | null = null
+
+  // A stored key can be revoked out from under an open session; a 401 on any
+  // authenticated call routes the app back to the welcome gate.
+  setUnauthorizedHandler(fn: (() => void) | null): void {
+    this.onUnauthorized = fn
+  }
+
+  private authHeaders(key: string, extra?: Record<string, string>): Record<string, string> {
+    return { Authorization: `Bearer ${key}`, ...(extra || {}) }
+  }
+
+  private async parseError(res: Response): Promise<ApiError> {
+    let code = 'error'
+    let message = res.statusText || `HTTP ${res.status}`
+    let details: ValidationDetail[] | undefined
+    try {
+      const body = await res.json()
+      if (body?.error) {
+        code = body.error.code || code
+        message = body.error.message || message
+        details = body.error.details
+      }
+    } catch {
+      /* non-JSON body */
+    }
+    return new ApiError(res.status, code, message, details)
+  }
+
+  private async req<T>(url: string, key: string, path: string, init?: RequestInit): Promise<T> {
+    const baseUrl = url ? (url.endsWith('/') ? url.slice(0, -1) : url) : ''
+    const res = await fetch(`${baseUrl}${path}`, { ...init, headers: this.authHeaders(key, init?.headers as any) })
+    if (!res.ok) {
+      const err = await this.parseError(res)
+      if (err.status === 401) this.onUnauthorized?.()
+      throw err
+    }
+    if (res.status === 204) return undefined as T
+    const ct = res.headers.get('content-type') || ''
+    if (ct.includes('application/json')) return (await res.json()) as T
+    return (await res.text()) as unknown as T
+  }
+
+  async health(url: string): Promise<{ status: string; version: string }> {
+    const baseUrl = url ? (url.endsWith('/') ? url.slice(0, -1) : url) : ''
+    const res = await fetch(`${baseUrl}/api/health`)
+    if (!res.ok) throw await this.parseError(res)
+    return res.json()
+  }
+
+  async verify(url: string, key: string): Promise<{ ok: boolean; session?: SessionInfo }> {
+    const baseUrl = url ? (url.endsWith('/') ? url.slice(0, -1) : url) : ''
+    const res = await fetch(`${baseUrl}/api/session`, { headers: this.authHeaders(key) })
+    if (res.status === 401) return { ok: false }
+    if (!res.ok) throw await this.parseError(res)
+    return { ok: true, session: await res.json() }
+  }
+
+  getSession(url: string, key: string) {
+    return this.req<SessionInfo>(url, key, '/api/session')
+  }
+
+  // ---- Projects (scopes) ----
+
+  /**
+   * Collection and entry routes live under a (project, env) pair.
+   * Built in one place so no call site can hand-assemble a flat path.
+   */
+  static collectionsPath(scope: ScopeRef, suffix = ''): string {
+    return (
+      `/api/projects/${encodeURIComponent(scope.project)}` +
+      `/environments/${encodeURIComponent(scope.env)}/collections${suffix}`
+    )
+  }
+
+  // ---- Projects and Environments ----
+
+  listProjects(url: string, key: string): Promise<string[]> {
+    return this.req<{ items: string[] }>(url, key, '/api/projects').then((r) => r.items)
+  }
+
+  createProject(url: string, key: string, project: string): Promise<{ id: string }> {
+    return this.req<{ id: string }>(url, key, '/api/projects', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id: project }),
+    })
+  }
+
+  deleteProject(url: string, key: string, project: string, force = true): Promise<void> {
+    return this.req<void>(url, key, `/api/projects/${encodeURIComponent(project)}?force=${force}`, {
+      method: 'DELETE',
+    })
+  }
+
+  listEnvironments(url: string, key: string, project: string): Promise<string[]> {
+    return this.req<{ items: string[] }>(
+      url,
+      key,
+      `/api/projects/${encodeURIComponent(project)}/environments`,
+    ).then((r) => r.items)
+  }
+
+  createEnvironment(
+    url: string,
+    key: string,
+    project: string,
+    env: string,
+  ): Promise<{ id: string; project: string; env: string }> {
+    return this.req<{ id: string; project: string; env: string }>(
+      url,
+      key,
+      `/api/projects/${encodeURIComponent(project)}/environments`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id: env }),
+      },
+    )
+  }
+
+  deleteEnvironment(
+    url: string,
+    key: string,
+    project: string,
+    env: string,
+    force = true,
+  ): Promise<void> {
+    return this.req<void>(
+      url,
+      key,
+      `/api/projects/${encodeURIComponent(project)}/environments/${encodeURIComponent(env)}?force=${force}`,
+      { method: 'DELETE' },
+    )
+  }
+
+  // ---- Collections ----
+
+  listCollections(url: string, key: string, scope: ScopeRef) {
+    return this.req<{ items: Collection[] }>(url, key, ApiClient.collectionsPath(scope)).then(
+      (r) => r.items,
+    )
+  }
+
+  createCollection(url: string, key: string, scope: ScopeRef, name: string, schema: any) {
+    return this.req<Collection>(url, key, ApiClient.collectionsPath(scope), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name, schema }),
+    })
+  }
+
+  putSchema(url: string, key: string, scope: ScopeRef, name: string, schema: any) {
+    return this.req<Collection>(
+      url,
+      key,
+      ApiClient.collectionsPath(scope, `/${encodeURIComponent(name)}/schema`),
+      {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(schema),
+      },
+    )
+  }
+
+  deleteCollection(url: string, key: string, scope: ScopeRef, name: string, force = false) {
+    return this.req<void>(
+      url,
+      key,
+      ApiClient.collectionsPath(scope, `/${encodeURIComponent(name)}/schema?force=${force}`),
+      { method: 'DELETE' },
+    )
+  }
+
+  listEntries(url: string, key: string, scope: ScopeRef, collection: string, q: EntryQuery = {}) {
+    const params = new URLSearchParams()
+    if (q.limit != null) params.set('limit', String(q.limit))
+    if (q.offset != null) params.set('offset', String(q.offset))
+    if (q.sort) params.set('sort', q.sort)
+    if (q.filter) params.set('filter', JSON.stringify(q.filter))
+    const qs = params.toString()
+    return this.req<{ data: any[]; items?: any[]; total: number; limit: number; offset: number }>(
+      url,
+      key,
+      ApiClient.collectionsPath(scope, `/${encodeURIComponent(collection)}${qs ? '?' + qs : ''}`),
+    ).then((r) => {
+      const rawList = r.data || r.items || []
+      return {
+        items: rawList.map((item) => EntryMapper.fromApiEntry(item, collection)),
+        total: r.total,
+        limit: r.limit,
+        offset: r.offset,
+      }
+    })
+  }
+
+  // Deep links land on an entry form with only an id, so the entry is fetched
+  // directly rather than picked out of a list response.
+  getEntry(url: string, key: string, scope: ScopeRef, collection: string, id: string) {
+    return this.req<any>(
+      url,
+      key,
+      ApiClient.collectionsPath(
+        scope,
+        `/${encodeURIComponent(collection)}/${encodeURIComponent(id)}`,
+      ),
+    ).then((r) => EntryMapper.fromApiEntry(r, collection))
+  }
+
+  createEntry(url: string, key: string, scope: ScopeRef, collection: string, data: any) {
+    return this.req<any>(
+      url,
+      key,
+      ApiClient.collectionsPath(scope, `/${encodeURIComponent(collection)}`),
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(data),
+      },
+    ).then((r) => EntryMapper.fromApiEntry(r, collection))
+  }
+
+  updateEntry(
+    url: string,
+    key: string,
+    scope: ScopeRef,
+    collection: string,
+    id: string,
+    rev: number,
+    data: any,
+  ) {
+    return this.req<any>(
+      url,
+      key,
+      ApiClient.collectionsPath(
+        scope,
+        `/${encodeURIComponent(collection)}/${encodeURIComponent(id)}?rev=${rev}`,
+      ),
+      {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(data),
+      },
+    ).then((r) => EntryMapper.fromApiEntry(r, collection))
+  }
+
+  deleteEntry(
+    url: string,
+    key: string,
+    scope: ScopeRef,
+    collection: string,
+    id: string,
+    rev: number,
+  ) {
+    return this.req<void>(
+      url,
+      key,
+      ApiClient.collectionsPath(
+        scope,
+        `/${encodeURIComponent(collection)}/${encodeURIComponent(id)}?rev=${rev}`,
+      ),
+      { method: 'DELETE' },
+    )
+  }
+
+  listKeys(url: string, key: string) {
+    return this.req<{ items: KeyView[] }>(url, key, '/api/keys').then((r) => r.items)
+  }
+
+  createKey(url: string, key: string, label: string, claims: string[]) {
+    return this.req<CreatedKey>(url, key, '/api/keys', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ label, claims }),
+    })
+  }
+
+  revokeKey(url: string, key: string, id: string) {
+    return this.req<void>(url, key, `/api/keys/${encodeURIComponent(id)}`, { method: 'DELETE' })
+  }
+
+  async exportArchive(url: string, key: string, withKeys: boolean): Promise<Blob> {
+    const baseUrl = url ? (url.endsWith('/') ? url.slice(0, -1) : url) : ''
+    const res = await fetch(`${baseUrl}/api/export?with_keys=${withKeys}`, { headers: this.authHeaders(key) })
+    if (!res.ok) throw await this.parseError(res)
+    return res.blob()
+  }
+
+  async importArchive(
+    url: string,
+    key: string,
+    file: File,
+    opts: { mode: string; validate: boolean; dryRun: boolean; prefer?: string },
+  ): Promise<ImportResult> {
+    const params = new URLSearchParams({
+      mode: opts.mode,
+      validate: String(opts.validate),
+      dry_run: String(opts.dryRun),
+    })
+    if (opts.prefer) params.set('prefer', opts.prefer)
+    const form = new FormData()
+    form.append('file', file)
+    return this.req<ImportResult>(url, key, `/api/import?${params.toString()}`, {
+      method: 'POST',
+      body: form,
+    })
+  }
+
+  copyFromServer(
+    url: string,
+    key: string,
+    opts: CopyFromServerOptions,
+  ): Promise<ImportResult> {
+    return this.req<ImportResult>(url, key, '/api/copy', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        source_url: opts.sourceUrl,
+        source_api_key: opts.sourceApiKey,
+        mode: opts.mode,
+        with_keys: opts.withKeys,
+        dry_run: opts.dryRun,
+        prefer: opts.prefer || undefined,
+      }),
+    })
+  }
+
+  listMedia(url: string, key: string) {
+    return this.req<{ items: MediaMetadata[] }>(url, key, '/api/media').then((r) => r.items)
+  }
+
+  uploadMedia(url: string, key: string, file: File) {
+    const form = new FormData()
+    form.append('file', file)
+    return this.req<MediaMetadata>(url, key, '/api/media', {
+      method: 'POST',
+      body: form,
+    })
+  }
+
+  deleteMedia(url: string, key: string, filename: string) {
+    return this.req<void>(url, key, `/api/media/${encodeURIComponent(filename)}`, {
+      method: 'DELETE',
+    })
+  }
+}
+
+export const api = new ApiClient()

@@ -1,0 +1,16 @@
+/* Shared inline feedback; modal composition lives in components/Modal. */
+.banner {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 11px 14px;
+  border-radius: var(--radius-sm);
+  color: var(--text-2);
+  font-size: 13px;
+}
+
+.banner svg { flex: none; }
+.banner-bad { border: 1px solid color-mix(in oklab, var(--bad) 34%, transparent); background: color-mix(in oklab, var(--bad) 11%, transparent); }
+.banner-bad b { color: var(--text); font-weight: 600; }
+.banner-warn { border: 1px solid color-mix(in oklab, var(--warn) 30%, transparent); background: color-mix(in oklab, var(--warn) 9%, transparent); }
+.banner-ok { border: 1px solid color-mix(in oklab, var(--ok) 30%, transparent); background: color-mix(in oklab, var(--ok) 10%, transparent); }
