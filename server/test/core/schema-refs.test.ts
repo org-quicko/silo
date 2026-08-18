@@ -26,6 +26,19 @@ const postSchema = {
   },
 };
 
+const collectionWithArrayRefSchema = {
+  $schema: "https://json-schema.org/draft/2020-12/schema",
+  type: "object",
+  required: ["title", "authors"],
+  properties: {
+    title: { type: "string" },
+    authors: {
+      type: "array",
+      items: { $ref: "silo://collections/authors" },
+    },
+  },
+};
+
 describe("schema $refs", () => {
   let tempDir: string;
   let store: SqliteStore;
@@ -169,5 +182,53 @@ describe("schema $refs", () => {
     } finally {
       server.stop(true);
     }
+  });
+
+  test("arrays of local collection refs validate each item against the referenced schema", async () => {
+    const svc = newService();
+    await svc.putSchema(Scope.Default, "authors", authorSchema);
+    await svc.putSchema(Scope.Default, "posts", collectionWithArrayRefSchema);
+
+    const ok = await svc.createEntry(Scope.Default, "posts", {
+      title: "Co-authored",
+      authors: [{ name: "Ada" }, { name: "Bob" }],
+    });
+    expect(ok.id).toBeTruthy();
+
+    // One item violates the referenced authors schema (missing required "name").
+    await expect(
+      svc.createEntry(Scope.Default, "posts", {
+        title: "Bad",
+        authors: [{ name: "Ada" }, { email: "x@y.z" }],
+      })
+    ).rejects.toThrow(/name/);
+  });
+
+  test("arrays of local collection refs are bundled into $defs and the items $ref is preserved", async () => {
+    const svc = newService();
+    await svc.putSchema(Scope.Default, "authors", authorSchema);
+    const col = await svc.putSchema(Scope.Default, "posts", collectionWithArrayRefSchema);
+
+    // The original items.$ref should be maintained.
+    expect(col.schema.properties.authors.type).toBe("array");
+    expect(col.schema.properties.authors.items.$ref).toBe("silo://collections/authors");
+
+    // $defs should contain a local copy of authors.
+    expect(col.schema.$defs).toBeTruthy();
+    expect(col.schema.$defs.authors).toBeTruthy();
+    expect(col.schema.$defs.authors.required).toEqual(["name"]);
+  });
+
+  test("deleting a collection referenced from an array items $ref requires force", async () => {
+    const svc = newService();
+    await svc.putSchema(Scope.Default, "authors", authorSchema);
+    await svc.putSchema(Scope.Default, "posts", collectionWithArrayRefSchema);
+
+    await expect(svc.deleteCollection(Scope.Default, "authors", false)).rejects.toThrow(
+      /referenced by schema "posts"/
+    );
+
+    await svc.deleteCollection(Scope.Default, "authors", true);
+    await expect(svc.getCollection(Scope.Default, "authors")).rejects.toThrow();
   });
 });

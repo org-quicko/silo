@@ -8,8 +8,11 @@ function constraintHint(schema: any, required: boolean): string {
   const t = Array.isArray(schema.type) ? schema.type.join('|') : schema.type
   if (schema.enum) parts.push('enum')
   else if (t === 'array') {
-    const it = schema.items?.type
-    parts.push(it ? `array<${it}>` : 'array')
+    const items = schema.items
+    const it = items?.type
+    if (typeof items?.$ref === 'string' || items?.['x-silo-unresolved-ref']) parts.push('array<reference>')
+    else if (it) parts.push(`array<${it}>`)
+    else parts.push('array')
   } else if (t) parts.push(t)
   if (schema.format) parts.push(`format ${schema.format}`)
   if (schema.pattern) parts.push(`pattern ${schema.pattern}`)

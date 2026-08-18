@@ -5,7 +5,7 @@
     "": {
       "name": "silo-backend",
       "dependencies": {
-        "@aws-sdk/client-s3": "^3.1109.0",
+        "@aws-sdk/client-s3": "^3.1112.0",
         "@silo/shared": "workspace:*",
         "ajv": "^8.20.0",
         "ajv-formats": "^3.0.1",
