@@ -11,11 +11,11 @@
     "build": "bun build ./server/main.ts --compile --outfile silo && codesign -s - silo"
   },
   "dependencies": {
-    "@aws-sdk/client-s3": "^3.1112.0",
+    "@aws-sdk/client-s3": "^3.1113.0",
     "ajv": "^8.20.0",
     "ajv-formats": "^3.0.1",
     "@silo/shared": "workspace:*",
-    "hono": "^4.13.2",
+    "hono": "^4.13.3",
     "tar": "^7.5.22",
     "ulidx": "^2.4.1"
   },
