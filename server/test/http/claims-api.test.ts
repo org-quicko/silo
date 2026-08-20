@@ -17,9 +17,18 @@ const instanceWideRead = [
   Claims.collection("*", "*", "*", Claims.CollectionSchemaRead),
   Claims.collection("*", "*", "*", Claims.CollectionEntriesRead),
 ];
+// Spelled out literally rather than derived from `Claims.TransferWritePermissions`,
+// so that narrowing the constant fails a test instead of quietly narrowing
+// these fixtures with it.
 const instanceWideWrite = [
+  Claims.collection("*", "*", "*", Claims.CollectionCreate),
+  Claims.collection("*", "*", "*", Claims.CollectionSchemaUpdate),
   Claims.collection("*", "*", "*", Claims.CollectionEntriesCreate),
   Claims.collection("*", "*", "*", Claims.CollectionEntriesUpdate),
+];
+// Only `replace` deletes, so only `replace` asks for these.
+const instanceWideReplace = [
+  Claims.collection("*", "*", "*", Claims.CollectionDelete),
   Claims.collection("*", "*", "*", Claims.CollectionEntriesDelete),
 ];
 
@@ -263,9 +272,10 @@ describe("claims API authorization", () => {
 
     const { secret: scopedImport } = await service.createKey("acme importer", [
       Claims.TransferImport,
+      Claims.collection("acme", "*", "*", Claims.CollectionCreate),
+      Claims.collection("acme", "*", "*", Claims.CollectionSchemaUpdate),
       Claims.collection("acme", "*", "*", Claims.CollectionEntriesCreate),
       Claims.collection("acme", "*", "*", Claims.CollectionEntriesUpdate),
-      Claims.collection("acme", "*", "*", Claims.CollectionEntriesDelete),
     ]);
     // Authorization is settled before the body is read, so an empty one is
     // enough to reach the check under test.
@@ -286,5 +296,96 @@ describe("claims API authorization", () => {
     expect(
       (await app.request("/api/export", { headers: { Authorization: `Bearer ${wide}` } })).status,
     ).toBe(200);
+  });
+
+  test("importing needs the schema permissions the apply stage exercises", async () => {
+    // The apply stage calls `putSchema` for every collection an archive
+    // carries, in both modes, and creates the collections and scopes it names.
+    // Entry permissions alone therefore used to buy a key the authority to
+    // overwrite every schema in the instance without holding `schema:update`
+    // at any scope (D21).
+    const archivePath = path.join(tempDir, "data.tar.gz");
+    await service.exportTarGz(archivePath, { withKeys: false });
+    const archive = await fs.readFile(archivePath);
+
+    const attempt = async (claims: string[]) => {
+      const { secret } = await service.createKey(`importer ${claims.length}`, claims);
+      const response = await app.request("/api/import?dry_run=true", {
+        method: "POST",
+        headers: { Authorization: `Bearer ${secret}`, "Content-Type": "application/gzip" },
+        body: archive,
+      });
+      const body = (await response.json()) as any;
+      return { status: response.status, message: body?.error?.message ?? "" };
+    };
+
+    const entryPermissions = [
+      Claims.collection("*", "*", "*", Claims.CollectionEntriesCreate),
+      Claims.collection("*", "*", "*", Claims.CollectionEntriesUpdate),
+      Claims.collection("*", "*", "*", Claims.CollectionEntriesDelete),
+    ];
+
+    // The three entry permissions were the whole of the old list.
+    const entriesOnly = await attempt([Claims.TransferImport, ...entryPermissions]);
+    expect(entriesOnly.status).toBe(403);
+    expect(entriesOnly.message).toContain(Claims.CollectionCreate);
+
+    // The guard names the first permission it finds missing, so add `create`
+    // to show `schema:update` is required in its own right and not merely
+    // shadowed by the one reported above.
+    const noSchemaWrite = await attempt([
+      Claims.TransferImport,
+      Claims.collection("*", "*", "*", Claims.CollectionCreate),
+      ...entryPermissions,
+    ]);
+    expect(noSchemaWrite.status).toBe(403);
+    expect(noSchemaWrite.message).toContain(Claims.CollectionSchemaUpdate);
+
+    const { secret: full } = await service.createKey("importer", [
+      Claims.TransferImport,
+      ...instanceWideWrite,
+    ]);
+    expect(
+      (await app.request("/api/import?dry_run=true", {
+        method: "POST",
+        headers: { Authorization: `Bearer ${full}`, "Content-Type": "application/gzip" },
+        body: archive,
+      })).status,
+    ).toBe(200);
+  });
+
+  test('"replace" mode needs the delete permissions merge does not', async () => {
+    const archivePath = path.join(tempDir, "replace.tar.gz");
+    await service.exportTarGz(archivePath, { withKeys: false });
+    const archive = await fs.readFile(archivePath);
+
+    const request = (secret: string, mode: string) =>
+      app.request(`/api/import?dry_run=true&mode=${mode}`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${secret}`, "Content-Type": "application/gzip" },
+        body: archive,
+      });
+
+    const { secret: mergeOnly } = await service.createKey("merge importer", [
+      Claims.TransferImport,
+      ...instanceWideWrite,
+    ]);
+    expect((await request(mergeOnly, "merge")).status).toBe(200);
+    const denied = await request(mergeOnly, "replace");
+    expect(denied.status).toBe(403);
+    expect((await denied.json()) as any).toMatchObject({
+      error: { message: expect.stringContaining(Claims.CollectionDelete) },
+    });
+
+    const { secret: replacer } = await service.createKey("replace importer", [
+      Claims.TransferImport,
+      ...instanceWideWrite,
+      ...instanceWideReplace,
+    ]);
+    expect((await request(replacer, "replace")).status).toBe(200);
+
+    // An unrecognised mode is not `replace`, so it clears the write guard and
+    // is then rejected on its own terms rather than silently treated as one.
+    expect((await request(mergeOnly, "REPLACE")).status).toBe(400);
   });
 });

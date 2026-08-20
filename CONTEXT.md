@@ -15,6 +15,38 @@ A minimal, self-hostable headless CMS. Users define collections with JSON Schema
 
 *Last updated: 2026-08-20*
 
+- **Transfer write claims now cover the schema writes an import performs
+  (2026-08-20, D21):** `Claims.TransferWritePermissions` listed only
+  `entries:create`/`:update`/`:delete`, but `Importer.executeScopedImport` calls
+  `putSchema` for every collection an archive carries — in *both* modes — and
+  `deleteSchema` in `replace`, besides creating the projects, envs and
+  collections the archive names. A key holding `transfer:import` plus those
+  three entry permissions at `*/*/*` could therefore overwrite or delete every
+  collection schema in the instance while holding `schema:update`, `create` and
+  `delete` at no scope at all — the grant of unheld authority D21 exists to
+  deny.
+  - **The write list is now `create` + `schema:update` + `entries:create` +
+    `entries:update`, and deletion moved to a new
+    `Claims.TransferReplacePermissions` (`delete` + `entries:delete`) checked
+    only when `mode=replace`** — by `POST /api/import` and `POST /api/copy`
+    alike. This mirrors D22's existing `ScopeCopyWritePermissions` /
+    `ScopeCopyReplacePermissions` split, and is what the apply stage actually
+    exercises: `merge` deletes nothing, so requiring delete authority for it was
+    the mirror-image error. An unrecognised `mode` is not `replace`, so it
+    clears the write guard and is then rejected as a `400` by
+    `Importer.executeImport` rather than being treated as one.
+  - **The UI gates on the same two constants.** `ExportImport.tsx` adds
+    `canReplaceAll` beside `canWriteAll`; a merge-capable key keeps the Export,
+    Import and Copy panels and only loses the **Replace** option in both mode
+    selects (disabled, labelled *needs instance-wide delete*), rather than
+    losing the whole panel or being offered a button that 403s.
+    `CopyServerPanel` takes it as a `canReplace` prop.
+  - Media is still the outstanding half of D21's deferral: the import path
+    writes blobs, and clears them in `replace`, without requiring
+    `media:create`/`media:delete`. `media:*` is instance-global and unscoped, so
+    closing it is a separate change and is now called out in D21 rather than
+    implied.
+
 - **Top bar session pill now states scope access, not the key's name
   (2026-08-20):** the pill read `key label · server name`
   (`${sessionInfo?.label || Claims.label(claims)} · ${server.name}`), and both
@@ -460,9 +492,13 @@ A minimal, self-hostable headless CMS. Users define collections with JSON Schema
     every project and env, so `transfer:export` alone let a project-scoped key
     read every other project (and `transfer:import` overwrite them). Export
     now also requires `collections:*/*/*` `schema:read` + `entries:read`;
-    import and copy require `collections:*/*/*` `entries:create`/`:update`/
-    `:delete`. Media stays instance-global and unscoped — a known deferral,
-    now called out as one rather than implied.
+    import and copy require `collections:*/*/*` `create`/`schema:update`/
+    `entries:create`/`entries:update`, plus `delete`/`entries:delete` in
+    `replace` mode (the write list first shipped as the three `entries:*`
+    permissions alone, which missed the schema writes the apply stage
+    performs — corrected in the entry at the top of this file). Media stays
+    instance-global and unscoped — a known deferral, now called out as one
+    rather than implied.
   - **Anonymous project/env discovery is cached.** It has to know which scopes
     expose a public collection, which means reading every schema in the
     instance — an unauthenticated request walking every project × env × schema
@@ -736,7 +772,7 @@ A minimal, self-hostable headless CMS. Users define collections with JSON Schema
 - **Storage adapters:** SQLite (`bun:sqlite` built-in) and filesystem. The fs adapter's on-disk layout **is** the export format (frozen, public, versioned via `format_version`, currently `"2"`) — `projects/<project>/<env>/{schemas,content}/...`.
 - **Schemas:** full JSON Schema draft 2020-12, validated server-side via **AJV 2020**. Refs to other collections use `silo://collections/<name>` and resolve only within the same scope; remote `$ref`s are rejected by default (opt-in via `[schema] allow_remote_refs`).
 - **Auth:** Shlink-style API keys with claims. A root (`*`) key is generated at first boot. Each protected operation checks one explicit claim, including scoped collection schema/access/entry CRUD (`collections:<project>/<env>/<name>:<permission>`), media, key-management, and transfer claims. Independent per-segment wildcards are supported (e.g. `collections:acme/*/*:entries:read`). `ParsedClaim` validates and enforces non-escalating delegation: a key with `keys:create` can mint only a subset of its own claims, and named segments cannot widen to wildcards. Action wildcards are not accepted. Collection schema and entry reads remain public by default for anonymous requests unless `"x-silo-auth": true` is set. Once a key is presented, its claims are the visibility boundary, so scoped keys do not see unrelated public collections.
-- **API:** clean routes under `/api`, no URL versioning. JSON everywhere. Collection and entry routes are scoped under `/api/projects/{project}/envs/{env}/collections/...`, with scope listing and creation at `/api/projects`. Optimistic concurrency via `rev` + `If-Match` or `?rev=`. Transfer comes at two blast radii: the whole-instance archive (`/api/export`, `/api/import`, `/api/copy`, gated on instance-wide authority per D21) and a scope-to-scope copy (`/api/projects/{project}/envs/{env}/copy`, gated only on the scoped collection claims it exercises — D22).
+- **API:** clean routes under `/api`, no URL versioning. JSON everywhere. Collection and entry routes are scoped under `/api/projects/{project}/envs/{env}/collections/...`, with scope listing and creation at `/api/projects`. Optimistic concurrency via `rev` + `If-Match` or `?rev=`. Transfer comes at two blast radii: the whole-instance archive (`/api/export`, `/api/import`, `/api/copy`, gated on instance-wide authority per D21 — the read/write/replace permission lists on `Claims`, with the replace half required only when `mode=replace`) and a scope-to-scope copy (`/api/projects/{project}/envs/{env}/copy`, gated only on the scoped collection claims it exercises — D22).
 
 ## Repo map
 
@@ -780,7 +816,7 @@ Notable implementation facts:
 - Query field paths are never interpolated into SQL; they reach `json_extract` as bound parameters.
 - Dependencies: `hono` (HTTP router), `ajv` + `ajv-formats` (JSON Schema Draft 2020-12), `ulidx` (ULID), `tar` (archive creation/extraction).
 - `format_version` has one source of truth: `FormatVersion` (currently `"2"` — the `projects/<project>/<env>/...` scoped layout, D18). It is stamped into the SQLite `meta` table, the fs `manifest.json`, and every export manifest. Both adapters refuse to open a data dir stamped with a different version rather than misreading it.
-- Direct copy is destination-driven: `transfer:copy` authorizes the destination route, while `transfer:export` authorizes `/api/export` on the source. Copying key hashes also requires `keys:import` at the destination and `keys:export` at the source. Replace retains normal import semantics (source-present collections are replaced; source-absent collections remain untouched).
+- Direct copy is destination-driven: `transfer:copy` authorizes the destination route (plus `Claims.TransferWritePermissions` instance-wide, and `TransferReplacePermissions` when `mode=replace`), while `transfer:export` authorizes `/api/export` on the source. Copying key hashes also requires `keys:import` at the destination and `keys:export` at the source. Replace retains normal import semantics (source-present collections are replaced; source-absent collections remain untouched).
 - Claims are defined in `shared/src/claims/`, not in either application. Add new
   fixed claims or collection permissions there so validation, server
   authorization, UI visibility, delegation, and presets cannot drift. The

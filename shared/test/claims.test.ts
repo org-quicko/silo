@@ -158,6 +158,20 @@ describe("claim matching", () => {
     expect(Claims.hasInstanceWide(wide, Claims.TransferWritePermissions)).toBe(false);
 
     expect(Claims.hasInstanceWide([Claims.Root], Claims.TransferWritePermissions)).toBe(true);
+    expect(Claims.hasInstanceWide([Claims.Root], Claims.TransferReplacePermissions)).toBe(true);
+
+    // An import writes schemas as well as entries, so the entry permissions
+    // are not the whole write set — and deletion belongs to `replace` alone.
+    const entriesOnly = [
+      Claims.collection("*", "*", "*", Claims.CollectionEntriesCreate),
+      Claims.collection("*", "*", "*", Claims.CollectionEntriesUpdate),
+      Claims.collection("*", "*", "*", Claims.CollectionEntriesDelete),
+    ];
+    expect(Claims.hasInstanceWide(entriesOnly, Claims.TransferWritePermissions)).toBe(false);
+    expect(Claims.TransferWritePermissions).toContain(Claims.CollectionSchemaUpdate);
+    expect(Claims.TransferWritePermissions).toContain(Claims.CollectionCreate);
+    expect(Claims.TransferWritePermissions).not.toContain(Claims.CollectionEntriesDelete);
+    expect(Claims.TransferReplacePermissions).toContain(Claims.CollectionEntriesDelete);
   });
 
   test("hasScopeWide accepts a wider grant but not a narrower one", () => {

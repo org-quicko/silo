@@ -20,12 +20,14 @@ export function CopyServerPanel({
   onCopied,
   onDestinationKeyChanged,
   canImportKeys,
+  canReplace,
 }: {
   destinationUrl: string
   destinationApiKey: string
   onCopied: () => void
   onDestinationKeyChanged: (key: string) => void
   canImportKeys: boolean
+  canReplace: boolean
 }) {
   const [sourceUrl, setSourceUrl] = useState('')
   const [sourceApiKey, setSourceApiKey] = useState('')
@@ -163,7 +165,9 @@ export function CopyServerPanel({
               disabled={busy}
             >
               <option value="merge">Merge</option>
-              <option value="replace">Replace source collections</option>
+              <option value="replace" disabled={!canReplace}>
+                Replace source collections{canReplace ? '' : ' — needs instance-wide delete'}
+              </option>
             </select>
           </div>
           {mode === 'merge' && (

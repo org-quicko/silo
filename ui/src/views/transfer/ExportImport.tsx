@@ -50,6 +50,10 @@ export function ExportImportView({
   // claim. Gate on the same rule rather than offering a button that 403s.
   const canReadAll = Claims.hasInstanceWide(claims, Claims.TransferReadPermissions)
   const canWriteAll = Claims.hasInstanceWide(claims, Claims.TransferWritePermissions)
+  // `replace` deletes what it does not carry forward, so the server asks for
+  // two further permissions only in that mode. A merge-only key keeps the
+  // panel; it just cannot pick Replace.
+  const canReplaceAll = Claims.hasInstanceWide(claims, Claims.TransferReplacePermissions)
   const canExport = Claims.has(claims, Claims.TransferExport) && canReadAll
   const canExportKeys = Claims.has(claims, Claims.KeysExport)
   const canImport = Claims.has(claims, Claims.TransferImport) && canWriteAll
@@ -199,7 +203,9 @@ export function ExportImportView({
                     }}
                   >
                     <option value="merge">Merge</option>
-                    <option value="replace">Replace</option>
+                    <option value="replace" disabled={!canReplaceAll}>
+                      Replace{canReplaceAll ? '' : ' — needs instance-wide delete'}
+                    </option>
                   </select>
                 </div>
                 {mode === 'merge' && (
@@ -283,7 +289,7 @@ export function ExportImportView({
                         <Button variant="secondary" onClick={reset}>
                           Cancel
                         </Button>
-                        <Button variant="primary" onClick={apply} disabled={busy || changeCount === 0}>
+                        <Button variant="primary" onClick={apply} disabled={busy || changeCount === 0 || (mode === 'replace' && !canReplaceAll)}>
                           <Check size={14} /> Apply {changeCount} change{changeCount === 1 ? '' : 's'}
                         </Button>
                       </div>
@@ -307,6 +313,7 @@ export function ExportImportView({
           onCopied={onImported}
           onDestinationKeyChanged={onDestinationKeyChanged}
           canImportKeys={canImportKeys}
+          canReplace={canReplaceAll}
         />}
       </div>
     </>
