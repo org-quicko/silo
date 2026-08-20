@@ -89,6 +89,9 @@ cd ui && bun install && bun run build     # admin UI, output in ui/dist
 cd .. && bun run server/main.ts serve
 ```
 
+`bun run server/main.ts init` first writes a `silo.toml` of default settings if
+you would rather configure silo in a file than with flags; it is optional.
+
 The server hosts the admin UI from `./ui/dist` relative to its working
 directory, with an SPA fallback. Skip the UI build if you only want the API.
 
@@ -163,6 +166,10 @@ See [ui/README.md](ui/README.md) for its architecture and development workflow.
 Configuration layers, highest priority first: **flags**, then `SILO_*`
 environment variables, then the TOML file, then defaults. Every key is optional.
 
+`silo init` writes the file below — every setting at its default, with the
+alternatives and the s3 keys commented beside them. It touches no data
+directory, so it is safe to run before anything else.
+
 ```toml
 # silo.toml
 listen          = ":8090"
@@ -175,7 +182,7 @@ path   = "./silo_data"  # data dir; the sqlite file lives at <path>/silo.db
 
 [blob_storage]
 driver = "fs"                 # "fs" | "s3"
-path   = "./silo_data/media"  # used by the fs driver; defaults to <data dir>/media
+# path = "/srv/silo-media"    # fs driver; unset means <data dir>/media, and --data moves it
 # bucket           = "my-silo-media"   # required by the s3 driver
 # region           = "ap-south-1"
 # endpoint         = "https://..."     # for S3-compatible providers
@@ -234,18 +241,21 @@ Every subcommand operates directly on the data directory, with no running server
 required. This is also the lockout recovery path.
 
 ```
+bun run server/main.ts init [flags]                  write a silo.toml of default settings
 bun run server/main.ts serve [flags]                 start the HTTP server
 bun run server/main.ts keys create [flags]           mint an API key (secret shown once)
 bun run server/main.ts keys list                     list keys (label, claims, prefix, created)
 bun run server/main.ts keys revoke <id>              revoke a key
 bun run server/main.ts export [flags]                export schemas, entries, and media
 bun run server/main.ts import [flags] <dir|tarball>  import an export
+bun run server/main.ts media reconcile               repair the media catalog against stored blobs
 bun run server/main.ts version                       print the version
 ```
 
 | Flags | Applies to | Meaning |
 |-------|-----------|---------|
-| `--config <path>` | all | TOML config file (default `silo.toml` if present) |
+| `--config <path>` | all | TOML config file (default `silo.toml` if present); for `init`, the file to write |
+| `--force` | `init` | overwrite an existing config file |
 | `--data <dir>` | all | data directory (default `./silo_data`) |
 | `--blob-path <dir>` | all | media directory for the fs blob driver (default `<data dir>/media`) |
 | `--driver <sqlite\|fs>` | all | storage driver |

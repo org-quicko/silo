@@ -8,6 +8,7 @@ import { ConfigLoader } from "../config/config-loader";
 import { Service } from "../core/service/service";
 import { ExportCommand } from "./commands/export-command";
 import { ImportCommand } from "./commands/import-command";
+import { InitCommand } from "./commands/init-command";
 import { MediaCommand } from "./commands/media-command";
 import { KeysCommand } from "./commands/keys-command";
 import { ServeCommand } from "./commands/serve-command";
@@ -20,6 +21,7 @@ export class Cli {
     console.log(`silo, minimal portable headless CMS
 
 Usage:
+  silo init [flags]                      write a silo.toml of default settings
   silo serve [flags]                     start the server
   silo keys create [flags]               mint an API key
   silo keys list [flags]                 list keys
@@ -35,6 +37,10 @@ Common flags:
   --data dir        data directory (default ./silo_data)
   --driver name     storage driver: sqlite | fs (default sqlite)
   --blob-path dir   media directory for the fs blob driver (default <data>/media)
+
+init:
+  --config path   file to write (default silo.toml)
+  --force         overwrite an existing file
 
 serve:
   --listen addr   listen address (default :8090)
@@ -141,6 +147,22 @@ Subcommands operate directly on the data dir — no running server needed.
       process.exit(0);
     }
 
+    const configPath = typeof values.config === "string" ? values.config : "silo.toml";
+
+    // Handled before the config is loaded and before storage is opened: `init`
+    // writes the file the other commands read, so an absent --config is the
+    // normal case rather than the error loadConfig makes of it, and scaffolding
+    // a config must not create a data dir as a side effect.
+    if (cmd === "init") {
+      try {
+        await InitCommand.run(configPath, !!values.force);
+      } catch (err: any) {
+        console.error(`silo: ${err.message}`);
+        process.exit(1);
+      }
+      process.exit(0);
+    }
+
     // Load config hierarchy
     let explicitConfig = false;
     const rawArgs = process.argv.slice(2);
@@ -148,7 +170,6 @@ Subcommands operate directly on the data dir — no running server needed.
       explicitConfig = true;
     }
 
-    const configPath = typeof values.config === "string" ? values.config : undefined;
     const loaded = await ConfigLoader.loadConfig(configPath, explicitConfig);
     const cfg = ConfigLoader.resolveDerivedDefaults(Cli.applyFlagOverrides(loaded, values));
 

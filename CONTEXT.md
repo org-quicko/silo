@@ -15,6 +15,33 @@ A minimal, self-hostable headless CMS. Users define collections with JSON Schema
 
 *Last updated: 2026-08-21*
 
+- **`silo init` scaffolds a config file (2026-08-21):** silo was configurable
+  by TOML but shipped no TOML — you had to copy the sample out of the README
+  and know which keys existed. `silo init` writes a `silo.toml` holding every
+  setting at its default, each with a one-line comment and its alternatives
+  beside it (`driver` sqlite|fs, the whole s3 block, `auth.disabled`,
+  `allow_remote_refs`), so the file doubles as the reference.
+  - **Rendered from `ConfigLoader.defaultConfig()`, not hand-written**
+    (`InitCommand`, `server/cli/commands/init-command.ts`). The scaffold
+    therefore cannot drift from what silo does with no file present, and
+    `server/test/cli/init-command.test.ts` pins it by loading the written file
+    back and comparing it to `defaultConfig()`.
+  - **Settings with no default are written commented out.** The fs media path
+    is the one that matters: unset means "follow the data dir", so a literal
+    `path` here would look like a chosen value and silently stop `--data`
+    relocating media — the exact bug the 2026-08-21 derived-default change
+    fixed. The s3 credentials are commented for the same shape of reason plus
+    one more: a config file is not a secret store, so the comment points at
+    `SILO_BLOB_S3_*` instead. The README's sample block was carrying a literal
+    `path = "./silo_data/media"` and now matches.
+  - **Routed before the config is loaded and before storage is opened**
+    (`cli.ts`), unlike every other subcommand: `--config` naming a file that
+    does not exist yet is `init`'s normal case rather than `loadConfig`'s
+    error, and writing a config must not create a data dir as a side effect.
+  - Refuses to overwrite an existing file unless `--force`, creates a missing
+    parent directory for `--config a/b/silo.toml`, and is the only subcommand
+    that touches neither the data dir nor a running server.
+
 - **Media gets a catalog, folders, search, and reference integrity
   (2026-08-21, D23/D24):** media stays instance-global — one library for the
   whole server, `media:*` still unscoped — but it now has a **record**, not
@@ -999,7 +1026,7 @@ A minimal, self-hostable headless CMS. Users define collections with JSON Schema
 | `tsconfig.json` | TypeScript configuration for the Bun server and shared package (`include: ["server/**/*", "shared/**/*"]`) |
 | `shared/` | Local `@silo/shared` package (a Bun workspace of the root) for runtime-neutral client/server rules. `src/claims/` is the single source of truth for claim constants, the `Claim`/`FixedClaim`/`CollectionClaim`/`CollectionPermission`/`ClaimPreset` types, `ParsedClaim`, validation, matching, delegation, and presets; `src/errors/` holds `ValidationError` and the `ValidationDetail` wire shape; `src/schema/` holds `SiloRef` (the `silo://collections/` `$ref` scheme), `SchemaAccess` (`x-silo-auth`), and `MediaField` (`x-silo-type: "media"`); `src/keys/` holds `KeyFormat` (secret prefix and display truncation); `src/media/` holds `MediaRef` (the `silo://media/<ulid>` scheme, its pre-D23 `/media/<key>` dual-read, and the canonical form the write path stores). Tests under `shared/test/`. Each artifact is its own file and its own `exports` subpath |
 | `server/main.ts` | Thin CLI entrypoint — imports `Cli` and runs it |
-| `server/cli/` | `cli.ts` (argv parsing, subcommand routing, dependency wiring), `bootstrap-banner.ts` (the first-boot root key announcement), and `commands/` (one command class per subcommand: `serve-command.ts`, `keys-command.ts`, `export-command.ts`, `import-command.ts`, `media-command.ts` — `silo media reconcile`, the catalog repair that runs against the data dir with no server, reporting what it adopted, pruned, finished and returned to active) |
+| `server/cli/` | `cli.ts` (argv parsing, subcommand routing, dependency wiring), `bootstrap-banner.ts` (the first-boot root key announcement), and `commands/` (one command class per subcommand: `serve-command.ts`, `keys-command.ts`, `export-command.ts`, `import-command.ts`, `init-command.ts` — `silo init`, the config scaffold rendered from `ConfigLoader.defaultConfig()` so it cannot drift from the built-in defaults, `media-command.ts` — `silo media reconcile`, the catalog repair that runs against the data dir with no server, reporting what it adopted, pruned, finished and returned to active) |
 | `server/config/` | `Config` type and its sub-shapes (`storage-config.ts`, `blob-storage-config.ts`, `auth-config.ts`, `schema-config.ts`) plus `ConfigLoader` (`config-loader.ts`) — `loadConfig` walks file then env, and `resolveDerivedDefaults` fills in the paths derived from others (the fs blob dir) once flags have been applied |
 | `server/core/domain/` | `Entry`, `Meta`, `EntryUtils`, `Collection`, `Scope` |
 | `server/core/ports/` | `Storage` and `BlobStorage` port interfaces |
@@ -1018,7 +1045,7 @@ A minimal, self-hostable headless CMS. Users define collections with JSON Schema
 | `server/http/middleware/` | `LoggingMiddleware`, `AuthMiddleware` |
 | `server/http/auth/` | `RouteAuth` — claim-checking helpers for route handlers |
 | `server/http/routes/` | `RouteManager` plus one routes class per resource (`projects-routes.ts`, `collections-routes.ts`, `entries-routes.ts` + `request-utils.ts`, `keys-routes.ts`, `media-routes.ts`, `transfer-routes.ts`, `copy-routes.ts` + `copy-request.ts` + `scope-copy-request.ts`, `session-routes.ts`). `CopyRoutes` serves both the whole-instance `/api/copy` and the scoped `/api/projects/:p/environments/:e/copy` |
-| `server/test/` | Test suites running via `bun test`: `conformance/` (storage conformance suite), `adapters/`, `core/`, `cli/` (bootstrap banner rendering), `config/` (config layering and the derived fs blob path), `http/` (claims enforcement/delegation, entries API, export/import, direct server copy, scope-to-scope copy, media catalog/folders/search/reference integrity, schema `$ref`, projects API tests). The conformance suite pins media usages on both adapters — the one D23 invariant they answer by completely different means |
+| `server/test/` | Test suites running via `bun test`: `conformance/` (storage conformance suite), `adapters/`, `core/`, `cli/` (bootstrap banner rendering, `silo init`'s scaffold round-tripping back to the defaults), `config/` (config layering and the derived fs blob path), `http/` (claims enforcement/delegation, entries API, export/import, direct server copy, scope-to-scope copy, media catalog/folders/search/reference integrity, schema `$ref`, projects API tests). The conformance suite pins media usages on both adapters — the one D23 invariant they answer by completely different means |
 | `ui/` | React + TS + Vite SPA (Slate design), organized into feature dirs (`api/`, `schema/`, `components/`, `forms/`, `router/`, `utils/` with `Formatters`, `ThemeManager` & `ScopeMemory`, `views/*`) with colocated CSS Modules and a small global foundation under `styles/`. Every collection/entry call is scoped through `ApiClient.collectionsPath`; the active `(project, env)` is part of the URL, switched from the `/servers` gate in the workspace and from the settings nav's scope switchers. Shared protocol rules come from `@silo/shared`; `ui/dist` contains the compiled SPA served at the web root. `src/**/*.test.ts` are `bun test` suites in their own TS project (`tsconfig.test.json`) and run from the repo root alongside the server's |
 | `README.md` | User-facing docs: why/quick start, concepts, configuration, CLI, HTTP API, claims, portability, deployment, development, roadmap, contributing. Rewritten 2026-08-18; deliberately links neither this file nor IMPLEMENTATION.md |
 | `ui/README.md` | Admin UI docs: dev workflow, the server-connection model, URL grammar, RJSF theme notes, styling conventions, and the `@silo/shared` per-file-symlink caveat. Rewritten 2026-08-18 (was the stock Vite template) |
