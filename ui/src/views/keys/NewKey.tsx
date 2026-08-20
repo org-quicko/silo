@@ -248,8 +248,10 @@ export function NewKeyView({
     return (
       <>
         <TopBar crumbs={[{ label: 'API keys', to: keysUrl }, { label: 'Key created' }]} session={session} />
-        <div className={`content ${styles.wrap}`}>
-          <NewKeySecret created={created} onDone={onDone} />
+        <div className="content">
+          <div className={styles.wrap}>
+            <NewKeySecret created={created} onDone={onDone} />
+          </div>
         </div>
       </>
     )
@@ -262,7 +264,7 @@ export function NewKeyView({
         <Button variant="primary" onClick={submit} disabled={busy}>{busy ? 'Creating…' : 'Create key'}</Button>
       </TopBar>
 
-      <div className={`content ${styles.wrap}`}>
+      <div className="content">
         <div className="page-head">
           <div className="page-title-group">
             <div className="page-title-row">
@@ -273,175 +275,177 @@ export function NewKeyView({
           </div>
         </div>
 
-        {error && <div className="banner banner-bad"><span>{error}</span></div>}
-        {projects.length === 0 && (
-          <div className="banner banner-warn"><span>This server lists no projects, so only instance-wide and root keys can be scoped correctly.</span></div>
-        )}
-
-        <section className={`card ${styles.section}`}>
-          <div className="field">
-            <label className="field-label">Label</label>
-            <input
-              className="input"
-              autoFocus
-              placeholder="e.g. web-frontend"
-              value={label}
-              onChange={(event) => setLabel(event.target.value)}
-            />
-            <span className="field-hint">Shown in the key list. It grants nothing.</span>
-          </div>
-        </section>
-
-        <fieldset className={`card ${styles.section} ${raw ? styles.sectionMuted : ''}`} disabled={!!raw}>
-          <div className={styles.sectionHeader}>
-            <div><h3>Can reach</h3><p>Which project and environment this key's collection claims target.</p></div>
-          </div>
-          {role === 'root' ? (
-            <p className={styles.rootNote}>A root key ignores reach — it covers every project and environment.</p>
-          ) : (
-            <NewKeyReach
-              reach={reach}
-              project={project}
-              env={env}
-              projects={projects}
-              environments={environments}
-              loadingEnvironments={loadingEnvironments}
-              blocked={blockedReaches}
-              onChange={changeReach}
-            />
+        <div className={styles.wrap}>
+          {error && <div className="banner banner-bad"><span>{error}</span></div>}
+          {projects.length === 0 && (
+            <div className="banner banner-warn"><span>This server lists no projects, so only instance-wide and root keys can be scoped correctly.</span></div>
           )}
-        </fieldset>
 
-        <fieldset className={`card ${styles.section} ${raw ? styles.sectionMuted : ''}`} disabled={!!raw}>
-          <div className={styles.sectionHeader}>
-            <div><h3>Can do</h3><p>Each role includes everything the one before it grants.</p></div>
-          </div>
-          <div className={styles.roles}>
-            {ROLES.map((option) => {
-              const blocked = roleBlocked(option.value)
-              return (
-                <button
-                  key={option.value}
-                  type="button"
-                  className={`${styles.role} ${role === option.value ? styles.roleActive : ''} ${option.value === 'root' ? styles.roleRoot : ''}`}
-                  disabled={blocked}
-                  title={blocked ? 'The current key cannot delegate this role.' : undefined}
-                  onClick={() => changeRole(option.value)}
-                >
-                  <b>{option.label}</b>
-                  <span>{option.blurb}</span>
-                </button>
-              )
-            })}
-          </div>
-        </fieldset>
-
-        <section className={`card ${styles.section} ${styles.advanced}`}>
-          <button type="button" className={styles.advancedToggle} onClick={() => setAdvancedOpen(!advancedOpen)}>
-            {advancedOpen ? <ChevronDown size={15} /> : <ChevronRight size={15} />}
-            <span><b>Advanced</b><small>Narrow to named collections, add instance capabilities, or write claims by hand.</small></span>
-          </button>
-
-          {advancedOpen && (
-            <div className={styles.advancedBody}>
-              {raw ? (
-                <div className={styles.rawPanel}>
-                  <div className={styles.rawHead}>
-                    <div><b>Editing claims directly</b><span>The guided controls above are paused while this is open.</span></div>
-                    <Button variant="secondary" size="sm" onClick={() => setRawText(null)}>
-                      <Undo2 size={13} /> Return to guided controls
-                    </Button>
-                  </div>
-                  <textarea
-                    className={`input mono ${styles.rawInput}`}
-                    spellCheck={false}
-                    rows={10}
-                    value={rawText ?? ''}
-                    onChange={(event) => setRawText(event.target.value)}
-                  />
-                  {raw.error
-                    ? <div className="field-error">{raw.error}</div>
-                    : <span className="field-hint">{raw.claims.length} valid claim{raw.claims.length === 1 ? '' : 's'}, one per line or comma-separated.</span>}
-                </div>
-              ) : (
-                <>
-                  {canNarrow && (
-                    <div className="field">
-                      <label className="field-label">Collections</label>
-                      <div className={styles.scopeChoices}>
-                        <button type="button" className={`${styles.scopeChoice} ${!narrowed ? styles.scopeChoiceActive : ''}`} onClick={() => setNarrowed(false)}>
-                          <b>All collections</b>
-                          <span>Every collection in {project}/{env}, including ones created later</span>
-                        </button>
-                        <button type="button" className={`${styles.scopeChoice} ${narrowed ? styles.scopeChoiceActive : ''}`} onClick={() => setNarrowed(true)}>
-                          <b>Selected collections</b>
-                          <span>New collections stay denied</span>
-                        </button>
-                      </div>
-                      {narrowed && (
-                        <div className={styles.collectionPicker}>
-                          <button type="button" className={styles.pickerTrigger} onClick={() => setPickerOpen(!pickerOpen)}>
-                            <span>{selected.length ? `${selected.length} selected` : 'Choose collections…'}</span>
-                            <ChevronDown size={15} />
-                          </button>
-                          {pickerOpen && (
-                            <div className={styles.pickerPopover}>
-                              <div className={styles.collectionSearch}>
-                                <Search size={14} />
-                                <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search collections" />
-                              </div>
-                              <div className={styles.collectionOptions}>
-                                {visibleCollections.map((name) => (
-                                  <label key={name}>
-                                    <input type="checkbox" checked={selected.includes(name)} onChange={() => toggleCollection(name)} />
-                                    <span>{name}</span>
-                                  </label>
-                                ))}
-                                {visibleCollections.length === 0 && <span className="muted">No collections found.</span>}
-                              </div>
-                            </div>
-                          )}
-                          {selected.length > 0 && (
-                            <div className={styles.selectedChips}>
-                              {selected.map((name) => (
-                                <button type="button" key={name} onClick={() => toggleCollection(name)}>{name}<span>×</span></button>
-                              ))}
-                            </div>
-                          )}
-                        </div>
-                      )}
-                    </div>
-                  )}
-
-                  {role !== 'root' && (
-                    <NewKeyCapabilities
-                      capabilities={capabilities}
-                      transferReplace={transferReplace}
-                      ownClaims={ownClaims}
-                      onToggle={toggleCapability}
-                      onTransferReplace={setTransferReplace}
-                    />
-                  )}
-
-                  <div className={styles.rawEntry}>
-                    <div><b>Not expressible above?</b><span>Edit the claim list by hand, seeded with what the controls produced.</span></div>
-                    <Button variant="secondary" size="sm" onClick={() => setRawText(requestedClaims.join('\n'))}>
-                      <Code2 size={13} /> Edit claims directly
-                    </Button>
-                  </div>
-                </>
-              )}
+          <section className={`card ${styles.section}`}>
+            <div className="field">
+              <label className="field-label">Label</label>
+              <input
+                className="input"
+                autoFocus
+                placeholder="e.g. web-frontend"
+                value={label}
+                onChange={(event) => setLabel(event.target.value)}
+              />
+              <span className="field-hint">Shown in the key list. It grants nothing.</span>
             </div>
-          )}
-        </section>
+          </section>
 
-        <NewKeyReview
-          claims={requestedClaims}
-          scopeLabel={role === 'root' && !raw ? 'every project / every environment' : NewKeyPlan.describeScope(input)}
-          project={planScope.project === Claims.Root ? undefined : planScope.project}
-          env={planScope.env === Claims.Root ? undefined : planScope.env}
-          canDelegate={canDelegate}
-        />
+          <fieldset className={`card ${styles.section} ${raw ? styles.sectionMuted : ''}`} disabled={!!raw}>
+            <div className={styles.sectionHeader}>
+              <div><h3>Can reach</h3><p>Which project and environment this key's collection claims target.</p></div>
+            </div>
+            {role === 'root' ? (
+              <p className={styles.rootNote}>A root key ignores reach — it covers every project and environment.</p>
+            ) : (
+              <NewKeyReach
+                reach={reach}
+                project={project}
+                env={env}
+                projects={projects}
+                environments={environments}
+                loadingEnvironments={loadingEnvironments}
+                blocked={blockedReaches}
+                onChange={changeReach}
+              />
+            )}
+          </fieldset>
+
+          <fieldset className={`card ${styles.section} ${raw ? styles.sectionMuted : ''}`} disabled={!!raw}>
+            <div className={styles.sectionHeader}>
+              <div><h3>Can do</h3><p>Each role includes everything the one before it grants.</p></div>
+            </div>
+            <div className={styles.roles}>
+              {ROLES.map((option) => {
+                const blocked = roleBlocked(option.value)
+                return (
+                  <button
+                    key={option.value}
+                    type="button"
+                    className={`${styles.role} ${role === option.value ? styles.roleActive : ''} ${option.value === 'root' ? styles.roleRoot : ''}`}
+                    disabled={blocked}
+                    title={blocked ? 'The current key cannot delegate this role.' : undefined}
+                    onClick={() => changeRole(option.value)}
+                  >
+                    <b>{option.label}</b>
+                    <span>{option.blurb}</span>
+                  </button>
+                )
+              })}
+            </div>
+          </fieldset>
+
+          <section className={`card ${styles.section} ${styles.advanced}`}>
+            <button type="button" className={styles.advancedToggle} onClick={() => setAdvancedOpen(!advancedOpen)}>
+              {advancedOpen ? <ChevronDown size={15} /> : <ChevronRight size={15} />}
+              <span><b>Advanced</b><small>Narrow to named collections, add instance capabilities, or write claims by hand.</small></span>
+            </button>
+
+            {advancedOpen && (
+              <div className={styles.advancedBody}>
+                {raw ? (
+                  <div className={styles.rawPanel}>
+                    <div className={styles.rawHead}>
+                      <div><b>Editing claims directly</b><span>The guided controls above are paused while this is open.</span></div>
+                      <Button variant="secondary" size="sm" onClick={() => setRawText(null)}>
+                        <Undo2 size={13} /> Return to guided controls
+                      </Button>
+                    </div>
+                    <textarea
+                      className={`input mono ${styles.rawInput}`}
+                      spellCheck={false}
+                      rows={10}
+                      value={rawText ?? ''}
+                      onChange={(event) => setRawText(event.target.value)}
+                    />
+                    {raw.error
+                      ? <div className="field-error">{raw.error}</div>
+                      : <span className="field-hint">{raw.claims.length} valid claim{raw.claims.length === 1 ? '' : 's'}, one per line or comma-separated.</span>}
+                  </div>
+                ) : (
+                  <>
+                    {canNarrow && (
+                      <div className="field">
+                        <label className="field-label">Collections</label>
+                        <div className={styles.scopeChoices}>
+                          <button type="button" className={`${styles.scopeChoice} ${!narrowed ? styles.scopeChoiceActive : ''}`} onClick={() => setNarrowed(false)}>
+                            <b>All collections</b>
+                            <span>Every collection in {project}/{env}, including ones created later</span>
+                          </button>
+                          <button type="button" className={`${styles.scopeChoice} ${narrowed ? styles.scopeChoiceActive : ''}`} onClick={() => setNarrowed(true)}>
+                            <b>Selected collections</b>
+                            <span>New collections stay denied</span>
+                          </button>
+                        </div>
+                        {narrowed && (
+                          <div className={styles.collectionPicker}>
+                            <button type="button" className={styles.pickerTrigger} onClick={() => setPickerOpen(!pickerOpen)}>
+                              <span>{selected.length ? `${selected.length} selected` : 'Choose collections…'}</span>
+                              <ChevronDown size={15} />
+                            </button>
+                            {pickerOpen && (
+                              <div className={styles.pickerPopover}>
+                                <div className={styles.collectionSearch}>
+                                  <Search size={14} />
+                                  <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search collections" />
+                                </div>
+                                <div className={styles.collectionOptions}>
+                                  {visibleCollections.map((name) => (
+                                    <label key={name}>
+                                      <input type="checkbox" checked={selected.includes(name)} onChange={() => toggleCollection(name)} />
+                                      <span>{name}</span>
+                                    </label>
+                                  ))}
+                                  {visibleCollections.length === 0 && <span className="muted">No collections found.</span>}
+                                </div>
+                              </div>
+                            )}
+                            {selected.length > 0 && (
+                              <div className={styles.selectedChips}>
+                                {selected.map((name) => (
+                                  <button type="button" key={name} onClick={() => toggleCollection(name)}>{name}<span>×</span></button>
+                                ))}
+                              </div>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    )}
+
+                    {role !== 'root' && (
+                      <NewKeyCapabilities
+                        capabilities={capabilities}
+                        transferReplace={transferReplace}
+                        ownClaims={ownClaims}
+                        onToggle={toggleCapability}
+                        onTransferReplace={setTransferReplace}
+                      />
+                    )}
+
+                    <div className={styles.rawEntry}>
+                      <div><b>Not expressible above?</b><span>Edit the claim list by hand, seeded with what the controls produced.</span></div>
+                      <Button variant="secondary" size="sm" onClick={() => setRawText(requestedClaims.join('\n'))}>
+                        <Code2 size={13} /> Edit claims directly
+                      </Button>
+                    </div>
+                  </>
+                )}
+              </div>
+            )}
+          </section>
+
+          <NewKeyReview
+            claims={requestedClaims}
+            scopeLabel={role === 'root' && !raw ? 'every project / every environment' : NewKeyPlan.describeScope(input)}
+            project={planScope.project === Claims.Root ? undefined : planScope.project}
+            env={planScope.env === Claims.Root ? undefined : planScope.env}
+            canDelegate={canDelegate}
+          />
+        </div>
       </div>
     </>
   )
