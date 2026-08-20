@@ -74,6 +74,7 @@ export class EntryUtils {
         ? { ...e.data }
         : {};
     delete userFields.id;
+    delete userFields.rev;
     delete userFields.seq;
     delete userFields.created_at;
     delete userFields.updated_at;
@@ -82,8 +83,13 @@ export class EntryUtils {
       userFields = MediaResolver.resolveMediaFields(userFields, schema, baseUrl);
     }
 
+    // `rev` is part of the response because `PUT`/`DELETE` require it back as
+    // `If-Match`/`?rev=` (§8). Without it a client can only guess, which
+    // works exactly once per entry and then 409s forever — the envelope's
+    // other internals (`collection`, `seq`, scope) stay hidden.
     return {
       id: e.id,
+      rev: e.rev,
       ...userFields,
       created_at: createdAt,
       updated_at: updatedAt,

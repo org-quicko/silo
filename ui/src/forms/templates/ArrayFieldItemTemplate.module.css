@@ -1,11 +1,15 @@
 .item {
+  border: 1px solid var(--line-2);
+  border-radius: var(--radius-sm);
+  background: var(--panel);
+}
+
+/* Scalar items keep the flat layout: content left, actions right. */
+.row {
   display: flex;
   align-items: flex-start;
   gap: 12px;
   padding: 14px;
-  border: 1px solid var(--line-2);
-  border-radius: var(--radius-sm);
-  background: var(--panel);
 }
 
 .content {
@@ -13,9 +17,86 @@
   min-width: 0;
 }
 
-.toolbar {
+.header {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 10px;
+  padding: 9px 10px 9px 12px;
+}
+
+.disclosure {
+  display: flex;
+  flex: 1;
+  align-items: center;
+  gap: 9px;
+  min-width: 0;
+  padding: 0;
+  border: none;
+  background: none;
+  color: var(--text);
+  font-family: var(--font-ui);
+  font-size: 13px;
+  font-weight: 600;
+  text-align: left;
+  cursor: pointer;
+}
+
+.chevron {
   flex-shrink: 0;
+  color: var(--text-3);
+  transition: transform 0.12s;
+}
+
+.open .chevron {
+  transform: rotate(90deg);
+}
+
+.index {
+  flex-shrink: 0;
+  color: var(--text-3);
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  font-weight: 400;
+  font-variant-numeric: tabular-nums;
+}
+
+.title {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.untitled {
+  color: var(--text-3);
+  font-weight: 500;
+}
+
+/* Collapsed content stays mounted, so a validation error inside it is still in
+   the DOM — surface it on the header rather than letting it hide. */
+.errorMark {
+  display: none;
+  flex-shrink: 0;
+  color: var(--bad);
+}
+
+.item:not(.open):has(:global(.field-error)) .errorMark {
+  display: block;
+}
+
+.toolbar {
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  gap: 6px;
+}
+
+.body {
+  display: flex;
+  flex-direction: column;
+  padding: 16px 14px 14px;
+  border-top: 1px solid var(--line);
+}
+
+.body[hidden] {
+  display: none;
 }
