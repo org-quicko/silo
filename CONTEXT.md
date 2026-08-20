@@ -15,6 +15,14 @@ A minimal, self-hostable headless CMS. Users define collections with JSON Schema
 
 *Last updated: 2026-08-21*
 
+- **Collection editing now has the same management surface as entry editing
+  (2026-08-21):** the schema editor uses the workspace top bar for cancel/save
+  actions and, for an existing collection, shows a right-hand metadata rail
+  with its scope, field and entry counts, and read-access mode. An editor that
+  also holds the collection `delete` claim can delete it there through a
+  typed-name confirmation; the confirmed action removes the schema and all
+  of its entries, refreshes the sidebar, and navigates to the next collection.
+
 - **silo runs as a service now: logs to a file, `--detach`, and one server per
   data directory (2026-08-21):** `silo serve` occupied the terminal it was
   started from and printed everything to it, so running silo meant `nohup`, a

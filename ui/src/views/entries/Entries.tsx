@@ -213,7 +213,7 @@ export function EntriesView({
             <ApiGuide collection={collection} url={url} scope={scope} />
             {canEditSchema && (
               <Button variant="secondary" onClick={onEditSchema}>
-                Edit schema
+                Edit collection
               </Button>
             )}
             {canCreate && (

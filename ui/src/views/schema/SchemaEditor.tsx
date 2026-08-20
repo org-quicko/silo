@@ -12,6 +12,7 @@ import type { Collection } from '../../api/types/collection'
 import type { ScopeRef } from '../../api/types/scope-ref'
 import { Toggle } from '../../components/Toggle'
 import { Segmented } from '../../components/Segmented'
+import { DangerConfirm } from '../../components/DangerConfirm'
 import { TopBar } from '../shell/TopBar'
 import { RefTarget } from './RefTarget'
 import { EnumValues } from './EnumValues'
@@ -165,11 +166,13 @@ interface Props {
   session: SessionBadge
   /** URL to return to on cancel — the breadcrumbs link back to it. */
   backTo: string
+  entryCount: number | null
   onSaved: (name: string) => void
   onCancel: () => void
+  onDeleted: () => void
 }
 
-export function SchemaEditorView({ collection, collections, url, apiKey, scope, claims, session, backTo, onSaved, onCancel }: Props) {
+export function SchemaEditorView({ collection, collections, url, apiKey, scope, claims, session, backTo, entryCount, onSaved, onCancel, onDeleted }: Props) {
   const initial = useMemo(() => {
     const text = collection ? JSON.stringify(collection.schema, null, 2) : JSON.stringify(DEFAULT_SCHEMA, null, 2)
     return { text, ...parseSchema(text) }
@@ -184,12 +187,20 @@ export function SchemaEditorView({ collection, collections, url, apiKey, scope, 
   const [selected, setSelected] = useState<number | null>(null)
   const [error, setError] = useState('')
   const [saving, setSaving] = useState(false)
+  const [showDelete, setShowDelete] = useState(false)
+  const [deleting, setDeleting] = useState(false)
+  const [deleteError, setDeleteError] = useState('')
 
   const parsed = useMemo(() => parseSchema(text), [text])
   const fieldCount = mode === 'visual' ? fields.filter((f) => f.name.trim()).length : Object.keys(parsed.base?.properties || {}).length
+  const displayedAuth = mode === 'visual' ? auth : parsed.auth
   const canChangeAccess = !collection || Claims.has(
     claims,
     Claims.collection(scope.project, scope.env, collection.name, Claims.CollectionAccessUpdate),
+  )
+  const canDelete = !!collection && Claims.has(
+    claims,
+    Claims.collection(scope.project, scope.env, collection.name, Claims.CollectionDelete),
   )
 
   const applyFields = (next: Field[]) => {
@@ -265,25 +276,48 @@ export function SchemaEditorView({ collection, collections, url, apiKey, scope, 
     }
   }
 
+  const removeCollection = async () => {
+    if (!collection) return
+    setDeleting(true)
+    setDeleteError('')
+    try {
+      // The confirmation explicitly covers the schema and every entry, so the
+      // destructive action is the force-delete variant rather than a button
+      // that only happens to work for empty, unreferenced collections.
+      await api.deleteCollection(url, apiKey, scope, collection.name, true)
+      setShowDelete(false)
+      onDeleted()
+    } catch (e: any) {
+      setDeleteError(e.message || 'Failed to delete collection')
+      setDeleting(false)
+    }
+  }
+
   const valid = parsed.ok
 
   return (
     <>
       <TopBar
-        crumbs={[{ label: 'Collections', to: backTo }, { label: collection ? collection.name : 'New collection' }]}
+        crumbs={collection
+          ? [{ label: 'Collections', to: backTo }, { label: collection.name, to: backTo }, { label: 'Edit collection' }]
+          : [{ label: 'Collections', to: backTo }, { label: 'New collection' }]}
         session={session}
-      />
-      <div className="content">
-        <div className={styles.layout}>
+      >
+        <Button variant="secondary" onClick={onCancel}>
+          Cancel
+        </Button>
+        <Button variant="primary" onClick={save} disabled={saving || !valid}>
+          {saving ? 'Saving…' : collection ? 'Save schema' : 'Create collection'}
+        </Button>
+      </TopBar>
+      <div className={`content ${styles.content}`}>
+        <div className={styles.shell}>
+          <div className={`${styles.main} ${collection ? '' : styles.mainSolo}`}>
+            <div className={styles.layout}>
           <div className={`page-head ${styles.pageHeader}`}>
             <div className="page-title-group">
-              <h2 className="page-title">{collection ? `Edit schema` : 'New collection'}</h2>
+              <h2 className="page-title">{collection ? 'Edit collection' : 'New collection'}</h2>
               <span className="page-sub">Define the collection with JSON Schema draft 2020-12.</span>
-            </div>
-            <div className="head-actions">
-              <Button variant="secondary" onClick={onCancel}>
-                Cancel
-              </Button>
             </div>
           </div>
 
@@ -317,7 +351,7 @@ export function SchemaEditorView({ collection, collections, url, apiKey, scope, 
             Require an API key to read entries (<span className="mono">{SchemaAccess.AuthKeyword}</span>).
           </span>
         </div>
-        <Toggle size="sm" on={auth} onChange={setAuthFlag} disabled={!canChangeAccess} title={canChangeAccess ? undefined : 'Missing access:update claim'} />
+        <Toggle size="sm" on={displayedAuth} onChange={setAuthFlag} disabled={!canChangeAccess} title={canChangeAccess ? undefined : 'Missing access:update claim'} />
       </div>
 
       <div className={styles.card}>
@@ -476,13 +510,79 @@ export function SchemaEditorView({ collection, collections, url, apiKey, scope, 
             {valid ? <Check size={14} /> : <AlertCircle size={14} />}
             {valid ? `Schema is valid · ${fieldCount} ${fieldCount === 1 ? 'field' : 'fields'}` : 'Invalid JSON'}
           </span>
-          <Button variant="primary" onClick={save} disabled={saving || !valid}>
-            {saving ? 'Saving…' : 'Save schema'}
-          </Button>
         </div>
       </div>
+            </div>
+          </div>
+
+          {collection && (
+            <aside className={styles.rail}>
+              <div className={styles.metadataGroup}>
+                <span className={styles.metadataLabel}>COLLECTION</span>
+                <div className={styles.metadataRow}>
+                  <span className={styles.metadataKey}>name</span>
+                  <span className={styles.metadataValue} title={collection.name}>{collection.name}</span>
+                </div>
+                <div className={styles.metadataRow}>
+                  <span className={styles.metadataKey}>project</span>
+                  <span className={styles.metadataValue}>{scope.project}</span>
+                </div>
+                <div className={styles.metadataRow}>
+                  <span className={styles.metadataKey}>environment</span>
+                  <span className={styles.metadataValue}>{scope.env}</span>
+                </div>
+                <div className={styles.metadataRow}>
+                  <span className={styles.metadataKey}>fields</span>
+                  <span className={styles.metadataValue}>{fieldCount}</span>
+                </div>
+                <div className={styles.metadataRow}>
+                  <span className={styles.metadataKey}>entries</span>
+                  <span className={styles.metadataValue}>{entryCount ?? '—'}</span>
+                </div>
+                <div className={styles.metadataRow}>
+                  <span className={styles.metadataKey}>read access</span>
+                  <span className={styles.metadataValue}>{displayedAuth ? 'API key' : 'public'}</span>
+                </div>
+              </div>
+
+              {canDelete && (
+                <>
+                  <div className={styles.railDivider} />
+                  <Button variant="dangerGhost" onClick={() => {
+                    setDeleteError('')
+                    setShowDelete(true)
+                  }}>
+                    <Trash2 size={14} /> Delete collection
+                  </Button>
+                  <span className={styles.railCaption}>
+                    Deletes the schema and every entry in this collection. This can't be undone.
+                  </span>
+                </>
+              )}
+            </aside>
+          )}
         </div>
       </div>
+
+      {showDelete && collection && (
+        <DangerConfirm
+          title="Delete this collection?"
+          confirmWord={collection.name}
+          confirmLabel="Delete collection"
+          busy={deleting}
+          error={deleteError}
+          onConfirm={removeCollection}
+          onCancel={() => setShowDelete(false)}
+        >
+          The <b>{collection.name}</b> schema and{' '}
+          {entryCount == null
+            ? 'all of its entries'
+            : entryCount === 1
+              ? 'its 1 entry'
+              : `all ${entryCount} of its entries`}{' '}
+          are deleted permanently. References from other collection schemas are not removed.
+        </DangerConfirm>
+      )}
     </>
   )
 }
