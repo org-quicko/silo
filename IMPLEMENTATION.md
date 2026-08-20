@@ -411,7 +411,7 @@ React + TypeScript + Vite + RJSF (`@rjsf/core` + `@rjsf/validator-ajv8` for 2020
 
 **Layout:** a server manager, then a two-pane shell:
 
-- **Sidebar (nav):** the visible collections; selecting one shows its entries. Pinned at the bottom when authorized: *Keys*, *Media*, and *Data transfer*. Navigation and page actions adapt to the session's claims.
+- **Sidebar (nav):** the visible collections with in-memory search and user-resizable width (persisted in `localStorage`); selecting one shows its entries. Pinned at the bottom when authorized: *Keys*, *Media*, and *Data transfer*. Navigation and page actions adapt to the session's claims.
 - **Top bar (slim):** instance name, active key's label, and a lock button that clears the stored key.
 - **Main pane:** whatever the nav selected.
 

@@ -15,6 +15,21 @@ A minimal, self-hostable headless CMS. Users define collections with JSON Schema
 
 *Last updated: 2026-08-20*
 
+- **Expandable sidebar and in-memory collections search (2026-08-20):** the
+  sidebar in the connected workspace shell (`ui/src/views/shell/Sidebar.tsx`) is
+  now user-resizable and provides in-memory search filtering for collections.
+  - **Expandable / Resizable Sidebar:** A drag handle along the right edge of
+    the sidebar allows smooth click-and-drag horizontal resizing between 190px
+    and 500px (default 248px), preventing text selection and displaying a resize
+    cursor while dragging. The chosen width is persisted to `localStorage`
+    (`silo_sidebar_width`). Double-clicking the resizer handle resets the width
+    to the 248px default. Long collection names use ellipsis truncation with
+    tooltips.
+  - **In-Memory Collections Search:** A search input field under the Collections
+    group header allows filtering collection names in real-time. Features
+    an instant clear button, Escape-key clearing, and a dedicated empty state
+    when no collections match the query.
+
 - **Entries could only be saved once — `rev` is now in the API response
   (2026-08-20):** `PUT`/`DELETE` on an entry require the expected revision as
   `If-Match`/`?rev=` (§8), but `EntryUtils.toApiResponse` returned only
