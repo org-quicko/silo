@@ -20,6 +20,7 @@ import { SchemaEditorView } from './schema/SchemaEditor'
 import { EntryForm } from './entries/EntryForm'
 import { MediaLibraryView } from './media/MediaLibrary'
 import styles from './Workspace.module.css'
+import { buildSessionBadge } from './shell/build-session-badge'
 
 interface Props {
   server: Server
@@ -171,7 +172,7 @@ export function Workspace({
   const activeName = 'collection' in route ? route.collection : null
   const activeCollection = collections.find((c) => c.name === activeName) ?? null
   const claims = sessionInfo?.claims || []
-  const session = `${sessionInfo?.label || Claims.label(claims)} · ${server.name}`
+  const session = buildSessionBadge(sessionInfo, scope)
   const totalEntries = collections.length
     ? collections.reduce((sum, c) => sum + (counts[c.name] ?? 0), 0)
     : null

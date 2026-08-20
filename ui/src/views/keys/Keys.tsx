@@ -18,6 +18,7 @@ import table from '../../components/DataTable.module.css'
 import styles from './Keys.module.css'
 
 import type { ScopeRef } from '../../api/types/scope-ref'
+import type { SessionBadge } from '../shell/session-badge'
 
 class KeyClaimSummary {
   static render(claims: string[]) {
@@ -41,7 +42,7 @@ export function KeysView({
   apiKey: string
   scope?: ScopeRef
   claims: string[]
-  session: string
+  session: SessionBadge
   onCreate: () => void
 }) {
   const [keys, setKeys] = useState<KeyView[]>([])

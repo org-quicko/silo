@@ -23,6 +23,7 @@ import { buildUiSchema } from '../../forms/build-ui-schema'
 import { SiloRefs } from '../../schema/silo-refs'
 import { TopBar } from '../shell/TopBar'
 import styles from './EntryForm.module.css'
+import type { SessionBadge } from '../shell/session-badge'
 
 // Convert server ValidationDetails (JSON Pointer paths) into RJSF extraErrors.
 function toExtraErrors(details?: ValidationDetail[]): any {
@@ -52,7 +53,7 @@ interface Props {
   apiKey: string
   scope: ScopeRef
   claims: string[]
-  session: string
+  session: SessionBadge
   /** URL of the collection's entry list — the breadcrumbs link back to it. */
   backTo: string
   onSaved: () => void

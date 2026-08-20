@@ -13,6 +13,7 @@ import { Segmented } from '../../components/Segmented'
 import { TopBar } from '../shell/TopBar'
 import { ModalIcon } from '../../components/ModalIcon'
 import styles from './NewKey.module.css'
+import type { SessionBadge } from '../shell/session-badge'
 
 type Mode = 'standard' | 'custom'
 
@@ -103,7 +104,7 @@ export function NewKeyView({
   scope: ScopeRef
   ownClaims: string[] | Claim[]
   collections: string[]
-  session: string
+  session: SessionBadge
   keysUrl: string
   onCancel: () => void
   onDone: () => void

@@ -1,5 +1,6 @@
 import { ValidationError } from "../errors/validation-error";
 import type { Claim } from "./claim";
+import type { AccessLevel } from "./access-level";
 import type { ClaimPreset } from "./claim-preset";
 import type { CollectionClaim } from "./collection-claim";
 import type { CollectionPermission } from "./collection-permission";
@@ -361,6 +362,47 @@ export class Claims {
       }
     }
     return Claims.normalize(claims);
+  }
+
+  /**
+   * How much authority a key has **within one scope**, as the three bands the
+   * UI can act on. Unlike a key's label this is derived, so it changes as the
+   * user switches project/env — a key that writes in `dev` and only reads in
+   * `prod` reports each honestly. Omitting the scope asks the same question of
+   * the instance as a whole, for surfaces that have not resolved one.
+   *
+   * Bands are widest-first: any write permission anywhere in the scope makes it
+   * "write", because a surface that claimed read-only while a create button was
+   * live would be the more misleading of the two errors.
+   */
+  static accessLevel(
+    claims: readonly string[] | readonly ParsedClaim[],
+    project?: string,
+    env?: string,
+  ): AccessLevel {
+    for (const c of claims) {
+      if (typeof c === "string" ? c === Claims.Root : c.kind === "root") return "root";
+    }
+    const writes: CollectionPermission[] = [
+      Claims.CollectionEntriesCreate,
+      Claims.CollectionEntriesUpdate,
+      Claims.CollectionEntriesDelete,
+      Claims.CollectionCreate,
+      Claims.CollectionDelete,
+      Claims.CollectionSchemaUpdate,
+      Claims.CollectionAccessUpdate,
+    ];
+    if (writes.some((p) => Claims.hasAnyCollectionPermission(claims, p, project, env))) {
+      return "write";
+    }
+    const reads: CollectionPermission[] = [
+      Claims.CollectionEntriesRead,
+      Claims.CollectionSchemaRead,
+    ];
+    if (reads.some((p) => Claims.hasAnyCollectionPermission(claims, p, project, env))) {
+      return "read";
+    }
+    return "none";
   }
 
   static label(claims: readonly string[]): string {

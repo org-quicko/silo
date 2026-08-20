@@ -8,6 +8,7 @@
     "typecheck": "tsc --noEmit"
   },
   "exports": {
+    "./access-level": "./src/claims/access-level.ts",
     "./claims": "./src/claims/claims.ts",
     "./claim": "./src/claims/claim.ts",
     "./claim-preset": "./src/claims/claim-preset.ts",

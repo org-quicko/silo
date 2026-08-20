@@ -8,6 +8,7 @@ import { Routes } from '../../../router/routes'
 import { TopBar } from '../../shell/TopBar'
 import type { Server } from '../../servers/server'
 import styles from '../SettingsView.module.css'
+import type { SessionBadge } from '../../shell/session-badge'
 
 /**
  * What a project *is* on this instance, and the one irreversible thing you can
@@ -27,7 +28,7 @@ export function ProjectGeneralPage({
   project: string
   environments: string[]
   claims: string[]
-  session: string
+  session: SessionBadge
   onDeleted: () => void
 }) {
   const [confirming, setConfirming] = useState(false)
