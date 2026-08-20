@@ -1,12 +1,13 @@
 import { Button } from '../../components/Button'
-import { useState, useRef } from 'react'
+import { useEffect, useState, useRef } from 'react'
 import { Upload, Image, Trash2, Search, FileText, Plus, FolderOpen } from 'lucide-react'
 import { Modal } from '../../components/Modal'
 import { ModalActions } from '../../components/ModalActions'
 import { ModalHeader } from '../../components/ModalHeader'
 import { api } from '../../api/api-client'
 import styles from './MediaWidget.module.css'
-import type { MediaMetadata } from '../../api/types/media-metadata'
+import { MediaRef } from '@silo/shared/media-ref'
+import type { MediaAsset } from '../../api/types/media-asset'
 
 export function MediaWidget(props: any) {
   const { value, disabled, readonly, onChange, registry, options } = props
@@ -14,7 +15,8 @@ export function MediaWidget(props: any) {
   const { url, apiKey } = registry?.formContext || props.formContext || {}
   const [uploading, setUploading] = useState(false)
   const [showModal, setShowModal] = useState(false)
-  const [mediaList, setMediaList] = useState<MediaMetadata[]>([])
+  const [mediaList, setMediaList] = useState<MediaAsset[]>([])
+  const [selected, setSelected] = useState<MediaAsset | null>(null)
   const [loadingMedia, setLoadingMedia] = useState(false)
   const [mediaError, setMediaError] = useState('')
   const [search, setSearch] = useState('')
@@ -25,18 +27,29 @@ export function MediaWidget(props: any) {
   const isLocked = disabled || readonly
 
   const baseUrl = url ? (url.endsWith('/') ? url.slice(0, -1) : url) : ''
-  const displayUrl = value ? (value.startsWith('/') ? `${baseUrl}${value}` : value) : ''
 
-  const isImg = value && (
-    value.endsWith('.png') ||
-    value.endsWith('.jpg') ||
-    value.endsWith('.jpeg') ||
-    value.endsWith('.gif') ||
-    value.endsWith('.svg') ||
-    value.endsWith('.webp') ||
-    value.includes('/media/') ||
-    value.startsWith('http://') ||
-    value.startsWith('https://')
+  // The id this field points at, whichever recognised form the value is in.
+  const selectedId = value ? MediaRef.canonicalId(value) : null
+
+  // A stored value is `silo://media/<id>` (D23) — the id addresses the asset,
+  // so the preview URL is derived rather than stored, and stays correct after
+  // a rename or a move. Pre-D23 values (`/media/<key>`) and foreign absolute
+  // URLs still render.
+  const displayUrl = !value
+    ? ''
+    : selectedId
+      ? `${baseUrl}/media/${selectedId}`
+      : value.startsWith('/')
+        ? `${baseUrl}${value}`
+        : value
+
+  const isImg = Boolean(
+    value &&
+      (selectedId ||
+        /\.(png|jpe?g|gif|svg|webp|ico|avif)$/i.test(value) ||
+        value.includes('/media/') ||
+        value.startsWith('http://') ||
+        value.startsWith('https://')),
   )
 
   const handleUploadFile = async (file: File) => {
@@ -47,8 +60,10 @@ export function MediaWidget(props: any) {
     }
     setUploading(true)
     try {
-      const meta = await api.uploadMedia(url, apiKey, file)
-      onChange(meta.url)
+      const asset = await api.uploadMedia(url, apiKey, file)
+      // Store the reference, not the URL: this is what survives a rename and
+      // what the delete guard counts.
+      onChange(MediaRef.url(asset.id))
       setShowModal(false)
     } catch (err: any) {
       alert(err.message || 'Upload failed')
@@ -66,8 +81,14 @@ export function MediaWidget(props: any) {
     setLoadingMedia(true)
     setMediaError('')
     try {
-      const list = await api.listMedia(url, apiKey)
-      setMediaList(list || [])
+      // Searched server-side through the catalog, so the picker is not
+      // limited to whatever fits in one unpaginated response.
+      const page = await api.listMedia(url, apiKey, {
+        q: search.trim() || undefined,
+        recursive: true,
+        limit: 100,
+      })
+      setMediaList(page.items)
     } catch (err: any) {
       setMediaList([])
       setMediaError(err?.message || 'Failed to load the media library.')
@@ -81,6 +102,33 @@ export function MediaWidget(props: any) {
     loadMediaList()
   }
 
+  // The entry stores an id and a read resolves it to a URL, so neither form
+  // carries the file's name. Fetch the one asset this field points at, rather
+  // than making the reader open the picker to find out what they picked.
+  useEffect(() => {
+    if (!selectedId || !url || !apiKey) {
+      setSelected(null)
+      return
+    }
+    let live = true
+    api
+      .getMediaAsset(url, apiKey, selectedId)
+      .then((a) => live && setSelected(a))
+      .catch(() => live && setSelected(null))
+    return () => {
+      live = false
+    }
+  }, [selectedId, url, apiKey])
+
+  // The picker searches the catalog, so a keystroke is a request. Debounced
+  // to one per pause, and only while the picker is actually open.
+  useEffect(() => {
+    if (!showModal) return
+    const t = setTimeout(loadMediaList, 250)
+    return () => clearTimeout(t)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [search, showModal])
+
   const formatSize = (bytes: number) => {
     if (!bytes) return ''
     if (bytes < 1024) return `${bytes} B`
@@ -89,13 +137,9 @@ export function MediaWidget(props: any) {
     return `${(kb / 1024).toFixed(1)} MB`
   }
 
-  const filteredMedia = mediaList.filter((m) =>
-    m.filename.toLowerCase().includes(search.toLowerCase())
-  )
-
-  // Stored values are `/media/<sha256>_<original name>`; the hash is noise in a
-  // form, so the card leads with the readable name and keeps the raw path below.
   const prettyName = (v: string) => {
+    if (selected) return selected.filename
+    if (MediaRef.is(v)) return MediaRef.idOf(v)
     const last = v.split('/').pop() || v
     return last.replace(/^[0-9a-f]{16,}_/i, '')
   }
@@ -203,7 +247,7 @@ export function MediaWidget(props: any) {
             <input
               type="text"
               className={`input mono ${styles.manualInput}`}
-              placeholder="/media/filename.png or https://..."
+              placeholder="silo://media/<id> or https://…"
               value={value || ''}
               onChange={(e) => onChange(e.target.value === '' ? options?.emptyValue : e.target.value)}
             />
@@ -252,7 +296,7 @@ export function MediaWidget(props: any) {
           <div className={styles.list}>
             {loadingMedia ? (
               <div className={`center-wrap ${styles.empty}`}>Loading media library…</div>
-            ) : filteredMedia.length === 0 ? (
+            ) : mediaList.length === 0 ? (
               <div className={`center-wrap ${styles.empty}`}>
                 <Image size={28} />
                 <span>
@@ -265,19 +309,18 @@ export function MediaWidget(props: any) {
               </div>
             ) : (
               <div className={styles.grid}>
-                {filteredMedia.map((m) => {
-                  const ext = m.filename.split('.').pop()?.toLowerCase() || ''
-                  const isImgFile = ['png', 'jpg', 'jpeg', 'gif', 'svg', 'webp', 'ico'].includes(ext)
+                {mediaList.map((m) => {
+                  const isImgFile = m.content_type.startsWith('image/')
                   const itemUrl = `${baseUrl}${m.url}`
-                  const selected = value === m.url || value === itemUrl
+                  const isSelected = selectedId === m.id
 
                   return (
                     <button
-                      key={m.hash}
+                      key={m.id}
                       type="button"
-                      className={`${styles.card} ${selected ? styles.selected : ''}`}
+                      className={`${styles.card} ${isSelected ? styles.selected : ''}`}
                       onClick={() => {
-                        onChange(m.url)
+                        onChange(MediaRef.url(m.id))
                         setShowModal(false)
                       }}
                     >

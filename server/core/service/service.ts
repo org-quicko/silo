@@ -17,6 +17,7 @@ import { KeyUtils } from "../keys/key-utils";
 import type { KeyInfo } from "../keys/key-info";
 import { QueryUtils } from "../query/query-utils";
 import type { Query } from "../query/query";
+import type { Filter } from "../query/filter";
 import { Exporter } from "../transfer/exporter";
 import type { ExportOptions } from "../transfer/export-options";
 import { Importer } from "../transfer/importer";
@@ -32,7 +33,18 @@ import crypto from "crypto";
 import { SchemaBundler } from "../schema/schema-bundler";
 import type { Collection } from "../domain/collection";
 import type { KeyView } from "./key-view";
-import type { MediaMetadata } from "../media/media-metadata";
+import { MediaCatalog } from "../media/media-catalog";
+import { MediaPaths } from "../media/media-paths";
+import { MediaRefs } from "../media/media-refs";
+import { MediaInUseError } from "../errors/media-in-use-error";
+import { MediaDeleteStalledError } from "../errors/media-delete-stalled-error";
+import { MediaRef } from "@silo/shared/media-ref";
+import type { MediaAsset } from "../media/media-asset";
+import type { MediaAssetView } from "../media/media-asset-view";
+import type { MediaFolder } from "../media/media-folder";
+import type { MediaQuery } from "../media/media-query";
+import type { MediaReconcileResult } from "../media/media-reconcile-result";
+import type { MediaUsage } from "../media/media-usage";
 import { AsyncMutex } from "./async-mutex";
 
 /** A collection in a scope, with its entry count. */
@@ -399,7 +411,15 @@ export class Service {
 
   async createEntry(scope: Scope, collection: string, data: any): Promise<Entry> {
     await this.requireUserCollection(scope, collection);
+    // Canonicalised **before** validation, so the schema judges exactly the
+    // value that will be stored. Reads resolve media fields into absolute
+    // URLs, so a client that PUTs back what it fetched would otherwise store
+    // a URL where a reference belongs — quietly turning a counted reference
+    // into an uncounted string (D23).
+    data = MediaRefs.canonicalize(data);
     await this.schemas.validateEntry(scope, collection, data);
+
+    const usages = MediaRefs.extract(data);
 
     const now = EntryUtils.now();
     const e: Entry = {
@@ -416,7 +436,12 @@ export class Service {
 
     const release = await this.writeMu.acquire();
     try {
-      await this.store.put(e);
+      // Under the lock, not before it: `deleteMedia` counts usages while
+      // holding the same mutex, so a check outside it could pass, lose the
+      // race to a delete, and then write a reference to bytes that are
+      // already gone.
+      await this.assertMediaReferencable(usages);
+      await this.store.put(e, usages);
       return e;
     } finally {
       release();
@@ -454,10 +479,14 @@ export class Service {
     expectedRev: number
   ): Promise<Entry> {
     await this.requireUserCollection(scope, collection);
+    data = MediaRefs.canonicalize(data);
     await this.schemas.validateEntry(scope, collection, data);
+
+    const usages = MediaRefs.extract(data);
 
     const release = await this.writeMu.acquire();
     try {
+      await this.assertMediaReferencable(usages);
       const cur = await this.store.get(scope, collection, id);
       if (cur.rev !== expectedRev) {
         throw new ConflictError(
@@ -472,7 +501,7 @@ export class Service {
         data,
       };
 
-      await this.store.put(e);
+      await this.store.put(e, usages);
       return e;
     } finally {
       release();
@@ -529,7 +558,7 @@ export class Service {
 
     const release = await this.writeMu.acquire();
     try {
-      await this.store.put(e);
+      await this.store.put(e, []);
       return { secret, entry: e };
     } finally {
       release();
@@ -637,66 +666,611 @@ export class Service {
     }
   }
 
-  // ---- Media ----
-  // Instance-global, not scoped (media stays a later-phase concern).
+  // ---- Media (D23) ----
+  //
+  // Instance-global: one library for the whole server, not per project/env,
+  // and `media:*` stays unscoped. Folders organise; they do not authorise.
+  //
+  // The catalog (`_media` in `Scope.System`) is the source of truth for
+  // everything *about* a file; `BlobStorage` holds only bytes. Entries
+  // reference an asset by its catalog id, so renaming a file or moving it
+  // between folders rewrites no entry and touches no blob.
 
-  async listMedia(): Promise<MediaMetadata[]> {
-    const items = await this.blobStore.list();
-    const results: MediaMetadata[] = [];
-    for (const item of items) {
-      const splitIdx = item.key.indexOf("_");
-      if (splitIdx === -1) continue;
-      const hash = item.key.substring(0, splitIdx);
-      const filename = item.key.substring(splitIdx + 1);
-      results.push({
-        hash,
-        filename,
-        size: item.size,
-        url: `/media/${item.key}`,
-        created_at: item.lastModified ? item.lastModified.toISOString() : new Date().toISOString(),
-      });
-    }
-    return results.sort((a, b) => b.created_at.localeCompare(a.created_at));
+  private mediaScope(): Scope {
+    return Scope.System;
   }
 
-  async saveMedia(originalName: string, fileData: Uint8Array, mimeType?: string): Promise<MediaMetadata> {
-    const hash = crypto.createHash("sha256").update(fileData).digest("hex");
-    const ext = path.extname(originalName);
-    const baseName = path.basename(originalName, ext);
-    const cleanBaseName = baseName
-      .replace(/\s+/g, "-")
-      .replace(/[^a-zA-Z0-9.-]/g, "")
-      .toLowerCase();
-    const cleanExt = ext.replace(/[^a-zA-Z0-9.]/g, "").toLowerCase();
-    const cleanName = `${cleanBaseName}${cleanExt}`;
-    const diskName = `${hash}_${cleanName}`;
-    const contentType = mimeType || MimeUtils.lookup(originalName);
-    await this.blobStore.put(diskName, fileData, { contentType });
+  /** The `_media` document for an asset, or a NotFoundError. */
+  private async mediaEntry(id: string): Promise<Entry> {
+    EntryUtils.assertSafeSegment(id, "id");
+    try {
+      return await this.store.get(this.mediaScope(), MediaCatalog.Collection, id);
+    } catch (err) {
+      if (err instanceof NotFoundError) {
+        throw new NotFoundError(`media asset "${id}" not found`);
+      }
+      throw err;
+    }
+  }
+
+  private async putMediaEntry(id: string, asset: MediaAsset, created?: Date): Promise<Entry> {
+    const now = EntryUtils.now();
+    let rev = 1;
+    let createdAt = created || now;
+    try {
+      const cur = await this.store.get(this.mediaScope(), MediaCatalog.Collection, id);
+      rev = cur.rev + 1;
+      createdAt = cur.created_at instanceof Date ? cur.created_at : new Date(cur.created_at);
+    } catch (err) {
+      if (!(err instanceof NotFoundError)) throw err;
+    }
+
+    const e: Entry = {
+      id,
+      project: this.mediaScope().project,
+      env: this.mediaScope().env,
+      collection: MediaCatalog.Collection,
+      rev,
+      seq: 0,
+      created_at: createdAt,
+      updated_at: now,
+      data: asset,
+    };
+    // A catalog record holds no media reference of its own.
+    await this.store.put(e, []);
+    return e;
+  }
+
+  private static readonly MediaSortFields: Record<string, string> = {
+    created_at: "$created_at",
+    updated_at: "$updated_at",
+    filename: "filename",
+    size: "size",
+  };
+
+  private static mediaSort(sort?: string): { field: string; desc: boolean }[] {
+    const raw = (sort || "-created_at").trim();
+    const desc = raw.startsWith("-");
+    const name = desc ? raw.slice(1) : raw;
+    const field = Service.MediaSortFields[name];
+    if (!field) {
+      throw new ValidationError(
+        `invalid media sort "${raw}"; expected one of ${Object.keys(Service.MediaSortFields).join(", ")} with an optional "-" prefix`
+      );
+    }
+    return [{ field, desc }];
+  }
+
+  /**
+   * Search the catalog. Every filter compiles to the existing Query AST, so
+   * media search adds no operator that every adapter would have to carry
+   * forever (§5.3), and paging comes from `Storage.list` unchanged.
+   */
+  async listMedia(
+    opts: MediaQuery = {}
+  ): Promise<{ items: MediaAssetView[]; total: number; limit: number; offset: number }> {
+    const args: Filter[] = [];
+    if (opts.q && opts.q.trim()) {
+      args.push({ op: "contains", field: "filename", value: opts.q.trim() });
+    }
+    if (opts.type && opts.type.trim()) {
+      args.push({ op: "contains", field: "content_type", value: opts.type.trim() });
+    }
+    if (opts.tag && opts.tag.trim()) {
+      args.push({ op: "contains", field: "tags", value: opts.tag.trim() });
+    }
+    // A recursive folder filter can't be one AST op — `contains` on a string
+    // would also match "/marketing-old" for "/marketing". Filter it after the
+    // fact rather than adding a `prefix` op the fs adapter and SQLite would
+    // both have to implement forever.
+    const folder = opts.folder === undefined ? undefined : MediaPaths.normalizeFolder(opts.folder);
+    if (folder !== undefined && !opts.recursive) {
+      args.push({ op: "eq", field: "folder", value: folder });
+    }
+
+    const filter: Filter | undefined =
+      args.length === 0 ? undefined : args.length === 1 ? args[0] : { op: "and", args };
+
+    const limit = QueryUtils.normalizeQuery({ limit: opts.limit }).limit;
+    const offset = Math.max(0, opts.offset || 0);
+    const sort = Service.mediaSort(opts.sort);
+
+    // A recursive filter rooted at "" matches everything, so it is no filter
+    // at all — taking the in-memory path for it would load the whole catalog
+    // to page the library's default view.
+    if (folder && opts.recursive) {
+      const res = await this.store.list(this.mediaScope(), MediaCatalog.Collection, {
+        filter,
+        sort,
+        limit: 100000,
+        offset: 0,
+      });
+      const within = res.items.filter((e) =>
+        MediaPaths.isWithin(MediaCatalog.toAsset(e).folder, folder)
+      );
+      const page = within.slice(offset, offset + limit);
+      return {
+        items: await this.withUsageCounts(page),
+        total: within.length,
+        limit,
+        offset,
+      };
+    }
+
+    const res = await this.store.list(this.mediaScope(), MediaCatalog.Collection, {
+      filter,
+      sort,
+      limit,
+      offset,
+    });
     return {
-      hash,
-      filename: cleanName,
-      size: fileData.length,
-      url: `/media/${diskName}`,
-      created_at: new Date().toISOString(),
+      items: await this.withUsageCounts(res.items),
+      total: res.total,
+      limit,
+      offset,
     };
   }
 
-  async getMedia(diskFilename: string): Promise<{ data: Uint8Array; contentType?: string; size: number } | null> {
-    if (diskFilename.includes("..") || diskFilename.includes("/") || diskFilename.includes("\\")) {
-      throw new ValidationError("invalid filename");
+  /** One `countMediaUsages` call for a whole page, not one per asset. */
+  private async withUsageCounts(entries: Entry[]): Promise<MediaAssetView[]> {
+    if (entries.length === 0) return [];
+    const tokens: string[] = [];
+    for (const e of entries) {
+      tokens.push(...MediaCatalog.tokens(e.id, MediaCatalog.toAsset(e).blob_key));
     }
-    return await this.blobStore.get(diskFilename);
+    const counts = await this.store.countMediaUsages(tokens);
+    return entries.map((e) => {
+      const asset = MediaCatalog.toAsset(e);
+      let total = 0;
+      for (const token of MediaCatalog.tokens(e.id, asset.blob_key)) {
+        total += counts.get(token) || 0;
+      }
+      return MediaCatalog.toView(e, total);
+    });
   }
 
-  async deleteMedia(diskFilename: string): Promise<void> {
+  async getMediaAsset(id: string): Promise<MediaAssetView> {
+    const e = await this.mediaEntry(id);
+    const [view] = await this.withUsageCounts([e]);
+    return view;
+  }
 
-    if (diskFilename.includes("..") || diskFilename.includes("/") || diskFilename.includes("\\")) {
-      throw new ValidationError("invalid filename");
+  /**
+   * Referrers of an asset. Instance-global media meets scoped entries here:
+   * the caller gets the true total but only the rows `canRead` admits, so a
+   * key confined to one project learns that a file is in use without learning
+   * where (§8.1).
+   */
+  async listMediaUsages(
+    id: string,
+    opts: { limit?: number; offset?: number } = {},
+    canRead?: (project: string, env: string, collection: string) => boolean
+  ): Promise<{ items: MediaUsage[]; total: number; visible: number }> {
+    const e = await this.mediaEntry(id);
+    const tokens = MediaCatalog.tokens(e.id, MediaCatalog.toAsset(e).blob_key);
+    const res = await this.store.listMediaUsages(tokens, opts);
+    const items = canRead
+      ? res.items.filter((u) => canRead(u.project, u.env, u.collection))
+      : res.items;
+    return { items, total: res.total, visible: items.length };
+  }
+
+  async saveMedia(
+    originalName: string,
+    fileData: Uint8Array,
+    mimeType?: string,
+    folder?: string
+  ): Promise<MediaAssetView> {
+    const filename = MediaPaths.normalizeFilename(originalName);
+    const normalizedFolder = MediaPaths.normalizeFolder(folder);
+    const hash = crypto.createHash("sha256").update(fileData).digest("hex");
+    const id = EntryUtils.newID();
+    const blobKey = MediaPaths.blobKey(id, filename);
+    const contentType = mimeType && mimeType.trim() ? mimeType : MimeUtils.lookup(filename);
+
+    const release = await this.writeMu.acquire();
+    try {
+      // Bytes first: a blob with no catalog record is an orphan reconcile can
+      // adopt or report, whereas a record with no bytes is a broken asset
+      // every reader trips over.
+      await this.blobStore.put(blobKey, fileData, { contentType });
+      const asset: MediaAsset = {
+        filename,
+        folder: normalizedFolder,
+        blob_key: blobKey,
+        size: fileData.length,
+        content_type: contentType,
+        hash,
+        state: "active",
+        tags: [],
+      };
+      const e = await this.putMediaEntry(id, asset);
+      return MediaCatalog.toView(e, 0);
+    } finally {
+      release();
     }
-    const exists = await this.blobStore.exists(diskFilename);
-    if (!exists) {
-      throw new NotFoundError(`media file "${diskFilename}" not found`);
+  }
+
+  /** Rename, move, or retag. None of it touches the blob or any entry. */
+  async updateMediaAsset(
+    id: string,
+    patch: { filename?: unknown; folder?: unknown; tags?: unknown }
+  ): Promise<MediaAssetView> {
+    const release = await this.writeMu.acquire();
+    try {
+      const e = await this.mediaEntry(id);
+      const asset = MediaCatalog.toAsset(e);
+      if (asset.state === "deleting") {
+        throw new ConflictError(`media asset "${id}" is being deleted`);
+      }
+
+      const next: MediaAsset = { ...asset };
+      if (patch.filename !== undefined) {
+        next.filename = MediaPaths.normalizeFilename(patch.filename, asset.filename);
+      }
+      if (patch.folder !== undefined) {
+        next.folder = MediaPaths.normalizeFolder(patch.folder);
+      }
+      if (patch.tags !== undefined) {
+        if (!Array.isArray(patch.tags) || patch.tags.some((t) => typeof t !== "string")) {
+          throw new ValidationError("tags must be an array of strings");
+        }
+        next.tags = [...new Set(patch.tags as string[])].map((t) => t.trim()).filter(Boolean).sort();
+      }
+
+      const updated = await this.putMediaEntry(id, next);
+      const [view] = await this.withUsageCounts([updated]);
+      return view;
+    } finally {
+      release();
     }
-    await this.blobStore.delete(diskFilename);
+  }
+
+  /**
+   * The deletion saga (§8.1). The catalog and a remote object store cannot
+   * share a transaction, so deletion is staged: refuse while referenced, then
+   * commit to `deleting`, then delete the blob, then drop the record. A crash
+   * after the commit leaves the asset in `deleting`, which
+   * `resumePendingMediaDeletions` finishes at startup and which
+   * `assertMediaReferencable` refuses to let anything reference again.
+   *
+   * There is no force-delete.
+   */
+  async deleteMedia(id: string): Promise<void> {
+    const release = await this.writeMu.acquire();
+    try {
+      const e = await this.mediaEntry(id);
+      const asset = MediaCatalog.toAsset(e);
+
+      if (asset.state !== "deleting") {
+        const tokens = MediaCatalog.tokens(e.id, asset.blob_key);
+        const usage = await this.store.listMediaUsages(tokens, { limit: 0 });
+        if (usage.total > 0) {
+          throw new MediaInUseError(id, usage.total);
+        }
+        await this.putMediaEntry(id, { ...asset, state: "deleting" });
+      }
+
+      try {
+        await this.finishMediaDeletion(id, asset.blob_key);
+      } catch (err) {
+        // The asset is staged and stays staged — recoverable, but only if the
+        // caller learns how. A bare 500 would say nothing about `reconcile`.
+        throw new MediaDeleteStalledError(id, asset.blob_key, err);
+      }
+    } finally {
+      release();
+    }
+  }
+
+  /** Steps 3 and 4 of the saga; idempotent, so a retry is always safe. */
+  private async finishMediaDeletion(id: string, blobKey: string): Promise<void> {
+    if (blobKey) {
+      await this.blobStore.delete(blobKey);
+    }
+    try {
+      await this.store.delete(this.mediaScope(), MediaCatalog.Collection, id);
+    } catch (err) {
+      if (!(err instanceof NotFoundError)) throw err;
+    }
+  }
+
+  /**
+   * Carries any asset left mid-delete to completion. Called at startup, where
+   * it closes the window a crash between the blob delete and the record
+   * delete would otherwise leave open indefinitely.
+   *
+   * Failures are counted, never thrown: a misconfigured or unreachable blob
+   * store would otherwise stop the server booting because of a media deletion
+   * somebody staged days ago. Startup **retries**; it does not abort a staged
+   * deletion, because a retry is the intended operation and one failure is not
+   * evidence the operation is impossible. Reversing it is
+   * `reconcileMedia`'s job — the operator-invoked repair.
+   */
+  async resumePendingMediaDeletions(): Promise<{ finished: number; pending: number }> {
+    const res = await this.store.list(this.mediaScope(), MediaCatalog.Collection, {
+      filter: { op: "eq", field: "state", value: "deleting" },
+      limit: 500,
+      offset: 0,
+    });
+    let finished = 0;
+    let pending = 0;
+    for (const e of res.items) {
+      try {
+        await this.finishMediaDeletion(e.id, MediaCatalog.toAsset(e).blob_key);
+        finished++;
+      } catch {
+        pending++;
+      }
+    }
+    return { finished, pending };
+  }
+
+  /**
+   * Refuses a *new* reference to an asset that is being deleted, or to one
+   * that does not exist at all. Called from the entry write path only —
+   * import does not run it, because §7.2 is fidelity-first and an archive
+   * must never be rejected for naming an asset it also carries.
+   */
+  private async assertMediaReferencable(tokens: string[]): Promise<void> {
+    for (const token of tokens) {
+      if (token.startsWith(MediaRef.BlobTokenPrefix)) continue; // pre-D23 form
+      let e: Entry;
+      try {
+        e = await this.store.get(this.mediaScope(), MediaCatalog.Collection, token);
+      } catch (err) {
+        if (err instanceof NotFoundError) {
+          throw new ValidationError(`media asset "${token}" does not exist`);
+        }
+        throw err;
+      }
+      if (MediaCatalog.toAsset(e).state === "deleting") {
+        throw new ConflictError(`media asset "${token}" is being deleted and cannot be referenced`);
+      }
+    }
+  }
+
+  // ---- Media folders ----
+  // D20's existence rule in both halves: a folder exists when it was created
+  // explicitly (a `_media_folders` record) or when some asset names it. The
+  // explicit half is what lets a folder be made before anything is filed into
+  // it — the gap D20 found with empty projects.
+
+  async listMediaFolders(): Promise<string[]> {
+    const paths = new Set<string>();
+
+    const declared = await this.store.list(this.mediaScope(), MediaCatalog.FoldersCollection, {
+      limit: 100000,
+      offset: 0,
+    });
+    for (const e of declared.items) {
+      const folder = MediaCatalog.folderOf(e);
+      if (folder) for (const ancestor of MediaPaths.ancestors(folder)) paths.add(ancestor);
+    }
+
+    const assets = await this.store.list(this.mediaScope(), MediaCatalog.Collection, {
+      limit: 100000,
+      offset: 0,
+    });
+    for (const e of assets.items) {
+      const folder = MediaCatalog.toAsset(e).folder;
+      if (folder) for (const ancestor of MediaPaths.ancestors(folder)) paths.add(ancestor);
+    }
+
+    return [...paths].sort();
+  }
+
+  private async folderEntry(folderPath: string): Promise<Entry | null> {
+    const res = await this.store.list(this.mediaScope(), MediaCatalog.FoldersCollection, {
+      filter: { op: "eq", field: "path", value: folderPath },
+      limit: 1,
+      offset: 0,
+    });
+    return res.items[0] || null;
+  }
+
+  async createMediaFolder(folderPath: unknown): Promise<string> {
+    const normalized = MediaPaths.normalizeFolder(folderPath);
+    if (!normalized) {
+      throw new ValidationError("folder path is required");
+    }
+    const release = await this.writeMu.acquire();
+    try {
+      if (await this.folderEntry(normalized)) return normalized;
+      const now = EntryUtils.now();
+      const e: Entry = {
+        id: EntryUtils.newID(),
+        project: this.mediaScope().project,
+        env: this.mediaScope().env,
+        collection: MediaCatalog.FoldersCollection,
+        rev: 1,
+        seq: 0,
+        created_at: now,
+        updated_at: now,
+        data: { path: normalized } satisfies MediaFolder,
+      };
+      await this.store.put(e, []);
+      return normalized;
+    } finally {
+      release();
+    }
+  }
+
+  /**
+   * Removes the explicit record. Refuses while any asset still names the
+   * folder or one beneath it — deleting a folder must never be a way to
+   * delete the files in it, which would route around the reference guard.
+   */
+  async deleteMediaFolder(folderPath: unknown): Promise<void> {
+    const normalized = MediaPaths.normalizeFolder(folderPath);
+    if (!normalized) {
+      throw new ValidationError("folder path is required");
+    }
+    const release = await this.writeMu.acquire();
+    try {
+      const assets = await this.store.list(this.mediaScope(), MediaCatalog.Collection, {
+        limit: 100000,
+        offset: 0,
+      });
+      const occupied = assets.items.filter((e) =>
+        MediaPaths.isWithin(MediaCatalog.toAsset(e).folder, normalized)
+      ).length;
+      if (occupied > 0) {
+        throw new ConflictError(
+          `folder "${normalized}" still holds ${occupied} file${occupied === 1 ? "" : "s"}`
+        );
+      }
+
+      for (const e of (
+        await this.store.list(this.mediaScope(), MediaCatalog.FoldersCollection, {
+          limit: 100000,
+          offset: 0,
+        })
+      ).items) {
+        if (MediaPaths.isWithin(MediaCatalog.folderOf(e), normalized)) {
+          await this.store.delete(this.mediaScope(), MediaCatalog.FoldersCollection, e.id);
+        }
+      }
+    } finally {
+      release();
+    }
+  }
+
+  // ---- Serving and reconciliation ----
+
+  /**
+   * Bytes for a public request. Resolves a catalog id first; falls back to a
+   * raw blob key so pre-D23 `/media/<blobKey>` URLs still serve while an
+   * instance is being backfilled.
+   */
+  async getMedia(
+    idOrKey: string
+  ): Promise<{ data: Uint8Array; contentType?: string; size: number; filename?: string; hash?: string } | null> {
+    if (idOrKey.includes("..") || idOrKey.includes("/") || idOrKey.includes("\\")) {
+      throw new ValidationError("invalid media identifier");
+    }
+
+    try {
+      const e = await this.store.get(this.mediaScope(), MediaCatalog.Collection, idOrKey);
+      const asset = MediaCatalog.toAsset(e);
+      const blob = await this.blobStore.get(asset.blob_key);
+      if (!blob) return null;
+      return {
+        data: blob.data,
+        contentType: asset.content_type || blob.contentType,
+        size: blob.size,
+        filename: asset.filename,
+        hash: asset.hash,
+      };
+    } catch (err) {
+      if (!(err instanceof NotFoundError)) throw err;
+    }
+
+    const blob = await this.blobStore.get(idOrKey);
+    if (!blob) return null;
+    return {
+      data: blob.data,
+      contentType: blob.contentType || MimeUtils.lookup(idOrKey),
+      size: blob.size,
+      filename: idOrKey,
+    };
+  }
+
+  /**
+   * Reconciles the catalog against the blob store: adopts blobs that predate
+   * D23 or that a half-finished upload left behind, finishes staged
+   * deletions, prunes records whose bytes are gone, and reports orphans
+   * without deleting them.
+   */
+  async reconcileMedia(): Promise<MediaReconcileResult> {
+    const release = await this.writeMu.acquire();
+    try {
+      const result: MediaReconcileResult = {
+        adopted: 0,
+        pruned: 0,
+        finished: 0,
+        aborted: 0,
+        pending: 0,
+        orphans: [],
+      };
+
+      const records = await this.store.list(this.mediaScope(), MediaCatalog.Collection, {
+        limit: 100000,
+        offset: 0,
+      });
+      const claimed = new Set<string>();
+
+      for (const e of records.items) {
+        const asset = MediaCatalog.toAsset(e);
+        if (asset.state === "deleting") {
+          // Attempt the deletion rather than judging by whether the blob is
+          // still there: a crash between staging and the blob delete leaves
+          // the bytes in place too, and that case should *complete*, not
+          // reverse. An actual failure is the only thing that distinguishes
+          // "interrupted" from "impossible".
+          try {
+            await this.finishMediaDeletion(e.id, asset.blob_key);
+            result.finished++;
+          } catch {
+            try {
+              await this.putMediaEntry(e.id, { ...asset, state: "active" });
+              result.aborted++;
+              // Its bytes are still claimed, so it must not also be reported
+              // as an orphan on the same pass.
+              claimed.add(asset.blob_key);
+            } catch {
+              result.pending++;
+              claimed.add(asset.blob_key);
+            }
+          }
+          continue;
+        }
+        if (asset.blob_key && !(await this.blobStore.exists(asset.blob_key))) {
+          await this.store.delete(this.mediaScope(), MediaCatalog.Collection, e.id);
+          result.pruned++;
+          continue;
+        }
+        claimed.add(asset.blob_key);
+      }
+
+      for (const blob of await this.blobStore.list()) {
+        if (claimed.has(blob.key)) continue;
+        // A pre-D23 key is `<sha256>_<name>`; anything else is reported
+        // rather than adopted, because inventing a record for bytes of
+        // unknown provenance is a guess, not a repair.
+        const split = blob.key.indexOf("_");
+        if (split <= 0) {
+          result.orphans.push(blob.key);
+          continue;
+        }
+        const hash = blob.key.slice(0, split);
+        const filename = MediaPaths.normalizeFilename(blob.key.slice(split + 1));
+        const id = EntryUtils.newID();
+        await this.putMediaEntry(
+          id,
+          {
+            filename,
+            folder: "",
+            // Adopts the existing key rather than renaming the object:
+            // pre-D23 entries hold `/media/<key>`, and those references are
+            // counted through the `blob:` token, which only resolves while
+            // the bytes stay where they are.
+            blob_key: blob.key,
+            size: blob.size,
+            content_type: blob.contentType || MimeUtils.lookup(filename),
+            hash,
+            state: "active",
+            tags: [],
+          },
+          blob.lastModified
+        );
+        result.adopted++;
+      }
+
+      result.orphans.sort();
+      return result;
+    } finally {
+      release();
+    }
   }
 }

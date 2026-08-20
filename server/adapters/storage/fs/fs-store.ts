@@ -7,6 +7,8 @@ import type { Meta } from "../../../core/domain/meta";
 import { Scope } from "../../../core/domain/scope";
 import type { Query } from "../../../core/query/query";
 import { NotFoundError } from "../../../core/errors/not-found-error";
+import { MediaRefs } from "../../../core/media/media-refs";
+import type { MediaUsage } from "../../../core/media/media-usage";
 import { FormatVersion } from "../../../core/transfer/format-version";
 import { FsFilter } from "./fs-filter";
 import type { FsManifest } from "./fs-manifest";
@@ -203,7 +205,12 @@ export class FsStore implements Storage {
   }
 
   /** Child directory names, `_`-prefixed and dotfiles excluded. */
-  private static async readSubdirs(dir: string): Promise<string[]> {
+  // `_`-prefixed directories are the reserved system scope and stay out of
+  // every listing that answers "what scopes exist". `includeReserved` is for
+  // the one caller that must see them anyway: the media usage scan, which is
+  // asking "does anything at all still reference this file" and would leave a
+  // silent hole in the delete guard if it skipped a whole scope (D23).
+  private static async readSubdirs(dir: string, includeReserved = false): Promise<string[]> {
     let entries: import("fs").Dirent[];
     try {
       entries = await fs.readdir(dir, { withFileTypes: true });
@@ -212,7 +219,12 @@ export class FsStore implements Storage {
       throw err;
     }
     return entries
-      .filter((e) => e.isDirectory() && !e.name.startsWith("_") && !e.name.startsWith("."))
+      .filter(
+        (e) =>
+          e.isDirectory() &&
+          !e.name.startsWith(".") &&
+          (includeReserved || !e.name.startsWith("_"))
+      )
       .map((e) => e.name)
       .sort();
   }
@@ -332,7 +344,15 @@ export class FsStore implements Storage {
   // straight through `path.join` into another scope, or outside the data
   // dir entirely.
 
-  async put(e: Entry): Promise<void> {
+  // `usages` is deliberately unused. The fs adapter keeps no reference index
+  // at all: it derives usages by scanning entry files in `listMediaUsages`
+  // (D23). An index would have to be either a new file type under `content/`
+  // — which the export format is frozen against (D5) — or in-memory, and an
+  // in-memory index goes stale the moment someone rsyncs or `git checkout`s
+  // under a running process, which silently permits deleting a referenced
+  // file. Scanning has no staleness window and is the O(n)-per-query
+  // character §6.3 already commits this adapter to.
+  async put(e: Entry, _usages: string[]): Promise<void> {
     EntryUtils.assertSafeSegment(e.project, "project");
     EntryUtils.assertSafeSegment(e.env, "env");
     EntryUtils.assertSafeSegment(e.collection, "collection");
@@ -483,6 +503,79 @@ export class FsStore implements Storage {
 
     scopes.sort((a, b) => a.project.localeCompare(b.project) || a.env.localeCompare(b.env));
     return scopes;
+  }
+
+  // ---- Media usages (D23) ----
+  // Derived by scanning, never indexed — see the note on `put`. Every entry
+  // file in the tree is read once and run through the one shared extractor,
+  // so this adapter and SQLite cannot disagree about what counts as a
+  // reference. System collections are included: `_keys` holds no media, but
+  // an entry is an entry and excluding a collection here would be a silent
+  // hole in the delete guard.
+
+  private async scanMediaUsages(wanted: Set<string>): Promise<MediaUsage[]> {
+    const out: MediaUsage[] = [];
+    const projectsDir = path.join(this.dir, "projects");
+
+    for (const project of await FsStore.readSubdirs(projectsDir, true)) {
+      for (const env of await FsStore.readSubdirs(path.join(projectsDir, project), true)) {
+        const contentDir = path.join(projectsDir, project, env, "content");
+        for (const collection of await FsStore.readSubdirs(contentDir, true)) {
+          let files: string[];
+          try {
+            files = await fs.readdir(path.join(contentDir, collection));
+          } catch {
+            continue;
+          }
+          for (const file of files) {
+            if (!file.endsWith(".json") || file.startsWith(".")) continue;
+            let parsed: any;
+            try {
+              parsed = JSON.parse(await fs.readFile(path.join(contentDir, collection, file), "utf8"));
+            } catch {
+              continue; // a torn or hand-edited file is not a reference
+            }
+            const entryId = file.slice(0, -".json".length);
+            for (const token of MediaRefs.extract(parsed?.data)) {
+              if (wanted.has(token)) {
+                out.push({ media_id: token, project, env, collection, entry_id: entryId });
+              }
+            }
+          }
+        }
+      }
+    }
+
+    out.sort(
+      (a, b) =>
+        a.project.localeCompare(b.project) ||
+        a.env.localeCompare(b.env) ||
+        a.collection.localeCompare(b.collection) ||
+        a.entry_id.localeCompare(b.entry_id)
+    );
+    return out;
+  }
+
+  async listMediaUsages(
+    mediaIds: string[],
+    opts: { limit?: number; offset?: number } = {}
+  ): Promise<{ items: MediaUsage[]; total: number }> {
+    if (mediaIds.length === 0) return { items: [], total: 0 };
+
+    const all = await this.scanMediaUsages(new Set(mediaIds));
+    const limit = opts.limit === undefined ? 50 : Math.max(0, opts.limit);
+    const offset = Math.max(0, opts.offset || 0);
+    return { items: all.slice(offset, offset + limit), total: all.length };
+  }
+
+  async countMediaUsages(mediaIds: string[]): Promise<Map<string, number>> {
+    const out = new Map<string, number>();
+    if (mediaIds.length === 0) return out;
+
+    for (const usage of await this.scanMediaUsages(new Set(mediaIds))) {
+      out.set(usage.media_id, (out.get(usage.media_id) || 0) + 1);
+    }
+    return out;
   }
 
   async listEntryCollections(scope: Scope): Promise<string[]> {

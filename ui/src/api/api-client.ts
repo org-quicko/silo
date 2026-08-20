@@ -10,7 +10,9 @@ import type { SessionInfo } from './types/session-info'
 import type { ImportResult } from './types/import-result'
 import type { CopyFromServerOptions } from './types/copy-options'
 import type { CopyScopeOptions } from './types/copy-scope-options'
-import type { MediaMetadata } from './types/media-metadata'
+import type { MediaAsset } from './types/media-asset'
+import type { MediaQuery } from './types/media-query'
+import type { MediaUsage } from './types/media-usage'
 import type { EntryQuery } from './types/entry-query'
 import type { ScopeRef } from './types/scope-ref'
 
@@ -31,17 +33,21 @@ export class ApiClient {
     let code = 'error'
     let message = res.statusText || `HTTP ${res.status}`
     let details: ValidationDetail[] | undefined
+    let info: Record<string, unknown> | undefined
     try {
       const body = await res.json()
       if (body?.error) {
         code = body.error.code || code
         message = body.error.message || message
-        details = body.error.details
+        // Validation errors carry a list; a refused media delete carries an
+        // object. Split them here so neither read site has to guess.
+        if (Array.isArray(body.error.details)) details = body.error.details
+        else if (body.error.details) info = body.error.details
       }
     } catch {
       /* non-JSON body */
     }
-    return new ApiError(res.status, code, message, details)
+    return new ApiError(res.status, code, message, details, info)
   }
 
   private async req<T>(url: string, key: string, path: string, init?: RequestInit): Promise<T> {
@@ -371,21 +377,80 @@ export class ApiClient {
     )
   }
 
-  listMedia(url: string, key: string) {
-    return this.req<{ items: MediaMetadata[] }>(url, key, '/api/media').then((r) => r.items)
+  // ---- Media (D23) ----
+  // The catalog is searched server-side through the Query AST, so the library
+  // pages rather than loading every asset and filtering in the browser.
+
+  listMedia(url: string, key: string, query: MediaQuery = {}) {
+    const params = new URLSearchParams()
+    if (query.q) params.set('q', query.q)
+    if (query.folder !== undefined) params.set('folder', query.folder)
+    if (query.recursive) params.set('recursive', 'true')
+    if (query.type) params.set('type', query.type)
+    if (query.tag) params.set('tag', query.tag)
+    if (query.limit !== undefined) params.set('limit', String(query.limit))
+    if (query.offset !== undefined) params.set('offset', String(query.offset))
+    if (query.sort) params.set('sort', query.sort)
+    const qs = params.toString()
+    return this.req<{ items: MediaAsset[]; total: number; limit: number; offset: number }>(
+      url,
+      key,
+      `/api/media${qs ? `?${qs}` : ''}`,
+    )
   }
 
-  uploadMedia(url: string, key: string, file: File) {
+  uploadMedia(url: string, key: string, file: File, folder?: string) {
     const form = new FormData()
     form.append('file', file)
-    return this.req<MediaMetadata>(url, key, '/api/media', {
-      method: 'POST',
-      body: form,
+    if (folder) form.append('folder', folder)
+    return this.req<MediaAsset>(url, key, '/api/media', { method: 'POST', body: form })
+  }
+
+  getMediaAsset(url: string, key: string, id: string) {
+    return this.req<MediaAsset>(url, key, `/api/media/${encodeURIComponent(id)}`)
+  }
+
+  /** Rename, move, or retag. Touches no blob and no entry. */
+  updateMediaAsset(
+    url: string,
+    key: string,
+    id: string,
+    patch: { filename?: string; folder?: string; tags?: string[] },
+  ) {
+    return this.req<MediaAsset>(url, key, `/api/media/${encodeURIComponent(id)}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(patch),
     })
   }
 
-  deleteMedia(url: string, key: string, filename: string) {
-    return this.req<void>(url, key, `/api/media/${encodeURIComponent(filename)}`, {
+  /** Rejects with a 409 `media_in_use` while any entry still references it. */
+  deleteMedia(url: string, key: string, id: string) {
+    return this.req<void>(url, key, `/api/media/${encodeURIComponent(id)}`, { method: 'DELETE' })
+  }
+
+  listMediaUsages(url: string, key: string, id: string, limit = 50, offset = 0) {
+    return this.req<{ items: MediaUsage[]; total: number; visible: number }>(
+      url,
+      key,
+      `/api/media/${encodeURIComponent(id)}/usages?limit=${limit}&offset=${offset}`,
+    )
+  }
+
+  listMediaFolders(url: string, key: string) {
+    return this.req<{ items: string[] }>(url, key, '/api/media/folders').then((r) => r.items)
+  }
+
+  createMediaFolder(url: string, key: string, path: string) {
+    return this.req<{ path: string }>(url, key, '/api/media/folders', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ path }),
+    })
+  }
+
+  deleteMediaFolder(url: string, key: string, path: string) {
+    return this.req<void>(url, key, `/api/media/folders?path=${encodeURIComponent(path)}`, {
       method: 'DELETE',
     })
   }

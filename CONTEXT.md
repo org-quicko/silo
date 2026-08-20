@@ -13,7 +13,115 @@ A minimal, self-hostable headless CMS. Users define collections with JSON Schema
 
 ## Where things stand
 
-*Last updated: 2026-08-20*
+*Last updated: 2026-08-21*
+
+- **Media gets a catalog, folders, search, and reference integrity
+  (2026-08-21, D23/D24):** media stays instance-global — one library for the
+  whole server, `media:*` still unscoped — but it now has a **record**, not
+  just bytes. `listMedia` used to reconstruct metadata by string-splitting
+  blob keys, so there was nowhere to put a folder, a tag or a reference, and
+  no way to page or filter without stat-ing every blob.
+  - **Catalog.** `_media` in `Scope.System`, one document per asset
+    (`filename`, `folder`, `blob_key`, `size`, `content_type`, `hash`,
+    `state`, `tags`), plus `_media_folders` for folders made before anything
+    is filed into them. `BlobStorage` is untouched and stays byte-only at six
+    methods. Both collections are **always** exported, never gated on
+    `--with-keys` — bytes without their filenames restore a library with no
+    organisation in it.
+  - **Entries reference an asset by id**, `silo://media/<ulid>`
+    (`MediaRef`, `@silo/shared/media-ref`), never by path. Renaming or moving
+    a file is a catalog-field update that rewrites no entry and touches no
+    blob. Blob keys stay flat (`<ulid><ext>`), so the archive's `media/`
+    layout is unchanged and D23 needed **no `format_version` bump**.
+  - **Usages are adapter-owned derived state, not a collection.**
+    `Storage.put` now takes the entry's complete usage set and replaces it in
+    the same operation; `delete`/`deleteProject`/`deleteEnvironment` drop
+    matching usages; `listMediaUsages`/`countMediaUsages` answer the guard.
+    SQLite writes `media_references` inside `put`'s existing seq transaction —
+    an entry and its references land together or not at all. The fs adapter
+    keeps **no index** and scans entry files, which writes nothing into the
+    frozen layout and has no window where an rsync or `git checkout` under a
+    running process makes the answer stale. Conformance pins
+    delete-while-referenced on both.
+  - **Why not a decorator.** A `Storage` wrapper can intercept
+    `deleteProject`, but cannot be atomic with that method's bulk SQL delete,
+    so entries would vanish while their usages survived and a file would stay
+    blocked by referrers that no longer exist. The `usages` argument is
+    **required**, not optional: an omitted set has no safe reading, so
+    forgetting it is a type error at all four call sites (`Service`,
+    `Importer`, `ScopeCopier`, test fixtures).
+  - **Extraction is structural** (`MediaRefs.extract`), not schema-driven:
+    §7.2 lets an archive carry content with no schema and import validation is
+    off by default, so a schema-driven walk would find nothing in exactly the
+    data nobody looked at. Over-capture blocks a delete (visible);
+    under-capture orphans a live file (silent).
+  - **Canonicalised on write** (`MediaRefs.canonicalize`). Reads resolve media
+    fields into absolute URLs, so a client that fetches an entry, edits one
+    field and PUTs it back returns `<base>/media/<id>` where
+    `silo://media/<id>` went out — which would quietly turn a counted
+    reference into an uncounted string. The write path rewrites it back before
+    validating, so the schema judges exactly what gets stored. A
+    `/media/<segment>` URL is disambiguated by shape: a catalog id is a bare
+    ULID, while a blob key carries a dot (`<ulid><ext>`) or an underscore
+    (pre-D23 `<sha256>_<name>`).
+  - **Deletion is a saga** in `Service` under `writeMu`, because the catalog
+    and a remote object store cannot share a transaction: refuse at non-zero
+    usages, else commit `state: "deleting"`, delete the blob, delete the
+    record. `ServeCommand` retries anything left staged at startup
+    (`resumePendingMediaDeletions`), and `Service` refuses new references to a
+    `deleting` asset. **No force-delete.**
+  - **A failed blob delete explains itself.** `MediaDeleteStalledError` →
+    `500 media_delete_stalled`, with `media_id`, `blob_key`, the underlying
+    `reason`, and `remedy: "silo media reconcile"` in the body. Deliberately
+    not a `409`: `media_in_use` is a refusal the caller fixes by editing
+    entries, this is a storage failure they fix by fixing the blob store, and a
+    client should tell them apart by code alone. The admin UI renders the
+    explanation as a banner and badges the card `stuck deleting`, so the state
+    is legible without reading server logs.
+  - **The abort, automatic and reported.** A blob delete that fails
+    permanently would strand an asset in `deleting` forever, so
+    `silo media reconcile` **attempts** the delete and, when that throws,
+    returns the asset to `active` (`aborted` in the result) and says so. It
+    judges by the attempt, never by whether the blob is still there: a crash
+    between the blob delete and the record delete leaves the bytes in place
+    too, and that case must *complete*. Startup only ever retries — reversing
+    a deletion is an operator decision — and counts failures rather than
+    throwing, so a misconfigured blob store cannot stop the server booting
+    over a deletion staged days ago (it prints a warning naming the fix). An
+    aborted asset's bytes stay `claimed`, so it is not also reported as an
+    orphan on the same pass. Verified live against a read-only blob directory:
+    delete → `500` and `state: deleting`; restart → warning, server still
+    boots; reconcile → returned to active; permissions restored → delete
+    succeeds and both the catalog and the disk end up empty.
+  - **The 409 is claim-aware.** `MediaInUseError` carries the *true* count;
+    the route enumerates only referrers the key may read
+    (`RouteAuth.canReadEntries`). Media is instance-global but referrers are
+    scoped, so a project-confined key learns a file is in use without learning
+    where — verified live: `usage_count: 1, visible_count: 0, referrers: []`.
+  - **Search is the existing Query AST** over `_media` (`contains` on
+    `filename`/`content_type`/`tags`, `eq` on `folder`) — **no new operator**,
+    so §5.3's "every op is forever" cost is zero. Recursive folder filtering
+    is done after the fact rather than adding a `prefix` op both adapters
+    would carry forever.
+  - **`silo media reconcile`** (`MediaCommand`, and `POST
+    /api/media/reconcile`) backfills records for pre-D23 blobs, finishes
+    staged deletions, prunes records whose bytes are gone, and *reports*
+    orphans without deleting them. Pre-D23 entries holding `/media/<key>` are
+    dual-read into a `blob:<key>` token and counted, so a partly backfilled
+    instance still refuses to delete a referenced file.
+  - **D24 closes D21's media deferral:** `/api/export` also needs
+    `media:read`; `/api/import` and `/api/copy` also need `media:create`, plus
+    `media:delete` in `replace` mode (which clears every blob first). The
+    scoped copy (D22) touches no media and needs none.
+  - **Cache header changed:** `/media/<id>` is no longer `immutable` — an id
+    is stable while what it points at need not be — so it serves
+    `max-age=3600` with an `ETag` of the content hash and honours
+    `If-None-Match`.
+  - Admin UI: the media library gains a folder rail, debounced server-side
+    search, paging, rename/move, and a refusal dialog that lists the referrers
+    it may show. `MediaWidget` writes `silo://media/<id>`, fetches the one
+    asset it points at so a field shows a filename rather than an id, and
+    searches the catalog server-side instead of filtering a local array.
 
 - **The first-boot root key gets a real banner (2026-08-20):**
   `BootstrapBanner` (`server/cli/bootstrap-banner.ts`) replaces the `=`-rule
@@ -864,17 +972,17 @@ A minimal, self-hostable headless CMS. Users define collections with JSON Schema
 | `CLAUDE.md` | Standing instructions for AI assistants |
 | `package.json` | Project metadata, TypeScript 7 setup, Bun/Hono dependencies, and AWS S3 SDK; declares the `shared` Bun workspace |
 | `tsconfig.json` | TypeScript configuration for the Bun server and shared package (`include: ["server/**/*", "shared/**/*"]`) |
-| `shared/` | Local `@silo/shared` package (a Bun workspace of the root) for runtime-neutral client/server rules. `src/claims/` is the single source of truth for claim constants, the `Claim`/`FixedClaim`/`CollectionClaim`/`CollectionPermission`/`ClaimPreset` types, `ParsedClaim`, validation, matching, delegation, and presets; `src/errors/` holds `ValidationError` and the `ValidationDetail` wire shape; `src/schema/` holds `SiloRef` (the `silo://collections/` `$ref` scheme), `SchemaAccess` (`x-silo-auth`), and `MediaField` (`x-silo-type: "media"`); `src/keys/` holds `KeyFormat` (secret prefix and display truncation). Tests under `shared/test/`. Each artifact is its own file and its own `exports` subpath |
+| `shared/` | Local `@silo/shared` package (a Bun workspace of the root) for runtime-neutral client/server rules. `src/claims/` is the single source of truth for claim constants, the `Claim`/`FixedClaim`/`CollectionClaim`/`CollectionPermission`/`ClaimPreset` types, `ParsedClaim`, validation, matching, delegation, and presets; `src/errors/` holds `ValidationError` and the `ValidationDetail` wire shape; `src/schema/` holds `SiloRef` (the `silo://collections/` `$ref` scheme), `SchemaAccess` (`x-silo-auth`), and `MediaField` (`x-silo-type: "media"`); `src/keys/` holds `KeyFormat` (secret prefix and display truncation); `src/media/` holds `MediaRef` (the `silo://media/<ulid>` scheme, its pre-D23 `/media/<key>` dual-read, and the canonical form the write path stores). Tests under `shared/test/`. Each artifact is its own file and its own `exports` subpath |
 | `server/main.ts` | Thin CLI entrypoint — imports `Cli` and runs it |
-| `server/cli/` | `cli.ts` (argv parsing, subcommand routing, dependency wiring), `bootstrap-banner.ts` (the first-boot root key announcement), and `commands/` (one command class per subcommand: `serve-command.ts`, `keys-command.ts`, `export-command.ts`, `import-command.ts`) |
+| `server/cli/` | `cli.ts` (argv parsing, subcommand routing, dependency wiring), `bootstrap-banner.ts` (the first-boot root key announcement), and `commands/` (one command class per subcommand: `serve-command.ts`, `keys-command.ts`, `export-command.ts`, `import-command.ts`, `media-command.ts` — `silo media reconcile`, the catalog repair that runs against the data dir with no server, reporting what it adopted, pruned, finished and returned to active) |
 | `server/config/` | `Config` type and its sub-shapes (`storage-config.ts`, `blob-storage-config.ts`, `auth-config.ts`, `schema-config.ts`) plus `ConfigLoader` (`config-loader.ts`) |
 | `server/core/domain/` | `Entry`, `Meta`, `EntryUtils`, `Collection`, `Scope` |
 | `server/core/ports/` | `Storage` and `BlobStorage` port interfaces |
 | `server/core/query/` | Query AST (`Filter`, `SortKey`, `Query` + limits) and `QueryUtils` |
-| `server/core/errors/` | One error class per file (`NotFoundError`, `ConflictError`, `UnauthorizedError`, `ForbiddenError`). `ValidationError` lives in `@silo/shared` because shared rules raise it |
+| `server/core/errors/` | One error class per file (`NotFoundError`, `ConflictError`, `UnauthorizedError`, `ForbiddenError`, `MediaInUseError` — a `ConflictError` carrying the true usage count for a refused media delete — and `MediaDeleteStalledError`, raised when the blob store refuses the delete, carrying the remedy). `ValidationError` lives in `@silo/shared` because shared rules raise it |
 | `server/core/schema/` | `SchemaValidator`, `SchemaBundler`, `RemoteSchemaLoader` (Ajv 2020 validation, `$ref` bundling) |
 | `server/core/keys/` | Server-only key persistence/secret concerns: `KeyInfo`, `KeyUtils` (generation and hashing; the wire format lives in `@silo/shared`'s `KeyFormat`) |
-| `server/core/media/` | `MediaMetadata`, `MediaResolver`, `MimeUtils` |
+| `server/core/media/` | The media catalog (D23): `MediaAsset`, `MediaAssetView`, `MediaFolder`, `MediaUsage`, `MediaQuery`, `MediaReconcileResult`, `MediaCatalog` (the `_media`/`_media_folders` collections and document↔asset mapping), `MediaRefs` (the one structural extractor and canonicaliser), `MediaPaths` (folder/filename/blob-key rules), plus `MediaResolver` and `MimeUtils` |
 | `server/core/transfer/` | Export/import engine: `FormatVersion`, `Exporter`, `Importer`, `ImportWalker`, `ScopeCopier` (scope-to-scope copy, D22 — reuses `Importer.executeImport` rather than forking its merge logic), and their options/result/manifest types |
 | `server/core/service/` | `Service` (orchestration), `KeyView`, `AsyncMutex`, `CollectionEraser` |
 | `server/adapters/storage/sqlite/` | `SqliteStore` + `SqliteCompiler` (query compiler) |
@@ -885,7 +993,7 @@ A minimal, self-hostable headless CMS. Users define collections with JSON Schema
 | `server/http/middleware/` | `LoggingMiddleware`, `AuthMiddleware` |
 | `server/http/auth/` | `RouteAuth` — claim-checking helpers for route handlers |
 | `server/http/routes/` | `RouteManager` plus one routes class per resource (`projects-routes.ts`, `collections-routes.ts`, `entries-routes.ts` + `request-utils.ts`, `keys-routes.ts`, `media-routes.ts`, `transfer-routes.ts`, `copy-routes.ts` + `copy-request.ts` + `scope-copy-request.ts`, `session-routes.ts`). `CopyRoutes` serves both the whole-instance `/api/copy` and the scoped `/api/projects/:p/environments/:e/copy` |
-| `server/test/` | Test suites running via `bun test`: `conformance/` (storage conformance suite), `adapters/`, `core/`, `cli/` (bootstrap banner rendering), `http/` (claims enforcement/delegation, entries API, export/import, direct server copy, scope-to-scope copy, media, schema `$ref`, projects API tests) |
+| `server/test/` | Test suites running via `bun test`: `conformance/` (storage conformance suite), `adapters/`, `core/`, `cli/` (bootstrap banner rendering), `http/` (claims enforcement/delegation, entries API, export/import, direct server copy, scope-to-scope copy, media catalog/folders/search/reference integrity, schema `$ref`, projects API tests). The conformance suite pins media usages on both adapters — the one D23 invariant they answer by completely different means |
 | `ui/` | React + TS + Vite SPA (Slate design), organized into feature dirs (`api/`, `schema/`, `components/`, `forms/`, `router/`, `utils/` with `Formatters`, `ThemeManager` & `ScopeMemory`, `views/*`) with colocated CSS Modules and a small global foundation under `styles/`. Every collection/entry call is scoped through `ApiClient.collectionsPath`; the active `(project, env)` is part of the URL, switched from the `/servers` gate in the workspace and from the settings nav's scope switchers. Shared protocol rules come from `@silo/shared`; `ui/dist` contains the compiled SPA served at the web root. `src/**/*.test.ts` are `bun test` suites in their own TS project (`tsconfig.test.json`) and run from the repo root alongside the server's |
 | `README.md` | User-facing docs: why/quick start, concepts, configuration, CLI, HTTP API, claims, portability, deployment, development, roadmap, contributing. Rewritten 2026-08-18; deliberately links neither this file nor IMPLEMENTATION.md |
 | `ui/README.md` | Admin UI docs: dev workflow, the server-connection model, URL grammar, RJSF theme notes, styling conventions, and the `@silo/shared` per-file-symlink caveat. Rewritten 2026-08-18 (was the stock Vite template) |

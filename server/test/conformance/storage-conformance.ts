@@ -3,6 +3,8 @@ import type { Storage } from "../../core/ports/storage";
 import { EntryUtils } from "../../core/domain/entry-utils";
 import type { Entry } from "../../core/domain/entry";
 import { Scope } from "../../core/domain/scope";
+import { MediaRefs } from "../../core/media/media-refs";
+import { MediaRef } from "@silo/shared/media-ref";
 
 export function runStorageTestSuite(
   name: string,
@@ -39,7 +41,7 @@ export function runStorageTestSuite(
         updated_at: ts,
         data,
       };
-      await st.put(e);
+      await st.put(e, MediaRefs.extract(e.data));
       return e;
     };
 
@@ -111,7 +113,7 @@ export function runStorageTestSuite(
       const upd = { ...got };
       upd.rev = 2;
       upd.data = { title: "alpha2" };
-      await st.put(upd);
+      await st.put(upd, MediaRefs.extract(upd.data));
       expect(upd.seq).toBeGreaterThan(e.seq);
 
       const got2 = await st.get(scope, "posts", e.id);
@@ -710,8 +712,8 @@ export function runStorageTestSuite(
         id: sharedId, project: scopeB.project, env: scopeB.env, collection: "posts",
         rev: 1, seq: 0, created_at: ts, updated_at: ts, data: { title: "b" },
       };
-      await st.put(a);
-      await st.put(b);
+      await st.put(a, []);
+      await st.put(b, []);
 
       // The identical id in two scopes must resolve to two independent
       // entries — this would still pass if a storage engine's primary key
@@ -769,8 +771,8 @@ export function runStorageTestSuite(
       });
 
       for (const bad of unsafe) {
-        await expect(st.put(entryWith({ id: bad }))).rejects.toThrow();
-        await expect(st.put(entryWith({ collection: bad }))).rejects.toThrow();
+        await expect(st.put(entryWith({ id: bad }), [])).rejects.toThrow();
+        await expect(st.put(entryWith({ collection: bad }), [])).rejects.toThrow();
         await expect(st.get(scope, bad, "someid")).rejects.toThrow();
         await expect(st.delete(scope, bad, "someid")).rejects.toThrow();
         await expect(st.list(scope, bad, { limit: 50, offset: 0 })).rejects.toThrow();
@@ -778,12 +780,145 @@ export function runStorageTestSuite(
         await expect(st.delete(scope, "posts", bad)).rejects.toThrow();
       }
 
-      await expect(st.put(entryWith({ project: "../evil" }))).rejects.toThrow();
-      await expect(st.put(entryWith({ env: "../evil" }))).rejects.toThrow();
+      await expect(st.put(entryWith({ project: "../evil" }), [])).rejects.toThrow();
+      await expect(st.put(entryWith({ env: "../evil" }), [])).rejects.toThrow();
 
       // The store must still work normally after rejecting malformed input.
       const ok = await putEntry(st, scope, "posts", 2, { title: "fine" });
       expect((await st.get(scope, "posts", ok.id)).data.title).toBe("fine");
+    });
+
+    // ---- Media usages (D23) ----
+    //
+    // The one invariant that matters here is delete-while-referenced, and it
+    // has to hold identically on both adapters even though they answer it by
+    // completely different means: SQLite maintains a `media_references` table
+    // inside its write transactions, the fs adapter keeps no index and scans.
+    // A divergence would mean a media file that one backend refuses to delete
+    // and the other silently orphans, which is exactly the class of bug this
+    // suite exists to catch.
+
+    describe("media usages", () => {
+      const REF_A = "01J8XQ4Z8K9M2P3R5T7V9X1B3D";
+      const REF_B = "01J8XQ50P1R2S3T4U5V6W7X8Y9";
+
+      const putWithRefs = async (
+        st: Storage,
+        scope: Scope,
+        collection: string,
+        refs: string[]
+      ): Promise<Entry> => {
+        const ts = new Date(Date.UTC(2026, 0, 1, 0, 0, 1));
+        const e: Entry = {
+          id: EntryUtils.newID(),
+          project: scope.project,
+          env: scope.env,
+          collection,
+          rev: 1,
+          seq: 0,
+          created_at: ts,
+          updated_at: ts,
+          // Stored as entry data holds them — `silo://media/<id>` — so the
+          // extractor is exercised, not bypassed.
+          data: {
+            cover: MediaRef.url(refs[0]),
+            gallery: refs.slice(1).map((r) => MediaRef.url(r)),
+          },
+        };
+        await st.put(e, MediaRefs.extract(e.data));
+        return e;
+      };
+
+      test("a written entry registers its references", async () => {
+        const st = await getFreshStore();
+        const e = await putWithRefs(st, Scope.Default, "posts", [REF_A, REF_B]);
+
+        const usage = await st.listMediaUsages([REF_A]);
+        expect(usage.total).toBe(1);
+        expect(usage.items[0]).toMatchObject({
+          media_id: REF_A,
+          project: Scope.Default.project,
+          env: Scope.Default.env,
+          collection: "posts",
+          entry_id: e.id,
+        });
+
+        const counts = await st.countMediaUsages([REF_A, REF_B]);
+        expect(counts.get(REF_A)).toBe(1);
+        expect(counts.get(REF_B)).toBe(1);
+
+        expect((await st.listMediaUsages([])).total).toBe(0);
+        expect((await st.listMediaUsages(["nobody-references-me"])).total).toBe(0);
+      });
+
+      test("rewriting an entry replaces its reference set wholesale", async () => {
+        const st = await getFreshStore();
+        const e = await putWithRefs(st, Scope.Default, "posts", [REF_A]);
+
+        const moved: Entry = { ...e, rev: 2, data: { cover: MediaRef.url(REF_B) } };
+        await st.put(moved, MediaRefs.extract(moved.data));
+
+        // The old reference must be gone, not merely joined by the new one —
+        // an accumulating index would keep REF_A blocked forever.
+        expect((await st.listMediaUsages([REF_A])).total).toBe(0);
+        expect((await st.listMediaUsages([REF_B])).total).toBe(1);
+      });
+
+      test("deleting an entry drops its references", async () => {
+        const st = await getFreshStore();
+        const e = await putWithRefs(st, Scope.Default, "posts", [REF_A]);
+
+        await st.delete(Scope.Default, "posts", e.id);
+        expect((await st.listMediaUsages([REF_A])).total).toBe(0);
+      });
+
+      test("deleting a scope drops the references its entries held", async () => {
+        const st = await getFreshStore();
+        const scope = Scope.of("acme", "prod");
+        await st.createEnvironment(scope.project, scope.env);
+        await putWithRefs(st, scope, "posts", [REF_A]);
+        await putWithRefs(st, Scope.Default, "posts", [REF_A]);
+        expect((await st.listMediaUsages([REF_A])).total).toBe(2);
+
+        // The bulk path: SQLite deletes these rows with one statement and
+        // never calls `delete` per entry, which is why this cleanup cannot
+        // live above the port.
+        await st.deleteEnvironment(scope.project, scope.env);
+        expect((await st.listMediaUsages([REF_A])).total).toBe(1);
+
+        await st.deleteProject(Scope.Default.project);
+        expect((await st.listMediaUsages([REF_A])).total).toBe(0);
+      });
+
+      test("usages are counted across scopes and collections, and page", async () => {
+        const st = await getFreshStore();
+        const other = Scope.of("acme", "prod");
+        await st.createEnvironment(other.project, other.env);
+
+        await putWithRefs(st, Scope.Default, "posts", [REF_A]);
+        await putWithRefs(st, Scope.Default, "pages", [REF_A]);
+        await putWithRefs(st, other, "posts", [REF_A]);
+
+        const all = await st.listMediaUsages([REF_A], { limit: 100 });
+        expect(all.total).toBe(3);
+        expect(all.items.length).toBe(3);
+
+        const page = await st.listMediaUsages([REF_A], { limit: 2, offset: 0 });
+        expect(page.total).toBe(3);
+        expect(page.items.length).toBe(2);
+
+        const rest = await st.listMediaUsages([REF_A], { limit: 2, offset: 2 });
+        expect(rest.items.length).toBe(1);
+
+        // A count-only probe — what the delete guard asks for.
+        expect((await st.listMediaUsages([REF_A], { limit: 0 })).total).toBe(3);
+      });
+
+      test("references in system collections count too", async () => {
+        const st = await getFreshStore();
+        await putWithRefs(st, Scope.System, "_media_probe", [REF_A]);
+        expect((await st.listMediaUsages([REF_A])).total).toBe(1);
+      });
     });
   });
 }

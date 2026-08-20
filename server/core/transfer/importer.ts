@@ -10,6 +10,7 @@ import { EntryUtils } from "../domain/entry-utils";
 import type { Meta } from "../domain/meta";
 import { ValidationError } from "@silo/shared/validation-error";
 import { NotFoundError } from "../errors/not-found-error";
+import { MediaRefs } from "../media/media-refs";
 import { ForbiddenError } from "../errors/forbidden-error";
 import { SchemaValidator } from "../schema/schema-validator";
 import { FormatVersion } from "./format-version";
@@ -164,7 +165,7 @@ export class Importer {
             if (colValidator) {
               await colValidator.validateEntry(scope, colName, remote.data);
             }
-            await st.put(remote);
+            await st.put(remote, MediaRefs.extract(remote.data));
           }
           continue;
         }
@@ -201,7 +202,7 @@ export class Importer {
               if (colValidator) {
                 await colValidator.validateEntry(scope, colName, remote.data);
               }
-              await st.put(remote);
+              await st.put(remote, MediaRefs.extract(remote.data));
             }
           } else {
             res.skipped++;
@@ -213,7 +214,7 @@ export class Importer {
               if (colValidator) {
                 await colValidator.validateEntry(scope, colName, remote.data);
               }
-              await st.put(remote);
+              await st.put(remote, MediaRefs.extract(remote.data));
             }
           } else {
             throw err;

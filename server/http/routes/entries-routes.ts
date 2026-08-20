@@ -5,7 +5,6 @@ import { Service } from "../../core/service/service";
 import { ValidationError } from "@silo/shared/validation-error";
 import { QueryUtils } from "../../core/query/query-utils";
 import { EntryUtils } from "../../core/domain/entry-utils";
-import { MediaResolver } from "../../core/media/media-resolver";
 import { RouteAuth } from "../auth/route-auth";
 import { RequestUtils } from "./request-utils";
 
@@ -73,8 +72,7 @@ export class EntriesRoutes {
         name,
         Claims.CollectionEntriesCreate,
       );
-      let data = await c.req.json();
-      data = MediaResolver.normalizeMediaFields(data, col.schema);
+      const data = await c.req.json();
       const e = await svc.createEntry(scope, name, data);
       const baseUrl = RequestUtils.getBaseUrl(c);
       return c.json(EntryUtils.toApiResponse(e, col.schema, baseUrl), 201);
@@ -117,8 +115,7 @@ export class EntriesRoutes {
         Claims.CollectionEntriesUpdate,
       );
       const rev = RouteAuth.getExpectedRev(c);
-      let data = await c.req.json();
-      data = MediaResolver.normalizeMediaFields(data, col.schema);
+      const data = await c.req.json();
       const e = await svc.updateEntry(scope, name, id, data, rev);
       const baseUrl = RequestUtils.getBaseUrl(c);
       return c.json(EntryUtils.toApiResponse(e, col.schema, baseUrl));

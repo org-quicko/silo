@@ -17,10 +17,15 @@ export class CopyRoutes {
       // A copy is an import of a remote instance's full archive, so it needs
       // the same instance-wide write authority a local import does.
       RouteAuth.requireInstanceWide(c, "copy", Claims.TransferWritePermissions);
+      // D24: a whole-instance copy pulls and loads the source's media, so it
+      // needs the media claims a local import needs. The scoped copy below
+      // does not — it touches no media at all (D22).
+      RouteAuth.requireClaim(c, Claims.MediaCreate);
       const body = await CopyRoutes.readBody(c);
       CopyRoutes.validateOptions(body);
       if (body.mode === "replace") {
         RouteAuth.requireInstanceWide(c, 'a copy in "replace" mode', Claims.TransferReplacePermissions);
+        RouteAuth.requireClaim(c, Claims.MediaDelete);
       }
       if (body.with_keys === true) RouteAuth.requireClaim(c, Claims.KeysImport);
 

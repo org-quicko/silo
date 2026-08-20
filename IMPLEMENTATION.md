@@ -41,6 +41,8 @@ Where Pocketbase optimizes for features (auth, realtime, hooks), silo optimizes 
 | D20 | Decoupled Projects & Environments Architecture | Decouple Scope into individual `project` and `environment` concepts. Dedicated SQL tables for `projects` (`id, created_at, updated_at`) and `environments` (`project, id, created_at, updated_at, PRIMARY KEY (project, id)`). Server defaults configured to `project: default, env: prod` on startup via CLI (`--project`, `--env`), TOML, and env vars. REST routes: `GET/POST /api/projects`, `DELETE /api/projects/:project`, `GET/POST /api/projects/:project/environments`, `DELETE /api/projects/:project/environments/:env`. Scoped claims allow project-level (`project/*/*`), env-level (`project/env/*`), and collection-level grants. Admin UI `/servers` expanded into a 3-pane macOS column / Ranger file manager view (Server -> Project -> Environment) with in-app scope switcher removed; deep URLs formatted as `/servers/:serverId/projects/:project/environments/:env/...`. | Eliminates tight coupling between project and env; allows projects to exist independently of environments, environments to exist independently of schemas, and cleanly structures navigation, authorization, and multi-tenant hosting. Supersedes D19's `_projects` registry collection, which existed only to make an empty project listable and is deleted. **Existence rule:** a project or env exists when it was created explicitly *or* still holds a schema or an entry — both halves, in every adapter. D18 defined existence as content alone, which cannot represent a project created before anything is written into it; keeping only the explicit half would hide scopes an import or a direct `put` brought into being. SQLite answers this from its two tables; the fs adapter writes a `.silo-project`/`.silo-env` marker file, because a directory alone cannot distinguish "created" from "left behind by a delete" and reading it either way loses one of the two halves. `Storage.listScopes()` therefore reports created-but-empty scopes, which is what lets an export carry them. Ids from configuration (`--project`/`--env`, `SILO_DEFAULT_*`) are validated at startup like any other caller-supplied id. |
 | D21 | Transfer claims require instance-wide authority | `transfer:export`, `transfer:import` and `transfer:copy` stay fixed (unscoped) claims, but holding one is no longer sufficient. Export additionally requires `collections:*/*/*:schema:read` and `collections:*/*/*:entries:read` (`Claims.TransferReadPermissions`); import and copy additionally require `collections:*/*/*` `create`, `schema:update`, `entries:create` and `entries:update` (`TransferWritePermissions`), plus `delete` and `entries:delete` when `mode=replace` (`TransferReplacePermissions`, checked only in that mode). The write list is split by mode for the same reason D22 splits its own: the apply stage writes schemas and creates the scopes and collections an archive names in **both** modes, but deletes only in `replace`. Media (`media:*`) remains instance-global and unscoped — an accepted deferral, not a decision that it should stay that way, and the import path still writes and (in `replace`) clears blobs without asking for `media:create`/`media:delete`. | An archive is instance-wide: one file spans every project and env, and scoping it is later work. Before D19 that was unremarkable, because there was one flat namespace and no boundary for it to cross. Once claims name a project, a fixed `transfer:export` becomes a way for a key confined to one project to read every other one, and `transfer:import` a way to overwrite them — the exact boundary the scoped grammar exists to draw. Requiring the caller to already hold, at instance scope, the permissions the operation exercises makes the transfer claim a gate on the *mechanism* rather than a grant of authority the key does not otherwise have. The first cut of the write list named only the three entry permissions, which did not hold: `Importer.executeScopedImport` calls `putSchema` for every collection in the archive in both modes and `deleteSchema` in `replace`, so `transfer:import` plus `entries:*` at `*/*/*` could overwrite or delete every schema in the instance without holding `schema:update`, `create` or `delete` at any scope — precisely the grant of unheld authority this decision exists to deny. The list now tracks what the apply stage actually calls, mode by mode, so "the permissions the operation exercises" is a statement about the code rather than about entries alone. |
 | D22 | Scope-to-scope copy | A new destination-driven route, `POST /api/projects/{project}/environments/{env}/copy`, copies one scope's schemas and entries onto another **of the same instance**; the body names the source (`{from: {project, env}}`) and carries the same `mode`/`prefer`/`validate`/`dry_run` options an import does. It owns no merge logic: `Importer.executeImport` already takes `{manifest, scopes}` in memory rather than a directory, so `ScopeCopier` only reads the source scope out of `Storage` into the same `ScopedImport` shape `ImportWalker` builds from an archive, re-enveloping each entry onto the destination. Authorization requires **no `transfer:*` claim at all**: `Claims.ScopeCopyReadPermissions` at the source scope, `ScopeCopyWritePermissions` at the destination, plus `ScopeCopyReplacePermissions` there in `replace` mode — all ordinary scoped collection claims, checked with `Claims.hasScopeWide` / `RouteAuth.requireScopeWide`. Copying a scope onto itself, or either side being `Scope.System`, is a `400`. Media is untouched. | D21 deferred scoping the transfer surface, which left moving data between two environments of one project needing a whole-instance archive round trip — and, because of D21's own rule, instance-wide authority to perform it. A project-confined key could not promote its own dev environment to prod. Reusing the import apply stage rather than forking it keeps one implementation of merge/replace/prefer/dry-run, so copy and import semantics cannot drift. Requiring no fixed claim is the substance of the decision: unlike an archive, a scoped copy reaches nothing the caller could not already reach by listing the source through the entry API and writing the destination through it, so the guard asks for exactly the permissions that hand-rolled loop would need. Adding a `transfer:*` gate on top would reintroduce the very coupling D21 exists to prevent. The whole-instance archive is unchanged and keeps D21's rule. |
+| D23 | Media catalog & reference integrity | Media gains a **catalog** — a `_media` system collection in `Scope.System`, one document per asset (`filename`, `folder`, `blob_key`, `size`, `content_type`, `hash`, `state`, `tags`) — plus `_media_folders` for folders that exist before anything is filed into them. `BlobStorage` stays byte-only (6 methods). Entries reference an asset by **stable id**, `silo://media/<ulid>` (`MediaRef`, `@silo/shared/media-ref`), never by storage path, so rename and move are catalog-field updates that rewrite no entry and touch no blob. Blob keys stay **flat and content-free of organization**: folders are metadata, so the archive's `media/` layout is unchanged and no `format_version` bump is needed. **Usages are adapter-owned derived state, not a collection.** `Storage.put` takes the entry's *complete* usage set alongside the entry and replaces it in the same operation — callers extract (`MediaRefs.extract`, one shared walker), adapters never parse URIs; `delete`, `deleteProject` and `deleteEnvironment` drop matching usages; `listMediaUsages`/`countMediaUsages` answer the guard. SQLite keeps a `media_references` table written inside `put`'s existing transaction; the fs adapter **scans** entry files at query time and stores no index at all. Deletion is a saga in `Service` under `writeMu`: refuse at non-zero usages with a `409` that always reports the count but enumerates only referrers the caller may read, else mark the asset `deleting`, delete the blob, delete the catalog record — startup retries any asset left `deleting`, and `Service` refuses new references to one, and `silo media reconcile` returns an asset to `active` when the blob delete fails again, so a permanently failing delete cannot strand it. There is **no force-delete**. | Three asks — folders, search, reference integrity — are one missing piece: media had bytes but no record. `listMedia` reconstructed metadata by string-splitting blob keys, so there was nowhere to put a folder, a tag, or a reference, and no way to page or filter without stat-ing every blob. A catalog is the D12 move (`_keys` reused the doc model and got adapters, export and conformance for free) and it makes search the existing Query AST over `_media` — `contains` on `filename`, `eq` on `folder` — with **no new Query AST op**, which matters because §5.3 makes every op permanent. Usages are the opposite case and must not be a collection: they are a pure function of entry data, so persisting them as documents is the second source of truth D18 rejected for `_projects`, and — decisively — a generic `Storage.put` of an index document **cannot be atomic** with the entry write it belongs to. SQLite already wraps `put` in a transaction to allocate `seq`; putting the usage set on the port lets the reference land inside it, converting a convention into an invariant. A `Storage` decorator was considered and rejected for exactly this: it can intercept `deleteProject`, but it cannot be atomic with that method's bulk SQL delete, so entries would vanish while their usages survived and a file would stay blocked by referrers that no longer exist. The fs adapter keeps **no** index because its own reason to exist is rsync and git: an in-memory index rebuilt on open goes stale the moment someone checks out a branch under a running process, and that staleness silently permits deleting a referenced file — the exact failure this decision exists to prevent. Scanning has no staleness window, needs no rebuild, and is precisely the O(n)-per-query character §6.3 already commits that adapter to. Port growth is therefore only what the invariant needs, and conformance pins delete-while-referenced on both adapters. The usage argument to `put` is **required, not optional**: an omitted optional parameter has no unambiguous reading — "clear" silently orphans a live reference, "leave" silently rots the index — so forgetting it is a type error at all four call sites (`Service`, `Importer`, `ScopeCopier`, `CollectionEraser`) instead of a bug. Stable-id identity costs the `immutable` cache header (bytes behind an id may change), which is the honest price of references that survive a rename. `media:*` stays instance-global and unscoped, and folders are organization rather than a security boundary — scoping them would reheat D21. |
+| D24 | Transfer honours media claims | `GET /api/export` additionally requires `media:read`; `POST /api/import` and both copy routes additionally require `media:create`, plus `media:delete` when `mode=replace`. | Closes the deferral D21 named and left open: the import path writes blobs, and in `replace` deletes every blob in the instance, while asking for no media claim at all. That was already a way for a key holding `transfer:import` to wipe media it could not otherwise touch; D23 makes it worse by putting the catalog behind the same archive. This is D21's own rule applied to the one surface D21 skipped — the transfer claim gates the mechanism, and the caller must independently hold the permissions the operation exercises. Split by mode for the same reason D21 splits its own list: import writes blobs in both modes and clears them only in `replace`. |
 
 
 ## 3. v1 scope
@@ -192,9 +194,9 @@ caller-supplied id can ever start with `_`. The one reserved scope,
 `Scope.System` (`_system`/`_system`), is built through a private constructor
 that bypasses that validation.
 
-v1 has one system collection, living in `Scope.System`: **`_keys`** (§8). Reusing the doc model here means adapters, the export engine, and the conformance suite cover system data with no extra code — the reserved scope is stored exactly like any other, with no special-cased path in any adapter. (D19 added a second, `_projects`, to record scopes declared but not yet filled; D20 replaced it with first-class project/env storage and it no longer exists.)
+v1 has three system collections, all living in `Scope.System`: **`_keys`** (§8), and — since D23 — **`_media`** and **`_media_folders`** (§8.1). Reusing the doc model here means adapters, the export engine, and the conformance suite cover system data with no extra code — the reserved scope is stored exactly like any other, with no special-cased path in any adapter. (D19 added a second, `_projects`, to record scopes declared but not yet filled; D20 replaced it with first-class project/env storage and it no longer exists.)
 
-It has no schema, so it never appears in `ListSchemas` and has to be reachable wherever content collections are enumerated (`Exporter`, and `Storage.ListEntryCollections` for the general case). It is a credential, so it stays behind `--with-keys`. An empty project needs no collection of its own to survive a round trip: since D20 it exists as a stored project/env record, `listScopes()` reports it, and the archive carries it as a bare `projects/<p>/<e>/` directory.
+None of them has a schema, so they never appear in `ListSchemas` and have to be reachable wherever content collections are enumerated (`Exporter`, and `Storage.ListEntryCollections` for the general case). `_keys` is a credential, so it stays behind `--with-keys`; `_media` and `_media_folders` are ordinary data and are **always** exported, because an archive that carried media bytes but not their filenames and folders would restore a library with no organization in it. An empty project needs no collection of its own to survive a round trip: since D20 it exists as a stored project/env record, `listScopes()` reports it, and the archive carries it as a bare `projects/<p>/<e>/` directory.
 
 ## 6. Storage adapters
 
@@ -210,7 +212,13 @@ type Storage interface {
 
     // Entries — Put is create-or-replace; caller sets envelope (scope included),
     // adapter assigns Seq. Get/Delete/List take scope explicitly.
-    Put(ctx context.Context, e *Entry) error
+    //
+    // `usages` is the entry's COMPLETE set of media reference tokens (D23),
+    // extracted by the caller with MediaRefs.Extract and replaced wholesale
+    // in the same operation as the write. It is required, not optional: an
+    // omitted set has no safe reading — "clear" orphans a live reference,
+    // "leave" rots the index — so forgetting it must not compile.
+    Put(ctx context.Context, e *Entry, usages []string) error
     Get(ctx context.Context, scope Scope, collection, id string) (*Entry, error)
     Delete(ctx context.Context, scope Scope, collection, id string) error
     List(ctx context.Context, scope Scope, collection string, q Query) ([]*Entry, int /*total*/, error)
@@ -218,6 +226,13 @@ type Storage interface {
     // Every non-system scope currently holding a schema or an entry, sorted by
     // (project, env). Scope existence is derived from content, never registered.
     ListScopes(ctx context.Context) ([]Scope, error)
+
+    // Media usages (D23). Derived state owned by the adapter: SQLite keeps a
+    // media_references table written inside Put's existing transaction, the fs
+    // adapter scans entry files and stores no index. Delete/DeleteProject/
+    // DeleteEnvironment drop matching usages as part of the same operation.
+    ListMediaUsages(ctx context.Context, mediaIDs []string, limit, offset int) ([]MediaUsage, int /*total*/, error)
+    CountMediaUsages(ctx context.Context, mediaIDs []string) (map[string]int, error)
 
     // Every collection in this scope that still holds an entry, sorted by name.
     // Deliberately distinct from ListSchemas: an archive can carry
@@ -263,7 +278,21 @@ CREATE TABLE entries (
     PRIMARY KEY (project, env, collection, id)
 );
 CREATE INDEX idx_entries_seq ON entries(seq);
+CREATE TABLE media_references (          -- D23; derived, rebuilt by `silo media reconcile`
+    media_id   TEXT NOT NULL,            -- asset ULID, or "blob:<key>" for a pre-D23 reference
+    project    TEXT NOT NULL,
+    env        TEXT NOT NULL,
+    collection TEXT NOT NULL,
+    entry_id   TEXT NOT NULL,
+    PRIMARY KEY (media_id, project, env, collection, entry_id)
+);
+CREATE INDEX idx_media_refs_entry ON media_references(project, env, collection, entry_id);
 ```
+
+`media_references` rows are written inside `put`'s existing transaction — the
+one that already allocates `seq` — so an entry and its references land together
+or not at all. `delete`, `deleteProject` and `deleteEnvironment` drop matching
+rows in their own transactions for the same reason.
 
 WAL mode, `busy_timeout` set, one write connection + a read pool. `seq` allocated by incrementing `meta.last_seq` inside the write transaction, still instance-global rather than per-scope. Filters compile to `json_extract(data, '$.path')` expressions; no per-field indexes in v1 (roadmap: expression indexes for declared hot fields). Scope values (`project`, `env`) always reach SQL as bound parameters, never interpolated, same as every other query value. `SqliteStore.open` refuses to open a data dir stamped with a different `format_version` before running DDL — `CREATE TABLE IF NOT EXISTS` would otherwise silently leave a pre-D18 schema/entries table without these columns in place, so unscoped queries would crash on "no such column" instead of failing with an actionable message. The `meta.format_version` row is checked first, but isn't trusted alone: a pre-D18 db could in principle have old-shaped tables without a `format_version` row to contradict, so the guard also inspects `schemas`/`entries` directly via `PRAGMA table_info` and refuses to open if either exists without a `project` column.
 
@@ -325,7 +354,7 @@ Writes are `O_TMPFILE`-style: write to `.<id>.json.tmp`, fsync, rename. `manifes
 - `--with-config` includes `config.json` (sanitized: no secrets/tokens). Default **off** — config is instance-specific (ports, paths).
 - `_keys` is excluded by default. `--with-keys` includes it — hashes only, so a cloned instance accepts the same secrets. Useful for true replicas; off by default so a content export handed to someone never ships credentials. Projects and envs that hold nothing yet are addressing, not credentials, and are never gated: `listScopes()` reports them (D20), and they ride along as empty `projects/<p>/<e>/` directories, so the project list is not the one thing an export cannot reproduce.
 - Export runs through the `Storage` interface, so it works identically on any adapter. It streams (no full-dataset buffering) and is also exposed as `GET /api/export` (`transfer:export`) returning the tarball.
-- `media/` stays a top-level directory in the archive, unaffected by scoping — media is instance-global (§12.3), not per-project/env.
+- `media/` stays a top-level directory in the archive, unaffected by scoping — media is instance-global (§8.1), not per-project/env. Since D23 the bytes travel with their catalog: `_media` and `_media_folders` ride in `_system` and are **never** gated on `--with-keys`, because filenames and folders are data, not credentials. Blob keys stay flat, so the directory layout is unchanged.
 
 ### 7.2 Import
 
@@ -379,14 +408,18 @@ Hono web framework on Bun. JSON everywhere. Admin UI served at `/`; API under `/
 | GET / PUT / DELETE | `/api/projects/{project}/envs/{env}/collections/{name}/schema` | schema fetch / update / delete |
 | GET / POST | `/api/projects/{project}/envs/{env}/collections/{name}` | list (query below) / create |
 | GET / PUT / DELETE | `/api/projects/{project}/envs/{env}/collections/{name}/{id}` | PUT is full replace |
-| GET | `/api/export` | streams tar.gz (`transfer:export`; `keys:export` when including keys) |
-| POST | `/api/import?mode=` | accepts tar.gz (`transfer:import`; archives containing keys also require `keys:import`) |
+| GET | `/api/export` | streams tar.gz (`transfer:export` + `media:read`; `keys:export` when including keys) |
+| POST | `/api/import?mode=` | accepts tar.gz (`transfer:import` + `media:create`, plus `media:delete` in replace mode; archives containing keys also require `keys:import`) |
 | POST | `/api/copy` | pulls and imports another silo (`{source_url, source_api_key, mode, with_keys, dry_run, validate, prefer}`; `transfer:copy`) |
 | GET / POST | `/api/keys` | list (`keys:read`) / create (`keys:create`); create returns the secret exactly once |
 | DELETE | `/api/keys/{id}` | revoke a key (`keys:revoke`) |
-| GET / POST | `/api/media` | list (`media:read`) / upload (`media:create`) media files |
-| DELETE | `/api/media/{filename}` | delete media (`media:delete`) |
-| GET | `/media/{filename}` | public asset streaming |
+| GET / POST | `/api/media` | search (`media:read`) / upload (`media:create`) — see §8.1 |
+| GET / PATCH / DELETE | `/api/media/{id}` | asset detail / rename·move·retag (`media:create`) / guarded delete (`media:delete`) |
+| GET | `/api/media/{id}/usages` | paginated referrers, claim-filtered (`media:read`) |
+| GET / POST | `/api/media/folders` | list / create an empty folder (`media:read` / `media:create`) |
+| DELETE | `/api/media/folders` | delete an empty folder (`media:delete`) |
+| POST | `/api/media/reconcile` | backfill and repair the catalog (`media:create` + `media:delete`) |
+| GET | `/media/{id}` | public asset streaming (pre-D23 `/media/{blobKey}` still resolves) |
 
 **List query encoding:** `?filter=<url-encoded JSON Filter>&sort=-$updated_at,title&limit=50&offset=0` (envelope fields carry the `$` prefix in sort exactly as in filters). Response: `{"data": [...], "total": n, "limit": ..., "offset": ...}`.
 
@@ -404,6 +437,108 @@ Hono web framework on Bun. JSON everywhere. Admin UI served at `/`; API under `/
 - **Bootstrap:** on first boot with no keys, silo generates a root (`*`) key and prints it to stderr exactly once, boxed under the silo wordmark on a terminal and as flat ASCII when redirected. Locked out? `silo keys create --preset root` on the host works directly against the data dir.
 - **Revocation** = deleting the key entry. No expiry and no `last_used_at` in v1 (tracking last-use would turn every request into a storage write, which the fs adapter pays for dearly).
 - The UI stores each saved server's key in `localStorage` (`silo_servers`), verifies it with `GET /api/session`, and sends it as a header on every request; no cookies, so no CSRF surface. Any `401` returns the UI to the server manager.
+
+### 8.1 Media: catalog, folders, search, and reference integrity (D23)
+
+Media stays **instance-global** — one library for the whole server, not per
+project/env — and `media:read|create|delete` stay unscoped. Folders organize;
+they do not authorize.
+
+**Catalog.** Every asset is a `_media` document in `Scope.System`, id = a ULID:
+
+```json
+{
+  "filename": "hero.png",
+  "folder": "/marketing/launch",
+  "blob_key": "01J8XQ4Z8K9M2P3R5T7V9X1B3D.png",
+  "size": 20481,
+  "content_type": "image/png",
+  "hash": "e3b0c442...",
+  "state": "active",
+  "tags": ["hero"]
+}
+```
+
+`blob_key` is a stored field, so the policy that generates it is one function
+and can change without touching the record shape. Folders are metadata: the
+key carries no directory component, so moving an asset writes one field and
+performs no object-store work — no S3 copy-and-delete, and the archive's flat
+`media/` layout (§7.1) is unchanged, so D23 needs no `format_version` bump.
+
+**Folders** follow D20's existence rule in both halves: a folder exists when it
+was created explicitly (a `_media_folders` document, id a ULID, `path` in the
+data because a `/`-bearing path is not a safe path segment) **or** when some
+asset names it. Without the explicit half a folder could not be made before
+something was filed into it — the exact gap D20 found with empty projects.
+
+**Search** is the existing Query AST over `_media`: `contains` on `filename`
+for `?q=`, `eq` on `folder`, `contains` on `content_type` for `?type=`,
+membership on `tags`. No new op, so §5.3's "every op is forever" cost is zero,
+and paging plus `total` come from `Storage.list` unchanged.
+
+**References.** Entries name an asset by id — `silo://media/<ulid>` — never by
+path, which is what lets a rename leave every entry alone. Extraction is
+**structural**, not schema-driven: `MediaRefs.extract` walks the whole `data`
+value and collects every string that parses as a reference, regardless of what
+the schema says, because §7.2 lets an archive carry `content/<collection>/`
+with no schema at all and validation is off by default on import. A
+schema-driven walk would find nothing there and a missed reference deletes a
+live file. Over-capture (a free-text field holding a literal reference string)
+blocks a delete: visible and recoverable. Under-capture orphans: silent. Take
+the asymmetry.
+
+Pre-D23 entries hold `/media/<blobKey>`; those are **dual-read** into the token
+`blob:<blobKey>` and counted as usages, so a partially backfilled instance
+still refuses to delete a referenced file. `silo media reconcile` backfills
+catalog records for blobs uploaded before D23, rebuilds usages from entries,
+and reports orphan blobs.
+
+**Deletion** is a saga in `Service`, under `writeMu`, because the catalog and a
+remote object store cannot share a transaction:
+
+1. Count usages for the asset's id **and** its `blob:` token. Non-zero → `409`.
+2. Mark the asset `state: "deleting"` and commit that.
+3. Delete the blob.
+4. Delete the catalog record.
+
+A crash between 3 and 4 leaves an asset in `deleting`; startup retries the
+idempotent blob delete and finishes. `Service` refuses to create a *new*
+reference to an asset in `deleting`, so the window cannot be re-entered.
+Import does **not** run that check — §7.2 is fidelity-first and validation is
+opt-in, so an archive is never rejected for naming an asset it also carries.
+
+**The abort.** A blob delete that fails *permanently* — rotated credentials, a
+changed bucket policy — would otherwise strand the asset in `deleting`
+forever: unusable, refusing new references, with no operator path out. So
+`silo media reconcile` **attempts** the deletion and, if that attempt throws,
+returns the asset to `active` and reports it. This is the reverse of the
+saga's last step, not a force-delete, and it does not reopen D21.
+
+A blob delete that fails returns **`500 media_delete_stalled`** rather than a
+bare internal error: the asset is in a recoverable state, and the body names
+it (`media_id`, `blob_key`, the underlying `reason`, and `remedy:
+"silo media reconcile"`). An operator driving the API rather than reading the
+server's startup log would otherwise have no way to know the asset is staged,
+or that a command exists to un-stage it. It is deliberately not a `409` —
+`media_in_use` is a refusal the caller fixes by editing entries, this is a
+storage failure the caller fixes by fixing the blob store, and a client should
+be able to tell the two media-delete outcomes apart by code alone.
+
+Reconcile judges by the *attempt*, never by whether the blob is still present:
+a crash between steps 2 and 3 leaves the bytes in place too, and that case must
+**complete** rather than reverse. Only an actual failure distinguishes
+"interrupted" from "impossible". Startup, by contrast, only ever retries —
+one failure is not evidence the operation cannot succeed, and reversing a
+deletion is an operator decision, not a boot-time one. Startup therefore counts
+failures instead of throwing, because a misconfigured blob store must not stop
+the server booting over a deletion someone staged days ago.
+
+There is **no force-delete**. The `409` always reports the total count, and
+enumerates only the referrers the calling key may read: media is
+instance-global but referrers are scoped, so a key confined to one project must
+learn that a file is in use without learning where. The remainder is reported
+as a count only.
+
 
 ## 9. Admin UI
 
@@ -423,9 +558,10 @@ React + TypeScript + Vite + RJSF (`@rjsf/core` + `@rjsf/validator-ajv8` for 2020
 2. **Entries list** (default main view) — table per collection, columns derived from top-level schema properties, filter/sort/paginate via the list API, *New entry* button.
 3. **Entry form** — RJSF-generated from the schema; per-subtree raw-JSON fallback for unrenderable constructs (D3); server validation errors mapped back onto fields.
 4. **Schema editor** — create/edit a collection's JSON Schema in a JSON editor (CodeMirror) with live validation of the schema document itself.
-5. **Keys** — list (label, claims, prefix, created), revoke, and a dedicated creation page. The creation page is one guided sentence: a label, a **reach** naming the project and env segments of the key's collection claims independently (one env · a whole project · one env across every project · the whole instance), and a **role** (`read` · `write` · `manage` · `root`). One Advanced disclosure adds what the sentence cannot say — narrowing to named collections, the instance capabilities (media, key management, transfer), and a raw claim editor that takes over from the guided controls when even those are not enough. Choosing a transfer capability composes in the instance-wide collection permissions D21 requires alongside it, rather than naming them in help text. Options the current key cannot delegate are disabled with the reason. The secret is shown once.
-6. **Data transfer** — two pages at two blast radii. Under *Server*: claim-aware whole-instance export/import panels and direct copy from another running silo (merge/replace, data-only/data-plus-keys). Under *Environment*: copy from another environment of this instance (D22), preview-then-apply, gated on the scoped claims the copy exercises.
-7. **Settings** — a nav column grouped by the scope each page configures; see below.
+5. **Media** — a searchable library: a folder rail, a name/type filter bound to the `_media` query, and per-asset rename, move, and delete. An asset in use shows its reference count and refuses deletion, naming the entries the current key may read (§8.1).
+6. **Keys** — list (label, claims, prefix, created), revoke, and a dedicated creation page. The creation page is one guided sentence: a label, a **reach** naming the project and env segments of the key's collection claims independently (one env · a whole project · one env across every project · the whole instance), and a **role** (`read` · `write` · `manage` · `root`). One Advanced disclosure adds what the sentence cannot say — narrowing to named collections, the instance capabilities (media, key management, transfer), and a raw claim editor that takes over from the guided controls when even those are not enough. Choosing a transfer capability composes in the instance-wide collection permissions D21 requires alongside it, rather than naming them in help text. Options the current key cannot delegate are disabled with the reason. The secret is shown once.
+7. **Data transfer** — two pages at two blast radii. Under *Server*: claim-aware whole-instance export/import panels and direct copy from another running silo (merge/replace, data-only/data-plus-keys). Under *Environment*: copy from another environment of this instance (D22), preview-then-apply, gated on the scoped claims the copy exercises.
+8. **Settings** — a nav column grouped by the scope each page configures; see below.
 
 **Settings** is divided by the scope each page configures, because a collection is
 identified by `(project, env, collection)` (D18–D20) and most of what settings
@@ -508,7 +644,7 @@ disabled = false            # dev-only bypass; if true, disables all auth checks
 allow_remote_refs = false
 ```
 
-Subcommands: `silo serve`, `silo export`, `silo import`, `silo keys create|list|revoke`, `silo version`. CLI commands operate directly on the data dir — no running server required (this is also the lockout-recovery path). `keys create` accepts explicit `--claims` or `--preset root|manage|write|read` with optional `--collections`. Presets are defined once in `@silo/shared` (`Claims.presetPermissions`/`presetMedia`) and read by both the CLI and the admin UI's key form, so `--preset manage` and the UI's Manage role grant the same set. First boot creates the data dir, generates `instance_id` (ULID), initializes storage, and — if no keys exist — generates and prints a root key exactly once.
+Subcommands: `silo serve`, `silo export`, `silo import`, `silo keys create|list|revoke`, `silo media reconcile`, `silo version`. CLI commands operate directly on the data dir — no running server required (this is also the lockout-recovery path). `keys create` accepts explicit `--claims` or `--preset root|manage|write|read` with optional `--collections`. Presets are defined once in `@silo/shared` (`Claims.presetPermissions`/`presetMedia`) and read by both the CLI and the admin UI's key form, so `--preset manage` and the UI's Manage role grant the same set. First boot creates the data dir, generates `instance_id` (ULID), initializes storage, and — if no keys exist — generates and prints a root key exactly once.
 
 ## 11. Milestones
 
@@ -523,7 +659,7 @@ Testing spine: adapter conformance suite (one test file, run against every `Stor
 
 1. **Sync** — `Changes(sinceSeq)` on adapters, tombstone records for deletes, `silo sync <remote>` pulling a change feed over HTTP with the §7.2 merge rules. The envelope (`rev`, `seq`, instance_id tiebreak) is already shaped for this.
 2. **Cache adapters** — only when something is measurably slow; storage adapters are the pattern template (D7).
-3. **Media/blob store (Completed)** — `files/` / `media/` tree; pluggable `BlobStorage` adapter interface supporting local filesystem (`fs`, default) and S3 (`s3`).
+3. **Media/blob store (Completed)** — `files/` / `media/` tree; pluggable `BlobStorage` adapter interface supporting local filesystem (`fs`, default) and S3 (`s3`). Extended by D23 with a catalog, folders, search, and reference integrity (§8.1); `BlobStorage` itself stays byte-only.
 
 4. **Auth growth** — per-collection public-read rules (unauthenticated reads for chosen collections), key expiry, `last_used_at` tracking (needs a write-cheap path first), finer-grained per-key permissions. Real user accounts only if keys ever prove insufficient.
 5. **Relations** — `x-silo-ref` gains optional integrity enforcement + UI pickers.
