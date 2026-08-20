@@ -1,21 +1,21 @@
-import { parseArgs } from "util";
 import path from "path";
-import { Service } from "../core/service/service";
-import { SqliteStore } from "../adapters/storage/sqlite/sqlite-store";
-import { FsStore } from "../adapters/storage/fs/fs-store";
+import { parseArgs } from "util";
 import { BlobStorageFactory } from "../adapters/blob/blob-storage-factory";
+import { FsStore } from "../adapters/storage/fs/fs-store";
+import { SqliteStore } from "../adapters/storage/sqlite/sqlite-store";
 import { ConfigLoader } from "../config/config-loader";
-import { ServeCommand } from "./commands/serve-command";
-import { KeysCommand } from "./commands/keys-command";
+import { Service } from "../core/service/service";
 import { ExportCommand } from "./commands/export-command";
 import { ImportCommand } from "./commands/import-command";
+import { KeysCommand } from "./commands/keys-command";
+import { ServeCommand } from "./commands/serve-command";
 
 /** Argv parsing, subcommand routing, and dependency wiring for the silo CLI. */
 export class Cli {
   private static readonly version = "0.1.0-dev";
 
   private static printUsage() {
-    console.log(`silo — minimal portable headless CMS
+    console.log(`silo, minimal portable headless CMS
 
 Usage:
   silo serve [flags]                     start the server
