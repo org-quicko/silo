@@ -1,4 +1,5 @@
 import fs from "fs/promises";
+import path from "path";
 import { TOML } from "bun";
 import type { Config } from "./config";
 
@@ -13,8 +14,11 @@ export class ConfigLoader {
         path: "./silo_data",
       },
       blob_storage: {
+        // No path: an unset fs path means "wherever the data dir is", resolved
+        // by resolveDerivedDefaults() once flags have had their say. Baking the
+        // default in here would make it indistinguishable from a path the user
+        // chose, and --data would have to either clobber both or neither.
         driver: "fs",
-        path: "./silo_data/media",
       },
       auth: {
         disabled: false,
@@ -143,6 +147,29 @@ export class ConfigLoader {
       cfg.schema.allow_remote_refs = process.env.SILO_SCHEMA_ALLOW_REMOTE_REFS === "true";
     }
 
+    return cfg;
+  }
+
+  /**
+   * Fills in the defaults that are derived from other settings, after every
+   * layer of the hierarchy (file, env, flags) has been applied.
+   *
+   * The fs blob path follows the data dir, so that `--data /tmp/foo` keeps one
+   * instance in one place instead of putting SQLite under /tmp/foo and media
+   * under ./silo_data/media. An explicit `[blob_storage] path`, `SILO_BLOB_PATH`
+   * or `--blob-path` is left alone — the point of leaving it unset by default is
+   * that a chosen path stays chosen.
+   *
+   * Call this last. Anything applied afterwards can no longer tell a derived
+   * value from an explicit one.
+   */
+  static resolveDerivedDefaults(cfg: Config): Config {
+    // Normalised the way BlobStorageFactory reads it, so a driver spelled "FS"
+    // cannot get past this and fall back to a path under the wrong directory.
+    const blobDriver = (cfg.blob_storage.driver || "fs").toLowerCase();
+    if (blobDriver === "fs" && !cfg.blob_storage.path) {
+      cfg.blob_storage.path = path.join(cfg.storage.path, "media");
+    }
     return cfg;
   }
 }

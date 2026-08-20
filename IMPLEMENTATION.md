@@ -637,12 +637,23 @@ listen = ":8090"
 driver = "sqlite"           # "sqlite" | "fs"
 path   = "./silo_data"      # dir; sqlite file lives at <path>/silo.db
 
+[blob_storage]
+driver = "fs"               # "fs" | "s3"
+path   = "./silo_data/media"  # fs driver; defaults to <storage.path>/media
+
 [auth]
 disabled = false            # dev-only bypass; if true, disables all auth checks across the app
 
 [schema]
 allow_remote_refs = false
 ```
+
+Settings derived from other settings are resolved *after* the whole hierarchy
+is applied (`ConfigLoader.resolveDerivedDefaults`), so `--data` relocates the fs
+blob path only while nobody has named one: an explicit `[blob_storage] path`,
+`SILO_BLOB_PATH` or `--blob-path` wins. Defaults are therefore left unset rather
+than pre-filled — a literal default is indistinguishable from a chosen value,
+and the two must not be treated alike.
 
 Subcommands: `silo serve`, `silo export`, `silo import`, `silo keys create|list|revoke`, `silo media reconcile`, `silo version`. CLI commands operate directly on the data dir — no running server required (this is also the lockout-recovery path). `keys create` accepts explicit `--claims` or `--preset root|manage|write|read` with optional `--collections`. Presets are defined once in `@silo/shared` (`Claims.presetPermissions`/`presetMedia`) and read by both the CLI and the admin UI's key form, so `--preset manage` and the UI's Manage role grant the same set. First boot creates the data dir, generates `instance_id` (ULID), initializes storage, and — if no keys exist — generates and prints a root key exactly once.
 
