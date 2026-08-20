@@ -15,6 +15,87 @@ A minimal, self-hostable headless CMS. Users define collections with JSON Schema
 
 *Last updated: 2026-08-20*
 
+- **The first-boot root key gets a real banner (2026-08-20):**
+  `BootstrapBanner` (`server/cli/bootstrap-banner.ts`) replaces the `=`-rule
+  block `ServeCommand` printed inline. It draws the admin UI's barrel mark
+  beside a block `SILO` wordmark under a vertical indigo→lilac fade off
+  `--accent`, then boxes the secret with a `ROOT API KEY` / `shown only once`
+  header. The box is a selection guide as much as decoration — this is the one
+  moment silo hands over a credential it can never show again (§8), and it
+  lands mid-startup where it is easy to scroll past.
+  - **Two renderings, chosen by whether anything is watching.** A TTY gets the
+    coloured box; a pipe, a log file or a CI transcript gets the *original*
+    flat ASCII, unchanged, so existing greps and captured logs keep working and
+    no escape codes or box-drawing characters reach a dumb console. `NO_COLOR`
+    (any non-empty value) wins over `FORCE_COLOR`.
+  - Written with `process.stderr.write`, not `console.error`: Bun tints the
+    latter red on a TTY, which would sit underneath the banner's own colours.
+  - Box width is derived from the key length, and
+    `server/test/cli/bootstrap-banner.test.ts` pins that every box row renders
+    the same visible width once escapes are stripped — the padding arithmetic
+    counts characters the colour codes are not part of, which is the sort of
+    thing that rots silently.
+  - `silo keys create` still prints its plain one-liner; only the first-boot
+    key is decorated.
+
+- **The key creation page is rebuilt around projects and environments
+  (2026-08-20):** `/servers/:sid/settings/keys/new` was written before D18–D20
+  and had never caught up. It read its scope from `ScopeMemory` and showed it
+  only as a `<code>` in the subtitle, with `SettingsView` substituting a
+  hardcoded `{project: 'default', env: 'prod'}` when nothing resolved — a pair
+  that need not exist on the instance. Minting a key for a scope you were not
+  currently working in meant navigating elsewhere first to change what the page
+  would silently inherit.
+  - **The page is now label → reach → role**, with everything else behind one
+    Advanced disclosure. The Standard/Custom segmented switch is gone: Custom
+    started from an empty claim set, so "read and write, plus media upload"
+    meant rebuilding an eight-column matrix by hand.
+  - **Reach is an explicit control** (`NewKeyReach`, `KeyReach`) naming the
+    project and env segments separately, so all four shapes the claim grammar
+    allows are reachable — including `*`/`prod`/`*`, every project's `prod`,
+    which the old three-option "Environment / Project / All Projects" could not
+    express. The env is a picker when the project is concrete and free text
+    when it is not, because that reach names an environment *id* that may exist
+    in projects the current key cannot list.
+  - **`manage` is a real preset in `@silo/shared`** (`ClaimPreset`,
+    `Claims.presetPermissions`), not a UI-only bundle, so
+    `silo keys create --preset manage` means the same thing. It is `write` plus
+    `create`, `schema:update`, `access:update` and `delete` — collection
+    lifecycle, previously reachable only one collection at a time through the
+    matrix. `fromPreset` now derives from two `Record<Exclude<ClaimPreset,
+    "root">, …>` tables, so a future preset that forgets to say what it grants
+    is a compile error rather than a preset that silently grants nothing.
+  - **A `transfer:*` toggle now carries D21's prerequisites with it.**
+    `NewKeyPlan.transferRequirements` composes `Claims.TransferRead`/`Write`/
+    `ReplacePermissions` at `*`/`*`/`*` into the requested set, shows them
+    inline, and blocks the toggle when the minting key cannot delegate them.
+    The old page named the requirement in a sentence of help text and did
+    nothing about it, so it would happily mint a `transfer:import` key that
+    403s on every import. Replace authority is a separate nested opt-in rather
+    than riding along with Import.
+  - **Delegation shapes the controls, not just the final banner:** reaches and
+    roles the current key cannot grant are disabled with the reason, computed
+    from the collection half of the plan only, so an undelegatable instance
+    capability greys out its own toggle instead of every reach at once.
+  - **Advanced holds a raw claim editor** seeded from whatever the controls
+    produced, validated live through `Claims.normalize`/`canDelegate`. While it
+    is open the guided controls are disabled behind a visible "Return to guided
+    controls" — no attempt at bidirectional sync, which is what lets the guided
+    layer stay small without trapping anyone.
+  - **The review reads as grouped sentences** (`ClaimGroups`) with a live
+    access-level pill in the top bar's vocabulary, and the raw list one
+    disclosure away. The success screen shows the same grouping.
+  - New files under `ui/src/views/keys/`: `key-reach.ts`, `new-key-plan.ts`,
+    `claim-groups.ts`, `NewKeyReach.tsx`, `NewKeyCapabilities.tsx`,
+    `NewKeyReview.tsx`, `NewKeySecret.tsx`. `NewKeyView` no longer takes a
+    `collections` prop — it lists its own, for the scope it is actually
+    targeting — and takes `scope: ScopeRef | null` plus `projects`.
+  - The settings scope now seeds the reach through an effect rather than
+    `useState`'s initial value: it resolves over two round trips and is still
+    `null` on first paint, so reading it once produced empty segments and a
+    `collections://*:schema:read` that `Claims.normalize` threw on. Composition
+    yields no collection claims until the reach is answerable.
+
 - **Transfer write claims now cover the schema writes an import performs
   (2026-08-20, D21):** `Claims.TransferWritePermissions` listed only
   `entries:create`/`:update`/`:delete`, but `Importer.executeScopedImport` calls
@@ -565,7 +646,7 @@ A minimal, self-hostable headless CMS. Users define collections with JSON Schema
     - Connecting opens the workspace at `/servers/:serverId/projects/:project/environments/:env/collections`.
     - In-app scope switching was removed in favor of navigating back to the `/servers` view.
     - Deep application URLs carry `:serverId`, `:project`, and `:env`.
-    - Key management (`/keys/new`) allows selecting Scope Level: Environment, Project, or All Projects.
+    - Key management (`/keys/new`) allowed selecting Scope Level: Environment, Project, or All Projects. *Superseded 2026-08-20* by the explicit reach picker, which names the project and env segments separately and adds the fourth shape (one environment across every project).
     - `ApiClient` methods explicitly scope operations with `project` and `env`. Claim checks in the UI pass the active scope.
     `Claims.hasAnyCollectionPermission(claims, perm, project, env)` and
     four-argument `Claims.collection(project, env, name, perm)` — and `NewKey`
@@ -785,7 +866,7 @@ A minimal, self-hostable headless CMS. Users define collections with JSON Schema
 | `tsconfig.json` | TypeScript configuration for the Bun server and shared package (`include: ["server/**/*", "shared/**/*"]`) |
 | `shared/` | Local `@silo/shared` package (a Bun workspace of the root) for runtime-neutral client/server rules. `src/claims/` is the single source of truth for claim constants, the `Claim`/`FixedClaim`/`CollectionClaim`/`CollectionPermission`/`ClaimPreset` types, `ParsedClaim`, validation, matching, delegation, and presets; `src/errors/` holds `ValidationError` and the `ValidationDetail` wire shape; `src/schema/` holds `SiloRef` (the `silo://collections/` `$ref` scheme), `SchemaAccess` (`x-silo-auth`), and `MediaField` (`x-silo-type: "media"`); `src/keys/` holds `KeyFormat` (secret prefix and display truncation). Tests under `shared/test/`. Each artifact is its own file and its own `exports` subpath |
 | `server/main.ts` | Thin CLI entrypoint — imports `Cli` and runs it |
-| `server/cli/` | `cli.ts` (argv parsing, subcommand routing, dependency wiring) and `commands/` (one command class per subcommand: `serve-command.ts`, `keys-command.ts`, `export-command.ts`, `import-command.ts`) |
+| `server/cli/` | `cli.ts` (argv parsing, subcommand routing, dependency wiring), `bootstrap-banner.ts` (the first-boot root key announcement), and `commands/` (one command class per subcommand: `serve-command.ts`, `keys-command.ts`, `export-command.ts`, `import-command.ts`) |
 | `server/config/` | `Config` type and its sub-shapes (`storage-config.ts`, `blob-storage-config.ts`, `auth-config.ts`, `schema-config.ts`) plus `ConfigLoader` (`config-loader.ts`) |
 | `server/core/domain/` | `Entry`, `Meta`, `EntryUtils`, `Collection`, `Scope` |
 | `server/core/ports/` | `Storage` and `BlobStorage` port interfaces |
@@ -804,7 +885,7 @@ A minimal, self-hostable headless CMS. Users define collections with JSON Schema
 | `server/http/middleware/` | `LoggingMiddleware`, `AuthMiddleware` |
 | `server/http/auth/` | `RouteAuth` — claim-checking helpers for route handlers |
 | `server/http/routes/` | `RouteManager` plus one routes class per resource (`projects-routes.ts`, `collections-routes.ts`, `entries-routes.ts` + `request-utils.ts`, `keys-routes.ts`, `media-routes.ts`, `transfer-routes.ts`, `copy-routes.ts` + `copy-request.ts` + `scope-copy-request.ts`, `session-routes.ts`). `CopyRoutes` serves both the whole-instance `/api/copy` and the scoped `/api/projects/:p/environments/:e/copy` |
-| `server/test/` | Test suites running via `bun test`: `conformance/` (storage conformance suite), `adapters/`, `core/`, `http/` (claims enforcement/delegation, entries API, export/import, direct server copy, scope-to-scope copy, media, schema `$ref`, projects API tests) |
+| `server/test/` | Test suites running via `bun test`: `conformance/` (storage conformance suite), `adapters/`, `core/`, `cli/` (bootstrap banner rendering), `http/` (claims enforcement/delegation, entries API, export/import, direct server copy, scope-to-scope copy, media, schema `$ref`, projects API tests) |
 | `ui/` | React + TS + Vite SPA (Slate design), organized into feature dirs (`api/`, `schema/`, `components/`, `forms/`, `router/`, `utils/` with `Formatters`, `ThemeManager` & `ScopeMemory`, `views/*`) with colocated CSS Modules and a small global foundation under `styles/`. Every collection/entry call is scoped through `ApiClient.collectionsPath`; the active `(project, env)` is part of the URL, switched from the `/servers` gate in the workspace and from the settings nav's scope switchers. Shared protocol rules come from `@silo/shared`; `ui/dist` contains the compiled SPA served at the web root. `src/**/*.test.ts` are `bun test` suites in their own TS project (`tsconfig.test.json`) and run from the repo root alongside the server's |
 | `README.md` | User-facing docs: why/quick start, concepts, configuration, CLI, HTTP API, claims, portability, deployment, development, roadmap, contributing. Rewritten 2026-08-18; deliberately links neither this file nor IMPLEMENTATION.md |
 | `ui/README.md` | Admin UI docs: dev workflow, the server-connection model, URL grammar, RJSF theme notes, styling conventions, and the `@silo/shared` per-file-symlink caveat. Rewritten 2026-08-18 (was the stock Vite template) |
@@ -878,8 +959,9 @@ Notable implementation facts:
   deliberately stay in `server/core/query/`: the UI picks its own `PAGE_SIZE` and
   never validates against the server's ceilings, so sharing them today would be a
   contract with no second consumer.
-- The UI verifies credentials through `GET /api/session`, uses the returned claims to hide or disable unavailable actions, and creates keys on the dedicated `/servers/:serverId/settings/keys/new` page. Standard presets support searchable all/selected-collection scope; custom mode exposes a per-collection permission matrix and instance-level claims.
+- The UI verifies credentials through `GET /api/session`, uses the returned claims to hide or disable unavailable actions, and creates keys on the dedicated `/servers/:serverId/settings/keys/new` page. That page is a guided sentence — label, reach (project and env segments picked explicitly), role (`read`/`write`/`manage`/`root`) — with collection narrowing, instance capabilities, and a raw claim editor behind one Advanced disclosure.
 - Claims-based key listings ignore malformed obsolete key records instead of failing the whole response; those records are not translated or accepted for authentication. If no valid claims key exists at startup, bootstrap creates a new root key. The selected-collection chooser expands in normal page flow so it remains visible inside the key form.
+- `Claims.presetCollectionPermissions` / `presetFixedClaims` expose what a preset grants so the key form can render it as editable toggles instead of restating the bundle. That is why the form composes collection claims itself rather than calling `Claims.fromPreset`: the media claims a preset carries appear in Advanced as real checkboxes, so a `write` key can be minted without `media:delete`. `fromPreset` stays the definition of a preset and the CLI's path.
 - The React UI (in `ui/`) builds to `ui/dist` and is served by Hono. During development, Vite dev server hot-reloads against the Bun backend. The active server configuration is persisted in `localStorage` (`silo_servers` and `silo_active_server_id`).
 - RJSF is **v6**: a custom Field's `onChange` signature is `(value, path, …)` — omit the path and the value is merged at the formData **root** (this bit the raw-JSON fallback field once; `JsonField` in `ui/src/forms/fields/JsonField.tsx` now passes `fieldPathId.path`).
 - RJSF v6 also **dropped the top-level `formContext` prop** on widgets/fields — it now lives at `registry.formContext`. `MediaWidget` (`ui/src/forms/widgets/MediaWidget.tsx`) read the old prop and silently got no `url`/`apiKey`, so the media picker always reported "No media files found in server storage"; it now reads `registry.formContext` and surfaces load/upload failures instead of showing an empty library.
@@ -906,7 +988,7 @@ Notable implementation facts:
 - **Logically modular**: Sub-components of infrastructure or service layers (such as filtering engines, query compilers, authorization helpers, or subcommand routing logic) should be modularized to keep core classes clean and cohesive.
 - **One artifact per file**: every exported class, interface, standalone function, and React component gets its own file, except a type that exists only as that artifact's constructor-options/props shape (e.g. `S3BlobStorageOptions` stays with `S3BlobStorage`).
 - **Directory structure**:
-  - `server/cli/`: CLI subcommand execution handlers wrapped in command classes (`cli.ts` for argv parsing/wiring, `commands/` for one class per subcommand).
+  - `server/cli/`: CLI subcommand execution handlers wrapped in command classes (`cli.ts` for argv parsing/wiring, `commands/` for one class per subcommand, `bootstrap-banner.ts` for the first-boot key announcement).
   - `server/config/`: `Config` and its sub-shapes, plus `ConfigLoader`.
   - `shared/src/`: Runtime-neutral logic shared by server and UI, consumed through the local `@silo/shared` package: claim protocol behavior under `claims/`, and under `errors/` the errors shared rules must be able to raise. Something belongs here when both sides need it *or* when shared itself must produce it; anything importing `bun:*`, node builtins, `hono`, or React does not.
   - `server/core/`: Domain models (`domain/`), port interfaces (`ports/`), query AST (`query/`), error classes (`errors/`), schema validation (`schema/`), server-only key persistence/secret logic (`keys/`), media helpers (`media/`), export/import engine (`transfer/`), and the `Service` orchestration layer (`service/`).

@@ -40,8 +40,8 @@ serve:
 keys create:
   --label s            human-readable label
   --claims a,b         comma-separated claims
-  --preset s           root | write | read (default read; ignored with --claims)
-  --collections a,b    collections for read/write presets (empty = all)
+  --preset s           root | manage | write | read (default read; ignored with --claims)
+  --collections a,b    collections for read/write/manage presets (empty = all)
   --project id         project the preset's claims target (default * = all)
   --env id             environment the preset's claims target (default * = all)
 

@@ -87,6 +87,47 @@ describe("claim matching", () => {
     expect(write).not.toContain(Claims.collection("acme", "prod", "posts", Claims.CollectionDelete));
   });
 
+  test("manage is write plus collection lifecycle", () => {
+    expect(Claims.isPreset("manage")).toBe(true);
+    const manage = Claims.fromPreset("manage", ["acme/prod/*"]);
+    // Everything write grants, at the same target.
+    for (const claim of Claims.fromPreset("write", ["acme/prod/*"])) {
+      expect(manage).toContain(claim);
+    }
+    const lifecycle: CollectionPermission[] = [
+      Claims.CollectionCreate,
+      Claims.CollectionSchemaUpdate,
+      Claims.CollectionAccessUpdate,
+      Claims.CollectionDelete,
+    ];
+    for (const permission of lifecycle) {
+      expect(manage).toContain(Claims.collection("acme", "prod", "*", permission));
+    }
+    // Scoped, not instance-wide: it confers no key, transfer or cross-project authority.
+    expect(manage).not.toContain(Claims.KeysCreate);
+    expect(manage).not.toContain(Claims.TransferExport);
+    expect(Claims.canDelegate(manage, [Claims.collection("other", "prod", "*", Claims.CollectionEntriesRead)])).toBe(false);
+  });
+
+  test("preset catalogues describe what each preset grants", () => {
+    expect(Claims.presetCollectionPermissions("read")).toEqual([
+      Claims.CollectionSchemaRead,
+      Claims.CollectionEntriesRead,
+    ]);
+    expect(Claims.presetFixedClaims("read")).toEqual([Claims.MediaRead]);
+    // Root is the whole catalog rather than a hand-written list, so it cannot
+    // drift as claims are added.
+    expect(Claims.presetCollectionPermissions("root")).toContain(Claims.CollectionAccessUpdate);
+    expect(Claims.presetFixedClaims("root")).toContain(Claims.KeysImport);
+    for (const preset of ["read", "write", "manage", "root"] as const) {
+      const claims = Claims.fromPreset(preset, ["acme/prod/*"]);
+      for (const permission of Claims.presetCollectionPermissions(preset)) {
+        if (preset === "root") break;
+        expect(claims).toContain(Claims.collection("acme", "prod", "*", permission));
+      }
+    }
+  });
+
   test("normalize rejects non-arrays", () => {
     expect(() => Claims.normalize("keys:read")).toThrow(/must be an array/);
     expect(() => Claims.normalize(undefined)).toThrow(/must be an array/);

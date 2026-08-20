@@ -10,7 +10,7 @@ export class KeyUtils {
 
   static parsePreset(value: string): ClaimPreset {
     if (Claims.isPreset(value)) return value;
-    throw new ValidationError(`unknown preset "${value}" (want root, write or read)`);
+    throw new ValidationError(`unknown preset "${value}" (want root, manage, write or read)`);
   }
 
   static generateKey(label: string, claims: string[]): { secret: string; info: KeyInfo } {
