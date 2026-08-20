@@ -9,9 +9,15 @@ import { Service } from "../core/service/service";
 import { ExportCommand } from "./commands/export-command";
 import { ImportCommand } from "./commands/import-command";
 import { InitCommand } from "./commands/init-command";
+import { LogsCommand } from "./commands/logs-command";
 import { MediaCommand } from "./commands/media-command";
 import { KeysCommand } from "./commands/keys-command";
 import { ServeCommand } from "./commands/serve-command";
+import { ServeDetachedCommand } from "./commands/serve-detached-command";
+import { StatusCommand } from "./commands/status-command";
+import { StopCommand } from "./commands/stop-command";
+import { Logger } from "../logging/logger";
+import { Daemon } from "../runtime/daemon";
 
 /** Argv parsing, subcommand routing, and dependency wiring for the silo CLI. */
 export class Cli {
@@ -23,6 +29,9 @@ export class Cli {
 Usage:
   silo init [flags]                      write a silo.toml of default settings
   silo serve [flags]                     start the server
+  silo stop [flags]                      stop a server started with --detach
+  silo status [flags]                    report whether a server is running
+  silo logs [flags]                      show the server log
   silo keys create [flags]               mint an API key
   silo keys list [flags]                 list keys
   silo keys revoke [flags] <id>          revoke a key
@@ -43,9 +52,19 @@ init:
   --force         overwrite an existing file
 
 serve:
-  --listen addr   listen address (default :8090)
-  --project id    default project created on startup (default "default")
-  --env id        default environment created on startup (default "prod")
+  --listen addr    listen address (default :8090)
+  --project id     default project created on startup (default "default")
+  --env id         default environment created on startup (default "prod")
+  -d, --detach     run in the background and return; logs go to a file
+  --log-file path  write the log here (detached runs default to <data>/silo.log)
+  --log-level s    debug | info | warn | error | silent (default info)
+
+stop:
+  --timeout s      seconds to wait after SIGTERM before killing (default 10)
+
+logs:
+  -n, --lines n    how many lines to show (default 50)
+  -f, --follow     keep printing as the file grows
 
 keys create:
   --label s            human-readable label
@@ -68,7 +87,15 @@ import:
 
 Environment overrides: SILO_LISTEN, SILO_DEFAULT_PROJECT, SILO_DEFAULT_ENV,
 SILO_STORAGE_DRIVER, SILO_STORAGE_PATH, SILO_BLOB_DRIVER, SILO_BLOB_PATH,
-SILO_BLOB_S3_*, SILO_AUTH_DISABLED, SILO_SCHEMA_ALLOW_REMOTE_REFS.
+SILO_BLOB_S3_*, SILO_AUTH_DISABLED, SILO_SCHEMA_ALLOW_REMOTE_REFS,
+SILO_LOG_LEVEL, SILO_LOG_FILE, SILO_LOG_FORMAT, SILO_LOG_REQUESTS,
+SILO_LOG_MAX_SIZE_MB, SILO_LOG_MAX_FILES.
+
+One server per data directory: serve refuses to start over a live one, because
+two processes would allocate the same seq values and defeat the in-process
+write lock. Run several instances by giving each its own --data and --listen.
+Under Docker or systemd, run serve in the foreground and let the supervisor own
+the process; --detach is for bare metal and development.
 
 Project and env ids use the same grammar as collection names
 (lowercase letter first, then [a-z0-9_-], max 64 chars); serve refuses to
@@ -104,6 +131,12 @@ Subcommands operate directly on the data dir — no running server needed.
     if (typeof values.env === "string") {
       cfg.default_env = values.env;
     }
+    if (typeof values["log-file"] === "string") {
+      cfg.log.file = values["log-file"];
+    }
+    if (typeof values["log-level"] === "string") {
+      cfg.log.level = values["log-level"];
+    }
     return cfg;
   }
 
@@ -130,6 +163,12 @@ Subcommands operate directly on the data dir — no running server needed.
         validate: { type: "boolean" },
         "dry-run": { type: "boolean" },
         prefer: { type: "string" },
+        detach: { type: "boolean", short: "d" },
+        "log-file": { type: "string" },
+        "log-level": { type: "string" },
+        follow: { type: "boolean", short: "f" },
+        lines: { type: "string", short: "n" },
+        timeout: { type: "string" },
         help: { type: "boolean", short: "h" },
       } as const,
       strict: false,
@@ -173,6 +212,33 @@ Subcommands operate directly on the data dir — no running server needed.
     const loaded = await ConfigLoader.loadConfig(configPath, explicitConfig);
     const cfg = ConfigLoader.resolveDerivedDefaults(Cli.applyFlagOverrides(loaded, values));
 
+    // Process management, handled before storage is opened — the same reason
+    // `init` is: none of these commands *is* the server, and asking whether one
+    // is running, or reading its log, must not create a data directory or take
+    // a handle on a database another process owns. `serve --detach` in
+    // particular has to leave the data dir untouched for the child it spawns.
+    try {
+      if (cmd === "serve" && values.detach) {
+        await ServeDetachedCommand.run(cfg, Cli.version);
+        process.exit(0);
+      }
+      if (cmd === "stop") {
+        await StopCommand.run(cfg, Cli.seconds(values.timeout, Daemon.StopTimeoutMs));
+        process.exit(0);
+      }
+      if (cmd === "status") {
+        await StatusCommand.run(cfg);
+        process.exit(0);
+      }
+      if (cmd === "logs") {
+        await LogsCommand.run(cfg, Cli.count(values.lines, 50), !!values.follow);
+        process.exit(0);
+      }
+    } catch (err: any) {
+      console.error(`silo: ${err.message}`);
+      process.exit(1);
+    }
+
     // Initialize service
     let store: any;
     if (cfg.storage.driver === "sqlite") {
@@ -192,10 +258,15 @@ Subcommands operate directly on the data dir — no running server needed.
     });
 
 
+    // Only `serve` logs: every other subcommand writes *program output* to
+    // stdout — data the caller pipes somewhere — and routing that into a log
+    // file would take the answer away from whoever asked for it.
+    const logger = cmd === "serve" ? Logger.create(cfg.log) : Logger.silent();
+
     try {
       switch (cmd) {
         case "serve":
-          await ServeCommand.run(svc, cfg, Cli.version, store);
+          await ServeCommand.run(svc, cfg, Cli.version, store, logger);
           break;
         case "keys":
           await KeysCommand.run(svc, store, positionals, values);
@@ -216,8 +287,21 @@ Subcommands operate directly on the data dir — no running server needed.
       }
     } catch (err: any) {
       console.error(`silo: ${err.message}`);
+      await logger.close().catch(() => {});
       await store.close().catch(() => {});
       process.exit(1);
     }
+  }
+
+  /** A `--timeout` in seconds, as milliseconds. Anything unparseable keeps the
+   *  default rather than collapsing to zero, which would kill immediately. */
+  private static seconds(value: unknown, fallbackMs: number): number {
+    const parsed = typeof value === "string" ? Number(value) : NaN;
+    return Number.isFinite(parsed) && parsed >= 0 ? parsed * 1000 : fallbackMs;
+  }
+
+  private static count(value: unknown, fallback: number): number {
+    const parsed = typeof value === "string" ? Number(value) : NaN;
+    return Number.isFinite(parsed) && parsed > 0 ? Math.floor(parsed) : fallback;
   }
 }

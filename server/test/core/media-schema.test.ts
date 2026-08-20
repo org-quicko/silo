@@ -10,6 +10,7 @@ import { MediaResolver } from "../../core/media/media-resolver";
 import { MediaRefs } from "../../core/media/media-refs";
 import { MediaRef } from "@silo/shared/media-ref";
 import { SiloServer } from "../../http/server";
+import { Logger } from "../../logging/logger";
 
 describe("Media references in entry data (D23)", () => {
   let tempDir: string;
@@ -21,7 +22,7 @@ describe("Media references in entry data (D23)", () => {
     tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "silo-schema-media-test-"));
     store = await SqliteStore.open(path.join(tempDir, "test.db"));
     svc = new Service(store, { mediaDir: path.join(tempDir, "media") });
-    app = new SiloServer(svc, "test", true).build();
+    app = new SiloServer(svc, { version: "test", authDisabled: true, logger: Logger.silent() }).build();
   });
 
   afterEach(async () => {

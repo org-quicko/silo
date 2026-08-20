@@ -10,6 +10,7 @@ import type { Entry } from "../../core/domain/entry";
 import { Scope } from "../../core/domain/scope";
 import { RouteManager } from "../../http/routes/route-manager";
 import { SiloServer } from "../../http/server";
+import { Logger } from "../../logging/logger";
 
 describe("Entries API Response Format", () => {
   let tempDir: string;
@@ -122,7 +123,7 @@ describe("Entries API Response Format", () => {
   test("an entry can be updated repeatedly using the rev each response returns", async () => {
     // Writes need a key, so this one runs against the full server rather than
     // the bare route table the read-shape tests use.
-    const authed = new SiloServer(svc, "test", false).build();
+    const authed = new SiloServer(svc, { version: "test", authDisabled: false, logger: Logger.silent() }).build();
     const secret = await svc.bootstrap();
     const headers = { "Content-Type": "application/json", Authorization: `Bearer ${secret}` };
     await svc.putSchema(Scope.Default, "deductions", {

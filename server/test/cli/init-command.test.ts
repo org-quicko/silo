@@ -46,6 +46,11 @@ describe("silo init", () => {
     expect(await ConfigLoader.loadConfig(file, true)).toEqual(ConfigLoader.defaultConfig());
   });
 
+  test("the log file stays commented, so a container still logs to its stream", async () => {
+    const cfg = await ConfigLoader.loadConfig(await init(), true);
+    expect(cfg.log.file).toBeUndefined();
+  });
+
   test("the fs media path stays commented, so --data still moves media", async () => {
     const file = await init();
     const cfg = await ConfigLoader.loadConfig(file, true);
@@ -73,6 +78,13 @@ describe("silo init", () => {
       "disabled",
       "[schema]",
       "allow_remote_refs",
+      "[log]",
+      "level",
+      "format",
+      "requests",
+      "max_size_mb",
+      "max_files",
+      "file",
     ]) {
       expect(body).toContain(key);
     }

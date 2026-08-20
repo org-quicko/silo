@@ -9,6 +9,7 @@ import { FsBlobStorage } from "../../adapters/blob/fs-blob-storage";
 import { Service } from "../../core/service/service";
 import { Scope } from "../../core/domain/scope";
 import { SiloServer } from "../../http/server";
+import { Logger } from "../../logging/logger";
 
 describe("Server copy API", () => {
   let tempDir: string;
@@ -34,13 +35,13 @@ describe("Server copy API", () => {
     sourceKey = await sourceService.bootstrap();
     destinationKey = await destinationService.bootstrap();
 
-    const sourceApp = new SiloServer(sourceService, "test", false).build();
+    const sourceApp = new SiloServer(sourceService, { version: "test", authDisabled: false, logger: Logger.silent() }).build();
     sourceServer = Bun.serve({
       hostname: "127.0.0.1",
       port: 0,
       fetch: sourceApp.fetch,
     });
-    destinationApp = new SiloServer(destinationService, "test", false).build();
+    destinationApp = new SiloServer(destinationService, { version: "test", authDisabled: false, logger: Logger.silent() }).build();
   });
 
   afterEach(async () => {
