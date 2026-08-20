@@ -11,8 +11,8 @@ import { ConfigLoader } from "../../config/config-loader";
  * does when no file is present: an untouched `silo init` file is a no-op, and
  * `server/test/cli/init-command.test.ts` pins that by loading it back.
  *
- * Keys silo has no default for — the s3 credentials, and the fs media dir —
- * are emitted **commented out**, not filled in. `[blob_storage] path` is the
+ * Keys silo has no default for — the s3 credentials, the fs media dir, and the
+ * log file — are emitted **commented out**, not filled in. `[blob_storage] path` is the
  * one that matters: unset means "follow the data dir", so `--data <dir>` keeps
  * uploads at `<dir>/media`; a literal path here is indistinguishable from a
  * path the user chose and would silently pin media in place (§10).
@@ -78,6 +78,14 @@ disabled = ${cfg.auth.disabled}   # dev only: true treats every request as root,
 
 [schema]
 allow_remote_refs = ${cfg.schema.allow_remote_refs}  # true fetches http(s) $refs during validation (non-deterministic writes)
+
+[log]
+level       = ${s(cfg.log.level)}   # "debug" | "info" | "warn" | "error" | "silent"
+format      = ${s(cfg.log.format)}   # "text" (human) | "json" (one object per line, for a log shipper)
+requests    = ${cfg.log.requests}     # one line per HTTP request; its own switch because it is high volume
+max_size_mb = ${cfg.log.max_size_mb}       # rotate past this size; 0 never rotates
+max_files   = ${cfg.log.max_files}        # rotated files kept as silo.log.1 … silo.log.<n>
+# file = "/var/log/silo.log"  # unset = the console. "serve --detach" uses <storage.path>/silo.log unless this names one.
 `;
   }
 }

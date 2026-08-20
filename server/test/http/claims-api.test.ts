@@ -9,6 +9,7 @@ import { Service } from "../../core/service/service";
 import { EntryUtils } from "../../core/domain/entry-utils";
 import { Scope } from "../../core/domain/scope";
 import { SiloServer } from "../../http/server";
+import { Logger } from "../../logging/logger";
 
 // Transfer is instance-wide: one archive spans every project and env, so the
 // `transfer:*` claims are not sufficient on their own — the caller has to hold
@@ -52,7 +53,7 @@ describe("claims API authorization", () => {
     service = new Service(store, { mediaDir: path.join(tempDir, "media") });
     rootKey = await service.bootstrap();
     await service.putSchema(Scope.Default, "posts", { type: "object", "x-silo-auth": true });
-    app = new SiloServer(service, "test", false).build();
+    app = new SiloServer(service, { version: "test", authDisabled: false, logger: Logger.silent() }).build();
   });
 
   afterEach(async () => {

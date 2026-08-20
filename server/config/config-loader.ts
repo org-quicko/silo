@@ -26,6 +26,18 @@ export class ConfigLoader {
       schema: {
         allow_remote_refs: false,
       },
+      log: {
+        level: "info",
+        // No file: unset means the console, and a detached run derives
+        // <data dir>/silo.log. Same rule as the fs blob path — a literal
+        // default could not be told apart from a chosen one, and would send a
+        // containerised silo into a file instead of the stream its supervisor
+        // is reading.
+        format: "text",
+        requests: true,
+        max_size_mb: 10,
+        max_files: 5,
+      },
     };
   }
 
@@ -92,6 +104,26 @@ export class ConfigLoader {
               cfg.schema.allow_remote_refs = parsed.schema.allow_remote_refs;
             }
           }
+          if (parsed.log && typeof parsed.log === "object") {
+            if (typeof parsed.log.level === "string") {
+              cfg.log.level = parsed.log.level;
+            }
+            if (typeof parsed.log.file === "string") {
+              cfg.log.file = parsed.log.file;
+            }
+            if (typeof parsed.log.format === "string") {
+              cfg.log.format = parsed.log.format;
+            }
+            if (typeof parsed.log.requests === "boolean") {
+              cfg.log.requests = parsed.log.requests;
+            }
+            if (typeof parsed.log.max_size_mb === "number") {
+              cfg.log.max_size_mb = parsed.log.max_size_mb;
+            }
+            if (typeof parsed.log.max_files === "number") {
+              cfg.log.max_files = parsed.log.max_files;
+            }
+          }
         }
       }
     } catch (err: any) {
@@ -145,6 +177,26 @@ export class ConfigLoader {
     }
     if (process.env.SILO_SCHEMA_ALLOW_REMOTE_REFS) {
       cfg.schema.allow_remote_refs = process.env.SILO_SCHEMA_ALLOW_REMOTE_REFS === "true";
+    }
+    if (process.env.SILO_LOG_LEVEL) {
+      cfg.log.level = process.env.SILO_LOG_LEVEL;
+    }
+    if (process.env.SILO_LOG_FILE) {
+      cfg.log.file = process.env.SILO_LOG_FILE;
+    }
+    if (process.env.SILO_LOG_FORMAT) {
+      cfg.log.format = process.env.SILO_LOG_FORMAT;
+    }
+    if (process.env.SILO_LOG_REQUESTS) {
+      cfg.log.requests = process.env.SILO_LOG_REQUESTS === "true";
+    }
+    if (process.env.SILO_LOG_MAX_SIZE_MB) {
+      const mb = Number(process.env.SILO_LOG_MAX_SIZE_MB);
+      if (Number.isFinite(mb)) cfg.log.max_size_mb = mb;
+    }
+    if (process.env.SILO_LOG_MAX_FILES) {
+      const files = Number(process.env.SILO_LOG_MAX_FILES);
+      if (Number.isFinite(files)) cfg.log.max_files = files;
     }
 
     return cfg;

@@ -22,6 +22,7 @@ can already read.
 - [Concepts](#concepts)
 - [Admin UI](#admin-ui)
 - [Configuration](#configuration)
+- [Running as a service](#running-as-a-service)
 - [CLI](#cli)
 - [HTTP API](#http-api)
 - [Authentication and claims](#authentication-and-claims)
@@ -94,6 +95,10 @@ you would rather configure silo in a file than with flags; it is optional.
 
 The server hosts the admin UI from `./ui/dist` relative to its working
 directory, with an SPA fallback. Skip the UI build if you only want the API.
+
+`serve` runs in the foreground. Add `--detach` to run it in the background
+instead and get `silo status`, `silo logs` and `silo stop` — see
+[Running as a service](#running-as-a-service).
 
 ### First run
 
@@ -195,6 +200,14 @@ disabled = false        # dev only: if true, every request is treated as root
 
 [schema]
 allow_remote_refs = false  # opt in to fetching http(s) $refs during validation
+
+[log]
+level       = "info"          # "debug" | "info" | "warn" | "error" | "silent"
+format      = "text"          # "text" (human) | "json" (one object per line)
+requests    = true            # a line per HTTP request
+max_size_mb = 10              # rotate past this size; 0 never rotates
+max_files   = 5               # kept as silo.log.1 … silo.log.5
+# file = "/var/log/silo.log"  # unset means the console
 ```
 
 | Environment variable | Overrides |
@@ -208,6 +221,8 @@ allow_remote_refs = false  # opt in to fetching http(s) $refs during validation
 | `SILO_BLOB_S3_FORCE_PATH_STYLE` | `[blob_storage]` |
 | `SILO_AUTH_DISABLED` | `[auth] disabled` |
 | `SILO_SCHEMA_ALLOW_REMOTE_REFS` | `[schema] allow_remote_refs` |
+| `SILO_LOG_LEVEL`, `SILO_LOG_FILE`, `SILO_LOG_FORMAT` | `[log]` |
+| `SILO_LOG_REQUESTS`, `SILO_LOG_MAX_SIZE_MB`, `SILO_LOG_MAX_FILES` | `[log]` |
 
 Media follows the data directory: with the `fs` blob driver, `--data <dir>`
 stores uploads in `<dir>/media`, so one instance stays in one place. Naming the
@@ -216,6 +231,18 @@ takes precedence and `--data` leaves it alone.
 
 Invalid default project or environment ids fail at startup rather than creating
 a scope that no route can address.
+
+**Where the log goes.** With no `[log] file`, silo logs to the console — always,
+whether or not a terminal is attached, so `silo serve > out.txt` and a container
+that expects a stream both work. Name a file and silo writes there instead, plus
+the console when stdout is a terminal, so a foreground server you are watching
+still shows itself. `file` is deliberately left unset by default: the console is
+what a supervisor wants, and a value here is indistinguishable from one you
+chose. Only `--detach` picks a path for you, `<data dir>/silo.log`.
+
+Only the running server logs. Every other subcommand writes its output to
+stdout, because that output is data you might pipe somewhere — sending it to a
+log file would take the answer away from you.
 
 ### Schema references
 
@@ -235,14 +262,84 @@ Saving a schema bundles its references into `$defs` while preserving the
 original reference URL, so the stored document is self-contained. Deleting a
 collection that another schema references fails with `409` unless forced.
 
+## Running as a service
+
+`silo serve` runs in the foreground and logs to your terminal. That is the right
+shape under Docker, systemd, or any other supervisor — let it own the process,
+its restarts, and its output stream. On bare metal or in development, `--detach`
+runs the same server in the background:
+
+```sh
+silo serve --detach --data /srv/silo
+```
+
+The log goes to `<data dir>/silo.log` unless `[log] file` names somewhere else,
+and the child's own stdout and stderr are redirected into it too — so a crash
+that never reaches the logger still leaves a trace.
+
+```sh
+silo status              # pid, address, driver, log path, uptime, health
+silo logs --follow       # tail the log; -n sets how many lines to start with
+silo stop                # SIGTERM, then SIGKILL after --timeout (default 10s)
+```
+
+`silo serve --detach` does not report success until the child has recorded
+itself and answered `/api/health`. If it dies on the way up — a port already
+taken, an unreadable data directory — you get a non-zero exit and the end of its
+log, rather than a pid that quietly no longer exists.
+
+`silo status` exits non-zero when nothing is running, so a shell can branch on
+it. It reports the process and the HTTP endpoint separately: a server that is
+alive but not answering is a different problem from one that is gone.
+
+### Running more than one instance
+
+Several silos on one machine are fine. Give each its own data directory and its
+own port:
+
+```sh
+silo serve --detach --data /srv/silo-a --listen :8090
+silo serve --detach --data /srv/silo-b --listen :8091
+```
+
+They share nothing — separate databases, media, keys, and `instance_id`. Manage
+each with `--data`, the same flag you started it with.
+
+**What is not supported is two processes over one data directory.** silo refuses
+it, and the refusal is not caution:
+
+- The filesystem driver keeps `last_seq` in memory, so two processes hand out
+  the same `seq` values. `seq` is the instance-wide write cursor that
+  replication will be built on; duplicates in it are not repairable.
+- Writes are serialised on a lock inside one process, which is what makes
+  `If-Match` optimistic concurrency sound. A second process makes lost updates
+  possible again.
+- Compiled schema validators are cached per process, so one server would not see
+  the other's schema changes.
+
+A running server records itself in `<data dir>/silo.run.json`, and any `serve`
+that finds a live one refuses to start. A server that was killed leaves that
+record behind; silo checks whether the process still exists rather than trusting
+the file, so a crash never locks your data directory out of use.
+
+Scaling silo horizontally would mean moving `seq` allocation and write
+serialisation into the storage layer — a real design change, not a
+configuration flag. It is not on the roadmap.
+
 ## CLI
 
 Every subcommand operates directly on the data directory, with no running server
-required. This is also the lockout recovery path.
+required. This is also the lockout recovery path. `stop`, `status` and `logs`
+are the exception in the other direction: they read the run file and never open
+storage at all, so asking whether a server is running cannot create a data
+directory or disturb one another process already owns.
 
 ```
 bun run server/main.ts init [flags]                  write a silo.toml of default settings
 bun run server/main.ts serve [flags]                 start the HTTP server
+bun run server/main.ts stop [flags]                  stop a server started with --detach
+bun run server/main.ts status [flags]                report whether a server is running
+bun run server/main.ts logs [flags]                  show the server log
 bun run server/main.ts keys create [flags]           mint an API key (secret shown once)
 bun run server/main.ts keys list                     list keys (label, claims, prefix, created)
 bun run server/main.ts keys revoke <id>              revoke a key
@@ -261,6 +358,12 @@ bun run server/main.ts version                       print the version
 | `--driver <sqlite\|fs>` | all | storage driver |
 | `--listen <addr>` | `serve` | listen address (default `:8090`) |
 | `--project <id>`, `--env <id>` | `serve` | defaults created on startup (`default`, `prod`) |
+| `-d`, `--detach` | `serve` | run in the background and return |
+| `--log-file <path>` | `serve` | write the log here (detached runs default to `<data dir>/silo.log`) |
+| `--log-level <s>` | `serve` | `debug`, `info`, `warn`, `error`, or `silent` |
+| `--timeout <s>` | `stop` | seconds to wait after SIGTERM before killing (default 10) |
+| `-n`, `--lines <n>` | `logs` | how many lines to show (default 50) |
+| `-f`, `--follow` | `logs` | keep printing as the log grows |
 | `--label <s>` | `keys create` | human-readable label |
 | `--claims <a,b>` | `keys create` | explicit comma-separated claims |
 | `--preset <root\|write\|read>` | `keys create` | claim preset, ignored when `--claims` is given |
@@ -563,6 +666,13 @@ platform volume; the Dockerfile intentionally declares no `VOLUME`, which keeps
 it compatible with platforms such as Railway. A `HEALTHCHECK` backed by
 `GET /api/health` is built in.
 
+Run silo in the **foreground** under Docker, systemd, or any other supervisor —
+that is what the image does, and it is what lets the supervisor see the process
+exit, restart it, and collect its stream. `--detach` is for bare metal and
+development; using it inside a container would exit the entrypoint immediately
+and take the container down with it. Leave `[log] file` unset there too, so logs
+reach `docker logs` and journald rather than a file inside the container.
+
 With a host bind mount, make the directory writable by the image's `bun` user.
 If a volume was created by an older root-running image, migrate its ownership
 once:
@@ -571,6 +681,29 @@ once:
 docker run --rm --user root --entrypoint chown \
   -v silo_data:/data silo -R bun:bun /data
 ```
+
+### systemd
+
+Foreground, with systemd owning the process and journald owning the log:
+
+```ini
+[Unit]
+Description=silo
+After=network.target
+
+[Service]
+ExecStart=/usr/local/bin/silo serve --data /var/lib/silo --listen :8090
+User=silo
+Restart=on-failure
+
+[Install]
+WantedBy=multi-user.target
+```
+
+`Type=simple` (the default) is correct here: silo stays in the foreground, so
+systemd tracks it directly and needs no pid file. Leave `[log] file` unset and
+`journalctl -u silo` has everything. Do not add `--detach` — the unit would
+consider the service dead the moment the parent returned.
 
 ## Development
 

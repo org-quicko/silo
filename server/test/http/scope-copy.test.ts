@@ -9,6 +9,7 @@ import { FsBlobStorage } from "../../adapters/blob/fs-blob-storage";
 import { Service } from "../../core/service/service";
 import { Scope } from "../../core/domain/scope";
 import { SiloServer } from "../../http/server";
+import { Logger } from "../../logging/logger";
 
 /**
  * `POST /api/projects/:project/environments/:env/copy` — the env→env move
@@ -37,7 +38,7 @@ describe("Scope copy API", () => {
     store = await SqliteStore.open(path.join(tempDir, "silo.db"));
     svc = new Service(store, { blobStore: new FsBlobStorage(path.join(tempDir, "media")) });
     rootKey = await svc.bootstrap();
-    app = new SiloServer(svc, "test", false).build();
+    app = new SiloServer(svc, { version: "test", authDisabled: false, logger: Logger.silent() }).build();
 
     await svc.createProject("acme");
     await svc.createEnvironment("acme", "prod");

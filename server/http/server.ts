@@ -11,24 +11,43 @@ import { ConflictError } from "../core/errors/conflict-error";
 import { MediaDeleteStalledError } from "../core/errors/media-delete-stalled-error";
 import { UnauthorizedError } from "../core/errors/unauthorized-error";
 import { ForbiddenError } from "../core/errors/forbidden-error";
+import type { Logger } from "../logging/logger";
+
+/** How to build the app. An options object rather than a fourth and fifth
+ *  positional argument, two of which would be bare booleans. */
+export interface SiloServerOptions {
+  version: string;
+  authDisabled: boolean;
+  logger: Logger;
+  /** Whether to log a line per request. Off unless asked for, so a test or an
+   *  embedder does not have to opt out of an access log it never wanted. */
+  logRequests?: boolean;
+}
 
 /** Builds and owns the Hono app: middleware, API routes, and UI static serving. */
 export class SiloServer {
   private readonly svc: Service;
   private readonly version: string;
   private readonly authDisabled: boolean;
+  private readonly logger: Logger;
+  private readonly logRequests: boolean;
 
-  constructor(svc: Service, version: string, authDisabled: boolean) {
+  constructor(svc: Service, options: SiloServerOptions) {
     this.svc = svc;
-    this.version = version;
-    this.authDisabled = authDisabled;
+    this.version = options.version;
+    this.authDisabled = options.authDisabled;
+    this.logger = options.logger;
+    this.logRequests = options.logRequests ?? false;
   }
 
   build(): Hono {
     const app = new Hono();
 
-    // Logger middleware matching Go's output
-    app.use("*", LoggingMiddleware.create());
+    // Registered rather than gated inside the middleware, so a server with
+    // request logging off pays nothing per request for the decision.
+    if (this.logRequests) {
+      app.use("*", LoggingMiddleware.create(this.logger));
+    }
 
     // Enable CORS
     app.use("/api/*", cors());
@@ -70,7 +89,7 @@ export class SiloServer {
       // a storage failure the caller can act on, not a refusal, and it needs
       // its own code so a client can tell the two media-delete outcomes apart.
       if (err instanceof MediaDeleteStalledError) {
-        console.error("media delete stalled:", err.reason);
+        this.logger.error("media delete stalled", { media_id: err.mediaId, reason: err.reason });
         return c.json(
           {
             error: {
@@ -106,7 +125,8 @@ export class SiloServer {
         );
       }
 
-      console.error("internal error:", err);
+      this.logger.error("internal error", { message: err instanceof Error ? err.message : String(err) });
+      if (err instanceof Error && err.stack) this.logger.debug("internal error stack", { stack: err.stack });
       return c.json(
         { error: { code: "internal", message: "internal error" } },
         500

@@ -15,6 +15,74 @@ A minimal, self-hostable headless CMS. Users define collections with JSON Schema
 
 *Last updated: 2026-08-21*
 
+- **silo runs as a service now: logs to a file, `--detach`, and one server per
+  data directory (2026-08-21):** `silo serve` occupied the terminal it was
+  started from and printed everything to it, so running silo meant `nohup`, a
+  redirect, and no way to ask whether it was up. Four things changed
+  (**D25**).
+  - **Logging is configurable** — a `[log]` block (`level`, `file`, `format`,
+    `requests`, `max_size_mb`, `max_files`), with `SILO_LOG_*` env vars and
+    `--log-file` / `--log-level` flags on top. `Logger`
+    (`server/logging/logger.ts`) writes through `LogSink`s: `ConsoleSink` and a
+    size-rotating `FileSink`. `text` is human-readable; `json` emits one object
+    per line for a log shipper.
+    - **Destination rule, stated once:** no `[log] file` → the console,
+      always, so `silo serve > out.txt` keeps working. A `[log] file` → that
+      file, *plus* the console only when stdout is a TTY. Someone watching a
+      foreground server still sees it come up; a detached run has nobody
+      watching, so the file is the only copy and there is no double write.
+    - **`[log] file` has no default**, exactly like the fs media path: the
+      console is right for a container, whose supervisor owns the stream, and a
+      literal default here could not be told apart from a chosen path. Only
+      `--detach` derives one, at `<data dir>/silo.log`.
+    - Only `serve` logs. Every other subcommand keeps writing to stdout with
+      `console.log`, because `silo keys list` emits *program output* — data a
+      caller pipes somewhere — and routing that into a log file would take the
+      answer away from whoever asked for it.
+  - **`silo serve --detach` (`-d`)** spawns a detached child with its stdio
+    redirected into the log file. The redirect is not how normal lines get
+    there — `Logger` writes those itself — it is the net for everything that
+    never reaches a logger: an uncaught stack, a Bun panic, a native crash.
+    Losing those is how a background process becomes undebuggable.
+  - **`silo stop`, `silo status`, `silo logs [-n N] [--follow]`.** `stop` sends
+    SIGTERM and escalates to SIGKILL after `--timeout` (default 10s). `status`
+    answers two separate questions — the OS says the process exists,
+    `/api/health` says it is serving — because a wedged server is a different
+    problem from a dead one. It exits non-zero when nothing is running, so a
+    shell can branch on it.
+  - **One server per data directory, enforced.** A running server records
+    itself in `<data dir>/silo.run.json` (`RunFile`, `server/runtime/`), and
+    every `serve` — foreground or detached — refuses to start over a live one.
+    This is not tidiness: two processes on one data dir silently corrupt it.
+    The fs adapter holds `last_seq` in memory, so both hand out the same `seq`
+    values (measured: two instances on one fs data dir produced `seq`
+    2,2,3,3,4,4), and `seq` is the instance-global cursor a change feed will
+    depend on. `Service`'s write mutex is process-local, so optimistic
+    concurrency stops being sound too. No adapter can defend against this from
+    where it sits, so the guard lives at the process boundary.
+    - **Staleness is decided by asking the OS**, not by trusting the file:
+      `kill(pid, 0)`. A server that was SIGKILLed or power-cut leaves its
+      record behind, and that must never lock its own data directory out of
+      use. The residual hazard is pid reuse, the same trade every pid-file
+      daemon makes.
+  - **The parent waits for the child's own run file, matched by pid** — never
+    for `/api/health`. Probing health cannot tell "my child came up" from
+    "something is on that port": a start that lost the port to another
+    instance was reported as a success, with a pid that had already exited.
+    Found while verifying the feature, fixed, and pinned by
+    `server/test/runtime/detached-serve.test.ts`, which starts two real
+    servers on one port and asserts the second fails and says why.
+  - **Multiple instances** work and always did — one `--data` and one
+    `--listen` each. What was missing was the guard above and the management
+    commands; sharing *one* data directory between processes remains
+    unsupported. See the roadmap note below.
+  - New: `server/logging/` and `server/runtime/`. `SiloServer`'s constructor
+    now takes an options object (`SiloServerOptions`) rather than four
+    positional arguments, two of them bare booleans. Tests:
+    `server/test/logging/logger.test.ts`, `server/test/runtime/run-file.test.ts`,
+    `server/test/runtime/detached-serve.test.ts`, plus `[log]` layering in
+    `server/test/config/config-loader.test.ts`.
+
 - **`silo init` scaffolds a config file (2026-08-21):** silo was configurable
   by TOML but shipped no TOML — you had to copy the sample out of the README
   and know which keys existed. `silo init` writes a `silo.toml` holding every
@@ -1008,6 +1076,8 @@ A minimal, self-hostable headless CMS. Users define collections with JSON Schema
 ## Architecture in one minute
 
 - **Ports and adapters.** `server/core/` defines domain types and the `Storage`/`BlobStorage` interfaces (under `server/core/ports/`), importing no adapters; adapters live under `server/adapters/`; `server/cli/cli.ts` (the `Cli` class, run from `server/main.ts`) wires everything explicitly from config.
+- **One process per data directory (D25).** Storage adapters have no cross-process lock and are not meant to: the fs adapter holds `last_seq` in memory and `Service`'s write mutex is process-local, which is exactly what lets adapters stay CAS-free. The guard therefore lives at the process boundary — a running server records itself in `<data dir>/silo.run.json` and `serve` refuses to start over a live one. Several instances are fine and expected; each gets its own `--data` and `--listen`.
+- **Logging.** Only the long-running server logs, through `Logger` (`server/logging/`), to the console and/or a rotating file per `[log]`. Other subcommands write program output to stdout and always will.
 - **Document model.** Entries are JSON blobs in an envelope (`id` ULID, `project`, `env`, `collection`, `rev`, `seq`, timestamps) — never schema→table mapping. This keeps storage adapters cheap.
 - **Scoping.** A collection is identified by `(project, env, collection)` (D18/D19/D20), where project/env are plain string containers validated by `Scope` (`server/core/domain/scope.ts`) — no metadata beyond the two ids. Projects and envs are recorded explicitly (SQLite `projects`/`environments` tables; marker files in the fs adapter) so an empty one can exist, and a scope **exists when it was created explicitly *or* still holds a schema or an entry** — both halves, in both adapters. `Scope.System` (`_system`/`_system`) holds silo-reserved data (`_keys`). `seq` stays instance-global across every scope.
 - **Storage adapters:** SQLite (`bun:sqlite` built-in) and filesystem. The fs adapter's on-disk layout **is** the export format (frozen, public, versioned via `format_version`, currently `"2"`) — `projects/<project>/<env>/{schemas,content}/...`.
@@ -1019,15 +1089,17 @@ A minimal, self-hostable headless CMS. Users define collections with JSON Schema
 
 | Path | What it is |
 |------|------------|
-| `IMPLEMENTATION.md` | Design spec + decisions log (D1–D20) |
+| `IMPLEMENTATION.md` | Design spec + decisions log (D1–D25) |
 | `CONTEXT.md` | This file — current state of the project |
 | `CLAUDE.md` | Standing instructions for AI assistants |
 | `package.json` | Project metadata, TypeScript 7 setup, Bun/Hono dependencies, and AWS S3 SDK; declares the `shared` Bun workspace |
 | `tsconfig.json` | TypeScript configuration for the Bun server and shared package (`include: ["server/**/*", "shared/**/*"]`) |
 | `shared/` | Local `@silo/shared` package (a Bun workspace of the root) for runtime-neutral client/server rules. `src/claims/` is the single source of truth for claim constants, the `Claim`/`FixedClaim`/`CollectionClaim`/`CollectionPermission`/`ClaimPreset` types, `ParsedClaim`, validation, matching, delegation, and presets; `src/errors/` holds `ValidationError` and the `ValidationDetail` wire shape; `src/schema/` holds `SiloRef` (the `silo://collections/` `$ref` scheme), `SchemaAccess` (`x-silo-auth`), and `MediaField` (`x-silo-type: "media"`); `src/keys/` holds `KeyFormat` (secret prefix and display truncation); `src/media/` holds `MediaRef` (the `silo://media/<ulid>` scheme, its pre-D23 `/media/<key>` dual-read, and the canonical form the write path stores). Tests under `shared/test/`. Each artifact is its own file and its own `exports` subpath |
 | `server/main.ts` | Thin CLI entrypoint — imports `Cli` and runs it |
-| `server/cli/` | `cli.ts` (argv parsing, subcommand routing, dependency wiring), `bootstrap-banner.ts` (the first-boot root key announcement), and `commands/` (one command class per subcommand: `serve-command.ts`, `keys-command.ts`, `export-command.ts`, `import-command.ts`, `init-command.ts` — `silo init`, the config scaffold rendered from `ConfigLoader.defaultConfig()` so it cannot drift from the built-in defaults, `media-command.ts` — `silo media reconcile`, the catalog repair that runs against the data dir with no server, reporting what it adopted, pruned, finished and returned to active) |
-| `server/config/` | `Config` type and its sub-shapes (`storage-config.ts`, `blob-storage-config.ts`, `auth-config.ts`, `schema-config.ts`) plus `ConfigLoader` (`config-loader.ts`) — `loadConfig` walks file then env, and `resolveDerivedDefaults` fills in the paths derived from others (the fs blob dir) once flags have been applied |
+| `server/cli/` | `cli.ts` (argv parsing, subcommand routing, dependency wiring), `bootstrap-banner.ts` (the first-boot root key announcement), and `commands/` (one command class per subcommand: `serve-command.ts`, `keys-command.ts`, `export-command.ts`, `import-command.ts`, `init-command.ts` — `silo init`, the config scaffold rendered from `ConfigLoader.defaultConfig()` so it cannot drift from the built-in defaults, `media-command.ts` — `silo media reconcile`, the catalog repair that runs against the data dir with no server, reporting what it adopted, pruned, finished and returned to active, and the four process-lifecycle commands: `serve-detached-command.ts` — `silo serve --detach`, which spawns the child and waits for *its* run file before reporting success, `stop-command.ts`, `status-command.ts`, `logs-command.ts`). `Cli` routes `serve --detach`, `stop`, `status` and `logs` before storage is opened, like `init`: none of them is the server, so none may create a data dir or take a handle on another process's database |
+| `server/config/` | `Config` type and its sub-shapes (`storage-config.ts`, `blob-storage-config.ts`, `auth-config.ts`, `schema-config.ts`, `log-config.ts`) plus `ConfigLoader` (`config-loader.ts`) — `loadConfig` walks file then env, and `resolveDerivedDefaults` fills in the paths derived from others (the fs blob dir) once flags have been applied |
+| `server/logging/` | The server's log (D25): `Logger` (level threshold, `text`/`json` formatting, `raw` for the bootstrap banner, `silent()` for tests), `LogLevel` + `LogLevels`, the `LogSink` port with `ConsoleSink` and a size-rotating `FileSink`, `LogLocation` (where a detached run writes, and where `silo logs` reads) and `LogTail` (the last n lines, and follow across a rotation) |
+| `server/runtime/` | Process lifecycle (D25): `RunState` and `RunFile` (`<data dir>/silo.run.json` — written after the bind, removed on clean shutdown, and the guard that refuses a second server over a live one), `Daemon` (detached spawn, health polling, SIGTERM-then-SIGKILL), `ListenAddress` (the `[host]:port` grammar, shared by `serve` and the health probe) |
 | `server/core/domain/` | `Entry`, `Meta`, `EntryUtils`, `Collection`, `Scope` |
 | `server/core/ports/` | `Storage` and `BlobStorage` port interfaces |
 | `server/core/query/` | Query AST (`Filter`, `SortKey`, `Query` + limits) and `QueryUtils` |
@@ -1041,11 +1113,11 @@ A minimal, self-hostable headless CMS. Users define collections with JSON Schema
 | `server/adapters/storage/fs/` | `FsStore` + `FsFilter` + `FsManifest` |
 | `server/adapters/blob/` | `FsBlobStorage`, `S3BlobStorage`, `BlobStorageFactory` (imported directly — no barrel) |
 | `server/adapters/http/` | `HttpSiloClient` (+ `Fetcher` type) — the authenticated HTTP source client for direct copy |
-| `server/http/server.ts` | `SiloServer` class — builds the Hono app (middleware, routes, static UI serving with SPA fallback) |
+| `server/http/server.ts` | `SiloServer` class — builds the Hono app (middleware, routes, static UI serving with SPA fallback). Takes `SiloServerOptions` (`version`, `authDisabled`, `logger`, `logRequests`) rather than positional arguments; request logging is registered only when asked for, so a server with it off pays nothing per request |
 | `server/http/middleware/` | `LoggingMiddleware`, `AuthMiddleware` |
 | `server/http/auth/` | `RouteAuth` — claim-checking helpers for route handlers |
 | `server/http/routes/` | `RouteManager` plus one routes class per resource (`projects-routes.ts`, `collections-routes.ts`, `entries-routes.ts` + `request-utils.ts`, `keys-routes.ts`, `media-routes.ts`, `transfer-routes.ts`, `copy-routes.ts` + `copy-request.ts` + `scope-copy-request.ts`, `session-routes.ts`). `CopyRoutes` serves both the whole-instance `/api/copy` and the scoped `/api/projects/:p/environments/:e/copy` |
-| `server/test/` | Test suites running via `bun test`: `conformance/` (storage conformance suite), `adapters/`, `core/`, `cli/` (bootstrap banner rendering, `silo init`'s scaffold round-tripping back to the defaults), `config/` (config layering and the derived fs blob path), `http/` (claims enforcement/delegation, entries API, export/import, direct server copy, scope-to-scope copy, media catalog/folders/search/reference integrity, schema `$ref`, projects API tests). The conformance suite pins media usages on both adapters — the one D23 invariant they answer by completely different means |
+| `server/test/` | Test suites running via `bun test`: `conformance/` (storage conformance suite), `adapters/`, `core/`, `cli/` (bootstrap banner rendering, `silo init`'s scaffold round-tripping back to the defaults), `config/` (config layering, the derived fs blob path, and the `[log]` block), `logging/` (level thresholds, both formats, rotation, tailing and following across a rotation), `runtime/` (run-file staleness and the one-server-per-data-dir refusal, plus a real detached start/stop/status round trip that pins the lost-the-port regression), `http/` (claims enforcement/delegation, entries API, export/import, direct server copy, scope-to-scope copy, media catalog/folders/search/reference integrity, schema `$ref`, projects API tests). The conformance suite pins media usages on both adapters — the one D23 invariant they answer by completely different means |
 | `ui/` | React + TS + Vite SPA (Slate design), organized into feature dirs (`api/`, `schema/`, `components/`, `forms/`, `router/`, `utils/` with `Formatters`, `ThemeManager` & `ScopeMemory`, `views/*`) with colocated CSS Modules and a small global foundation under `styles/`. Every collection/entry call is scoped through `ApiClient.collectionsPath`; the active `(project, env)` is part of the URL, switched from the `/servers` gate in the workspace and from the settings nav's scope switchers. Shared protocol rules come from `@silo/shared`; `ui/dist` contains the compiled SPA served at the web root. `src/**/*.test.ts` are `bun test` suites in their own TS project (`tsconfig.test.json`) and run from the repo root alongside the server's |
 | `README.md` | User-facing docs: why/quick start, concepts, configuration, CLI, HTTP API, claims, portability, deployment, development, roadmap, contributing. Rewritten 2026-08-18; deliberately links neither this file nor IMPLEMENTATION.md |
 | `ui/README.md` | Admin UI docs: dev workflow, the server-connection model, URL grammar, RJSF theme notes, styling conventions, and the `@silo/shared` per-file-symlink caveat. Rewritten 2026-08-18 (was the stock Vite template) |
@@ -1150,6 +1222,8 @@ Notable implementation facts:
 - **Directory structure**:
   - `server/cli/`: CLI subcommand execution handlers wrapped in command classes (`cli.ts` for argv parsing/wiring, `commands/` for one class per subcommand, `bootstrap-banner.ts` for the first-boot key announcement).
   - `server/config/`: `Config` and its sub-shapes, plus `ConfigLoader`.
+  - `server/logging/`: the running server's log — `Logger`, the level union and its ranking, the `LogSink` port and its console/file implementations, and the two read-side helpers (`LogLocation`, `LogTail`). Nothing here knows about HTTP or storage.
+  - `server/runtime/`: process lifecycle — the run file that records a live server, the daemon mechanics that start and stop one, and the listen-address grammar they share. Separate from `cli/` because the run file is server state that four commands read, not one command's presentation.
   - `shared/src/`: Runtime-neutral logic shared by server and UI, consumed through the local `@silo/shared` package: claim protocol behavior under `claims/`, and under `errors/` the errors shared rules must be able to raise. Something belongs here when both sides need it *or* when shared itself must produce it; anything importing `bun:*`, node builtins, `hono`, or React does not.
   - `server/core/`: Domain models (`domain/`), port interfaces (`ports/`), query AST (`query/`), error classes (`errors/`), schema validation (`schema/`), server-only key persistence/secret logic (`keys/`), media helpers (`media/`), export/import engine (`transfer/`), and the `Service` orchestration layer (`service/`).
   - `server/adapters/`: Database / storage drivers (`storage/sqlite/`, `storage/fs/`) and their private helper classes (compilers, filters), blob storage drivers (`blob/`), and the outbound HTTP client (`http/`).

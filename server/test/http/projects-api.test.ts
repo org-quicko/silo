@@ -11,6 +11,7 @@ import { EntryUtils } from "../../core/domain/entry-utils";
 import { Exporter } from "../../core/transfer/exporter";
 import { Importer } from "../../core/transfer/importer";
 import { SiloServer } from "../../http/server";
+import { Logger } from "../../logging/logger";
 
 describe("Projects API", () => {
   let tempDir: string;
@@ -24,7 +25,7 @@ describe("Projects API", () => {
     store = await SqliteStore.open(path.join(tempDir, "silo.db"));
     service = new Service(store, { mediaDir: path.join(tempDir, "media") });
     rootKey = await service.bootstrap();
-    app = new SiloServer(service, "test", false).build();
+    app = new SiloServer(service, { version: "test", authDisabled: false, logger: Logger.silent() }).build();
   });
 
   afterEach(async () => {
