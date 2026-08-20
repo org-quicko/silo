@@ -1,6 +1,7 @@
-import { useState } from 'react'
+import { useContext, useState } from 'react'
 import { AlertTriangle } from 'lucide-react'
 import { SiloRefs } from '../../schema/silo-refs'
+import { ArrayItemHeaderContext } from '../templates/ArrayItemHeaderContext'
 import styles from './JsonField.module.css'
 
 // JsonField: raw-JSON fallback for oneOf/anyOf/opaque objects (D3). Implemented
@@ -8,6 +9,9 @@ import styles from './JsonField.module.css'
 // the subtree — the whole value is edited as JSON and validated by the server.
 export function JsonField(props: any) {
   const { name, schema, formData, onChange, fieldPathId, disabled, readonly } = props
+  // An unresolved ref inside an array is titled by the item's collapsible
+  // header; repeating RJSF's "<array>-<index>" name under it says nothing.
+  const headed = useContext(ArrayItemHeaderContext) === fieldPathId?.$id
   const [text, setText] = useState(() => (formData === undefined ? '' : JSON.stringify(formData, null, 2)))
   const [bad, setBad] = useState(false)
   // RJSF v6 field onChange signature is (value, path, …); omitting the path
@@ -39,7 +43,7 @@ export function JsonField(props: any) {
   return (
     <div className="field">
       <div className="field-label-row">
-        <label className="field-label">{schema?.title || name}</label>
+        {!headed && <label className="field-label">{schema?.title || name}</label>}
         <span className="field-hint warn">
           {schema?.type ? `${schema.type} · ` : ''}
           {kind} — no generated control

@@ -135,8 +135,13 @@ type Entry struct {
   (`server/core/domain/scope.ts`, D18). `Scope` is a plain (project, env) pair
   with no metadata and no registry — see D18 and §6.1.
 - `EntryUtils.toApiResponse` never leaks `project`/`env` into the HTTP
-  response, exactly like `collection`/`rev`/`seq` today (§8): scope is a
-  storage/domain concern, invisible to the still-flat API.
+  response, exactly like `collection` and `seq`: scope is a storage/domain
+  concern, invisible to the API. `rev` **is** returned (2026-08-20), because
+  §8 requires it back as `If-Match`/`?rev=` — a client that never sees a
+  revision can only guess one, which succeeds exactly once per entry and then
+  `409`s on every later write. A user field named `rev` is dropped from the
+  data the same way `id` already was, so the envelope value cannot be
+  shadowed.
 
 ### 5.2 Collections & schemas (full JSON Schema)
 

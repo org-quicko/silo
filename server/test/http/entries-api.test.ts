@@ -9,6 +9,7 @@ import { EntryUtils } from "../../core/domain/entry-utils";
 import type { Entry } from "../../core/domain/entry";
 import { Scope } from "../../core/domain/scope";
 import { RouteManager } from "../../http/routes/route-manager";
+import { SiloServer } from "../../http/server";
 
 describe("Entries API Response Format", () => {
   let tempDir: string;
@@ -55,6 +56,7 @@ describe("Entries API Response Format", () => {
     const formatted = EntryUtils.toApiResponse(e);
     expect(formatted).toEqual({
       id: "01KX3FGFV01GWEBZEHDNZ38239",
+      rev: 2,
       section: "80G",
       regime: "old",
       assesse: "individual",
@@ -108,8 +110,67 @@ describe("Entries API Response Format", () => {
     expect(item.created_at).toBeTruthy();
     expect(item.updated_at).toBeTruthy();
     expect(item.collection).toBeUndefined();
-    expect(item.rev).toBeUndefined();
+    // rev IS exposed: PUT/DELETE demand it back as If-Match/?rev=, so a client
+    // that never sees it can only guess. seq and the scope stay internal.
+    expect(item.rev).toBe(1);
     expect(item.seq).toBeUndefined();
+    expect(item.project).toBeUndefined();
+    expect(item.env).toBeUndefined();
     expect(item.data).toBeUndefined();
+  });
+
+  test("an entry can be updated repeatedly using the rev each response returns", async () => {
+    // Writes need a key, so this one runs against the full server rather than
+    // the bare route table the read-shape tests use.
+    const authed = new SiloServer(svc, "test", false).build();
+    const secret = await svc.bootstrap();
+    const headers = { "Content-Type": "application/json", Authorization: `Bearer ${secret}` };
+    await svc.putSchema(Scope.Default, "deductions", {
+      type: "object",
+      properties: { section: { type: "string" } },
+    });
+
+    const created = await authed.request("/api/projects/default/environments/prod/collections/deductions", {
+      method: "POST",
+      headers,
+      body: JSON.stringify({ section: "80C" }),
+    });
+    expect(created.status).toBe(201);
+    const first = await created.json() as any;
+    expect(first.rev).toBe(1);
+
+    const entryPath = `/api/projects/default/environments/prod/collections/deductions/${first.id}`;
+    const put = async (rev: number, section: string) =>
+      authed.request(entryPath, {
+        method: "PUT",
+        headers: { ...headers, "If-Match": `"${rev}"` },
+        body: JSON.stringify({ section }),
+      });
+
+    const second = await put(first.rev, "80D");
+    expect(second.status).toBe(200);
+    const updated = await second.json() as any;
+    expect(updated.rev).toBe(2);
+
+    // The second edit is the one that used to 409 forever: before rev was in
+    // the response the client had nothing to send but its stale first guess.
+    const third = await put(updated.rev, "80G");
+    expect(third.status).toBe(200);
+    expect(((await third.json()) as any).rev).toBe(3);
+
+    const stale = await put(first.rev, "80TTA");
+    expect(stale.status).toBe(409);
+  });
+
+  test("a user field named rev does not shadow the envelope revision", async () => {
+    await svc.putSchema(Scope.Default, "notes", {
+      type: "object",
+      properties: { rev: { type: "string" } },
+    });
+    await svc.createEntry(Scope.Default, "notes", { rev: "draft-7" });
+
+    const res = await app.request("/api/projects/default/environments/prod/collections/notes");
+    const json = await res.json() as { data: any[] };
+    expect(json.data[0].rev).toBe(1);
   });
 });

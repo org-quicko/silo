@@ -13,7 +13,97 @@ A minimal, self-hostable headless CMS. Users define collections with JSON Schema
 
 ## Where things stand
 
-*Last updated: 2026-08-19*
+*Last updated: 2026-08-20*
+
+- **Entries could only be saved once — `rev` is now in the API response
+  (2026-08-20):** `PUT`/`DELETE` on an entry require the expected revision as
+  `If-Match`/`?rev=` (§8), but `EntryUtils.toApiResponse` returned only
+  `id`, the user fields, and the timestamps — no client could ever learn a
+  revision. `EntryMapper` filled the gap with `rev ?? 1`, which is right
+  exactly once: the first edit of an entry succeeded, bumped the stored rev to
+  2, and every later save 409'd with `rev mismatch: expected 1, current is 2`.
+  The admin UI could not update the same entry twice.
+  - `toApiResponse` now emits `rev` beside `id`, and deletes a user field of
+    that name from the data first, so the envelope value can't be shadowed —
+    the same treatment `id` already had. `collection`, `seq`, and the scope
+    stay hidden; those are internal and no client is asked for them back.
+  - Re-fetching the entry before each save was the alternative and is worse:
+    blindly adopting the current revision is precisely the lost-update the
+    `If-Match` rule exists to prevent.
+  - `server/test/http/entries-api.test.ts` pins the new shape: a list item
+    carries `rev` (and still no `seq`/`project`/`env`), two consecutive
+    updates using each returned rev both succeed while a stale rev still
+    `409`s, and a collection with a user field named `rev` reports the
+    envelope revision. 159 tests pass across 17 files.
+  - IMPLEMENTATION.md §5.1 said the response hides `rev` "exactly like
+    `collection`/`seq`" and README documented `If-Match` without saying where
+    a revision comes from; both now describe the response as it behaves.
+
+- **Expand/collapse all on an array field (2026-08-20):** the array header
+  carries a toggle whenever it holds more than one collapsible item. Items
+  report their open state up through `ArrayItemsContext` and the header names
+  the action that would actually change something ("Expand all" unless every
+  item is already open) rather than guessing from its own last click. The
+  instruction travels back down the same context as `{open, nonce}`; the nonce
+  is what makes a second "Collapse all" reach an item the user reopened in
+  between. A nested array only ever answers its own toggle, since each
+  `ArrayFieldTemplate` provides the context its own items read.
+
+- **Reference-list items are collapsible (2026-08-20):** an array of `$ref`
+  items rendered every item's fields inline, so a five-question FAQ list was
+  five stacked forms, each headed by RJSF's `faqs-1`/`faqs-2` — a label that
+  repeats the array's name and a position and says nothing about the item.
+  Array items whose schema is composite (an object, or an unresolved-ref
+  marker) now render as a collapsed card: a header row with a disclosure
+  chevron, the position as mono metadata, the item's own title, and the
+  move/copy/remove actions, with the fields in a collapsible body. Scalar
+  items (media arrays, enums) keep the flat row layout — there is nothing to
+  summarize. UI-only: no schema, API, or server change.
+  - **The title is the item's first filled field.** `ValueTitle`
+    (`ui/src/utils/value-title.ts`) walks the value's fields in render
+    order — `ui:order`, else `x-silo-ui.order`, else the schema's property
+    order, falling back to the value's own keys when the schema declares none
+    (an unresolved-ref marker carries no `properties`) — and takes the first
+    non-blank scalar, truncated at 90 characters. Nested objects and arrays
+    are skipped rather than stringified into the header. It lives under
+    `utils/` rather than `forms/` because the entries table needs the same
+    rule (below), and that table is not a form.
+  - **RJSF hands item data to the item's `SchemaField`, never to
+    `ArrayFieldItemTemplate`**, which is exactly where the header needs it, so
+    `ArrayFieldTemplate` publishes the live array through `ArrayItemsContext`
+    and each item reads its own slice by `index`. The title tracks typing in
+    the first field rather than only the loaded value.
+  - **An item with no title opens; a titled one starts collapsed.** Nothing to
+    show in the header means the user still has to fill it in — a just-added
+    item — and RJSF exposes no "this item was added just now" signal, so the
+    same answer is derived from the data.
+  - **The duplicate label is suppressed at its source.**
+    `ArrayItemHeaderContext` carries the id of the field an item header already
+    names; `ObjectFieldTemplate` (object items) and `JsonField` (raw-JSON
+    items, which render their own label row rather than going through
+    `FieldTemplate`) skip their label when it matches. Objects nested deeper
+    inside the item still get their group label.
+  - **Errors inside a collapsed item surface on its header.** The body is
+    hidden with the `hidden` attribute rather than unmounted, so the error is
+    still in the DOM and
+    `.item:not(.open):has(:global(.field-error))` lights a marker in the
+    header. `.body[hidden]` needs an explicit `display: none`, because the
+    module's own `display: flex` otherwise beats the UA's `[hidden]` rule.
+  - `ArrayFieldTemplate`'s `<fieldset>` gained `min-inline-size: 0`: a
+    fieldset's UA `min-content` floor plus a one-line header title meant the
+    array refused to narrow below its widest untruncated title and pushed the
+    form into horizontal overflow on a narrow viewport.
+  - `ObjectFieldTemplate` detected the root object with `props.idSchema?.$id`,
+    a v5 prop name that is always `undefined` under RJSF v6 — so the root was
+    rendering the group label the check exists to suppress. It reads
+    `fieldPathId.$id` now.
+  - **The entries table showed `[object Object]`.** `CellValue` rendered array
+    elements with `String(v)`, so a reference-list column was a row of
+    `[object Object]` chips. Chips (and a plain object cell, which showed a
+    bare `{…}`) are now labelled with the same `ValueTitle` rule the form
+    headers use, capped at `24ch` with the full text on `title`; a value with
+    no scalar to show still falls back to `{…}`.
+  157 tests still pass (no server surface changed).
 
 - **Array of reference types in schema (2026-08-19):** a schema property can
   now be `type: array, items: { $ref: "silo://collections/<name>" }` end to
@@ -79,6 +169,8 @@ A minimal, self-hostable headless CMS. Users define collections with JSON Schema
   compiled binary is not self-contained), and `EntryUtils.toApiResponse` omits
   `rev`, so the `If-Match`/`?rev=` requirement on entry `PUT`/`DELETE` is
   documented without claiming the API hands clients a revision to send.
+  (That second one was a bug, not a documentation nuance — fixed 2026-08-20
+  below, and the README now says the response carries `rev`.)
   Neither README links CONTEXT.md or IMPLEMENTATION.md any more: they are
   working docs for contributors, not part of the public front door, so the
   conventions and format-stability points the README needed are now stated

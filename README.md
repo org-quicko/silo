@@ -325,7 +325,8 @@ Leaf operators are `eq`, `neq`, `gt`, `gte`, `lt`, `lte`, `in`, and `contains`;
 response is `{"data": [...], "total": n, "limit": ..., "offset": ...}`.
 
 **Optimistic concurrency.** `PUT` and `DELETE` on an entry require the revision
-you expect, as `If-Match: "3"` or `?rev=3`. A mismatch returns `409`, which is
+you expect, as `If-Match: "3"` or `?rev=3`. Every entry response carries its
+current `rev`, so send back the one you read. A mismatch returns `409`, which is
 what stops two admin tabs from silently overwriting each other.
 
 **Errors.** `{"error": {"code": "...", "message": "...", "details": [...]}}` with
