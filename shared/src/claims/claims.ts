@@ -90,10 +90,32 @@ export class Claims {
     Claims.CollectionEntriesRead,
   ];
 
-  /** Add, overwrite, and — in `replace` mode — delete entries in any scope. */
+  /**
+   * Create collections in any scope and overwrite their schemas and entries.
+   *
+   * The apply stage writes schemas, not just entries: it calls `putSchema` for
+   * every collection the archive carries — in both modes — and creates any
+   * project, env or collection the archive names that is missing locally. So
+   * `create` and `schema:update` belong here for the same reason the
+   * collection and project routes ask for them when a caller does that work by
+   * hand; without them `transfer:import` plus the three entry permissions
+   * could overwrite every schema in the instance. Deletion is *not* in this
+   * list — `merge` mode deletes nothing — and lives in
+   * `TransferReplacePermissions` instead.
+   */
   static readonly TransferWritePermissions: readonly CollectionPermission[] = [
+    Claims.CollectionCreate,
+    Claims.CollectionSchemaUpdate,
     Claims.CollectionEntriesCreate,
     Claims.CollectionEntriesUpdate,
+  ];
+
+  /**
+   * Additionally required in `replace` mode, which clears every collection the
+   * archive carries — entries and schema both — before writing it back.
+   */
+  static readonly TransferReplacePermissions: readonly CollectionPermission[] = [
+    Claims.CollectionDelete,
     Claims.CollectionEntriesDelete,
   ];
 

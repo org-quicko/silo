@@ -19,6 +19,9 @@ export class CopyRoutes {
       RouteAuth.requireInstanceWide(c, "copy", Claims.TransferWritePermissions);
       const body = await CopyRoutes.readBody(c);
       CopyRoutes.validateOptions(body);
+      if (body.mode === "replace") {
+        RouteAuth.requireInstanceWide(c, 'a copy in "replace" mode', Claims.TransferReplacePermissions);
+      }
       if (body.with_keys === true) RouteAuth.requireClaim(c, Claims.KeysImport);
 
       const source = new HttpSiloClient(body.source_url, body.source_api_key);

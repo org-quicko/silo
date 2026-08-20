@@ -31,8 +31,15 @@ export class TransferRoutes {
 
     app.post("/api/import", async (c: Context) => {
       const key = RouteAuth.requireClaim(c, Claims.TransferImport);
-      RouteAuth.requireInstanceWide(c, "import", Claims.TransferWritePermissions);
       const mode = c.req.query("mode") as "merge" | "replace" | undefined;
+      RouteAuth.requireInstanceWide(c, "import", Claims.TransferWritePermissions);
+      // `replace` drops each archived collection — entries and schema — before
+      // writing it back, which `merge` never does, so its two extra
+      // permissions are asked for only when it is the mode. An unrecognised
+      // mode is not `replace`; `Importer.executeImport` rejects it as a 400.
+      if (mode === "replace") {
+        RouteAuth.requireInstanceWide(c, 'an import in "replace" mode', Claims.TransferReplacePermissions);
+      }
       const validate = c.req.query("validate") === "true";
       const dryRun = c.req.query("dry_run") === "true";
       const prefer = c.req.query("prefer") as "local" | "remote" | undefined;
