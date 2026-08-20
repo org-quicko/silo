@@ -225,9 +225,12 @@ export function SettingsView({ server, route, onUpdateServer, onDeleteServer, on
           <NewKeyView
             url={url}
             apiKey={apiKey}
-            scope={scope ?? { project: 'default', env: 'prod' }}
+            // The resolved scope is only the *default* reach now — the form
+            // picks its own project and env, so there is nothing to invent
+            // when none resolved.
+            scope={scope}
             ownClaims={claims}
-            collections={collections.map((c) => c.name)}
+            projects={projects}
             session={session}
             keysUrl={Routes.serverSettings(serverId, 'keys')}
             onCancel={() => router.navigate(Routes.serverSettings(serverId, 'keys'))}

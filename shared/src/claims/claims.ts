@@ -71,8 +71,68 @@ export class Claims {
   private static readonly presets: Record<ClaimPreset, true> = {
     read: true,
     write: true,
+    manage: true,
     root: true,
   };
+
+  /**
+   * What each non-root preset grants **per target**, widest last.
+   *
+   * `manage` exists because collection lifecycle — creating a collection,
+   * editing its schema, flipping its public-read access, deleting it — was
+   * otherwise reachable only one collection at a time by naming each claim
+   * individually. It is the rung between `write` (an integration that moves
+   * entries through collections someone else defined) and `root` (everything,
+   * everywhere, including minting keys and moving the whole instance).
+   */
+  private static readonly presetPermissions: Record<
+    Exclude<ClaimPreset, "root">,
+    readonly CollectionPermission[]
+  > = {
+    read: [Claims.CollectionSchemaRead, Claims.CollectionEntriesRead],
+    write: [
+      Claims.CollectionSchemaRead,
+      Claims.CollectionEntriesRead,
+      Claims.CollectionEntriesCreate,
+      Claims.CollectionEntriesUpdate,
+      Claims.CollectionEntriesDelete,
+    ],
+    manage: [
+      Claims.CollectionSchemaRead,
+      Claims.CollectionEntriesRead,
+      Claims.CollectionEntriesCreate,
+      Claims.CollectionEntriesUpdate,
+      Claims.CollectionEntriesDelete,
+      Claims.CollectionCreate,
+      Claims.CollectionSchemaUpdate,
+      Claims.CollectionAccessUpdate,
+      Claims.CollectionDelete,
+    ],
+  };
+
+  /** The media claims each non-root preset carries alongside its collection permissions. */
+  private static readonly presetMedia: Record<
+    Exclude<ClaimPreset, "root">,
+    readonly FixedClaim[]
+  > = {
+    read: [Claims.MediaRead],
+    write: [Claims.MediaRead, Claims.MediaCreate, Claims.MediaDelete],
+    manage: [Claims.MediaRead, Claims.MediaCreate, Claims.MediaDelete],
+  };
+
+  /** The collection permissions `preset` grants on each of its targets. */
+  static presetCollectionPermissions(
+    preset: ClaimPreset,
+  ): readonly CollectionPermission[] {
+    if (preset === "root") return Object.keys(Claims.collectionPermissions) as CollectionPermission[];
+    return Claims.presetPermissions[preset];
+  }
+
+  /** The unscoped claims `preset` grants regardless of its targets. */
+  static presetFixedClaims(preset: ClaimPreset): readonly FixedClaim[] {
+    if (preset === "root") return Object.keys(Claims.fixedClaims) as FixedClaim[];
+    return Claims.presetMedia[preset];
+  }
 
   /**
    * Collection permissions an instance-wide transfer exercises.
@@ -337,14 +397,16 @@ export class Claims {
     targets: readonly string[] = [Claims.Root],
   ): Claim[] {
     if (preset === "root") return [Claims.Root];
-    if (preset !== "write" && preset !== "read") {
-      // Compile-time guard: a new ClaimPreset must decide what it grants here
-      // rather than silently inheriting the "read" shape below.
-      const unhandled: never = preset;
-      throw new ValidationError(`unhandled preset "${String(unhandled)}"`);
+    // Exhaustiveness is enforced by the `Record<Exclude<ClaimPreset, "root">>`
+    // type on both tables — a new preset that forgets to say what it grants is
+    // a compile error there, not a preset that silently grants nothing. This
+    // check only catches a caller that reached here bypassing the types.
+    const permissions = Claims.presetPermissions[preset];
+    const media = Claims.presetMedia[preset];
+    if (permissions === undefined || media === undefined) {
+      throw new ValidationError(`unhandled preset "${String(preset)}"`);
     }
-    const claims: Claim[] = [Claims.MediaRead];
-    if (preset === "write") claims.push(Claims.MediaCreate, Claims.MediaDelete);
+    const claims: Claim[] = [...media];
     for (const target of targets) {
       let p = "*";
       let e = "*";
@@ -371,16 +433,8 @@ export class Claims {
       } else {
         n = target;
       }
-      claims.push(
-        Claims.collection(p, e, n, Claims.CollectionSchemaRead),
-        Claims.collection(p, e, n, Claims.CollectionEntriesRead),
-      );
-      if (preset === "write") {
-        claims.push(
-          Claims.collection(p, e, n, Claims.CollectionEntriesCreate),
-          Claims.collection(p, e, n, Claims.CollectionEntriesUpdate),
-          Claims.collection(p, e, n, Claims.CollectionEntriesDelete),
-        );
+      for (const permission of permissions) {
+        claims.push(Claims.collection(p, e, n, permission));
       }
     }
     return Claims.normalize(claims);

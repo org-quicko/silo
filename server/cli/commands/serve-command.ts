@@ -1,15 +1,17 @@
 import { Service } from "../../core/service/service";
 import { SiloServer } from "../../http/server";
+import { BootstrapBanner } from "../bootstrap-banner";
 
 export class ServeCommand {
   static async run(svc: Service, cfg: any, version: string, store: any): Promise<void> {
     await svc.initDefaults(cfg.default_project, cfg.default_env);
     const bootstrapKey = await svc.bootstrap();
     if (bootstrapKey) {
-      const line = "=".repeat(64);
-      console.error(
-        `\n${line}\n First run — root API key (shown only this once):\n\n   ${bootstrapKey}\n\n Store it safely. Create more keys with: silo keys create\n${line}\n\n`
-      );
+      // Written straight to the stream rather than through `console.error`,
+      // which tints its whole output red on a TTY — that wrapper would sit
+      // underneath the banner's own colours and add a newline to a string that
+      // already ends where it means to.
+      process.stderr.write(BootstrapBanner.render(bootstrapKey));
     }
 
     if (cfg.auth.disabled) {
