@@ -1,4 +1,5 @@
 .sidebar {
+  position: relative;
   display: flex;
   width: 248px;
   min-height: 0;
@@ -7,6 +8,24 @@
   border-right: 1px solid var(--line);
   background: var(--panel);
 }
+
+.resizer {
+  position: absolute;
+  top: 0;
+  right: -3px;
+  bottom: 0;
+  width: 6px;
+  cursor: col-resize;
+  z-index: 10;
+  transition: background-color 0.15s ease;
+}
+
+.resizer:hover,
+.resizing .resizer,
+.isResizing {
+  background: var(--accent);
+}
+
 
 .brand {
   display: flex;
@@ -115,6 +134,69 @@
   padding: 12px 8px 8px;
 }
 
+.searchWrap {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  margin: 0 4px 8px;
+  padding: 5px 8px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: var(--bg);
+  color: var(--text-3);
+  transition: border-color 0.15s ease;
+}
+
+.searchWrap:focus-within {
+  border-color: var(--accent);
+  color: var(--text-2);
+}
+
+.searchIcon {
+  flex: none;
+  color: var(--text-3);
+}
+
+.searchWrap:focus-within .searchIcon {
+  color: var(--accent);
+}
+
+.searchInput {
+  min-width: 0;
+  flex: 1;
+  border: 0;
+  outline: 0;
+  background: none;
+  color: var(--text);
+  font-family: var(--font-ui);
+  font-size: 12px;
+}
+
+.searchInput::placeholder {
+  color: var(--text-3);
+}
+
+.searchClear {
+  display: flex;
+  width: 16px;
+  height: 16px;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--text-3);
+  cursor: pointer;
+  transition: color 0.15s ease, background-color 0.15s ease;
+}
+
+.searchClear:hover {
+  background: var(--panel-2);
+  color: var(--text);
+}
+
 .groupLabel {
   color: var(--text-3);
   font-family: var(--font-mono);
@@ -177,9 +259,13 @@
 }
 
 .itemName {
+  min-width: 0;
   flex: 1;
+  overflow: hidden;
   color: var(--text-2);
   font-size: 13.5px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .itemCount {
