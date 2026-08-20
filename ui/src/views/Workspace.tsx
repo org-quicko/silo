@@ -217,10 +217,19 @@ export function Workspace({
               claims={claims}
               session={session}
               backTo={backTo}
+              entryCount={activeCollection ? counts[activeCollection.name] ?? null : null}
               onSaved={(name) => {
                 refreshCollections().then(() => goToEntries(name))
               }}
               onCancel={() => router.navigate(backTo)}
+              onDeleted={() => {
+                refreshCollections().then((remaining) => {
+                  const next = remaining[0]
+                  router.navigate(next
+                    ? Routes.entries(serverId, scope.project, scope.env, next.name)
+                    : Routes.collections(serverId, scope.project, scope.env))
+                })
+              }}
             />
           )
         })()}

@@ -1,5 +1,24 @@
+.content { padding: 0; }
+
+.shell {
+  display: flex;
+  min-height: 0;
+  align-items: stretch;
+}
+
+.main {
+  display: flex;
+  min-width: 0;
+  flex: 1;
+  padding: 26px 30px;
+  border-right: 1px solid var(--line);
+}
+
+.mainSolo { border-right: 0; }
+
 .layout {
   display: flex;
+  width: 100%;
   max-width: 760px;
   flex-direction: column;
   gap: 18px;
@@ -51,11 +70,51 @@
 .footer {
   display: flex;
   align-items: center;
-  justify-content: space-between;
+  justify-content: flex-start;
   gap: 12px;
   padding: 13px 18px;
   border-top: 1px solid var(--line);
   background: var(--panel);
+}
+
+.rail {
+  display: flex;
+  width: 320px;
+  flex: none;
+  flex-direction: column;
+  gap: 22px;
+  padding: 26px 22px;
+  background: var(--panel);
+}
+
+.metadataGroup { display: flex; flex-direction: column; gap: 12px; }
+
+.metadataLabel {
+  color: var(--text-3);
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  letter-spacing: 0.14em;
+}
+
+.metadataRow { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
+.metadataKey { color: var(--text-3); font-size: 12.5px; }
+
+.metadataValue {
+  overflow: hidden;
+  color: var(--text-2);
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.railDivider { height: 1px; background: var(--line); }
+
+.railCaption {
+  color: var(--text-3);
+  font-size: 11.5px;
+  line-height: 1.5;
+  text-align: center;
 }
 
 .validity { display: flex; align-items: center; gap: 7px; color: var(--ok); font-size: 12px; }
@@ -182,3 +241,18 @@
 .codeEditor :global(.cm-editor.cm-focused) { outline: none; }
 .codeEditor :global(.cm-gutters) { border-right: 1px solid var(--line); background: #080a0e; color: var(--text-3); }
 .codeEditor :global(.cm-scroller) { line-height: 1.72; }
+
+@media (max-width: 920px) {
+  .shell { flex-direction: column; }
+
+  .main {
+    padding: 20px 16px;
+    border-right: 0;
+  }
+
+  .rail {
+    width: 100%;
+    padding: 20px 16px;
+    border-top: 1px solid var(--line);
+  }
+}
