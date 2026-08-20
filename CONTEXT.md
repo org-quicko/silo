@@ -15,6 +15,167 @@ A minimal, self-hostable headless CMS. Users define collections with JSON Schema
 
 *Last updated: 2026-08-20*
 
+- **Settings split by scope, and env→env data transfer (2026-08-20):** settings
+  was one flat, unscoped list (`/servers/:id/settings/:section`) covering
+  General, Projects, Environments, API Keys, Data Transfer and Connection &
+  Status. That predated D18–D20: a collection is identified by
+  `(project, env, collection)`, so most of what settings configures belongs to a
+  particular project or environment, not to the server. It is now three nav
+  groups with scope nested inside them, and every page lives at a URL that says
+  which scope it configures.
+
+  ```
+  SERVER
+    API Keys                                       /servers/:sid/settings/keys  (+ /keys/new)
+    Data Transfer                                  /servers/:sid/settings/transfer
+    Connection                                     /servers/:sid/settings/connection
+  PROJECTS
+    Projects                                       /servers/:sid/settings/projects
+      [ project switcher ▾ · New project ]
+      General                                      /servers/:sid/projects/:p/settings/general
+      Environments                                 /servers/:sid/projects/:p/settings/environments
+        [ environment switcher ▾ · New environment ]
+        General                                    /servers/:sid/projects/:p/environments/:e/settings/general
+        Data Transfer                              /servers/:sid/projects/:p/environments/:e/settings/transfer
+  APPLICATION
+    Appearance                                     /servers/:sid/settings/appearance
+  ```
+
+  - **Ordered outside-in, and nested the way the data is.** The server hosts
+    everything, so it comes first; then the projects it holds; then this
+    browser. One project's pages hang off the project index and one
+    environment's off that project's environment list — neither is a peer of
+    the list it belongs to, because neither exists outside it.
+  - **Both nested blocks start collapsed** and open when the route enters them,
+    so the nav reads as seven rows until you are actually working inside a
+    scope. A parent row's disclosure control is a **sibling** of its link, not a
+    child: nesting a button inside an anchor is invalid, and expanding a parent
+    must not navigate to it. Navigating out leaves a block as the user left it —
+    collapsing under the cursor would be its own surprise.
+  - **The way out of settings returns to the scope you were in.** The nav header
+    is a back control to that scope's workspace
+    (`Routes.collections(serverId, project, env)`), with the gate demoted to a
+    small icon button beside it. Before, the only exit was the gate, so leaving
+    settings meant re-picking the project and environment you were already
+    working in. `Workspace` redirects a bare collections URL to the scope's
+    first collection, so the button lands on real content rather than an index.
+    With no scope resolved — a server holding no project — the control falls
+    back to the gate and says so. Ancestor breadcrumbs are links too, so a page
+    two levels deep has a one-click way up as well as out.
+  - **An index row is the link to that item's own page.** Projects and
+    Environments are indexes, not control panels: a row opens that project's or
+    environment's settings, and **delete lives only on the single-item page**,
+    where the danger zone can say what is about to be lost and gate it on typing
+    the id. A delete button in a list is one stray click from taking a whole
+    project's environments with it.
+
+  - **The scope prefix is the workspace routes' prefix, with `settings` as the
+    tail** — identical to the HTTP API's
+    `/api/projects/{project}/environments/{env}/…` — so a workspace URL becomes
+    its settings URL by swapping that tail, and switching context swaps one path
+    segment. Server-level pages deliberately take **no** scope prefix: a key or
+    a connection belongs to the instance, and prefixing them would let one page
+    be bookmarked at as many URLs as there are scopes.
+  - **The nested rows still need a scope to point at** while an unscoped page is
+    open, so the nav's shape does not change under the cursor as you move
+    between scoped and unscoped pages.
+    `useSettingsScope` (`ui/src/views/settings/use-settings-scope.ts`) resolves
+    one from the route, else the remembered scope, else the server's first
+    project and env. `ScopeMemory` (`ui/src/utils/scope-memory.ts`) persists it
+    per server in `localStorage` (`silo_active_scope`); `Workspace` writes it,
+    since that is where a scope is known for certain.
+    - `ScopeMemory.pick` checks the remembered id against what the server still
+      lists, deferring while the list loads. Without that, deleting the
+      environment you were last in left the switcher displaying it and linking
+      to pages that 404 — which is exactly what happened before the check went
+      in. `ui/src/utils/scope-memory.test.ts` pins it.
+  - **Scope-bound pages are keyed on their scope** in `SettingsView`. Without
+    the key, switching environment on the Data Transfer page kept the previous
+    environment's copy result on screen and re-labelled it with the new
+    environment's name — reporting a copy that never happened.
+  - **`Routes.parse` grew three settings views** (`server-settings`,
+    `project-settings`, `env-settings`) and `Routes.legacy` rewrites the old
+    URLs (`settings/general` → `settings/appearance`; `settings/environments`
+    and `settings/envs` → the project-scoped environment list; a bare
+    `settings` → the project index; `/status` → `settings/connection`), running
+    in `App` before `parse`, which knows nothing about the aliases. `ui/src/router/routes.test.ts` pins the grammar,
+    round-trips every builder, and asserts no alias target is itself an alias —
+    the loop that would otherwise be a redirect cycle.
+    - `ServerRoute` had to stop being `Extract<Route, {project, env}>`:
+      `env-settings` has both fields and would have been silently pulled into
+      the union `Workspace` consumes. It lists its five views explicitly now.
+  - **Deleting a project or an environment is gated on typing the id back**
+    (`ui/src/components/DangerConfirm.tsx`, built on the existing `Modal`
+    primitives). Forgetting a saved *server* is not — it destroys nothing on the
+    instance — and keeps a plain confirmation.
+  - **Project deletion moved into Project → General**, and the project index
+    stayed a real page at `/servers/:sid/settings/projects` — it is what the
+    project block nests under. Server → General is gone, though:
+    it held the appearance settings, which are `localStorage` and browser-wide,
+    so they became their own APPLICATION group, and Connection already reports
+    the version, key and claims a server-info page would have.
+  - **Two long-standing scope bugs fell out of having a scope in the route.**
+    `NewKeyView` was mounted with `scope={{project: 'default', env: 'prod'}}`
+    hardcoded and `collections={[]}`, so its collection chooser was always empty
+    and its claims always named the wrong scope; `ExportImportView` got
+    `collectionCount={0}` and a no-op `onImported`. Both now receive the
+    resolved scope and its real collection list.
+  - **`StatTile`/`StatRow` (`ui/src/components/`) replace three identical local
+    copies** of the same result-count tile — `ExportImport`'s `StatTile`,
+    `CopyServer`'s `CopyStat`, and the one the new transfer page needed. Their
+    CSS moved out of `Transfer.module.css` with them. The nav CSS moved from
+    `SettingsView.module.css` to `SettingsNav.module.css`, and that file's
+    hand-rolled modal and project-tab rules are deleted, since the pages use the
+    shared `Modal` primitives now.
+  - `ui/src/**/*.test.ts` are their own TypeScript project
+    (`ui/tsconfig.test.json`), because they need both DOM and Bun types: the app
+    project must not see Bun globals and the repo-root project must not see DOM
+    globals. They run under the same root `bun test` as the server suites.
+
+- **Environment-to-environment copy, no archive (2026-08-20, D22):** promoting
+  `dev` to `staging` needed a whole-instance archive round trip, and — because
+  D21 requires instance-wide authority for `transfer:*` — a key with rights over
+  every other tenant to do it. `POST /api/projects/{project}/environments/{env}/copy`
+  copies one scope of an instance onto another, destination-driven like
+  `/api/copy`: the route names the destination, the body names the source
+  (`{from: {project, env}}`) with the same `mode`/`prefer`/`validate`/`dry_run`
+  options an import takes. Both `/environments` and `/envs` are registered from
+  one handler.
+  - **It owns no merge logic.** `Importer.executeImport` already accepted
+    `{manifest, scopes}` in memory rather than a directory, so `ScopeCopier`
+    (`server/core/transfer/scope-copier.ts`) only reads the source scope out of
+    `Storage` into the same `ScopedImport` shape `ImportWalker` builds from an
+    archive, re-enveloping each entry onto the destination — the same rule D18
+    gives an archive, where the address is authoritative and the entry's own
+    `project`/`env` are overwritten. Merge/replace/prefer/dry-run therefore have
+    one implementation and copy cannot drift from import. `ParsedImport` is
+    exported for it; `Service.copyScope` wraps it in the write mutex like
+    `importDir`.
+  - **No `transfer:*` claim is required, and that is the point.** A scoped copy
+    reaches nothing the caller could not already reach by listing the source
+    through the entry API and writing the destination through it, so the guard
+    asks for exactly the permissions that loop would need:
+    `Claims.ScopeCopyReadPermissions` at the source,
+    `ScopeCopyWritePermissions` at the destination, and
+    `ScopeCopyReplacePermissions` there in `replace` mode — all via the new
+    `Claims.hasScopeWide` / `RouteAuth.requireScopeWide`, the scoped
+    counterparts of `hasInstanceWide` / `requireInstanceWide`. A key confined to
+    one project can move data between that project's environments and no others.
+    Requiring a fixed claim on top would reintroduce the coupling D21 exists to
+    prevent.
+  - Copying a scope onto itself, or naming `Scope.System` on either side, is a
+    `400`. `_`-prefixed collections (`_keys`) are never carried. Media is
+    instance-global and unscoped, so a scope copy moves none — the UI says so.
+  - Because both sides share an `instance_id`, the importer's last-resort
+    tiebreak (`manifest.instance_id > local`) is false, so an entry identical in
+    `updated_at` and `rev` is `skipped`. That is the right answer: nothing
+    distinguishes the two copies.
+  - `server/test/http/scope-copy.test.ts` covers merge/replace/prefer, dry-run
+    writing nothing, the self-copy and malformed-source `400`s, a
+    project-scoped key succeeding within its project and 403-ing outside it,
+    replace without delete authority, `_keys` never travelling, and the `/envs`
+    spelling authorizing identically.
+
 - **Expandable sidebar and in-memory collections search (2026-08-20):** the
   sidebar in the connected workspace shell (`ui/src/views/shell/Sidebar.tsx`) is
   now user-resizable and provides in-memory search filtering for collections.
@@ -528,7 +689,7 @@ A minimal, self-hostable headless CMS. Users define collections with JSON Schema
 - **Storage adapters:** SQLite (`bun:sqlite` built-in) and filesystem. The fs adapter's on-disk layout **is** the export format (frozen, public, versioned via `format_version`, currently `"2"`) — `projects/<project>/<env>/{schemas,content}/...`.
 - **Schemas:** full JSON Schema draft 2020-12, validated server-side via **AJV 2020**. Refs to other collections use `silo://collections/<name>` and resolve only within the same scope; remote `$ref`s are rejected by default (opt-in via `[schema] allow_remote_refs`).
 - **Auth:** Shlink-style API keys with claims. A root (`*`) key is generated at first boot. Each protected operation checks one explicit claim, including scoped collection schema/access/entry CRUD (`collections:<project>/<env>/<name>:<permission>`), media, key-management, and transfer claims. Independent per-segment wildcards are supported (e.g. `collections:acme/*/*:entries:read`). `ParsedClaim` validates and enforces non-escalating delegation: a key with `keys:create` can mint only a subset of its own claims, and named segments cannot widen to wildcards. Action wildcards are not accepted. Collection schema and entry reads remain public by default for anonymous requests unless `"x-silo-auth": true` is set. Once a key is presented, its claims are the visibility boundary, so scoped keys do not see unrelated public collections.
-- **API:** clean routes under `/api`, no URL versioning. JSON everywhere. Collection and entry routes are scoped under `/api/projects/{project}/envs/{env}/collections/...`, with scope listing and creation at `/api/projects`. Optimistic concurrency via `rev` + `If-Match` or `?rev=`.
+- **API:** clean routes under `/api`, no URL versioning. JSON everywhere. Collection and entry routes are scoped under `/api/projects/{project}/envs/{env}/collections/...`, with scope listing and creation at `/api/projects`. Optimistic concurrency via `rev` + `If-Match` or `?rev=`. Transfer comes at two blast radii: the whole-instance archive (`/api/export`, `/api/import`, `/api/copy`, gated on instance-wide authority per D21) and a scope-to-scope copy (`/api/projects/{project}/envs/{env}/copy`, gated only on the scoped collection claims it exercises — D22).
 
 ## Repo map
 
@@ -550,7 +711,7 @@ A minimal, self-hostable headless CMS. Users define collections with JSON Schema
 | `server/core/schema/` | `SchemaValidator`, `SchemaBundler`, `RemoteSchemaLoader` (Ajv 2020 validation, `$ref` bundling) |
 | `server/core/keys/` | Server-only key persistence/secret concerns: `KeyInfo`, `KeyUtils` (generation and hashing; the wire format lives in `@silo/shared`'s `KeyFormat`) |
 | `server/core/media/` | `MediaMetadata`, `MediaResolver`, `MimeUtils` |
-| `server/core/transfer/` | Export/import engine: `FormatVersion`, `Exporter`, `Importer`, `ImportWalker`, and their options/result/manifest types |
+| `server/core/transfer/` | Export/import engine: `FormatVersion`, `Exporter`, `Importer`, `ImportWalker`, `ScopeCopier` (scope-to-scope copy, D22 — reuses `Importer.executeImport` rather than forking its merge logic), and their options/result/manifest types |
 | `server/core/service/` | `Service` (orchestration), `KeyView`, `AsyncMutex`, `CollectionEraser` |
 | `server/adapters/storage/sqlite/` | `SqliteStore` + `SqliteCompiler` (query compiler) |
 | `server/adapters/storage/fs/` | `FsStore` + `FsFilter` + `FsManifest` |
@@ -559,9 +720,9 @@ A minimal, self-hostable headless CMS. Users define collections with JSON Schema
 | `server/http/server.ts` | `SiloServer` class — builds the Hono app (middleware, routes, static UI serving with SPA fallback) |
 | `server/http/middleware/` | `LoggingMiddleware`, `AuthMiddleware` |
 | `server/http/auth/` | `RouteAuth` — claim-checking helpers for route handlers |
-| `server/http/routes/` | `RouteManager` plus one routes class per resource (`projects-routes.ts`, `collections-routes.ts`, `entries-routes.ts` + `request-utils.ts`, `keys-routes.ts`, `media-routes.ts`, `transfer-routes.ts`, `copy-routes.ts` + `copy-request.ts`, `session-routes.ts`) |
-| `server/test/` | Test suites running via `bun test`: `conformance/` (storage conformance suite), `adapters/`, `core/`, `http/` (claims enforcement/delegation, entries API, export/import, direct server copy, media, schema `$ref`, projects API tests) |
-| `ui/` | React + TS + Vite SPA (Slate design), organized into feature dirs (`api/`, `schema/`, `components/`, `forms/`, `router/`, `utils/` with `Formatters` & `ThemeManager`, `views/*`) with colocated CSS Modules and a small global foundation under `styles/`. Every collection/entry call is scoped through `ApiClient.collectionsPath`; the active `(project, env)` is part of each saved server and switched from the sidebar. Shared protocol rules come from `@silo/shared`; `ui/dist` contains the compiled SPA served at the web root |
+| `server/http/routes/` | `RouteManager` plus one routes class per resource (`projects-routes.ts`, `collections-routes.ts`, `entries-routes.ts` + `request-utils.ts`, `keys-routes.ts`, `media-routes.ts`, `transfer-routes.ts`, `copy-routes.ts` + `copy-request.ts` + `scope-copy-request.ts`, `session-routes.ts`). `CopyRoutes` serves both the whole-instance `/api/copy` and the scoped `/api/projects/:p/environments/:e/copy` |
+| `server/test/` | Test suites running via `bun test`: `conformance/` (storage conformance suite), `adapters/`, `core/`, `http/` (claims enforcement/delegation, entries API, export/import, direct server copy, scope-to-scope copy, media, schema `$ref`, projects API tests) |
+| `ui/` | React + TS + Vite SPA (Slate design), organized into feature dirs (`api/`, `schema/`, `components/`, `forms/`, `router/`, `utils/` with `Formatters`, `ThemeManager` & `ScopeMemory`, `views/*`) with colocated CSS Modules and a small global foundation under `styles/`. Every collection/entry call is scoped through `ApiClient.collectionsPath`; the active `(project, env)` is part of the URL, switched from the `/servers` gate in the workspace and from the settings nav's scope switchers. Shared protocol rules come from `@silo/shared`; `ui/dist` contains the compiled SPA served at the web root. `src/**/*.test.ts` are `bun test` suites in their own TS project (`tsconfig.test.json`) and run from the repo root alongside the server's |
 | `README.md` | User-facing docs: why/quick start, concepts, configuration, CLI, HTTP API, claims, portability, deployment, development, roadmap, contributing. Rewritten 2026-08-18; deliberately links neither this file nor IMPLEMENTATION.md |
 | `ui/README.md` | Admin UI docs: dev workflow, the server-connection model, URL grammar, RJSF theme notes, styling conventions, and the `@silo/shared` per-file-symlink caveat. Rewritten 2026-08-18 (was the stock Vite template) |
 
@@ -634,7 +795,7 @@ Notable implementation facts:
   deliberately stay in `server/core/query/`: the UI picks its own `PAGE_SIZE` and
   never validates against the server's ceilings, so sharing them today would be a
   contract with no second consumer.
-- The UI verifies credentials through `GET /api/session`, uses the returned claims to hide or disable unavailable actions, and creates keys on the dedicated `/s/:serverId/keys/new` page. Standard presets support searchable all/selected-collection scope; custom mode exposes a per-collection permission matrix and instance-level claims.
+- The UI verifies credentials through `GET /api/session`, uses the returned claims to hide or disable unavailable actions, and creates keys on the dedicated `/servers/:serverId/settings/keys/new` page. Standard presets support searchable all/selected-collection scope; custom mode exposes a per-collection permission matrix and instance-level claims.
 - Claims-based key listings ignore malformed obsolete key records instead of failing the whole response; those records are not translated or accepted for authentication. If no valid claims key exists at startup, bootstrap creates a new root key. The selected-collection chooser expands in normal page flow so it remains visible inside the key form.
 - The React UI (in `ui/`) builds to `ui/dist` and is served by Hono. During development, Vite dev server hot-reloads against the Bun backend. The active server configuration is persisted in `localStorage` (`silo_servers` and `silo_active_server_id`).
 - RJSF is **v6**: a custom Field's `onChange` signature is `(value, path, …)` — omit the path and the value is merged at the formData **root** (this bit the raw-JSON fallback field once; `JsonField` in `ui/src/forms/fields/JsonField.tsx` now passes `fieldPathId.path`).
@@ -668,4 +829,4 @@ Notable implementation facts:
   - `server/core/`: Domain models (`domain/`), port interfaces (`ports/`), query AST (`query/`), error classes (`errors/`), schema validation (`schema/`), server-only key persistence/secret logic (`keys/`), media helpers (`media/`), export/import engine (`transfer/`), and the `Service` orchestration layer (`service/`).
   - `server/adapters/`: Database / storage drivers (`storage/sqlite/`, `storage/fs/`) and their private helper classes (compilers, filters), blob storage drivers (`blob/`), and the outbound HTTP client (`http/`).
   - `server/http/`: HTTP web server definition (`server.ts`), routing handlers (`routes/`), claim-auth helpers (`auth/`), and web-specific middleware (`middleware/`).
-  - `ui/src/`: `api/` (typed client, `EntryMapper`, and DTOs under `api/types/`), `schema/` (silo `$ref` resolution), `components/` (shared visual primitives), `forms/` (the RJSF theme: `templates/`, `widgets/`, `fields/`), `router/`, `styles/` (the intentionally global CSS foundation), `utils/` (`Formatters`), and `views/` grouped by feature (`shell/`, `servers/`, `entries/`, `schema/`, `keys/`, `media/`, `transfer/`).
+  - `ui/src/`: `api/` (typed client, `EntryMapper`, and DTOs under `api/types/`), `schema/` (silo `$ref` resolution), `components/` (shared visual primitives), `forms/` (the RJSF theme: `templates/`, `widgets/`, `fields/`), `router/`, `styles/` (the intentionally global CSS foundation), `utils/` (`Formatters`, `ThemeManager`, `ScopeMemory`), and `views/` grouped by feature (`shell/`, `servers/`, `entries/`, `schema/`, `keys/`, `media/`, `transfer/`, `settings/` — whose shell, nav and scope switchers sit at its root and whose one-per-section pages sit under `pages/`).

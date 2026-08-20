@@ -9,7 +9,11 @@
     "skipLibCheck": true,
     "allowSyntheticDefaultImports": true,
     "forceConsistentCasingInFileNames": true,
-    "allowJs": true
+    "allowJs": true,
+    // Typecheck only. Bun runs the TypeScript directly, so nothing here is
+    // ever compiled — and without this, a bare `tsc -b` at the repo root
+    // silently litters a .js file beside every source file.
+    "noEmit": true
   },
   "include": ["server/**/*", "shared/**/*"]
 }

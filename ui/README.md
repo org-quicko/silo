@@ -84,14 +84,20 @@ lives in one file.
 
 ```
 /servers                                                        server, project, and environment browser
-/servers/:serverId/settings/:section                            general, projects, environments, keys, transfer, connection
-/servers/:serverId/settings/keys/new                            key creation
+
+# workspace
 /servers/:serverId/projects/:project/environments/:env/collections
 /servers/:serverId/projects/:project/environments/:env/collections/:name
 /servers/:serverId/projects/:project/environments/:env/collections/:name/entries/:id
 /servers/:serverId/projects/:project/environments/:env/collections/:name/schema
 /servers/:serverId/projects/:project/environments/:env/schema/new
 /servers/:serverId/projects/:project/environments/:env/media
+
+# settings, nested under the scope each page configures
+/servers/:serverId/projects/:project/settings/:section                    general, environments
+/servers/:serverId/projects/:project/environments/:env/settings/:section  general, transfer
+/servers/:serverId/settings/:section                                      projects, keys, transfer, connection, appearance
+/servers/:serverId/settings/keys/new                                      key creation
 ```
 
 Every workspace URL carries its server, project, and environment, so links are
@@ -99,6 +105,29 @@ shareable and a reload lands in the same place. Anything unparseable, including
 `/`, redirects to `/servers`. Entry list state (search, sort, page) is encoded in
 the query string, and only non-default values are written so ordinary URLs stay
 clean.
+
+Settings pages use the **same scope prefix** as the workspace routes, with
+`settings` as the tail, so a workspace URL becomes its settings URL by swapping
+that tail. The nav mirrors that nesting: one project's pages sit indented under
+the project index and one environment's under that project's environment list,
+each behind its own switcher, because neither exists outside the thing it hangs
+off. Both nested blocks start collapsed and open when the route enters them. Server-level pages take no scope prefix on purpose: a key or a
+connection belongs to the instance, and prefixing them would give one page as
+many URLs as there are scopes. Their nav still shows the Project and Environment
+groups, whose scope the shell resolves from the route, else the last scope this
+browser was in (`utils/scope-memory.ts`, checked against what the server still
+lists so a deleted environment cannot linger in the switcher), else the first the
+server reports.
+
+Leaving settings goes back to the resolved scope's workspace, from the nav
+header — not to `/servers`, which would discard the project and environment you
+were working in. Breadcrumbs link to their ancestors for the same reason.
+
+`Routes.legacy` rewrites pre-restructure URLs — `/settings/general` to
+`/settings/appearance`, `/settings/environments` to the project-scoped environment
+list, a bare `/settings` to the project index, `/status` to
+`/settings/connection` — so old links and bookmarks still land somewhere sensible. It runs in `App` before `Routes.parse`,
+which knows nothing about the aliases.
 
 ## Layout
 
@@ -119,7 +148,7 @@ src/
     keys/        Key list and creation
     media/       Media library
     transfer/    Export, import, and direct server copy
-    settings/    Settings sections, including tabs/
+    settings/    The settings shell, its nav and scope switchers, and pages/
 ```
 
 One exported artifact per file, matching the repository-wide convention. Files

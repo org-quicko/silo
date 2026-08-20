@@ -1,8 +1,23 @@
 import { DEFAULT_LIST_QUERY, type ListQuery } from './list-query'
-import type { Route, SettingsSection } from './route'
+import type { EnvSettingsSection, ProjectSettingsSection, Route, ServerSettingsSection } from './route'
+import type { ScopeRef } from '../api/types/scope-ref'
 
 const DEFAULT_SORT = '-$updated_at'
 
+/**
+ * URL grammar. Settings pages nest under the resource they configure, using
+ * the same scope prefix as the workspace routes and the HTTP API
+ * (`/api/projects/{project}/environments/{env}/…`), with `settings` as the
+ * tail — so a workspace URL becomes its settings URL by swapping that tail:
+ *
+ *   /servers/:sid/settings/{keys,keys/new,transfer,connection,appearance}
+ *   /servers/:sid/projects/:project/settings/{general,environments}
+ *   /servers/:sid/projects/:project/environments/:env/settings/{general,transfer}
+ *
+ * Every page therefore has exactly one canonical URL: server-level pages take
+ * no scope prefix, because a key or a connection belongs to the instance and
+ * not to any one project.
+ */
 export class Routes {
   // ---- builders ----
 
@@ -10,40 +25,22 @@ export class Routes {
     return '/servers'
   }
 
-  // Server Settings (unscoped)
-  static settings(serverId: string, section: SettingsSection = 'general'): string {
-    if (section === 'key-new') {
-      return `/servers/${encodeURIComponent(serverId)}/settings/keys/new`
-    }
-    return `/servers/${encodeURIComponent(serverId)}/settings/${encodeURIComponent(section)}`
+  static serverSettings(serverId: string, section: ServerSettingsSection): string {
+    const base = `/servers/${encodeURIComponent(serverId)}/settings`
+    return section === 'key-new' ? `${base}/keys/new` : `${base}/${section}`
   }
 
-  static settingsGeneral(serverId: string): string {
-    return Routes.settings(serverId, 'general')
+  static projectSettings(serverId: string, project: string, section: ProjectSettingsSection): string {
+    return `/servers/${encodeURIComponent(serverId)}/projects/${encodeURIComponent(project)}/settings/${section}`
   }
 
-  static settingsProjects(serverId: string): string {
-    return Routes.settings(serverId, 'projects')
-  }
-
-  static settingsEnvironments(serverId: string): string {
-    return Routes.settings(serverId, 'environments')
-  }
-
-  static settingsKeys(serverId: string): string {
-    return Routes.settings(serverId, 'keys')
-  }
-
-  static settingsNewKey(serverId: string): string {
-    return Routes.settings(serverId, 'key-new')
-  }
-
-  static settingsTransfer(serverId: string): string {
-    return Routes.settings(serverId, 'transfer')
-  }
-
-  static settingsConnection(serverId: string): string {
-    return Routes.settings(serverId, 'connection')
+  static envSettings(
+    serverId: string,
+    project: string,
+    env: string,
+    section: EnvSettingsSection,
+  ): string {
+    return `${Routes.workspace(serverId, project, env)}/settings/${section}`
   }
 
   // Scoped Workspace Routes
@@ -86,34 +83,101 @@ export class Routes {
     const segs = pathname.split('/').filter(Boolean).map(decodeURIComponent)
 
     if (segs.length === 1 && segs[0] === 'servers') return { view: 'servers' }
-
-    // /servers/:serverId/settings/* or /servers/:serverId/status
-    if (segs.length >= 2 && segs[0] === 'servers') {
-      if (segs[2] === 'settings' || segs[2] === 'status') {
-        const serverId = segs[1]
-        const section = segs[3]
-        if (!section || section === 'general') return { view: 'server-settings', serverId, section: 'general' }
-        if (section === 'projects') return { view: 'server-settings', serverId, section: 'projects' }
-        if (section === 'environments' || section === 'envs') return { view: 'server-settings', serverId, section: 'environments' }
-        if (section === 'keys') {
-          return segs.length >= 5 && segs[4] === 'new'
-            ? { view: 'server-settings', serverId, section: 'key-new' }
-            : { view: 'server-settings', serverId, section: 'keys' }
-        }
-        if (section === 'transfer') return { view: 'server-settings', serverId, section: 'transfer' }
-        if (section === 'connection' || segs[2] === 'status') return { view: 'server-settings', serverId, section: 'connection' }
-        return { view: 'server-settings', serverId, section: 'general' }
-      }
-    }
-
-    if (segs.length < 6) return null
-    if (segs[0] !== 'servers' || segs[2] !== 'projects' || segs[4] !== 'environments') return null
+    if (segs[0] !== 'servers' || segs.length < 3) return null
 
     const serverId = segs[1]
-    const project = segs[3]
-    const env = segs[5]
-    const rest = segs.slice(6)
+    if (segs[2] === 'settings') return Routes.parseServerSettings(serverId, segs)
+    if (segs[2] !== 'projects' || segs.length < 4) return null
 
+    const project = segs[3]
+    if (segs[4] === 'settings') return Routes.parseProjectSettings(serverId, project, segs[5])
+    if (segs[4] !== 'environments' || segs.length < 6) return null
+
+    const env = segs[5]
+    // Checked before the workspace tail: /…/environments/:env/settings/:x is
+    // the settings shell, not a collection called "settings".
+    if (segs[6] === 'settings') return Routes.parseEnvSettings(serverId, project, env, segs[7])
+
+    return Routes.parseWorkspace(serverId, project, env, segs.slice(6), search)
+  }
+
+  /**
+   * Pre-restructure URLs, mapped onto their replacement so old links and
+   * bookmarks keep working. Runs before `parse`, which knows nothing about
+   * them. `scopeFor` supplies the project/env the flat URLs never carried;
+   * with none remembered there is nothing to guess from, so those land at the
+   * gate, which is where a scope gets chosen.
+   */
+  static legacy(location: string, scopeFor: (serverId: string) => ScopeRef | null): string | null {
+    const segs = location.split('?')[0].split('/').filter(Boolean).map(decodeURIComponent)
+    if (segs[0] !== 'servers' || segs.length < 3) return null
+    const serverId = segs[1]
+
+    // `/servers/:id/status` predates the settings tree entirely.
+    if (segs[2] === 'status') return Routes.serverSettings(serverId, 'connection')
+    if (segs[2] !== 'settings') return null
+
+    const section = segs[3]
+    // "General" was the appearance page; it is app-wide, so it stays unscoped.
+    if (section === 'general') return Routes.serverSettings(serverId, 'appearance')
+    // A bare `/settings` never named a scope, and the project index needs none.
+    if (section === undefined) return Routes.serverSettings(serverId, 'projects')
+    if (section !== 'environments' && section !== 'envs') return null
+
+    // This one did name an environment list, but only for whichever project the
+    // old flat page happened to have selected. With nothing remembered there is
+    // nothing to guess from, so it lands at the gate, where a scope is chosen.
+    const scope = scopeFor(serverId)
+    if (!scope) return Routes.servers()
+    return Routes.projectSettings(serverId, scope.project, 'environments')
+  }
+
+  // ---- internals ----
+
+  private static parseServerSettings(serverId: string, segs: string[]): Route | null {
+    const section = segs[3]
+    if (section === 'keys') {
+      return segs[4] === 'new'
+        ? { view: 'server-settings', serverId, section: 'key-new' }
+        : { view: 'server-settings', serverId, section: 'keys' }
+    }
+    if (
+      section === 'projects' ||
+      section === 'transfer' ||
+      section === 'connection' ||
+      section === 'appearance'
+    ) {
+      return { view: 'server-settings', serverId, section }
+    }
+    return null
+  }
+
+  private static parseProjectSettings(serverId: string, project: string, section?: string): Route | null {
+    if (section === 'general' || section === 'environments') {
+      return { view: 'project-settings', serverId, project, section }
+    }
+    return null
+  }
+
+  private static parseEnvSettings(
+    serverId: string,
+    project: string,
+    env: string,
+    section?: string,
+  ): Route | null {
+    if (section === 'general' || section === 'transfer') {
+      return { view: 'env-settings', serverId, project, env, section }
+    }
+    return null
+  }
+
+  private static parseWorkspace(
+    serverId: string,
+    project: string,
+    env: string,
+    rest: string[],
+    search: string,
+  ): Route | null {
     if (rest.length === 0 || (rest.length === 1 && rest[0] === 'collections')) {
       return { view: 'collections', serverId, project, env }
     }
@@ -141,8 +205,6 @@ export class Routes {
     }
     return null
   }
-
-  // ---- internals ----
 
   private static collection(serverId: string, project: string, env: string, name: string): string {
     return `${Routes.collections(serverId, project, env)}/${encodeURIComponent(name)}`

@@ -10,3 +10,5 @@ dist/
 .claude/design_handoff_silo_admin/support.js
 .claude/launch.json
 node_modules/
+# tsc -b build info (typecheck only; see tsconfig.json "noEmit")
+*.tsbuildinfo

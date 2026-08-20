@@ -1,5 +1,7 @@
 import { Button } from '../../components/Button'
 import { Pill } from '../../components/Pill'
+import { StatRow } from '../../components/StatRow'
+import { StatTile } from '../../components/StatTile'
 import { useRef, useState } from 'react'
 import { Upload, Download, Check, RefreshCw, X } from 'lucide-react'
 import { Claims } from '@silo/shared/claims'
@@ -257,12 +259,12 @@ export function ExportImportView({
 
               {(dry || applied) && (
                 <>
-                  <div className={styles.stats}>
+                  <StatRow>
                     <StatTile n={(dry || applied)!.added} label="to create" tone="ok" prefix="+" />
                     <StatTile n={(dry || applied)!.updated} label="to update" tone="warn" prefix="~" />
                     <StatTile n={(dry || applied)!.deleted} label="to delete" tone="bad" />
                     <StatTile n={(dry || applied)!.skipped} label="unchanged" tone="muted" />
-                  </div>
+                  </StatRow>
 
                   {applied ? (
                     <div className="banner banner-ok">
@@ -309,27 +311,5 @@ export function ExportImportView({
         />}
       </div>
     </>
-  )
-}
-
-function StatTile({
-  n,
-  label,
-  tone,
-  prefix,
-}: {
-  n: number
-  label: string
-  tone: 'ok' | 'warn' | 'bad' | 'muted'
-  prefix?: string
-}) {
-  return (
-    <div className={styles.stat}>
-      <span className={`${styles.statNumber} ${styles[tone]}`}>
-        {prefix || ''}
-        {n}
-      </span>
-      <span className={styles.statLabel}>{label}</span>
-    </div>
   )
 }

@@ -14,6 +14,7 @@ export function Link({
   title,
   children,
   onNavigate,
+  'aria-current': ariaCurrent,
 }: {
   to: string
   replace?: boolean
@@ -22,6 +23,8 @@ export function Link({
   title?: string
   children: ReactNode
   onNavigate?: () => void
+  /** Set to `"page"` on the link representing the view already open. */
+  'aria-current'?: 'page'
 }) {
   const onClick = (e: MouseEvent<HTMLAnchorElement>) => {
     if (e.defaultPrevented || e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return
@@ -30,7 +33,7 @@ export function Link({
     router.navigate(to, { replace })
   }
   return (
-    <a href={to} className={className} style={style} title={title} onClick={onClick}>
+    <a href={to} className={className} style={style} title={title} aria-current={ariaCurrent} onClick={onClick}>
       {children}
     </a>
   )

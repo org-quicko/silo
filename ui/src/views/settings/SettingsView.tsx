@@ -1,217 +1,264 @@
 import { useEffect, useState } from 'react'
-import {
-  SlidersHorizontal,
-  FolderGit2,
-  Layers,
-  KeyRound,
-  ArrowUpDown,
-  Server as ServerIcon,
-} from 'lucide-react'
+import { Claims } from '@silo/shared/claims'
 import { api } from '../../api/api-client'
+import type { Collection } from '../../api/types/collection'
 import { router } from '../../router/router'
 import { Routes } from '../../router/routes'
-import { Claims } from '@silo/shared/claims'
-import type { SettingsSection } from '../../router/route'
+import type { SettingsRoute } from '../../router/route'
 import type { Server } from '../servers/server'
-import { GeneralTab } from './tabs/GeneralTab'
-import { ProjectsTab } from './tabs/ProjectsTab'
-import { EnvironmentsTab } from './tabs/EnvironmentsTab'
-import { ConnectionTab } from './tabs/ConnectionTab'
 import { KeysView } from '../keys/Keys'
 import { NewKeyView } from '../keys/NewKey'
 import { ExportImportView } from '../transfer/ExportImport'
+import { SettingsNav } from './SettingsNav'
+import { useSettingsScope } from './use-settings-scope'
+import { AppearancePage } from './pages/AppearancePage'
+import { ConnectionPage } from './pages/ConnectionPage'
+import { EnvGeneralPage } from './pages/EnvGeneralPage'
+import { EnvTransferPage } from './pages/EnvTransferPage'
+import { ProjectEnvironmentsPage } from './pages/ProjectEnvironmentsPage'
+import { ProjectGeneralPage } from './pages/ProjectGeneralPage'
+import { ProjectsPage } from './pages/ProjectsPage'
 import styles from './SettingsView.module.css'
 
 interface SettingsViewProps {
   server: Server
-  section: SettingsSection
+  route: SettingsRoute
   onUpdateServer: (patch: Partial<Server>) => void
   onDeleteServer: () => void
   onBack: () => void
 }
 
-export function SettingsView({
-  server,
-  section,
-  onUpdateServer,
-  onDeleteServer,
-  onBack,
-}: SettingsViewProps) {
+/**
+ * The settings shell: a nav column scoped by group (project / environment /
+ * server / application) and whichever page the URL names.
+ */
+export function SettingsView({ server, route, onUpdateServer, onDeleteServer, onBack }: SettingsViewProps) {
+  const { id: serverId, url, apiKey } = server
   const [claims, setClaims] = useState<string[]>([])
-  const [sessionLabel, setSessionLabel] = useState<string>('')
-  const [version, setVersion] = useState<string>('')
-  const [keyPrefix, setKeyPrefix] = useState<string>('')
+  const [sessionLabel, setSessionLabel] = useState('')
+  const [version, setVersion] = useState('')
+  const [keyPrefix, setKeyPrefix] = useState('')
+  const [collections, setCollections] = useState<Collection[]>([])
 
-  // Verify and fetch session on mount
+  const {
+    scope,
+    projects,
+    environments,
+    loadingProjects,
+    loadingEnvironments,
+    reloadProjects,
+    reloadEnvironments,
+  } = useSettingsScope(url, apiKey, serverId, route)
+
   useEffect(() => {
     let alive = true
-    Promise.all([
-      api.health(server.url),
-      api.getSession(server.url, server.apiKey),
-    ])
-      .then(([health, sess]) => {
+    Promise.all([api.health(url), api.getSession(url, apiKey)])
+      .then(([health, session]) => {
         if (!alive) return
         setVersion(health.version || '')
-        setClaims(sess.claims || [])
-        setSessionLabel(sess.label || '')
-        setKeyPrefix(sess.prefix || '')
+        setClaims(session.claims || [])
+        setSessionLabel(session.label || '')
+        setKeyPrefix(session.prefix || '')
       })
       .catch(() => {
-        /* handled in subcomponents */
+        /* surfaced by the Connection page's diagnostics */
       })
-
     return () => {
       alive = false
     }
-  }, [server.url, server.apiKey])
+  }, [url, apiKey])
+
+  // The key form and the archive panels both need to know what the resolved
+  // scope actually holds; without a scope in the URL they used to be handed
+  // an empty list and a zero.
+  useEffect(() => {
+    let alive = true
+    if (!scope) {
+      setCollections([])
+      return
+    }
+    api
+      .listCollections(url, apiKey, scope)
+      .then((items) => {
+        if (alive) setCollections(items)
+      })
+      .catch(() => {
+        if (alive) setCollections([])
+      })
+    return () => {
+      alive = false
+    }
+  }, [url, apiKey, scope?.project, scope?.env])
 
   const session = `${sessionLabel || Claims.label(claims)} · ${server.name}`
-  const activeSection = section === 'key-new' ? 'keys' : section
+  const projectSection = route.view === 'project-settings' ? route.section : null
+  const envSection = route.view === 'env-settings' ? route.section : null
+
+  // Picking a scope shows you that scope's settings, keeping the section you
+  // were already on where it still exists at the new depth.
+  const selectProject = (next: string) =>
+    router.navigate(Routes.projectSettings(serverId, next, projectSection ?? 'general'))
+  const selectEnvironment = (next: string) => {
+    if (!scope) return
+    router.navigate(Routes.envSettings(serverId, scope.project, next, envSection ?? 'general'))
+  }
 
   return (
     <div className={styles.container}>
-      {/* Settings Navigation Column */}
-      <div className={styles.navColumn}>
-        <div className={styles.navHeader}>
-          <button type="button" className={styles.backBtn} onClick={onBack} title="Back to servers">
-            <ServerIcon size={14} className={styles.navHeaderIcon} />
-            <span className={styles.navTitle}>{server.name}</span>
-          </button>
-          <span className={styles.navBadge}>Settings</span>
-        </div>
+      <SettingsNav
+        serverId={serverId}
+        serverName={server.name}
+        route={route}
+        scope={scope}
+        projects={projects}
+        environments={environments}
+        loadingProjects={loadingProjects}
+        loadingEnvironments={loadingEnvironments}
+        canCreateProject={Claims.hasAnyCollectionPermission(claims, Claims.CollectionCreate)}
+        canCreateEnvironment={
+          !!scope && Claims.hasAnyCollectionPermission(claims, Claims.CollectionCreate, scope.project, scope.env)
+        }
+        onCreateProject={async (id) => {
+          await api.createProject(url, apiKey, id)
+          await reloadProjects()
+          selectProject(id)
+        }}
+        onCreateEnvironment={async (id) => {
+          if (!scope) return
+          await api.createEnvironment(url, apiKey, scope.project, id)
+          await reloadEnvironments()
+          selectEnvironment(id)
+        }}
+        onSelectProject={selectProject}
+        onSelectEnvironment={selectEnvironment}
+        onBackToWorkspace={
+          scope
+            ? () => router.navigate(Routes.collections(serverId, scope.project, scope.env))
+            : undefined
+        }
+        onBack={onBack}
+      />
 
-        <nav className={styles.navList}>
-          <button
-            type="button"
-            className={`${styles.navItem} ${activeSection === 'general' ? styles.active : ''}`}
-            onClick={() => router.navigate(Routes.settingsGeneral(server.id))}
-          >
-            <SlidersHorizontal size={15} className={styles.navIcon} />
-            <div className={styles.navItemText}>
-              <span className={styles.navItemTitle}>General</span>
-              <span className={styles.navItemSubtitle}>Fonts & accent color</span>
-            </div>
-          </button>
-
-          <button
-            type="button"
-            className={`${styles.navItem} ${activeSection === 'projects' ? styles.active : ''}`}
-            onClick={() => router.navigate(Routes.settingsProjects(server.id))}
-          >
-            <FolderGit2 size={15} className={styles.navIcon} />
-            <div className={styles.navItemText}>
-              <span className={styles.navItemTitle}>Projects</span>
-              <span className={styles.navItemSubtitle}>Root project scopes</span>
-            </div>
-          </button>
-
-          <button
-            type="button"
-            className={`${styles.navItem} ${activeSection === 'environments' ? styles.active : ''}`}
-            onClick={() => router.navigate(Routes.settingsEnvironments(server.id))}
-          >
-            <Layers size={15} className={styles.navIcon} />
-            <div className={styles.navItemText}>
-              <span className={styles.navItemTitle}>Environments</span>
-              <span className={styles.navItemSubtitle}>Project environments</span>
-            </div>
-          </button>
-
-          <button
-            type="button"
-            className={`${styles.navItem} ${activeSection === 'keys' ? styles.active : ''}`}
-            onClick={() => router.navigate(Routes.settingsKeys(server.id))}
-          >
-            <KeyRound size={15} className={styles.navIcon} />
-            <div className={styles.navItemText}>
-              <span className={styles.navItemTitle}>API Keys</span>
-              <span className={styles.navItemSubtitle}>Server access tokens</span>
-            </div>
-          </button>
-
-          <button
-            type="button"
-            className={`${styles.navItem} ${activeSection === 'transfer' ? styles.active : ''}`}
-            onClick={() => router.navigate(Routes.settingsTransfer(server.id))}
-          >
-            <ArrowUpDown size={15} className={styles.navIcon} />
-            <div className={styles.navItemText}>
-              <span className={styles.navItemTitle}>Data Transfer</span>
-              <span className={styles.navItemSubtitle}>Export, import & copy</span>
-            </div>
-          </button>
-
-          <div className={styles.navDivider} />
-
-          <button
-            type="button"
-            className={`${styles.navItem} ${activeSection === 'connection' ? styles.active : ''}`}
-            onClick={() => router.navigate(Routes.settingsConnection(server.id))}
-          >
-            <ServerIcon size={15} className={styles.navIcon} />
-            <div className={styles.navItemText}>
-              <span className={styles.navItemTitle}>Connection & Status</span>
-              <span className={styles.navItemSubtitle}>Health, diagnostics & danger</span>
-            </div>
-          </button>
-        </nav>
-      </div>
-
-      {/* Main Settings Content Area */}
+      {/*
+        Scope-bound pages are keyed on their scope: switching project or
+        environment must not carry a previous scope's in-flight form or copy
+        result across, which would report an action against the wrong target.
+      */}
       <div className={styles.contentColumn}>
-        {section === 'general' && (
-          <GeneralTab session={session} onBack={onBack} />
+        {route.view === 'project-settings' && route.section === 'general' && (
+          <ProjectGeneralPage
+            key={route.project}
+            server={server}
+            project={route.project}
+            environments={environments}
+            claims={claims}
+            session={session}
+            onDeleted={() => {
+              reloadProjects()
+              router.navigate(Routes.servers())
+            }}
+            onLock={onBack}
+          />
         )}
 
-        {section === 'projects' && (
-          <ProjectsTab server={server} session={session} onBack={onBack} />
+        {route.view === 'project-settings' && route.section === 'environments' && (
+          <ProjectEnvironmentsPage
+            key={route.project}
+            server={server}
+            project={route.project}
+            environments={environments}
+            loading={loadingEnvironments}
+            claims={claims}
+            session={session}
+            onChanged={reloadEnvironments}
+            onLock={onBack}
+          />
         )}
 
-        {section === 'environments' && (
-          <EnvironmentsTab server={server} session={session} onBack={onBack} />
+        {route.view === 'env-settings' && route.section === 'general' && (
+          <EnvGeneralPage
+            key={`${route.project}/${route.env}`}
+            server={server}
+            scope={{ project: route.project, env: route.env }}
+            collections={collections}
+            claims={claims}
+            session={session}
+            onDeleted={() => {
+              reloadEnvironments()
+              router.navigate(Routes.projectSettings(serverId, route.project, 'environments'))
+            }}
+            onLock={onBack}
+          />
         )}
 
-        {section === 'keys' && (
+        {route.view === 'env-settings' && route.section === 'transfer' && (
+          <EnvTransferPage
+            key={`${route.project}/${route.env}`}
+            server={server}
+            scope={{ project: route.project, env: route.env }}
+            projects={projects}
+            claims={claims}
+            session={session}
+            onLock={onBack}
+          />
+        )}
+
+        {route.view === 'server-settings' && route.section === 'projects' && (
+          <ProjectsPage
+            server={server}
+            projects={projects}
+            loading={loadingProjects}
+            claims={claims}
+            session={session}
+            onChanged={reloadProjects}
+            onLock={onBack}
+          />
+        )}
+
+        {route.view === 'server-settings' && route.section === 'keys' && (
           <KeysView
-            url={server.url}
-            apiKey={server.apiKey}
+            url={url}
+            apiKey={apiKey}
             claims={claims}
             session={session}
             onLock={onBack}
-            onCreate={() => router.navigate(Routes.settingsNewKey(server.id))}
+            onCreate={() => router.navigate(Routes.serverSettings(serverId, 'key-new'))}
           />
         )}
 
-        {section === 'key-new' && (
+        {route.view === 'server-settings' && route.section === 'key-new' && (
           <NewKeyView
-            url={server.url}
-            apiKey={server.apiKey}
-            scope={{ project: 'default', env: 'prod' }}
+            url={url}
+            apiKey={apiKey}
+            scope={scope ?? { project: 'default', env: 'prod' }}
             ownClaims={claims}
-            collections={[]}
+            collections={collections.map((c) => c.name)}
             session={session}
-            keysUrl={Routes.settingsKeys(server.id)}
-            onCancel={() => router.navigate(Routes.settingsKeys(server.id))}
-            onDone={() => router.navigate(Routes.settingsKeys(server.id))}
+            keysUrl={Routes.serverSettings(serverId, 'keys')}
+            onCancel={() => router.navigate(Routes.serverSettings(serverId, 'keys'))}
+            onDone={() => router.navigate(Routes.serverSettings(serverId, 'keys'))}
             onLock={onBack}
           />
         )}
 
-        {section === 'transfer' && (
+        {route.view === 'server-settings' && route.section === 'transfer' && (
           <ExportImportView
-            url={server.url}
-            apiKey={server.apiKey}
+            url={url}
+            apiKey={apiKey}
             claims={claims}
             session={session}
             onLock={onBack}
-            collectionCount={0}
-            onImported={() => {}}
-            onDestinationKeyChanged={(k) => onUpdateServer({ apiKey: k })}
+            collectionCount={collections.length}
+            onImported={() => {
+              reloadProjects()
+              reloadEnvironments()
+            }}
+            onDestinationKeyChanged={(key) => onUpdateServer({ apiKey: key })}
           />
         )}
 
-        {section === 'connection' && (
-          <ConnectionTab
+        {route.view === 'server-settings' && route.section === 'connection' && (
+          <ConnectionPage
             server={server}
             session={session}
             claims={claims}
@@ -222,6 +269,10 @@ export function SettingsView({
             onDeleteServer={onDeleteServer}
             onBack={onBack}
           />
+        )}
+
+        {route.view === 'server-settings' && route.section === 'appearance' && (
+          <AppearancePage session={session} onBack={onBack} />
         )}
       </div>
     </div>

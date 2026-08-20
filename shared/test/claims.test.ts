@@ -159,4 +159,29 @@ describe("claim matching", () => {
 
     expect(Claims.hasInstanceWide([Claims.Root], Claims.TransferWritePermissions)).toBe(true);
   });
+
+  test("hasScopeWide accepts a wider grant but not a narrower one", () => {
+    const project = [
+      Claims.collection("acme", "*", "*", Claims.CollectionEntriesRead),
+      Claims.collection("acme", "*", "*", Claims.CollectionSchemaRead),
+    ];
+    // A project-wide grant covers any one of that project's environments —
+    // this is what lets a project-confined key copy dev→prod (D22).
+    expect(Claims.hasScopeWide(project, Claims.ScopeCopyReadPermissions, "acme", "prod")).toBe(true);
+    expect(Claims.hasScopeWide(project, Claims.ScopeCopyReadPermissions, "other", "prod")).toBe(false);
+
+    // A single collection is narrower than the scope, so it does not satisfy
+    // a whole-scope operation.
+    const oneCollection = [
+      Claims.collection("acme", "prod", "posts", Claims.CollectionEntriesRead),
+      Claims.collection("acme", "prod", "posts", Claims.CollectionSchemaRead),
+    ];
+    expect(Claims.hasScopeWide(oneCollection, Claims.ScopeCopyReadPermissions, "acme", "prod")).toBe(false);
+
+    // Every listed permission is required, not just one of them.
+    expect(Claims.hasScopeWide(project.slice(0, 1), Claims.ScopeCopyReadPermissions, "acme", "prod")).toBe(false);
+    expect(Claims.hasScopeWide(project, Claims.ScopeCopyWritePermissions, "acme", "prod")).toBe(false);
+
+    expect(Claims.hasScopeWide([Claims.Root], Claims.ScopeCopyReplacePermissions, "acme", "prod")).toBe(true);
+  });
 });

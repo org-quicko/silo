@@ -19,7 +19,7 @@ import { KeyUtils } from "../keys/key-utils";
 import type { ImportOptions } from "./import-options";
 import type { ImportResult } from "./import-result";
 
-interface ParsedImport {
+export interface ParsedImport {
   manifest: ExportManifest;
   scopes: ScopedImport[];
 }

@@ -9,6 +9,7 @@ import type { CreatedKey } from './types/created-key'
 import type { SessionInfo } from './types/session-info'
 import type { ImportResult } from './types/import-result'
 import type { CopyFromServerOptions } from './types/copy-options'
+import type { CopyScopeOptions } from './types/copy-scope-options'
 import type { MediaMetadata } from './types/media-metadata'
 import type { EntryQuery } from './types/entry-query'
 import type { ScopeRef } from './types/scope-ref'
@@ -339,6 +340,35 @@ export class ApiClient {
         prefer: opts.prefer || undefined,
       }),
     })
+  }
+
+  /**
+   * Copy one environment's schemas and entries onto another of the same
+   * instance. Destination-driven like `/api/copy`: the path names the
+   * destination, the body names the source.
+   */
+  copyScope(
+    url: string,
+    key: string,
+    to: ScopeRef,
+    opts: CopyScopeOptions,
+  ): Promise<ImportResult> {
+    return this.req<ImportResult>(
+      url,
+      key,
+      `/api/projects/${encodeURIComponent(to.project)}/environments/${encodeURIComponent(to.env)}/copy`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          from: { project: opts.from.project, env: opts.from.env },
+          mode: opts.mode,
+          dry_run: opts.dryRun,
+          validate: opts.validate,
+          prefer: opts.prefer || undefined,
+        }),
+      },
+    )
   }
 
   listMedia(url: string, key: string) {

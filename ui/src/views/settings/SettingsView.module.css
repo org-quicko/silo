@@ -6,152 +6,6 @@
   font-family: var(--font-ui);
 }
 
-/* Navigation Column */
-.navColumn {
-  display: flex;
-  width: 260px;
-  min-width: 240px;
-  flex-direction: column;
-  border-right: 1px solid var(--line);
-  background: var(--panel);
-  font-family: var(--font-ui);
-}
-
-.navHeader {
-  display: flex;
-  height: 52px;
-  align-items: center;
-  justify-content: space-between;
-  padding: 0 16px;
-  border-bottom: 1px solid var(--line);
-  background: color-mix(in oklab, var(--ink-2) 60%, transparent);
-}
-
-.backBtn {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  max-width: 170px;
-  padding: 0;
-  border: 0;
-  background: none;
-  color: var(--text);
-  cursor: pointer;
-  font-family: var(--font-ui);
-  font-size: 13px;
-  font-weight: 600;
-  text-align: left;
-  transition: color 0.15s ease;
-}
-
-.backBtn:hover {
-  color: var(--accent);
-}
-
-.navHeaderIcon {
-  flex-shrink: 0;
-  color: var(--accent);
-}
-
-.navTitle {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  font-family: var(--font-ui);
-}
-
-.navBadge {
-  padding: 2px 7px;
-  border-radius: 10px;
-  background: var(--ink-2);
-  color: var(--text-3);
-  font-family: var(--font-ui);
-  font-size: 10.5px;
-  font-weight: 500;
-  text-transform: uppercase;
-  letter-spacing: 0.5px;
-}
-
-.navList {
-  display: flex;
-  flex: 1;
-  flex-direction: column;
-  gap: 3px;
-  padding: 10px 8px;
-  overflow-y: auto;
-  font-family: var(--font-ui);
-}
-
-.navItem {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  padding: 8px 10px;
-  border: 1px solid transparent;
-  border-radius: var(--radius-sm);
-  background: transparent;
-  color: var(--text-2);
-  cursor: pointer;
-  text-align: left;
-  transition: all 0.12s cubic-bezier(0.16, 1, 0.3, 1);
-  user-select: none;
-  font-family: var(--font-ui);
-}
-
-.navItem:hover {
-  background: var(--ink-2);
-  color: var(--text);
-}
-
-.navItem.active {
-  border-color: color-mix(in oklab, var(--accent) 30%, transparent);
-  background: color-mix(in oklab, var(--accent) 12%, var(--panel));
-  box-shadow: inset 2px 0 0 var(--accent);
-  color: var(--accent);
-}
-
-.navIcon {
-  flex-shrink: 0;
-}
-
-.navItem.active .navIcon {
-  color: var(--accent);
-}
-
-.navItemText {
-  display: flex;
-  min-width: 0;
-  flex: 1;
-  flex-direction: column;
-  gap: 1px;
-  font-family: var(--font-ui);
-}
-
-.navItemTitle {
-  font-family: var(--font-ui);
-  font-size: 12.5px;
-  font-weight: 500;
-}
-
-.navItem.active .navItemTitle {
-  font-weight: 600;
-}
-
-.navItemSubtitle {
-  overflow: hidden;
-  color: var(--text-3);
-  font-family: var(--font-ui);
-  font-size: 11px;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.navDivider {
-  height: 1px;
-  margin: 6px 4px;
-  background: var(--line);
-}
-
 /* Main Content Column */
 .contentColumn {
   display: flex;
@@ -168,58 +22,6 @@
   flex-direction: column;
   gap: 20px;
   max-width: 860px;
-}
-
-/* Project Selector Tabs */
-.projectTabs {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  padding: 10px 14px;
-  border: 1px solid var(--line);
-  border-radius: var(--radius-sm);
-  background: var(--panel);
-  margin-bottom: 8px;
-}
-
-.tabsLabel {
-  color: var(--text-3);
-  font-size: 12px;
-  font-weight: 500;
-}
-
-.tabsList {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-}
-
-.tabBtn {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  padding: 4px 10px;
-  border: 1px solid var(--line);
-  border-radius: var(--radius-sm);
-  background: var(--ink-2);
-  color: var(--text-2);
-  cursor: pointer;
-  font-family: var(--font-ui);
-  font-size: 12px;
-  font-weight: 500;
-  transition: all 0.12s ease;
-}
-
-.tabBtn:hover {
-  border-color: var(--accent);
-  color: var(--text);
-}
-
-.tabBtn.tabActive {
-  border-color: var(--accent);
-  background: color-mix(in oklab, var(--accent) 15%, transparent);
-  color: var(--accent);
-  font-weight: 600;
 }
 
 /* Create Card Form */
@@ -296,6 +98,28 @@
 .itemRow:hover {
   border-color: color-mix(in oklab, var(--accent) 20%, var(--line));
   background: color-mix(in oklab, var(--ink-2) 60%, var(--panel));
+}
+
+/* An index row *is* the link to that item's own page — the whole row, so the
+   target is obvious and middle-click still opens a tab. */
+.itemRowLink {
+  cursor: pointer;
+  text-decoration: none;
+}
+
+.itemChevron {
+  flex-shrink: 0;
+  color: var(--text-3);
+  transition: transform 0.12s ease, color 0.12s ease;
+}
+
+.itemRowLink:hover .itemChevron {
+  color: var(--accent);
+  transform: translateX(2px);
+}
+
+.itemRowLink:hover .itemName {
+  color: var(--accent);
 }
 
 .itemMain {
@@ -612,73 +436,4 @@
   color: var(--text-3);
   font-size: 12px;
   line-height: 1.4;
-}
-
-/* Modals */
-.modalOverlay {
-  position: fixed;
-  inset: 0;
-  z-index: 50;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 20px;
-  background: rgba(0, 0, 0, 0.65);
-  backdrop-filter: blur(4px);
-}
-
-.modal {
-  display: flex;
-  width: 440px;
-  max-width: 100%;
-  flex-direction: column;
-  gap: 20px;
-  padding: 24px;
-  border: 1px solid var(--line);
-  border-radius: var(--radius);
-  background: var(--panel);
-  box-shadow: var(--shadow-modal);
-}
-
-.modalHeader {
-  display: flex;
-  gap: 14px;
-}
-
-.modalIcon {
-  display: flex;
-  width: 36px;
-  height: 36px;
-  flex-shrink: 0;
-  align-items: center;
-  justify-content: center;
-  border-radius: 8px;
-  background: color-mix(in oklab, var(--bad) 15%, transparent);
-  color: var(--bad);
-}
-
-.modalHeadText {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-}
-
-.modalHeadText h3 {
-  margin: 0;
-  color: var(--text);
-  font-size: 16px;
-  font-weight: 600;
-}
-
-.modalHeadText p {
-  margin: 0;
-  color: var(--text-2);
-  font-size: 13px;
-  line-height: 1.4;
-}
-
-.modalActions {
-  display: flex;
-  justify-content: flex-end;
-  gap: 10px;
 }

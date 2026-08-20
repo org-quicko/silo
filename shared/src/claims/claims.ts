@@ -96,6 +96,41 @@ export class Claims {
     Claims.CollectionEntriesDelete,
   ];
 
+  /**
+   * Collection permissions a scope-to-scope copy exercises (D22).
+   *
+   * Unlike an archive, a copy between two scopes of one instance confers no
+   * authority its caller does not already hold: the same result is reachable
+   * by listing the source through the entry API and writing the destination
+   * through it. So the guard asks for exactly the permissions that hand-rolled
+   * loop would need — at the source scope for the read half, at the
+   * destination for the write half — and for **no** `transfer:*` claim.
+   * Requiring one would force a key confined to a single project to obtain
+   * instance-wide authority before it could move its own data between its own
+   * environments, which is the coupling D21 exists to prevent.
+   */
+  static readonly ScopeCopyReadPermissions: readonly CollectionPermission[] = [
+    Claims.CollectionSchemaRead,
+    Claims.CollectionEntriesRead,
+  ];
+
+  /** Create collections and overwrite their schemas and entries. */
+  static readonly ScopeCopyWritePermissions: readonly CollectionPermission[] = [
+    Claims.CollectionCreate,
+    Claims.CollectionSchemaUpdate,
+    Claims.CollectionEntriesCreate,
+    Claims.CollectionEntriesUpdate,
+  ];
+
+  /**
+   * Additionally required in `replace` mode, which clears the destination's
+   * copy of every collection the source carries before writing it.
+   */
+  static readonly ScopeCopyReplacePermissions: readonly CollectionPermission[] = [
+    Claims.CollectionDelete,
+    Claims.CollectionEntriesDelete,
+  ];
+
   /** Every one of `permissions` held at `*` / `*` / `*`. */
   static hasInstanceWide(
     claims: readonly string[] | readonly ParsedClaim[],
@@ -103,6 +138,24 @@ export class Claims {
   ): boolean {
     return permissions.every((permission) =>
       Claims.has(claims, Claims.collection("*", "*", "*", permission)),
+    );
+  }
+
+  /**
+   * Every one of `permissions` held for **all** collections of one scope.
+   *
+   * The scoped counterpart of `hasInstanceWide`: the `*` collection segment
+   * is what a whole-scope operation needs, and `has` resolves it through
+   * `covers`, so a wider grant — `acme` / `*` / `*`, or root — satisfies it.
+   */
+  static hasScopeWide(
+    claims: readonly string[] | readonly ParsedClaim[],
+    permissions: readonly CollectionPermission[],
+    project: string,
+    env: string,
+  ): boolean {
+    return permissions.every((permission) =>
+      Claims.has(claims, Claims.collection(project, env, "*", permission)),
     );
   }
 
