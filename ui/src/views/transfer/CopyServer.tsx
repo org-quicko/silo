@@ -1,5 +1,7 @@
 import { Button } from '../../components/Button'
 import { Pill } from '../../components/Pill'
+import { StatRow } from '../../components/StatRow'
+import { StatTile } from '../../components/StatTile'
 import passwordStyles from '../../components/PasswordInput.module.css'
 import { useState } from 'react'
 import { Claims } from '@silo/shared/claims'
@@ -224,12 +226,12 @@ export function CopyServerPanel({
 
         {result && (
           <>
-            <div className={styles.stats}>
-              <CopyStat n={result.added} label="to create" tone="ok" prefix="+" />
-              <CopyStat n={result.updated} label="to update" tone="warn" prefix="~" />
-              <CopyStat n={result.deleted} label="to delete" tone="bad" />
-              <CopyStat n={result.skipped} label="unchanged" tone="muted" />
-            </div>
+            <StatRow>
+              <StatTile n={result.added} label="to create" tone="ok" prefix="+" />
+              <StatTile n={result.updated} label="to update" tone="warn" prefix="~" />
+              <StatTile n={result.deleted} label="to delete" tone="bad" />
+              <StatTile n={result.skipped} label="unchanged" tone="muted" />
+            </StatRow>
             {applied && (
               <div className="banner banner-ok">
                 <Check size={15} /> Copy completed in <b>{applied.mode}</b> mode.
@@ -261,25 +263,6 @@ export function CopyServerPanel({
           </div>
         </div>
       </div>
-    </div>
-  )
-}
-
-function CopyStat({
-  n,
-  label,
-  tone,
-  prefix,
-}: {
-  n: number
-  label: string
-  tone: 'ok' | 'warn' | 'bad' | 'muted'
-  prefix?: string
-}) {
-  return (
-    <div className={styles.stat}>
-      <span className={`${styles.statNumber} ${styles[tone]}`}>{prefix || ''}{n}</span>
-      <span className={styles.statLabel}>{label}</span>
     </div>
   )
 }

@@ -22,6 +22,8 @@ import type { ExportOptions } from "../transfer/export-options";
 import { Importer } from "../transfer/importer";
 import type { ImportOptions } from "../transfer/import-options";
 import type { ImportResult } from "../transfer/import-result";
+import { ScopeCopier } from "../transfer/scope-copier";
+import type { ScopeCopyOptions } from "../transfer/scope-copy-options";
 import { CollectionEraser } from "./collection-eraser";
 import fs from "fs/promises";
 import path from "path";
@@ -612,6 +614,22 @@ export class Service {
     const release = await this.writeMu.acquire();
     try {
       const res = await Importer.importTarGz(this.store, r, opts, this.blobStore);
+      this.invalidateSchemas();
+      return res;
+    } finally {
+      release();
+    }
+  }
+
+  /**
+   * Copy one scope's schemas and entries onto another of this instance (D22).
+   * Scoped, unlike the archive routines above; media is instance-global and
+   * therefore not part of it.
+   */
+  async copyScope(from: Scope, to: Scope, opts: ScopeCopyOptions): Promise<ImportResult> {
+    const release = await this.writeMu.acquire();
+    try {
+      const res = await ScopeCopier.copy(this.store, from, to, opts);
       this.invalidateSchemas();
       return res;
     } finally {

@@ -11,6 +11,7 @@ import type { ListQuery } from '../router/list-query'
 import type { ServerRoute } from '../router/route'
 import type { Server } from './servers/server'
 import type { ScopeRef } from '../api/types/scope-ref'
+import { ScopeMemory } from '../utils/scope-memory'
 import { Sidebar } from './shell/Sidebar'
 import { TopBar } from './shell/TopBar'
 import { EntriesView } from './entries/Entries'
@@ -30,6 +31,12 @@ interface Props {
 export function Workspace({ server, route, onDisconnect, onApiKeyChange: _onApiKeyChange }: Props) {
   const { id: serverId, url, apiKey } = server
   const scope: ScopeRef = { project: route.project, env: route.env }
+
+  // The settings shell's PROJECT/ENVIRONMENT groups need a scope even on its
+  // unscoped pages (keys, connection); this is where one is known for certain.
+  useEffect(() => {
+    ScopeMemory.set(serverId, scope)
+  }, [serverId, scope.project, scope.env])
 
   const [ready, setReady] = useState(false)
   const [sessionInfo, setSessionInfo] = useState<SessionInfo | null>(null)

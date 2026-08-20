@@ -40,6 +40,7 @@ Where Pocketbase optimizes for features (auth, realtime, hooks), silo optimizes 
 | D19 | Projects & environments (HTTP API & Scoped Claims) | Scoped routes (`/api/projects/{project}/envs/{env}/collections/...`) replace the flat routes (`/api/collections/...`) with no back-compat aliases. Scope is validated at the HTTP boundary via `Scope.of`. The claim grammar is scoped to `collections:<project>/<env>/<name>:<permission>` with independent per-segment wildcards. `ParsedClaim` evaluates matching and non-escalating delegation (named cannot widen to wildcard; a key can only delegate what it holds). | Completes Phase 2 scoping for the HTTP and auth boundary. Independent per-segment wildcards provide fine-grained multi-project and multi-environment authorization while preserving deny-by-default capabilities and prohibiting action wildcards. |
 | D20 | Decoupled Projects & Environments Architecture | Decouple Scope into individual `project` and `environment` concepts. Dedicated SQL tables for `projects` (`id, created_at, updated_at`) and `environments` (`project, id, created_at, updated_at, PRIMARY KEY (project, id)`). Server defaults configured to `project: default, env: prod` on startup via CLI (`--project`, `--env`), TOML, and env vars. REST routes: `GET/POST /api/projects`, `DELETE /api/projects/:project`, `GET/POST /api/projects/:project/environments`, `DELETE /api/projects/:project/environments/:env`. Scoped claims allow project-level (`project/*/*`), env-level (`project/env/*`), and collection-level grants. Admin UI `/servers` expanded into a 3-pane macOS column / Ranger file manager view (Server -> Project -> Environment) with in-app scope switcher removed; deep URLs formatted as `/servers/:serverId/projects/:project/environments/:env/...`. | Eliminates tight coupling between project and env; allows projects to exist independently of environments, environments to exist independently of schemas, and cleanly structures navigation, authorization, and multi-tenant hosting. Supersedes D19's `_projects` registry collection, which existed only to make an empty project listable and is deleted. **Existence rule:** a project or env exists when it was created explicitly *or* still holds a schema or an entry — both halves, in every adapter. D18 defined existence as content alone, which cannot represent a project created before anything is written into it; keeping only the explicit half would hide scopes an import or a direct `put` brought into being. SQLite answers this from its two tables; the fs adapter writes a `.silo-project`/`.silo-env` marker file, because a directory alone cannot distinguish "created" from "left behind by a delete" and reading it either way loses one of the two halves. `Storage.listScopes()` therefore reports created-but-empty scopes, which is what lets an export carry them. Ids from configuration (`--project`/`--env`, `SILO_DEFAULT_*`) are validated at startup like any other caller-supplied id. |
 | D21 | Transfer claims require instance-wide authority | `transfer:export`, `transfer:import` and `transfer:copy` stay fixed (unscoped) claims, but holding one is no longer sufficient. Export additionally requires `collections:*/*/*:schema:read` and `collections:*/*/*:entries:read`; import and copy additionally require `collections:*/*/*` `entries:create`, `entries:update` and `entries:delete`. Media (`media:*`) remains instance-global and unscoped — an accepted deferral, not a decision that it should stay that way. | An archive is instance-wide: one file spans every project and env, and scoping it is later work. Before D19 that was unremarkable, because there was one flat namespace and no boundary for it to cross. Once claims name a project, a fixed `transfer:export` becomes a way for a key confined to one project to read every other one, and `transfer:import` a way to overwrite them — the exact boundary the scoped grammar exists to draw. Requiring the caller to already hold, at instance scope, the permissions the operation exercises makes the transfer claim a gate on the *mechanism* rather than a grant of authority the key does not otherwise have. |
+| D22 | Scope-to-scope copy | A new destination-driven route, `POST /api/projects/{project}/environments/{env}/copy`, copies one scope's schemas and entries onto another **of the same instance**; the body names the source (`{from: {project, env}}`) and carries the same `mode`/`prefer`/`validate`/`dry_run` options an import does. It owns no merge logic: `Importer.executeImport` already takes `{manifest, scopes}` in memory rather than a directory, so `ScopeCopier` only reads the source scope out of `Storage` into the same `ScopedImport` shape `ImportWalker` builds from an archive, re-enveloping each entry onto the destination. Authorization requires **no `transfer:*` claim at all**: `Claims.ScopeCopyReadPermissions` at the source scope, `ScopeCopyWritePermissions` at the destination, plus `ScopeCopyReplacePermissions` there in `replace` mode — all ordinary scoped collection claims, checked with `Claims.hasScopeWide` / `RouteAuth.requireScopeWide`. Copying a scope onto itself, or either side being `Scope.System`, is a `400`. Media is untouched. | D21 deferred scoping the transfer surface, which left moving data between two environments of one project needing a whole-instance archive round trip — and, because of D21's own rule, instance-wide authority to perform it. A project-confined key could not promote its own dev environment to prod. Reusing the import apply stage rather than forking it keeps one implementation of merge/replace/prefer/dry-run, so copy and import semantics cannot drift. Requiring no fixed claim is the substance of the decision: unlike an archive, a scoped copy reaches nothing the caller could not already reach by listing the source through the entry API and writing the destination through it, so the guard asks for exactly the permissions that hand-rolled loop would need. Adding a `transfer:*` gate on top would reintroduce the very coupling D21 exists to prevent. The whole-instance archive is unchanged and keeps D21's rule. |
 
 
 ## 3. v1 scope
@@ -409,7 +410,7 @@ React + TypeScript + Vite + RJSF (`@rjsf/core` + `@rjsf/validator-ajv8` for 2020
 
 **Design principle: minimal and clean.** No heavy component library or runtime CSS-in-JS — a small global token/reset/primitives foundation, colocated CSS Modules, shared React visual primitives, and a custom minimal RJSF theme. No dashboard chrome, no charts, fast first load.
 
-**Layout:** a server manager, then a two-pane shell:
+**Layout:** a server manager, then a two-pane shell, with settings as a second two-pane shell of its own:
 
 - **Sidebar (nav):** the visible collections with in-memory search and user-resizable width (persisted in `localStorage`); selecting one shows its entries. Pinned at the bottom when authorized: *Keys*, *Media*, and *Data transfer*. Navigation and page actions adapt to the session's claims.
 - **Top bar (slim):** instance name, active key's label, and a lock button that clears the stored key.
@@ -421,8 +422,69 @@ React + TypeScript + Vite + RJSF (`@rjsf/core` + `@rjsf/validator-ajv8` for 2020
 2. **Entries list** (default main view) — table per collection, columns derived from top-level schema properties, filter/sort/paginate via the list API, *New entry* button.
 3. **Entry form** — RJSF-generated from the schema; per-subtree raw-JSON fallback for unrenderable constructs (D3); server validation errors mapped back onto fields.
 4. **Schema editor** — create/edit a collection's JSON Schema in a JSON editor (CodeMirror) with live validation of the schema document itself.
-5. **Keys** — list (label, claims, prefix, created), revoke, and a dedicated creation page at `/s/:serverId/keys/new`. Standard mode provides root/read/write conveniences with an all-collections or searchable selected-collections scope. Custom mode provides per-collection permission toggles plus media, key-management, and transfer claims. The secret is shown once.
-6. **Data transfer** — claim-aware export/import panels and direct server copy using a source URL and key. Direct copy supports merge/replace and data-only/data-plus-keys choices.
+5. **Keys** — list (label, claims, prefix, created), revoke, and a dedicated creation page. Standard mode provides root/read/write conveniences with an all-collections or searchable selected-collections scope. Custom mode provides per-collection permission toggles plus media, key-management, and transfer claims. The secret is shown once.
+6. **Data transfer** — two pages at two blast radii. Under *Server*: claim-aware whole-instance export/import panels and direct copy from another running silo (merge/replace, data-only/data-plus-keys). Under *Environment*: copy from another environment of this instance (D22), preview-then-apply, gated on the scoped claims the copy exercises.
+7. **Settings** — a nav column grouped by the scope each page configures; see below.
+
+**Settings** is divided by the scope each page configures, because a collection is
+identified by `(project, env, collection)` (D18–D20) and most of what settings
+configures therefore belongs to a particular project or environment rather than
+to the server. Three nav groups, with a context switcher heading each nested
+block:
+
+```
+SERVER
+  API Keys                                       list, revoke, and a creation page
+  Data Transfer                                  whole-instance archive and direct server copy
+  Connection                                     endpoint, live diagnostics, forget this server
+PROJECTS
+  Projects                                       every project on the instance, and creating one
+    [ project switcher ▾ · New project ]
+    General                                      id, environment count, delete behind a typed-name confirmation
+    Environments                                 this project's environments, and creating one
+      [ environment switcher ▾ · New environment ]
+      General                                    scope, collections, open workspace, delete behind a typed-name confirmation
+      Data Transfer                              copy from another environment (D22)
+APPLICATION
+  Appearance                                     fonts, accent
+```
+
+| Group | URL |
+|---|---|
+| Server | `/servers/:sid/settings/:section` |
+| Projects (index) | `/servers/:sid/settings/projects` |
+| One project | `/servers/:sid/projects/:project/settings/:section` |
+| One environment | `/servers/:sid/projects/:project/environments/:env/settings/:section` |
+| Application | `/servers/:sid/settings/appearance` |
+
+Groups run outside-in — the server that hosts everything, the projects it holds,
+then this browser — and scope **nests** rather than forming peer groups: one
+project's pages hang off the project index, one environment's off that project's
+environment list. Both nested blocks start collapsed and open when the route
+enters them. Projects and Environments are indexes: a row opens that item's own
+page, and deleting lives only there, behind a typed-name confirmation, rather
+than as a button in a list.
+
+The scope prefix is identical to the workspace routes and to the HTTP API's
+`/api/projects/{project}/environments/{env}/…`, with `settings` as the tail, so a
+workspace URL becomes its settings URL by swapping that tail. Server-level pages
+deliberately take **no** scope prefix — a key or a connection belongs to the
+instance, and prefixing them would let one page be bookmarked at as many URLs as
+there are scopes. The nested project and environment rows still need a scope to
+point at while such a page is open: the shell resolves one from the route, else
+the last this browser was in (`ScopeMemory`, validated against what the server
+still lists), else the first the server reports. Pre-restructure URLs are rewritten to their replacement by
+`Routes.legacy`.
+
+The nav header is the way back **into the workspace** at the resolved scope,
+not out to the server gate — settings is a detour, and leaving it should not cost
+you the project and environment you were working in. The gate stays reachable
+from a smaller control beside it, and ancestor breadcrumbs link upward.
+
+Deleting a project or an environment is irreversible and takes everything under
+it, so both are gated on typing the id back (`DangerConfirm`). Forgetting a saved
+server connection is not — it destroys nothing on the instance — and takes a
+plain confirmation.
 
 `x-silo-ui` extension keys map to RJSF `uiSchema` (widget selection, field order, help text).
 

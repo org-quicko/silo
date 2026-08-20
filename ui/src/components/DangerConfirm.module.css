@@ -1,0 +1,41 @@
+.gate {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  padding: 16px 22px 0;
+}
+
+.label {
+  color: var(--text-3);
+  font-family: var(--font-ui);
+  font-size: 12px;
+}
+
+.label code {
+  color: var(--text);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.input {
+  width: 100%;
+  padding: 9px 11px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--font-mono);
+  font-size: 13px;
+}
+
+.input:focus {
+  border-color: var(--bad);
+  outline: none;
+}
+
+.error {
+  color: var(--bad);
+  font-family: var(--font-ui);
+  font-size: 12px;
+}

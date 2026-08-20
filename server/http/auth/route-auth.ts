@@ -70,6 +70,33 @@ export class RouteAuth {
     }
   }
 
+  /**
+   * The scoped counterpart of `requireInstanceWide`: every one of
+   * `permissions` held for all collections of one (project, env).
+   *
+   * A scope-to-scope copy needs this twice — the read half at the source and
+   * the write half at the destination — and needs no fixed `transfer:*` claim
+   * at all, because it reaches no scope the caller could not already read or
+   * write one entry at a time (D22).
+   */
+  static requireScopeWide(
+    c: Context,
+    operation: string,
+    project: string,
+    env: string,
+    permissions: readonly CollectionPermission[],
+  ): void {
+    const key = RouteAuth.requireKey(c);
+    for (const permission of permissions) {
+      const claim = Claims.collection(project, env, "*", permission);
+      if (!Claims.has(key.claims, claim)) {
+        throw new ForbiddenError(
+          `${operation} covers every collection in ${project}/${env}; this key is missing claim "${claim}"`,
+        );
+      }
+    }
+  }
+
   static requirePublicOrClaim(
     c: Context,
     project: string,

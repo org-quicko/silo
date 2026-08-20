@@ -4,9 +4,9 @@ import { Button } from '../../../components/Button'
 import { Pill } from '../../../components/Pill'
 import { TopBar } from '../../shell/TopBar'
 import { ThemeManager, type ThemeSettings } from '../../../utils/theme-manager'
-import styles from './GeneralTab.module.css'
+import styles from './AppearancePage.module.css'
 
-interface GeneralTabProps {
+interface AppearancePageProps {
   session: string
   onBack: () => void
 }
@@ -24,7 +24,7 @@ function getCategoryFallback(category: string): string {
   }
 }
 
-export function GeneralTab({ session, onBack }: GeneralTabProps) {
+export function AppearancePage({ session, onBack }: AppearancePageProps) {
   const [settings, setSettings] = useState<ThemeSettings>(() => ThemeManager.getSettings())
   const [customFontInput, setCustomFontInput] = useState('')
   const [customHexInput, setCustomHexInput] = useState(settings.accent)
@@ -87,7 +87,7 @@ export function GeneralTab({ session, onBack }: GeneralTabProps) {
 
   return (
     <>
-      <TopBar crumbs={[{ label: 'Admin' }, { label: 'General' }]} session={session} onLock={onBack}>
+      <TopBar crumbs={[{ label: 'Application' }, { label: 'Appearance' }]} session={session} onLock={onBack}>
         {savedSuccess && (
           <div style={{ display: 'flex', alignItems: 'center', gap: '6px', color: 'var(--ok)', fontSize: '13px', fontWeight: 500 }}>
             <CheckCircle2 size={15} />
@@ -99,9 +99,10 @@ export function GeneralTab({ session, onBack }: GeneralTabProps) {
       <div className="content">
         <div className="page-head">
           <div className="page-title-group">
-            <h2 className="page-title">General Settings</h2>
+            <h2 className="page-title">Appearance</h2>
             <span className="page-sub">
-              Personalize application typography, Google Fonts, and UI accent colors.
+              Typography and accent colour for the admin UI. Stored in this browser, so the choice
+              applies to every silo server you open here — it is not part of any server's data.
             </span>
           </div>
         </div>

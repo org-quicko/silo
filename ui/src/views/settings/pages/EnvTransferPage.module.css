@@ -1,0 +1,101 @@
+.panel {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: var(--panel);
+}
+
+.header {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  padding: 16px 18px;
+  border-bottom: 1px solid var(--line);
+}
+
+.heading {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--text);
+  font-family: var(--font-ui);
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.header p {
+  margin: 0;
+  color: var(--text-3);
+  font-family: var(--font-ui);
+  font-size: 12.5px;
+  line-height: 1.6;
+}
+
+.body {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  padding: 18px;
+}
+
+.sourceGrid {
+  display: grid;
+  gap: 12px;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+}
+
+.direction {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 11px 14px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: var(--ink-2);
+  font-family: var(--font-mono);
+  font-size: 13px;
+}
+
+.scopeFrom {
+  color: var(--text-2);
+}
+
+.scopeTo {
+  color: var(--accent);
+  font-weight: 600;
+}
+
+.arrow {
+  flex-shrink: 0;
+  color: var(--text-3);
+}
+
+.actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+}
+
+.actionNote {
+  color: var(--text-3);
+  font-family: var(--font-ui);
+  font-size: 12px;
+}
+
+.actionButtons {
+  display: flex;
+  flex-shrink: 0;
+  gap: 10px;
+}
+
+.progress {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--text-3);
+  font-family: var(--font-ui);
+  font-size: 12.5px;
+}

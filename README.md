@@ -277,6 +277,7 @@ Present a key as `Authorization: Bearer <key>` or `X-Api-Key: <key>`.
 | `DELETE` | `/api/projects/{project}` | delete a project, its environments and their collections (`?force=true`) |
 | `GET` / `POST` | `/api/projects/{project}/envs` | list environments / create `{id}` |
 | `DELETE` | `/api/projects/{project}/envs/{env}` | delete an environment and its collections (`?force=true`) |
+| `POST` | `/api/projects/{project}/envs/{env}/copy` | copy another environment of this instance into it |
 | `GET` / `POST` | `/api/projects/{project}/envs/{env}/collections` | list / create `{name, schema}` |
 | `GET` / `PUT` / `DELETE` | `/api/projects/{project}/envs/{env}/collections/{name}/schema` | fetch / update / delete a schema |
 | `GET` / `POST` | `/api/projects/{project}/envs/{env}/collections/{name}` | list entries (filter, sort, paginate) / create |
@@ -290,9 +291,9 @@ Present a key as `Authorization: Bearer <key>` or `X-Api-Key: <key>`.
 | `DELETE` | `/api/media/{filename}` | delete a media file |
 | `GET` | `/media/{filename}` | public asset streaming, immutable cache headers |
 
-`/environments` is accepted anywhere `/envs` appears. Collection and entry
-routes are scoped to a `(project, environment)` pair; everything else is
-instance-wide.
+`/environments` is accepted anywhere `/envs` appears. Collection, entry, and
+environment-copy routes are scoped to a `(project, environment)` pair;
+everything else is instance-wide.
 
 Reading and writing `posts` in `default/prod`:
 
@@ -385,6 +386,11 @@ sufficient. Export additionally requires `collections:*/*/*:schema:read` and
 `collections:*/*/*:entries:create`, `:entries:update`, and `:entries:delete`.
 Without that rule, `transfer:export` would let a key confined to one project
 read every other one.
+
+Copying between two environments of one instance is the exception, and needs no
+`transfer:*` claim at all — it reaches nothing the ordinary collection and entry
+routes do not, so it asks for those permissions at the two scopes involved
+instead. See [Copying between environments](#copying-between-environments).
 
 Presets (`root`, `write`, `read`) are conveniences over the same claim set, in
 the CLI through `--preset` and in the admin UI's key form. Stored keys must
@@ -480,6 +486,46 @@ curl -X POST http://new-silo:8090/api/copy \
     "dry_run": true
   }'
 ```
+
+### Copying between environments
+
+Moving data between two environments of one instance — promoting `dev` to
+`staging`, seeding a fresh environment from `prod` — does not need an archive.
+`POST /api/projects/{project}/envs/{env}/copy` is destination-driven like
+`/api/copy`: the route names the environment being written and the body names the
+source. It takes the same `mode`, `prefer`, `validate` and `dry_run` options an
+import does, and runs entirely inside the server.
+
+```sh
+curl -X POST http://localhost:8090/api/projects/acme/envs/staging/copy   -H "Authorization: Bearer $SILO_KEY"   -H "Content-Type: application/json"   -d '{"from": {"project": "acme", "env": "prod"}, "mode": "merge", "dry_run": true}'
+```
+
+```json
+{ "mode": "merge", "dry_run": true, "added": 12, "updated": 0, "deleted": 0, "skipped": 3 }
+```
+
+Unlike the archive routes, this needs **no `transfer:*` claim** — it reaches
+nothing you could not already reach through the ordinary collection and entry
+routes, so it asks for exactly those permissions instead:
+
+```
+source        collections:<from-project>/<from-env>/*:schema:read
+              collections:<from-project>/<from-env>/*:entries:read
+destination   collections:<project>/<env>/*:create
+              collections:<project>/<env>/*:schema:update
+              collections:<project>/<env>/*:entries:create
+              collections:<project>/<env>/*:entries:update
+replace mode  collections:<project>/<env>/*:delete
+              collections:<project>/<env>/*:entries:delete
+```
+
+A key scoped to one project (`collections:acme/*/*:…`) can therefore move data
+between that project's environments and no others. Copying an environment onto
+itself is a `400`. Media is stored per instance rather than per environment, so
+it is shared already and none is copied.
+
+The admin UI exposes this at **Settings → Environment → Data Transfer**, with the
+same preview-then-apply flow.
 
 ### Format version
 

@@ -10,6 +10,12 @@ import {
   EyeOff,
 } from 'lucide-react'
 import { Button } from '../../../components/Button'
+import { Modal } from '../../../components/Modal'
+import { ModalActions } from '../../../components/ModalActions'
+import { ModalBody } from '../../../components/ModalBody'
+import { ModalCopy } from '../../../components/ModalCopy'
+import { ModalHeader } from '../../../components/ModalHeader'
+import { ModalIcon } from '../../../components/ModalIcon'
 import { Pill } from '../../../components/Pill'
 import { TopBar } from '../../shell/TopBar'
 import { api } from '../../../api/api-client'
@@ -17,7 +23,7 @@ import type { Server } from '../../servers/server'
 import passwordStyles from '../../../components/PasswordInput.module.css'
 import styles from '../SettingsView.module.css'
 
-interface ConnectionTabProps {
+interface ConnectionPageProps {
   server: Server
   session: string
   claims: string[]
@@ -29,7 +35,7 @@ interface ConnectionTabProps {
   onBack: () => void
 }
 
-export function ConnectionTab({
+export function ConnectionPage({
   server,
   session,
   claims: initialClaims,
@@ -39,7 +45,7 @@ export function ConnectionTab({
   onUpdateServer,
   onDeleteServer,
   onBack,
-}: ConnectionTabProps) {
+}: ConnectionPageProps) {
   const [connName, setConnName] = useState(server.name)
   const [connUrl, setConnUrl] = useState(server.url)
   const [connApiKey, setConnApiKey] = useState(server.apiKey)
@@ -132,12 +138,12 @@ export function ConnectionTab({
 
   return (
     <>
-      <TopBar crumbs={[{ label: 'Admin' }, { label: 'Connection & Status' }]} session={session} onLock={onBack} />
+      <TopBar crumbs={[{ label: server.name }, { label: 'Connection' }]} session={session} onLock={onBack} />
 
       <div className="content">
         <div className="page-head">
           <div className="page-title-group">
-            <h2 className="page-title">Connection & Status</h2>
+            <h2 className="page-title">Connection</h2>
             <span className="page-sub">
               Configure server connection endpoints, check health diagnostics, and manage server storage.
             </span>
@@ -334,29 +340,34 @@ export function ConnectionTab({
         </div>
       </div>
 
+      {/*
+        No typed confirmation here, unlike deleting a project or an
+        environment: this forgets a connection in this browser and destroys
+        nothing on the server, so it is undone by re-entering the URL and key.
+      */}
       {isConfirmingDelete && (
-        <div className={styles.modalOverlay} onClick={() => setIsConfirmingDelete(false)}>
-          <div className={styles.modal} onClick={(e) => e.stopPropagation()}>
-            <div className={styles.modalHeader}>
-              <div className={styles.modalIcon}>
-                <AlertTriangle size={20} />
-              </div>
-              <div className={styles.modalHeadText}>
-                <h3>Delete Server Connection</h3>
-                <p>Are you sure you want to remove <strong>{server.name}</strong> from your saved servers?</p>
-              </div>
-            </div>
-
-            <div className={styles.modalActions}>
-              <Button type="button" variant="secondary" onClick={() => setIsConfirmingDelete(false)}>
-                Cancel
-              </Button>
-              <Button type="button" variant="danger" onClick={onDeleteServer}>
-                Delete Connection
-              </Button>
-            </div>
-          </div>
-        </div>
+        <Modal onClose={() => setIsConfirmingDelete(false)}>
+          <ModalHeader>
+            <ModalIcon tone="bad">
+              <Trash2 size={20} />
+            </ModalIcon>
+            <ModalCopy>
+              <h3>Forget this server?</h3>
+              <ModalBody>
+                <b>{server.name}</b> is removed from this browser's saved connections. Everything hosted
+                on the instance itself stays exactly as it is.
+              </ModalBody>
+            </ModalCopy>
+          </ModalHeader>
+          <ModalActions>
+            <Button variant="secondary" onClick={() => setIsConfirmingDelete(false)}>
+              Cancel
+            </Button>
+            <Button variant="danger" onClick={onDeleteServer}>
+              Forget server
+            </Button>
+          </ModalActions>
+        </Modal>
       )}
     </>
   )

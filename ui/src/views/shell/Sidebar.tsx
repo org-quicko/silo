@@ -229,7 +229,7 @@ export function Sidebar({
         </span>
         <div className={styles.list}>
           <Link
-            to={Routes.settingsGeneral(serverId)}
+            to={Routes.projectSettings(serverId, scope.project, 'general')}
             className={styles.item}
           >
             <span className={styles.itemIcon}>
