@@ -164,13 +164,11 @@ interface Props {
   session: string
   /** URL to return to on cancel — the breadcrumbs link back to it. */
   backTo: string
-  onLock: () => void
-  onGoToServers?: () => void
   onSaved: (name: string) => void
   onCancel: () => void
 }
 
-export function SchemaEditorView({ collection, collections, url, apiKey, scope, claims, session, backTo, onLock, onGoToServers, onSaved, onCancel }: Props) {
+export function SchemaEditorView({ collection, collections, url, apiKey, scope, claims, session, backTo, onSaved, onCancel }: Props) {
   const initial = useMemo(() => {
     const text = collection ? JSON.stringify(collection.schema, null, 2) : JSON.stringify(DEFAULT_SCHEMA, null, 2)
     return { text, ...parseSchema(text) }
@@ -273,8 +271,6 @@ export function SchemaEditorView({ collection, collections, url, apiKey, scope, 
       <TopBar
         crumbs={[{ label: 'Collections', to: backTo }, { label: collection ? collection.name : 'New collection' }]}
         session={session}
-        onLock={onLock}
-        onGoToServers={onGoToServers}
       />
       <div className="content">
         <div className={styles.layout}>

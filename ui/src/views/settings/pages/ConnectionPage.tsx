@@ -32,7 +32,6 @@ interface ConnectionPageProps {
   version: string
   onUpdateServer: (patch: Partial<Server>) => void
   onDeleteServer: () => void
-  onBack: () => void
 }
 
 export function ConnectionPage({
@@ -44,7 +43,6 @@ export function ConnectionPage({
   version: initialVersion,
   onUpdateServer,
   onDeleteServer,
-  onBack,
 }: ConnectionPageProps) {
   const [connName, setConnName] = useState(server.name)
   const [connUrl, setConnUrl] = useState(server.url)
@@ -138,7 +136,7 @@ export function ConnectionPage({
 
   return (
     <>
-      <TopBar crumbs={[{ label: server.name }, { label: 'Connection' }]} session={session} onLock={onBack} />
+      <TopBar crumbs={[{ label: server.name }, { label: 'Connection' }]} session={session} />
 
       <div className="content">
         <div className="page-head">

@@ -13,6 +13,10 @@ interface ServerManagerProps {
   onConnect: (serverId: string, project: string, env: string) => void
   onAddServer: (server: Server) => void
   onOpenStatus: (serverId: string) => void
+  initialServerId?: string | null
+  initialProject?: string | null
+  initialEnv?: string | null
+  onClose?: () => void
 }
 
 export function ServerManager({
@@ -20,10 +24,14 @@ export function ServerManager({
   onConnect,
   onAddServer,
   onOpenStatus,
+  initialServerId,
+  initialProject,
+  initialEnv,
+  onClose,
 }: ServerManagerProps) {
-  const [selectedServerId, setSelectedServerId] = useState<string | null>(null)
-  const [selectedProject, setSelectedProject] = useState<string | null>(null)
-  const [selectedEnv, setSelectedEnv] = useState<string | null>(null)
+  const [selectedServerId, setSelectedServerId] = useState<string | null>(() => initialServerId ?? null)
+  const [selectedProject, setSelectedProject] = useState<string | null>(() => initialProject ?? null)
+  const [selectedEnv, setSelectedEnv] = useState<string | null>(() => initialEnv ?? null)
 
   const [projects, setProjects] = useState<string[]>([])
   const [environments, setEnvironments] = useState<string[]>([])
@@ -48,6 +56,17 @@ export function ServerManager({
 
   const selectedServer = servers.find((s) => s.id === selectedServerId) || null
 
+  useEffect(() => {
+    if (!onClose) return
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape' && !isAddingServer) {
+        onClose()
+      }
+    }
+    window.addEventListener('keydown', handleKeyDown)
+    return () => window.removeEventListener('keydown', handleKeyDown)
+  }, [onClose, isAddingServer])
+
   const handleSelectServer = (id: string) => {
     if (selectedServerId === id) return
     setSelectedServerId(id)
@@ -67,7 +86,7 @@ export function ServerManager({
     setColumnError('')
   }
 
-  // Fetch projects when selectedServer changes (do NOT select anything by default)
+  // Fetch projects when selectedServer changes
   useEffect(() => {
     if (!selectedServer) {
       setProjects([])
@@ -100,7 +119,7 @@ export function ServerManager({
     }
   }, [selectedServerId, selectedServer?.url, selectedServer?.apiKey])
 
-  // Fetch environments when selectedProject changes (do NOT select anything by default)
+  // Fetch environments when selectedProject changes
   useEffect(() => {
     if (!selectedServer || !selectedProject) {
       setEnvironments([])
@@ -219,311 +238,337 @@ export function ServerManager({
     }
   }
 
-  return (
-    <div className={styles.gate}>
-      <div className={styles.glow} />
-
-      <div className={styles.window}>
-        {/* Header */}
-        <header className={styles.header}>
-          <div className={styles.brand}>
-            <div className={styles.logo}>
-              <SiloMark size={28} stroke="var(--accent)" />
-            </div>
-            <div className={styles.brandText}>
-              <h1>Silo CMS</h1>
-              <span className={styles.badge}>Server Browser</span>
-            </div>
+  const content = (
+    <div className={styles.window} onMouseDown={(e) => e.stopPropagation()}>
+      {/* Header */}
+      <header className={styles.header}>
+        <div className={styles.brand}>
+          <div className={styles.logo}>
+            <SiloMark size={28} stroke="var(--accent)" />
           </div>
-          <div className={styles.headerActions}>
-            <Button
-              type="button"
-              variant="primary"
-              onClick={() => {
-                setName('')
-                setUrl('')
-                setApiKey('')
-                setServerError('')
-                setIsAddingServer(true)
-              }}
-            >
-              <Plus size={15} /> Add Server
-            </Button>
-          </div>
-        </header>
-
-        {columnError && (
-          <div className={styles.bannerError}>
-            <span>{columnError}</span>
-            <button type="button" onClick={() => setColumnError('')}>×</button>
-          </div>
-        )}
-
-        {/* Multi-pane Columns (Ranger / macOS Columns View) */}
-        <div className={styles.columnsContainer}>
-          {/* Column 1: Servers */}
-          <div className={`${styles.column} ${styles.columnActive}`}>
-            <div className={styles.columnHeader}>
-              <div className={styles.columnTitle}>
-                <ServerIcon size={14} className={styles.columnIcon} />
-                <span>Servers</span>
-                <span className={styles.counter}>{servers.length}</span>
-              </div>
-            </div>
-            <div className={styles.columnList}>
-              {servers.length === 0 ? (
-                <div className={styles.emptyColumn}>
-                  <Globe size={22} className={styles.emptyIcon} />
-                  <span>No servers configured</span>
-                  <small className="muted">Click "Add Server" above to connect</small>
-                </div>
-              ) : (
-                servers.map((s, idx) => {
-                  const isSelected = s.id === selectedServerId
-                  return (
-                    <div
-                      key={s.id}
-                      className={`${styles.columnItem} ${isSelected ? styles.selected : ''}`}
-                      onClick={() => handleSelectServer(s.id)}
-                      style={{ animationDelay: `${idx * 30}ms` }}
-                    >
-                      <div className={styles.itemMain}>
-                        <span className={styles.itemTitle}>{s.name}</span>
-                        <span className={styles.itemSubtitle}>{s.url}</span>
-                      </div>
-                      <button
-                        type="button"
-                        className={styles.itemSettings}
-                        onClick={(e) => {
-                          e.stopPropagation()
-                          onOpenStatus(s.id)
-                        }}
-                        title="Server status & configuration"
-                      >
-                        <Settings size={13} />
-                      </button>
-                      <ChevronRight size={14} className={styles.chevron} />
-                    </div>
-                  )
-                })
-              )}
-            </div>
-          </div>
-
-          {/* Column 2: Projects */}
-          <div className={`${styles.column} ${selectedServer ? styles.columnActive : styles.columnInactive}`}>
-            <div className={styles.columnHeader}>
-              <div className={styles.columnTitle}>
-                <FolderGit2 size={14} className={styles.columnIcon} />
-                <span>Projects</span>
-                {selectedServer && <span className={styles.counter}>{projects.length}</span>}
-              </div>
-              {selectedServer && !isAddingProject && (
-                <button
-                  type="button"
-                  className={styles.headerBtn}
-                  onClick={() => {
-                    setIsAddingProject(true)
-                    setNewProjectName('')
-                  }}
-                  title="New project"
-                >
-                  <Plus size={14} />
-                </button>
-              )}
-            </div>
-            <div className={styles.columnList}>
-              {!selectedServer ? (
-                <div className={styles.emptyColumn}>
-                  <FolderGit2 size={22} className={styles.emptyIcon} />
-                  <span>Select a server</span>
-                  <small className="muted">Projects will appear here</small>
-                </div>
-              ) : loadingProjects ? (
-                <div className={styles.emptyColumn}>
-                  <div className={styles.spinner} />
-                  <span>Loading projects…</span>
-                </div>
-              ) : (
-                <div className={styles.animatedList} key={selectedServerId}>
-                  {isAddingProject && (
-                    <form onSubmit={handleCreateProject} className={styles.inlineForm}>
-                      <input
-                        type="text"
-                        placeholder="project-name"
-                        value={newProjectName}
-                        onChange={(e) => setNewProjectName(e.target.value)}
-                        autoFocus
-                      />
-                      <div className={styles.inlineActions}>
-                        <button type="submit" className={styles.inlineSubmit} title="Create">
-                          <Check size={13} />
-                        </button>
-                        <button
-                          type="button"
-                          className={styles.inlineCancel}
-                          onClick={() => setIsAddingProject(false)}
-                          title="Cancel"
-                        >
-                          ×
-                        </button>
-                      </div>
-                    </form>
-                  )}
-                  {projects.length === 0 && !isAddingProject ? (
-                    <div className={styles.emptyColumn}>
-                      <span>No projects found</span>
-                      <small className="muted">Click + to create one</small>
-                    </div>
-                  ) : (
-                    projects.map((p, idx) => {
-                      const isSelected = p === selectedProject
-                      return (
-                        <div
-                          key={p}
-                          className={`${styles.columnItem} ${isSelected ? styles.selected : ''}`}
-                          onClick={() => handleSelectProject(p)}
-                          style={{ animationDelay: `${idx * 25}ms` }}
-                        >
-                          <div className={styles.itemMain}>
-                            <span className={styles.itemTitle}>{p}</span>
-                          </div>
-                          <ChevronRight size={14} className={styles.chevron} />
-                        </div>
-                      )
-                    })
-                  )}
-                </div>
-              )}
-            </div>
-          </div>
-
-          {/* Column 3: Environments */}
-          <div className={`${styles.column} ${selectedProject ? styles.columnActive : styles.columnInactive}`}>
-            <div className={styles.columnHeader}>
-              <div className={styles.columnTitle}>
-                <Layers size={14} className={styles.columnIcon} />
-                <span>Environments</span>
-                {selectedProject && <span className={styles.counter}>{environments.length}</span>}
-              </div>
-              {selectedProject && !isAddingEnv && (
-                <button
-                  type="button"
-                  className={styles.headerBtn}
-                  onClick={() => {
-                    setIsAddingEnv(true)
-                    setNewEnvName('')
-                  }}
-                  title="New environment"
-                >
-                  <Plus size={14} />
-                </button>
-              )}
-            </div>
-            <div className={styles.columnList}>
-              {!selectedServer ? (
-                <div className={styles.emptyColumn}>
-                  <Layers size={22} className={styles.emptyIcon} />
-                  <span>Select a server</span>
-                </div>
-              ) : !selectedProject ? (
-                <div className={styles.emptyColumn}>
-                  <Layers size={22} className={styles.emptyIcon} />
-                  <span>Select a project</span>
-                  <small className="muted">Environments will appear here</small>
-                </div>
-              ) : loadingEnvs ? (
-                <div className={styles.emptyColumn}>
-                  <div className={styles.spinner} />
-                  <span>Loading environments…</span>
-                </div>
-              ) : (
-                <div className={styles.animatedList} key={`${selectedServerId}:${selectedProject}`}>
-                  {isAddingEnv && (
-                    <form onSubmit={handleCreateEnv} className={styles.inlineForm}>
-                      <input
-                        type="text"
-                        placeholder="env-name"
-                        value={newEnvName}
-                        onChange={(e) => setNewEnvName(e.target.value)}
-                        autoFocus
-                      />
-                      <div className={styles.inlineActions}>
-                        <button type="submit" className={styles.inlineSubmit} title="Create">
-                          <Check size={13} />
-                        </button>
-                        <button
-                          type="button"
-                          className={styles.inlineCancel}
-                          onClick={() => setIsAddingEnv(false)}
-                          title="Cancel"
-                        >
-                          ×
-                        </button>
-                      </div>
-                    </form>
-                  )}
-                  {environments.length === 0 && !isAddingEnv ? (
-                    <div className={styles.emptyColumn}>
-                      <span>No environments found</span>
-                      <small className="muted">Click + to create one</small>
-                    </div>
-                  ) : (
-                    environments.map((env, idx) => {
-                      const isSelected = env === selectedEnv
-                      return (
-                        <div
-                          key={env}
-                          className={`${styles.columnItem} ${isSelected ? styles.selected : ''}`}
-                          onClick={() => setSelectedEnv(env)}
-                          onDoubleClick={handleConnect}
-                          style={{ animationDelay: `${idx * 25}ms` }}
-                        >
-                          <div className={styles.itemMain}>
-                            <span className={styles.itemTitle}>{env}</span>
-                          </div>
-                        </div>
-                      )
-                    })
-                  )}
-                </div>
-              )}
-            </div>
+          <div className={styles.brandText}>
+            <h1>Silo CMS</h1>
+            <span className={styles.badge}>Server Browser</span>
           </div>
         </div>
-
-        {/* Footer / Connection Bar */}
-        <footer className={styles.footer}>
-          <div className={styles.breadcrumb}>
-            <span className={`${styles.breadcrumbItem} ${selectedServer ? styles.breadcrumbItemActive : ''}`}>
-              {selectedServer ? selectedServer.name : 'Select server'}
-            </span>
-            <span className={styles.breadcrumbSep}>›</span>
-            <span className={`${styles.breadcrumbItem} ${selectedProject ? styles.breadcrumbItemActive : ''}`}>
-              {selectedProject || 'Select project'}
-            </span>
-            <span className={styles.breadcrumbSep}>›</span>
-            <span className={`${styles.breadcrumbItem} ${selectedEnv ? styles.breadcrumbItemActive : ''}`}>
-              {selectedEnv || 'Select environment'}
-            </span>
-          </div>
-
+        <div className={styles.headerActions}>
           <Button
             type="button"
             variant="primary"
-            disabled={!selectedServer || !selectedProject || !selectedEnv}
-            onClick={handleConnect}
-            className={styles.connectBtn}
+            onClick={() => {
+              setName('')
+              setUrl('')
+              setApiKey('')
+              setServerError('')
+              setIsAddingServer(true)
+            }}
           >
-            <span>Open Workspace</span>
-            <ArrowRight size={15} />
+            <Plus size={15} /> Add Server
           </Button>
-        </footer>
+          {onClose && (
+            <button
+              type="button"
+              className={styles.closeBtn}
+              onClick={onClose}
+              title="Close (Esc)"
+              aria-label="Close"
+            >
+              ×
+            </button>
+          )}
+        </div>
+      </header>
+
+      {columnError && (
+        <div className={styles.bannerError}>
+          <span>{columnError}</span>
+          <button type="button" onClick={() => setColumnError('')}>×</button>
+        </div>
+      )}
+
+      {/* Multi-pane Columns (Ranger / macOS Columns View) */}
+      <div className={styles.columnsContainer}>
+        {/* Column 1: Servers */}
+        <div className={`${styles.column} ${styles.columnActive}`}>
+          <div className={styles.columnHeader}>
+            <div className={styles.columnTitle}>
+              <ServerIcon size={14} className={styles.columnIcon} />
+              <span>Servers</span>
+              <span className={styles.counter}>{servers.length}</span>
+            </div>
+          </div>
+          <div className={styles.columnList}>
+            {servers.length === 0 ? (
+              <div className={styles.emptyColumn}>
+                <Globe size={22} className={styles.emptyIcon} />
+                <span>No servers configured</span>
+                <small className="muted">Click "Add Server" above to connect</small>
+              </div>
+            ) : (
+              servers.map((s, idx) => {
+                const isSelected = s.id === selectedServerId
+                return (
+                  <div
+                    key={s.id}
+                    className={`${styles.columnItem} ${isSelected ? styles.selected : ''}`}
+                    onClick={() => handleSelectServer(s.id)}
+                    style={{ animationDelay: `${idx * 30}ms` }}
+                  >
+                    <div className={styles.itemMain}>
+                      <span className={styles.itemTitle}>{s.name}</span>
+                      <span className={styles.itemSubtitle}>{s.url}</span>
+                    </div>
+                    <button
+                      type="button"
+                      className={styles.itemSettings}
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        onOpenStatus(s.id)
+                      }}
+                      title="Server status & configuration"
+                    >
+                      <Settings size={13} />
+                    </button>
+                    <ChevronRight size={14} className={styles.chevron} />
+                  </div>
+                )
+              })
+            )}
+          </div>
+        </div>
+
+        {/* Column 2: Projects */}
+        <div className={`${styles.column} ${selectedServer ? styles.columnActive : styles.columnInactive}`}>
+          <div className={styles.columnHeader}>
+            <div className={styles.columnTitle}>
+              <FolderGit2 size={14} className={styles.columnIcon} />
+              <span>Projects</span>
+              {selectedServer && <span className={styles.counter}>{projects.length}</span>}
+            </div>
+            {selectedServer && !isAddingProject && (
+              <button
+                type="button"
+                className={styles.headerBtn}
+                onClick={() => {
+                  setIsAddingProject(true)
+                  setNewProjectName('')
+                }}
+                title="New project"
+              >
+                <Plus size={14} />
+              </button>
+            )}
+          </div>
+          <div className={styles.columnList}>
+            {!selectedServer ? (
+              <div className={styles.emptyColumn}>
+                <FolderGit2 size={22} className={styles.emptyIcon} />
+                <span>Select a server</span>
+                <small className="muted">Projects will appear here</small>
+              </div>
+            ) : loadingProjects ? (
+              <div className={styles.emptyColumn}>
+                <div className={styles.spinner} />
+                <span>Loading projects…</span>
+              </div>
+            ) : (
+              <div className={styles.animatedList} key={selectedServerId}>
+                {isAddingProject && (
+                  <form onSubmit={handleCreateProject} className={styles.inlineForm}>
+                    <input
+                      type="text"
+                      placeholder="project-name"
+                      value={newProjectName}
+                      onChange={(e) => setNewProjectName(e.target.value)}
+                      autoFocus
+                    />
+                    <div className={styles.inlineActions}>
+                      <button type="submit" className={styles.inlineSubmit} title="Create">
+                        <Check size={13} />
+                      </button>
+                      <button
+                        type="button"
+                        className={styles.inlineCancel}
+                        onClick={() => setIsAddingProject(false)}
+                        title="Cancel"
+                      >
+                        ×
+                      </button>
+                    </div>
+                  </form>
+                )}
+                {projects.length === 0 && !isAddingProject ? (
+                  <div className={styles.emptyColumn}>
+                    <span>No projects found</span>
+                    <small className="muted">Click + to create one</small>
+                  </div>
+                ) : (
+                  projects.map((p, idx) => {
+                    const isSelected = p === selectedProject
+                    return (
+                      <div
+                        key={p}
+                        className={`${styles.columnItem} ${isSelected ? styles.selected : ''}`}
+                        onClick={() => handleSelectProject(p)}
+                        style={{ animationDelay: `${idx * 25}ms` }}
+                      >
+                        <div className={styles.itemMain}>
+                          <span className={styles.itemTitle}>{p}</span>
+                        </div>
+                        <ChevronRight size={14} className={styles.chevron} />
+                      </div>
+                    )
+                  })
+                )}
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* Column 3: Environments */}
+        <div className={`${styles.column} ${selectedProject ? styles.columnActive : styles.columnInactive}`}>
+          <div className={styles.columnHeader}>
+            <div className={styles.columnTitle}>
+              <Layers size={14} className={styles.columnIcon} />
+              <span>Environments</span>
+              {selectedProject && <span className={styles.counter}>{environments.length}</span>}
+            </div>
+            {selectedProject && !isAddingEnv && (
+              <button
+                type="button"
+                className={styles.headerBtn}
+                onClick={() => {
+                  setIsAddingEnv(true)
+                  setNewEnvName('')
+                }}
+                title="New environment"
+              >
+                <Plus size={14} />
+              </button>
+            )}
+          </div>
+          <div className={styles.columnList}>
+            {!selectedServer ? (
+              <div className={styles.emptyColumn}>
+                <Layers size={22} className={styles.emptyIcon} />
+                <span>Select a server</span>
+              </div>
+            ) : !selectedProject ? (
+              <div className={styles.emptyColumn}>
+                <Layers size={22} className={styles.emptyIcon} />
+                <span>Select a project</span>
+                <small className="muted">Environments will appear here</small>
+              </div>
+            ) : loadingEnvs ? (
+              <div className={styles.emptyColumn}>
+                <div className={styles.spinner} />
+                <span>Loading environments…</span>
+              </div>
+            ) : (
+              <div className={styles.animatedList} key={`${selectedServerId}:${selectedProject}`}>
+                {isAddingEnv && (
+                  <form onSubmit={handleCreateEnv} className={styles.inlineForm}>
+                    <input
+                      type="text"
+                      placeholder="env-name"
+                      value={newEnvName}
+                      onChange={(e) => setNewEnvName(e.target.value)}
+                      autoFocus
+                    />
+                    <div className={styles.inlineActions}>
+                      <button type="submit" className={styles.inlineSubmit} title="Create">
+                        <Check size={13} />
+                      </button>
+                      <button
+                        type="button"
+                        className={styles.inlineCancel}
+                        onClick={() => setIsAddingEnv(false)}
+                        title="Cancel"
+                      >
+                        ×
+                      </button>
+                    </div>
+                  </form>
+                )}
+                {environments.length === 0 && !isAddingEnv ? (
+                  <div className={styles.emptyColumn}>
+                    <span>No environments found</span>
+                    <small className="muted">Click + to create one</small>
+                  </div>
+                ) : (
+                  environments.map((env, idx) => {
+                    const isSelected = env === selectedEnv
+                    return (
+                      <div
+                        key={env}
+                        className={`${styles.columnItem} ${isSelected ? styles.selected : ''}`}
+                        onClick={() => setSelectedEnv(env)}
+                        onDoubleClick={handleConnect}
+                        style={{ animationDelay: `${idx * 25}ms` }}
+                      >
+                        <div className={styles.itemMain}>
+                          <span className={styles.itemTitle}>{env}</span>
+                        </div>
+                      </div>
+                    )
+                  })
+                )}
+              </div>
+            )}
+          </div>
+        </div>
       </div>
+
+      {/* Footer / Connection Bar */}
+      <footer className={styles.footer}>
+        <div className={styles.breadcrumb}>
+          <span className={`${styles.breadcrumbItem} ${selectedServer ? styles.breadcrumbItemActive : ''}`}>
+            {selectedServer ? selectedServer.name : 'Select server'}
+          </span>
+          <span className={styles.breadcrumbSep}>›</span>
+          <span className={`${styles.breadcrumbItem} ${selectedProject ? styles.breadcrumbItemActive : ''}`}>
+            {selectedProject || 'Select project'}
+          </span>
+          <span className={styles.breadcrumbSep}>›</span>
+          <span className={`${styles.breadcrumbItem} ${selectedEnv ? styles.breadcrumbItemActive : ''}`}>
+            {selectedEnv || 'Select environment'}
+          </span>
+        </div>
+
+        <Button
+          type="button"
+          variant="primary"
+          disabled={!selectedServer || !selectedProject || !selectedEnv}
+          onClick={handleConnect}
+          className={styles.connectBtn}
+        >
+          <span>Open Workspace</span>
+          <ArrowRight size={15} />
+        </Button>
+      </footer>
+    </div>
+  )
+
+  return (
+    <>
+      {onClose ? (
+        <div className={styles.modalBackdrop} onMouseDown={onClose}>
+          {content}
+        </div>
+      ) : (
+        <div className={styles.gate}>
+          <div className={styles.glow} />
+          {content}
+        </div>
+      )}
 
       {/* Add Server Modal */}
       {isAddingServer && (
-        <div className={styles.modalOverlay} onClick={() => setIsAddingServer(false)}>
+        <div
+          className={styles.modalOverlay}
+          onClick={() => setIsAddingServer(false)}
+          onMouseDown={(e) => e.stopPropagation()}
+        >
           <div className={styles.modal} onClick={(e) => e.stopPropagation()}>
             <div className={styles.modalHeader}>
               <h2>Add Silo Server</h2>
@@ -619,7 +664,7 @@ export function ServerManager({
           </div>
         </div>
       )}
-    </div>
+    </>
   )
 }
 

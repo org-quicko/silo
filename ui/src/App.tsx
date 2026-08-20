@@ -105,9 +105,11 @@ export default function App() {
     <Workspace
       key={`${server.id}:${route.project}/${route.env}`}
       server={server}
+      servers={servers}
       route={route}
       onDisconnect={disconnect}
       onApiKeyChange={(apiKey) => patchServer({ apiKey })}
+      onAddServer={(s) => saveServers([...servers, s])}
     />
   )
 }

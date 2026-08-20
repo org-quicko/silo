@@ -20,7 +20,6 @@ export function ExportImportView({
   apiKey,
   claims,
   session,
-  onLock,
   collectionCount,
   onImported,
   onDestinationKeyChanged,
@@ -29,7 +28,6 @@ export function ExportImportView({
   apiKey: string
   claims: string[]
   session: string
-  onLock: () => void
   collectionCount: number
   onImported: () => void
   onDestinationKeyChanged: (key: string) => void
@@ -131,7 +129,7 @@ export function ExportImportView({
 
   return (
     <>
-      <TopBar crumbs={[{ label: 'Admin' }, { label: 'Data transfer' }]} session={session} onLock={onLock} />
+      <TopBar crumbs={[{ label: 'Admin' }, { label: 'Data transfer' }]} session={session} />
 
       <div className="content">
         <div className="page-head">

@@ -44,17 +44,6 @@
   gap: 12px;
 }
 
-.serverSwitch {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  padding: 0 8px;
-  border: 0;
-  background: none;
-  font-size: 13px;
-  cursor: pointer;
-}
-
 .session {
   display: flex;
   align-items: center;
@@ -74,19 +63,3 @@
   background: var(--ok);
 }
 
-.iconButton {
-  display: inline-flex;
-  width: 32px;
-  height: 32px;
-  align-items: center;
-  justify-content: center;
-  padding: 0;
-  border: 1px solid var(--line);
-  border-radius: var(--radius-sm);
-  background: transparent;
-  color: var(--text-2);
-  cursor: pointer;
-  transition: background 0.12s, color 0.12s;
-}
-
-.iconButton:hover { background: var(--panel-2); color: var(--text); }

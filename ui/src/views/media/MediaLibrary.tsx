@@ -18,13 +18,11 @@ export function MediaLibraryView({
   apiKey,
   session,
   claims,
-  onLock,
 }: {
   url: string
   apiKey: string
   session: string
   claims: string[]
-  onLock: () => void
 }) {
   const [mediaList, setMediaList] = useState<MediaMetadata[]>([])
   const [loading, setLoading] = useState(true)
@@ -108,7 +106,7 @@ export function MediaLibraryView({
 
   return (
     <>
-      <TopBar crumbs={[{ label: 'Library' }, { label: 'Media' }]} session={session} onLock={onLock}>
+      <TopBar crumbs={[{ label: 'Library' }, { label: 'Media' }]} session={session}>
         {canUpload && (
           <Button variant="primary" onClick={() => fileInputRef.current?.click()} disabled={uploading}>
             <Plus size={14} strokeWidth={2.4} /> Upload media

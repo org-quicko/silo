@@ -25,7 +25,6 @@ export function EnvGeneralPage({
   claims,
   session,
   onDeleted,
-  onLock,
 }: {
   server: Server
   scope: ScopeRef
@@ -33,7 +32,6 @@ export function EnvGeneralPage({
   claims: string[]
   session: string
   onDeleted: () => void
-  onLock: () => void
 }) {
   const [confirming, setConfirming] = useState(false)
   const [busy, setBusy] = useState(false)
@@ -68,7 +66,6 @@ export function EnvGeneralPage({
           { label: 'General' },
         ]}
         session={session}
-        onLock={onLock}
       >
         <Button
           variant="secondary"

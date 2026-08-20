@@ -22,7 +22,6 @@ export function ProjectGeneralPage({
   claims,
   session,
   onDeleted,
-  onLock,
 }: {
   server: Server
   project: string
@@ -30,7 +29,6 @@ export function ProjectGeneralPage({
   claims: string[]
   session: string
   onDeleted: () => void
-  onLock: () => void
 }) {
   const [confirming, setConfirming] = useState(false)
   const [busy, setBusy] = useState(false)
@@ -60,7 +58,6 @@ export function ProjectGeneralPage({
           { label: 'General' },
         ]}
         session={session}
-        onLock={onLock}
       />
 
       <div className="content">

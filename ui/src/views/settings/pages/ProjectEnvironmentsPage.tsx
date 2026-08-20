@@ -22,7 +22,6 @@ export function ProjectEnvironmentsPage({
   claims,
   session,
   onChanged,
-  onLock,
 }: {
   server: Server
   project: string
@@ -31,7 +30,6 @@ export function ProjectEnvironmentsPage({
   claims: string[]
   session: string
   onChanged: () => void
-  onLock: () => void
 }) {
   const [isAdding, setIsAdding] = useState(false)
   const [draft, setDraft] = useState('')
@@ -70,7 +68,6 @@ export function ProjectEnvironmentsPage({
           { label: 'Environments' },
         ]}
         session={session}
-        onLock={onLock}
       >
         {canCreate && !isAdding && (
           <Button variant="primary" onClick={() => setIsAdding(true)}>
