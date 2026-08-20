@@ -9,6 +9,9 @@ export class BlobStorageFactory {
 
     switch (driver) {
       case "fs": {
+        // The CLI hands over a path already resolved against the data dir
+        // (ConfigLoader.resolveDerivedDefaults); this fallback only covers
+        // direct construction.
         const basePath = cfg.path || "./silo_data/media";
         return new FsBlobStorage(basePath);
       }

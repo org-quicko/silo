@@ -123,6 +123,31 @@ A minimal, self-hostable headless CMS. Users define collections with JSON Schema
     asset it points at so a field shows a filename rather than an id, and
     searches the catalog server-side instead of filtering a local array.
 
+- **`--data` now moves the media directory with it (2026-08-21):**
+  `silo serve --data /tmp/foo` put SQLite at `/tmp/foo/silo.db` and uploads at
+  `./silo_data/media` — one instance split across two locations, silent until
+  somebody went looking for the files. `cli.ts` did guard the relocation on
+  `!cfg.blob_storage.path`, but `ConfigLoader.defaultConfig()` filled that path
+  in with `"./silo_data/media"`, so the guard could never fire.
+  - **The default is now absent rather than literal.** `defaultConfig()` leaves
+    the fs blob path unset, which is what tells "the user chose this" apart
+    from "nobody said" — the distinction the old code needed and did not have.
+    `ConfigLoader.resolveDerivedDefaults()` fills it in from `storage.path`
+    **after** every layer of §10's flags > env > file hierarchy has been
+    applied; a `[blob_storage] path`, `SILO_BLOB_PATH` or `--blob-path` is
+    truthy by then and is left alone. Order matters, so the derivation is its
+    own named step rather than a line inside `loadConfig` (which runs before
+    flags) — anything applied after it can no longer tell derived from chosen.
+  - **`--blob-path` is new**, so the flag layer can name the media directory
+    the way the file and env layers already could.
+  - Flag application moved out of `Cli.run` into `Cli.applyFlagOverrides`, a
+    pure config→config step that `server/test/config/config-loader.test.ts`
+    can drive without booting a server; the tests pin the reported case and
+    each explicit source that must survive it. Verified live: an upload to a
+    server started with `--data <dir>` lands in `<dir>/media` and creates no
+    `silo_data/` beside it, and `--blob-path` overrides both the env var and
+    the file.
+
 - **The first-boot root key gets a real banner (2026-08-20):**
   `BootstrapBanner` (`server/cli/bootstrap-banner.ts`) replaces the `=`-rule
   block `ServeCommand` printed inline. It draws the admin UI's barrel mark
@@ -925,7 +950,7 @@ A minimal, self-hostable headless CMS. Users define collections with JSON Schema
 - **Phase: Pluggable Blob Adapter Pattern & S3 Support Complete.**
   - Media/file storage is fully abstracted behind a pluggable `BlobStorage` interface (`server/core/ports/blob-storage.ts`).
   - **Blob Storage Adapters:**
-    - **Filesystem Adapter (`FsBlobStorage`):** Stores media files locally in a designated directory (`silo_data/media`). Default behavior.
+    - **Filesystem Adapter (`FsBlobStorage`):** Stores media files locally in a directory that follows the data dir (`<data>/media`) unless one is named explicitly. Default behavior.
     - **S3 Adapter (`S3BlobStorage`):** Uses `@aws-sdk/client-s3` to support AWS S3 and S3-compatible providers (MinIO, Cloudflare R2, DigitalOcean Spaces, etc.).
     - **Factory (`BlobStorageFactory`):** Configured via `[blob_storage]` in `silo.toml` or `SILO_BLOB_*` environment variables.
   - **Export/Import Media Portability:** `Exporter` and `Importer` use `BlobStorage` to seamlessly export and import media files across any backend.
@@ -975,7 +1000,7 @@ A minimal, self-hostable headless CMS. Users define collections with JSON Schema
 | `shared/` | Local `@silo/shared` package (a Bun workspace of the root) for runtime-neutral client/server rules. `src/claims/` is the single source of truth for claim constants, the `Claim`/`FixedClaim`/`CollectionClaim`/`CollectionPermission`/`ClaimPreset` types, `ParsedClaim`, validation, matching, delegation, and presets; `src/errors/` holds `ValidationError` and the `ValidationDetail` wire shape; `src/schema/` holds `SiloRef` (the `silo://collections/` `$ref` scheme), `SchemaAccess` (`x-silo-auth`), and `MediaField` (`x-silo-type: "media"`); `src/keys/` holds `KeyFormat` (secret prefix and display truncation); `src/media/` holds `MediaRef` (the `silo://media/<ulid>` scheme, its pre-D23 `/media/<key>` dual-read, and the canonical form the write path stores). Tests under `shared/test/`. Each artifact is its own file and its own `exports` subpath |
 | `server/main.ts` | Thin CLI entrypoint — imports `Cli` and runs it |
 | `server/cli/` | `cli.ts` (argv parsing, subcommand routing, dependency wiring), `bootstrap-banner.ts` (the first-boot root key announcement), and `commands/` (one command class per subcommand: `serve-command.ts`, `keys-command.ts`, `export-command.ts`, `import-command.ts`, `media-command.ts` — `silo media reconcile`, the catalog repair that runs against the data dir with no server, reporting what it adopted, pruned, finished and returned to active) |
-| `server/config/` | `Config` type and its sub-shapes (`storage-config.ts`, `blob-storage-config.ts`, `auth-config.ts`, `schema-config.ts`) plus `ConfigLoader` (`config-loader.ts`) |
+| `server/config/` | `Config` type and its sub-shapes (`storage-config.ts`, `blob-storage-config.ts`, `auth-config.ts`, `schema-config.ts`) plus `ConfigLoader` (`config-loader.ts`) — `loadConfig` walks file then env, and `resolveDerivedDefaults` fills in the paths derived from others (the fs blob dir) once flags have been applied |
 | `server/core/domain/` | `Entry`, `Meta`, `EntryUtils`, `Collection`, `Scope` |
 | `server/core/ports/` | `Storage` and `BlobStorage` port interfaces |
 | `server/core/query/` | Query AST (`Filter`, `SortKey`, `Query` + limits) and `QueryUtils` |
@@ -993,7 +1018,7 @@ A minimal, self-hostable headless CMS. Users define collections with JSON Schema
 | `server/http/middleware/` | `LoggingMiddleware`, `AuthMiddleware` |
 | `server/http/auth/` | `RouteAuth` — claim-checking helpers for route handlers |
 | `server/http/routes/` | `RouteManager` plus one routes class per resource (`projects-routes.ts`, `collections-routes.ts`, `entries-routes.ts` + `request-utils.ts`, `keys-routes.ts`, `media-routes.ts`, `transfer-routes.ts`, `copy-routes.ts` + `copy-request.ts` + `scope-copy-request.ts`, `session-routes.ts`). `CopyRoutes` serves both the whole-instance `/api/copy` and the scoped `/api/projects/:p/environments/:e/copy` |
-| `server/test/` | Test suites running via `bun test`: `conformance/` (storage conformance suite), `adapters/`, `core/`, `cli/` (bootstrap banner rendering), `http/` (claims enforcement/delegation, entries API, export/import, direct server copy, scope-to-scope copy, media catalog/folders/search/reference integrity, schema `$ref`, projects API tests). The conformance suite pins media usages on both adapters — the one D23 invariant they answer by completely different means |
+| `server/test/` | Test suites running via `bun test`: `conformance/` (storage conformance suite), `adapters/`, `core/`, `cli/` (bootstrap banner rendering), `config/` (config layering and the derived fs blob path), `http/` (claims enforcement/delegation, entries API, export/import, direct server copy, scope-to-scope copy, media catalog/folders/search/reference integrity, schema `$ref`, projects API tests). The conformance suite pins media usages on both adapters — the one D23 invariant they answer by completely different means |
 | `ui/` | React + TS + Vite SPA (Slate design), organized into feature dirs (`api/`, `schema/`, `components/`, `forms/`, `router/`, `utils/` with `Formatters`, `ThemeManager` & `ScopeMemory`, `views/*`) with colocated CSS Modules and a small global foundation under `styles/`. Every collection/entry call is scoped through `ApiClient.collectionsPath`; the active `(project, env)` is part of the URL, switched from the `/servers` gate in the workspace and from the settings nav's scope switchers. Shared protocol rules come from `@silo/shared`; `ui/dist` contains the compiled SPA served at the web root. `src/**/*.test.ts` are `bun test` suites in their own TS project (`tsconfig.test.json`) and run from the repo root alongside the server's |
 | `README.md` | User-facing docs: why/quick start, concepts, configuration, CLI, HTTP API, claims, portability, deployment, development, roadmap, contributing. Rewritten 2026-08-18; deliberately links neither this file nor IMPLEMENTATION.md |
 | `ui/README.md` | Admin UI docs: dev workflow, the server-connection model, URL grammar, RJSF theme notes, styling conventions, and the `@silo/shared` per-file-symlink caveat. Rewritten 2026-08-18 (was the stock Vite template) |

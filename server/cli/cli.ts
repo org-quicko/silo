@@ -3,6 +3,7 @@ import { parseArgs } from "util";
 import { BlobStorageFactory } from "../adapters/blob/blob-storage-factory";
 import { FsStore } from "../adapters/storage/fs/fs-store";
 import { SqliteStore } from "../adapters/storage/sqlite/sqlite-store";
+import type { Config } from "../config/config";
 import { ConfigLoader } from "../config/config-loader";
 import { Service } from "../core/service/service";
 import { ExportCommand } from "./commands/export-command";
@@ -30,9 +31,10 @@ Usage:
   silo help
 
 Common flags:
-  --config path   TOML config file (default: silo.toml if present)
-  --data dir      data directory (default ./silo_data)
-  --driver name   storage driver: sqlite | fs (default sqlite)
+  --config path     TOML config file (default: silo.toml if present)
+  --data dir        data directory (default ./silo_data)
+  --driver name     storage driver: sqlite | fs (default sqlite)
+  --blob-path dir   media directory for the fs blob driver (default <data>/media)
 
 serve:
   --listen addr   listen address (default :8090)
@@ -69,12 +71,43 @@ Subcommands operate directly on the data dir — no running server needed.
 `);
   }
 
+  /**
+   * Applies flag overrides on top of a loaded config — the top layer of
+   * flags > env > file > defaults.
+   *
+   * Paths derived from other settings are deliberately not filled in here;
+   * `--data` moves the data dir and `ConfigLoader.resolveDerivedDefaults` works
+   * out what still hangs off it afterwards.
+   */
+  static applyFlagOverrides(cfg: Config, values: Record<string, unknown>): Config {
+    if (typeof values.data === "string") {
+      cfg.storage.path = values.data;
+    }
+    if (typeof values["blob-path"] === "string") {
+      cfg.blob_storage.path = values["blob-path"];
+    }
+    if (typeof values.driver === "string") {
+      cfg.storage.driver = values.driver;
+    }
+    if (typeof values.listen === "string") {
+      cfg.listen = values.listen;
+    }
+    if (typeof values.project === "string") {
+      cfg.default_project = values.project;
+    }
+    if (typeof values.env === "string") {
+      cfg.default_env = values.env;
+    }
+    return cfg;
+  }
+
   static async run(): Promise<void> {
     const { values, positionals } = parseArgs({
       args: process.argv.slice(2),
       options: {
         config: { type: "string", default: "silo.toml" },
         data: { type: "string" },
+        "blob-path": { type: "string" },
         driver: { type: "string" },
         listen: { type: "string" },
         project: { type: "string" },
@@ -116,27 +149,8 @@ Subcommands operate directly on the data dir — no running server needed.
     }
 
     const configPath = typeof values.config === "string" ? values.config : undefined;
-    const cfg = await ConfigLoader.loadConfig(configPath, explicitConfig);
-
-    // Apply CLI flag overrides to config
-    if (typeof values.data === "string") {
-      cfg.storage.path = values.data;
-      if (cfg.blob_storage.driver === "fs" && !cfg.blob_storage.path) {
-        cfg.blob_storage.path = path.join(values.data, "media");
-      }
-    }
-    if (typeof values.driver === "string") {
-      cfg.storage.driver = values.driver;
-    }
-    if (typeof values.listen === "string") {
-      cfg.listen = values.listen;
-    }
-    if (typeof values.project === "string") {
-      cfg.default_project = values.project;
-    }
-    if (typeof values.env === "string") {
-      cfg.default_env = values.env;
-    }
+    const loaded = await ConfigLoader.loadConfig(configPath, explicitConfig);
+    const cfg = ConfigLoader.resolveDerivedDefaults(Cli.applyFlagOverrides(loaded, values));
 
     // Initialize service
     let store: any;

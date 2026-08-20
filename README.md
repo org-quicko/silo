@@ -175,7 +175,7 @@ path   = "./silo_data"  # data dir; the sqlite file lives at <path>/silo.db
 
 [blob_storage]
 driver = "fs"                 # "fs" | "s3"
-path   = "./silo_data/media"  # used by the fs driver
+path   = "./silo_data/media"  # used by the fs driver; defaults to <data dir>/media
 # bucket           = "my-silo-media"   # required by the s3 driver
 # region           = "ap-south-1"
 # endpoint         = "https://..."     # for S3-compatible providers
@@ -201,6 +201,11 @@ allow_remote_refs = false  # opt in to fetching http(s) $refs during validation
 | `SILO_BLOB_S3_FORCE_PATH_STYLE` | `[blob_storage]` |
 | `SILO_AUTH_DISABLED` | `[auth] disabled` |
 | `SILO_SCHEMA_ALLOW_REMOTE_REFS` | `[schema] allow_remote_refs` |
+
+Media follows the data directory: with the `fs` blob driver, `--data <dir>`
+stores uploads in `<dir>/media`, so one instance stays in one place. Naming the
+directory yourself — `[blob_storage] path`, `SILO_BLOB_PATH` or `--blob-path` —
+takes precedence and `--data` leaves it alone.
 
 Invalid default project or environment ids fail at startup rather than creating
 a scope that no route can address.
@@ -242,6 +247,7 @@ bun run server/main.ts version                       print the version
 |-------|-----------|---------|
 | `--config <path>` | all | TOML config file (default `silo.toml` if present) |
 | `--data <dir>` | all | data directory (default `./silo_data`) |
+| `--blob-path <dir>` | all | media directory for the fs blob driver (default `<data dir>/media`) |
 | `--driver <sqlite\|fs>` | all | storage driver |
 | `--listen <addr>` | `serve` | listen address (default `:8090`) |
 | `--project <id>`, `--env <id>` | `serve` | defaults created on startup (`default`, `prod`) |
