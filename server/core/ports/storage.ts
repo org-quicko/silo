@@ -2,6 +2,7 @@ import type { Entry } from "../domain/entry";
 import type { Meta } from "../domain/meta";
 import type { Scope } from "../domain/scope";
 import type { Query } from "../query/query";
+import type { MediaUsage } from "../media/media-usage";
 
 export interface Storage {
   // Projects and Environments (D20).
@@ -49,8 +50,23 @@ export interface Storage {
   // silently from what SQLite would store as an inert string. Violations
   // raise `ValidationError`. Ids are intentionally not narrowed to ULID
   // shape — imported historical entries may carry arbitrary ids.
-  put(e: Entry): Promise<void>;
+  //
+  // `usages` is the entry's **complete** set of media reference tokens (D23),
+  // produced by `MediaRefs.extract` and replacing whatever the entry
+  // referenced before, in the same operation as the write itself. SQLite
+  // writes it inside `put`'s existing seq transaction, so an entry and its
+  // references land together or not at all; the fs adapter ignores it and
+  // derives usages by scanning, which is why the extractor is shared rather
+  // than reimplemented per adapter. Adapters never parse reference strings
+  // themselves.
+  //
+  // It is required rather than optional on purpose. An omitted set has no safe
+  // reading — treating it as "no references" silently orphans a live file,
+  // treating it as "leave them alone" silently rots the index — so a caller
+  // who forgets gets a type error instead of a bug.
+  put(e: Entry, usages: string[]): Promise<void>;
   get(scope: Scope, collection: string, id: string): Promise<Entry>;
+  // Drops the entry's usages as part of the same operation.
   delete(scope: Scope, collection: string, id: string): Promise<void>;
   list(scope: Scope, collection: string, q: Query): Promise<{ items: Entry[]; total: number }>;
 
@@ -65,6 +81,25 @@ export interface Storage {
   // the scope they live in can never be emptied — `listScopes()` keeps
   // reporting it while a schema-driven delete finds nothing to erase.
   listEntryCollections(scope: Scope): Promise<string[]>;
+
+  // Media usages (D23). Derived state the adapter owns and keeps consistent
+  // with entries by whatever means suits it: SQLite maintains a
+  // `media_references` table inside the same transactions that write and
+  // delete entries; the fs adapter keeps no index at all and scans entry
+  // files, which is the O(n)-per-query character §6.3 already commits it to
+  // and — unlike an in-memory index — has no window in which an rsync or a
+  // `git checkout` under a running process can make the answer stale.
+  //
+  // Both take a list of tokens because the delete guard asks about an asset's
+  // catalog id and its pre-D23 `blob:<key>` form at once. `list` mirrors
+  // `Storage.list`'s `{items, total}` so a 409 gets its count and its
+  // enumerable page from one call; `count` exists so a library page can show
+  // usage for many assets without one query each.
+  listMediaUsages(
+    mediaIds: string[],
+    opts?: { limit?: number; offset?: number }
+  ): Promise<{ items: MediaUsage[]; total: number }>;
+  countMediaUsages(mediaIds: string[]): Promise<Map<string, number>>;
 
   // Instance metadata (instance_id, last_seq). seq stays instance-global and
   // monotonic across every scope.

@@ -117,6 +117,27 @@ export class RouteAuth {
     return key;
   }
 
+  /**
+   * Whether this request may read entries of one collection — a predicate,
+   * not an assertion, because the caller is deciding what to *show* rather
+   * than whether to proceed.
+   *
+   * Media is instance-global but the entries referencing it are scoped, so a
+   * refused media delete has to report how widely a file is used without
+   * naming scopes the key cannot see (§8.1). Anonymous callers get nothing
+   * enumerated: a public collection is readable entry by entry, but a media
+   * usage listing is a cross-scope index of where things live, which is more
+   * than any one public read discloses.
+   */
+  static canReadEntries(c: Context, project: string, env: string, collection: string): boolean {
+    const key = c.get("keyInfo") as KeyInfo | undefined;
+    if (!key) return false;
+    return Claims.has(
+      key.claims,
+      Claims.collection(project, env, collection, Claims.CollectionEntriesRead),
+    );
+  }
+
   static getExpectedRev(c: Context): number {
     let value = (c.req.header("If-Match") || "").trim().replace(/"/g, "");
     if (!value) value = c.req.query("rev") || "";

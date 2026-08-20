@@ -7,6 +7,7 @@ import type { Entry } from "../../../core/domain/entry";
 import type { Meta } from "../../../core/domain/meta";
 import { Scope } from "../../../core/domain/scope";
 import type { Query } from "../../../core/query/query";
+import type { MediaUsage } from "../../../core/media/media-usage";
 import { NotFoundError } from "../../../core/errors/not-found-error";
 import { FormatVersion } from "../../../core/transfer/format-version";
 import { SqliteCompiler } from "./sqlite-compiler";
@@ -49,6 +50,15 @@ CREATE TABLE IF NOT EXISTS entries (
   PRIMARY KEY (project, env, collection, id)
 );
 CREATE INDEX IF NOT EXISTS idx_entries_seq ON entries(seq);
+CREATE TABLE IF NOT EXISTS media_references (
+  media_id   TEXT NOT NULL,
+  project    TEXT NOT NULL,
+  env        TEXT NOT NULL,
+  collection TEXT NOT NULL,
+  entry_id   TEXT NOT NULL,
+  PRIMARY KEY (media_id, project, env, collection, entry_id)
+);
+CREATE INDEX IF NOT EXISTS idx_media_refs_entry ON media_references(project, env, collection, entry_id);
 CREATE INDEX IF NOT EXISTS idx_environments_project ON environments(project);
 `;
 
@@ -173,6 +183,12 @@ export class SqliteStore implements Storage {
     EntryUtils.assertSafeSegment(project, "project");
     const tx = this.db.transaction(() => {
       this.db.prepare(`DELETE FROM entries WHERE project = ?`).run(project);
+      // In the same transaction as the bulk entry delete. A layer above the
+      // port could intercept this call but could not be atomic with it, which
+      // is the reason usages live on `Storage` (D23) — otherwise the entries
+      // would vanish while their references survived, and a media file would
+      // stay blocked by referrers that no longer exist.
+      this.db.prepare(`DELETE FROM media_references WHERE project = ?`).run(project);
       this.db.prepare(`DELETE FROM schemas WHERE project = ?`).run(project);
       this.db.prepare(`DELETE FROM environments WHERE project = ?`).run(project);
       this.db.prepare(`DELETE FROM projects WHERE id = ?`).run(project);
@@ -214,6 +230,7 @@ export class SqliteStore implements Storage {
     EntryUtils.assertSafeSegment(env, "env");
     const tx = this.db.transaction(() => {
       this.db.prepare(`DELETE FROM entries WHERE project = ? AND env = ?`).run(project, env);
+      this.db.prepare(`DELETE FROM media_references WHERE project = ? AND env = ?`).run(project, env);
       this.db.prepare(`DELETE FROM schemas WHERE project = ? AND env = ?`).run(project, env);
       this.db.prepare(`DELETE FROM environments WHERE project = ? AND id = ?`).run(project, env);
     });
@@ -266,7 +283,7 @@ export class SqliteStore implements Storage {
   // storage.ts), so an import archive can't plant a malformed id that
   // behaves differently depending on which adapter is running.
 
-  async put(e: Entry): Promise<void> {
+  async put(e: Entry, usages: string[]): Promise<void> {
     EntryUtils.assertSafeSegment(e.project, "project");
     EntryUtils.assertSafeSegment(e.env, "env");
     EntryUtils.assertSafeSegment(e.collection, "collection");
@@ -303,6 +320,25 @@ export class SqliteStore implements Storage {
         typeof e.updated_at === "string" ? e.updated_at : e.updated_at.toISOString(),
         JSON.stringify(e.data)
       );
+
+      // Inside the same transaction as the entry write, which is the whole
+      // point of putting usages on the port rather than maintaining them in a
+      // layer above it (D23): an entry and its references land together or
+      // not at all, so no crash can leave a media file deletable while an
+      // entry still names it.
+      this.db.prepare(`
+        DELETE FROM media_references WHERE project = ? AND env = ? AND collection = ? AND entry_id = ?
+      `).run(e.project, e.env, e.collection, e.id);
+
+      if (usages.length > 0) {
+        const insert = this.db.prepare(`
+          INSERT OR IGNORE INTO media_references (media_id, project, env, collection, entry_id)
+          VALUES (?, ?, ?, ?, ?)
+        `);
+        for (const mediaId of usages) {
+          insert.run(mediaId, e.project, e.env, e.collection, e.id);
+        }
+      }
     });
 
     tx();
@@ -329,10 +365,21 @@ export class SqliteStore implements Storage {
     EntryUtils.assertSafeSegment(collection, "collection");
     EntryUtils.assertSafeSegment(id, "id");
 
-    const res = this.db.prepare(
-      `DELETE FROM entries WHERE project = ? AND env = ? AND collection = ? AND id = ?`
-    ).run(scope.project, scope.env, collection, id);
-    if (res.changes === 0) {
+    let changes = 0;
+    const tx = this.db.transaction(() => {
+      const res = this.db.prepare(
+        `DELETE FROM entries WHERE project = ? AND env = ? AND collection = ? AND id = ?`
+      ).run(scope.project, scope.env, collection, id);
+      changes = res.changes;
+      if (changes > 0) {
+        this.db.prepare(`
+          DELETE FROM media_references WHERE project = ? AND env = ? AND collection = ? AND entry_id = ?
+        `).run(scope.project, scope.env, collection, id);
+      }
+    });
+    tx();
+
+    if (changes === 0) {
       throw new NotFoundError(`entry ${scope.key()}/${collection}/${id} not found`);
     }
   }
@@ -410,6 +457,52 @@ export class SqliteStore implements Storage {
       ORDER BY collection
     `).all(scope.project, scope.env) as { collection: string }[];
     return rows.map((r) => r.collection);
+  }
+
+  // ---- Media usages (D23) ----
+  // Answered from `media_references`, which `put`/`delete`/`deleteProject`/
+  // `deleteEnvironment` maintain inside their own transactions. Media ids
+  // reach SQL as bound parameters like every other value.
+
+  async listMediaUsages(
+    mediaIds: string[],
+    opts: { limit?: number; offset?: number } = {}
+  ): Promise<{ items: MediaUsage[]; total: number }> {
+    if (mediaIds.length === 0) return { items: [], total: 0 };
+
+    const placeholders = mediaIds.map(() => "?").join(", ");
+    const totalRow = this.db.prepare(`
+      SELECT COUNT(*) as n FROM media_references WHERE media_id IN (${placeholders})
+    `).get(...mediaIds) as { n: number };
+
+    const limit = opts.limit === undefined ? 50 : Math.max(0, opts.limit);
+    const offset = Math.max(0, opts.offset || 0);
+    const rows = this.db.prepare(`
+      SELECT media_id, project, env, collection, entry_id
+      FROM media_references
+      WHERE media_id IN (${placeholders})
+      ORDER BY project, env, collection, entry_id
+      LIMIT ? OFFSET ?
+    `).all(...mediaIds, limit, offset) as MediaUsage[];
+
+    return { items: rows, total: Number(totalRow.n) };
+  }
+
+  async countMediaUsages(mediaIds: string[]): Promise<Map<string, number>> {
+    const out = new Map<string, number>();
+    if (mediaIds.length === 0) return out;
+
+    const placeholders = mediaIds.map(() => "?").join(", ");
+    const rows = this.db.prepare(`
+      SELECT media_id, COUNT(*) as n FROM media_references
+      WHERE media_id IN (${placeholders})
+      GROUP BY media_id
+    `).all(...mediaIds) as { media_id: string; n: number }[];
+
+    for (const row of rows) {
+      out.set(row.media_id, Number(row.n));
+    }
+    return out;
   }
 
   async meta(): Promise<Meta> {

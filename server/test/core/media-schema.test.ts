@@ -7,9 +7,11 @@ import { SqliteStore } from "../../adapters/storage/sqlite/sqlite-store";
 import { Service } from "../../core/service/service";
 import { Scope } from "../../core/domain/scope";
 import { MediaResolver } from "../../core/media/media-resolver";
+import { MediaRefs } from "../../core/media/media-refs";
+import { MediaRef } from "@silo/shared/media-ref";
 import { SiloServer } from "../../http/server";
 
-describe("Schema Media Field & Fully Qualified URL API Responses", () => {
+describe("Media references in entry data (D23)", () => {
   let tempDir: string;
   let store: SqliteStore;
   let svc: Service;
@@ -27,25 +29,49 @@ describe("Schema Media Field & Fully Qualified URL API Responses", () => {
     await fs.rm(tempDir, { recursive: true, force: true }).catch(() => {});
   });
 
-  test("MediaResolver unit helper methods", () => {
-    const mediaProp = { type: "string", "x-silo-type": "media" };
-    const stringProp = { type: "string" };
-
-    expect(MediaResolver.isMediaField(mediaProp)).toBe(true);
-    expect(MediaResolver.isMediaField(stringProp)).toBe(false);
+  test("MediaResolver resolves catalog ids, legacy paths, and foreign URLs", () => {
+    expect(MediaResolver.isMediaField({ type: "string", "x-silo-type": "media" })).toBe(true);
+    expect(MediaResolver.isMediaField({ type: "string" })).toBe(false);
 
     const baseUrl = "http://localhost:8090";
-    expect(MediaResolver.toAbsoluteUrl("/media/hash_file.png", baseUrl)).toBe("http://localhost:8090/media/hash_file.png");
-    expect(MediaResolver.toAbsoluteUrl("hash_file.png", baseUrl)).toBe("http://localhost:8090/media/hash_file.png");
-    expect(MediaResolver.toAbsoluteUrl("http://cdn.com/media/hash_file.png", baseUrl)).toBe("http://cdn.com/media/hash_file.png");
+    const id = "01J8XQ4Z8K9M2P3R5T7V9X1B3D";
 
-    expect(MediaResolver.toRelativePath("http://localhost:8090/media/hash_file.png")).toBe("/media/hash_file.png");
-    expect(MediaResolver.toRelativePath("/media/hash_file.png")).toBe("/media/hash_file.png");
-    expect(MediaResolver.toRelativePath("hash_file.png")).toBe("/media/hash_file.png");
+    // The canonical form since D23: addressed by catalog id, so the URL
+    // survives a rename or a move.
+    expect(MediaResolver.toAbsoluteUrl(MediaRef.url(id), baseUrl)).toBe(`${baseUrl}/media/${id}`);
+    // Pre-D23 entries still resolve while an instance is being backfilled.
+    expect(MediaResolver.toAbsoluteUrl("/media/hash_file.png", baseUrl)).toBe(
+      `${baseUrl}/media/hash_file.png`
+    );
+    // A foreign URL is somebody else's asset and is left alone.
+    expect(MediaResolver.toAbsoluteUrl("http://cdn.com/media/hash_file.png", baseUrl)).toBe(
+      "http://cdn.com/media/hash_file.png"
+    );
+    // A bare string is no longer guessed at as a media key.
+    expect(MediaResolver.toAbsoluteUrl("hash_file.png", baseUrl)).toBe("hash_file.png");
   });
 
-  test("Schema with flat, nested, and array media fields transforms API responses", async () => {
-    const postSchema = {
+  test("extraction is structural — it finds references the schema never mentions", () => {
+    const id = "01J8XQ4Z8K9M2P3R5T7V9X1B3D";
+    const other = "01J8XQ50P1R2S3T4U5V6W7X8Y9";
+
+    expect(
+      MediaRefs.extract({
+        cover: MediaRef.url(id),
+        nested: { deep: [{ picked: MediaRef.url(other) }] },
+        legacy: "/media/aabb_old.png",
+        prose: "no reference here",
+        count: 3,
+      })
+    ).toEqual([id, other, MediaRef.blobToken("aabb_old.png")].sort());
+
+    // Same reference twice is one usage.
+    expect(MediaRefs.extract({ a: MediaRef.url(id), b: MediaRef.url(id) })).toEqual([id]);
+    expect(MediaRefs.extract(null)).toEqual([]);
+  });
+
+  test("API responses resolve media fields against the requesting host", async () => {
+    await svc.putSchema(Scope.Default, "posts", {
       $schema: "https://json-schema.org/draft/2020-12/schema",
       type: "object",
       properties: {
@@ -58,59 +84,60 @@ describe("Schema Media Field & Fully Qualified URL API Responses", () => {
             avatar: { type: "string", "x-silo-type": "media" },
           },
         },
-        gallery: {
-          type: "array",
-          items: { type: "string", "x-silo-type": "media" },
-        },
+        gallery: { type: "array", items: { type: "string", "x-silo-type": "media" } },
       },
-    };
-
-    // 1. Put collection schema
-    await svc.putSchema(Scope.Default, "posts", postSchema);
-
-    // 2. Create entry via HTTP API sending relative or full URLs
-    const postRes = await app.request("http://localhost:8090/api/projects/default/environments/prod/collections/posts", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        title: "First Post",
-        cover_image: "http://localhost:8090/media/111_cover.png",
-        author: {
-          name: "Alice",
-          avatar: "/media/222_avatar.png",
-        },
-        gallery: ["/media/333_pic1.png", "444_pic2.png"],
-      }),
     });
 
+    // Legacy path form: entries written before D23 keep working, and are not
+    // checked against the catalog (there is nothing to check them against).
+    const postRes = await app.request(
+      "http://localhost:8090/api/projects/default/environments/prod/collections/posts",
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          title: "First Post",
+          cover_image: "/media/111_cover.png",
+          author: { name: "Alice", avatar: "/media/222_avatar.png" },
+          gallery: ["/media/333_pic1.png"],
+        }),
+      }
+    );
     expect(postRes.status).toBe(201);
-    const createdData = await postRes.json() as any;
+    const created = (await postRes.json()) as any;
 
-    // Check that API response returns fully qualified URLs as flat strings
-    expect(createdData.cover_image).toBe("http://localhost:8090/media/111_cover.png");
-    expect(createdData.author.avatar).toBe("http://localhost:8090/media/222_avatar.png");
-    expect(createdData.gallery).toEqual([
-      "http://localhost:8090/media/333_pic1.png",
-      "http://localhost:8090/media/444_pic2.png",
-    ]);
+    expect(created.cover_image).toBe("http://localhost:8090/media/111_cover.png");
+    expect(created.author.avatar).toBe("http://localhost:8090/media/222_avatar.png");
+    expect(created.gallery).toEqual(["http://localhost:8090/media/333_pic1.png"]);
 
-    // 3. Verify on-disk / raw database stored data remains relative for portability
-    const entryInStore = await svc.getEntry(Scope.Default, "posts", createdData.id);
-    expect(entryInStore.data.cover_image).toBe("/media/111_cover.png");
-    expect(entryInStore.data.author.avatar).toBe("/media/222_avatar.png");
-    expect(entryInStore.data.gallery).toEqual(["/media/333_pic1.png", "/media/444_pic2.png"]);
+    // Stored exactly as sent — the write path no longer rewrites values.
+    const stored = await svc.getEntry(Scope.Default, "posts", created.id);
+    expect(stored.data.cover_image).toBe("/media/111_cover.png");
 
-    // 4. Fetch entry via GET API and verify fully qualified URLs
-    const getRes = await app.request(`http://my-domain.com:9000/api/projects/default/environments/prod/collections/posts/${createdData.id}`);
-    expect(getRes.status).toBe(200);
-    const fetchedData = await getRes.json() as any;
+    // A different host resolves against that host.
+    const getRes = await app.request(
+      `http://my-domain.com:9000/api/projects/default/environments/prod/collections/posts/${created.id}`
+    );
+    const fetched = (await getRes.json()) as any;
+    expect(fetched.cover_image).toBe("http://my-domain.com:9000/media/111_cover.png");
+    expect(fetched.gallery).toEqual(["http://my-domain.com:9000/media/333_pic1.png"]);
+  });
 
-    // Requesting on a different domain should reflect that domain's base URL!
-    expect(fetchedData.cover_image).toBe("http://my-domain.com:9000/media/111_cover.png");
-    expect(fetchedData.author.avatar).toBe("http://my-domain.com:9000/media/222_avatar.png");
-    expect(fetchedData.gallery).toEqual([
-      "http://my-domain.com:9000/media/333_pic1.png",
-      "http://my-domain.com:9000/media/444_pic2.png",
-    ]);
+  test("an entry cannot reference a catalog id that does not exist", async () => {
+    await svc.putSchema(Scope.Default, "posts", {
+      type: "object",
+      properties: { cover: { type: "string", "x-silo-type": "media" } },
+    });
+
+    const res = await app.request(
+      "http://localhost:8090/api/projects/default/environments/prod/collections/posts",
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ cover: MediaRef.url("01J8XQ4Z8K9M2P3R5T7V9X1B3D") }),
+      }
+    );
+    expect(res.status).toBe(400);
+    expect(JSON.stringify(await res.json())).toContain("does not exist");
   });
 });

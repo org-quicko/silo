@@ -31,6 +31,13 @@ const instanceWideReplace = [
   Claims.collection("*", "*", "*", Claims.CollectionDelete),
   Claims.collection("*", "*", "*", Claims.CollectionEntriesDelete),
 ];
+// D24: an archive carries the media library and its catalog, so transfer also
+// asks for the media permission it exercises — read to export, create to
+// import, and delete on top of that in `replace`, which clears every blob in
+// the instance before loading.
+const transferMediaRead = [Claims.MediaRead];
+const transferMediaWrite = [Claims.MediaCreate];
+const transferMediaReplace = [Claims.MediaDelete];
 
 describe("claims API authorization", () => {
   let tempDir: string;
@@ -124,7 +131,7 @@ describe("claims API authorization", () => {
       created_at: now,
       updated_at: now,
       data: { label: "obsolete", role: "admin", hash: "unused", prefix: "silo_old…" },
-    });
+    }, []);
 
     const response = await app.request("/api/keys", {
       headers: { Authorization: `Bearer ${rootKey}` },
@@ -148,7 +155,7 @@ describe("claims API authorization", () => {
       created_at: now,
       updated_at: now,
       data: { label: "obsolete", role: "admin", hash: "unused", prefix: "silo_old…" },
-    });
+    }, []);
 
     const secret = await service.bootstrap();
     expect(secret.startsWith("silo_")).toBe(true);
@@ -171,6 +178,7 @@ describe("claims API authorization", () => {
     const { secret } = await service.createKey("exporter", [
       Claims.TransferExport,
       ...instanceWideRead,
+      ...transferMediaRead,
     ]);
     const headers = { Authorization: `Bearer ${secret}` };
     expect((await app.request("/api/export", { headers })).status).toBe(200);
@@ -184,11 +192,13 @@ describe("claims API authorization", () => {
     const { secret: dataOnly } = await service.createKey("data importer", [
       Claims.TransferImport,
       ...instanceWideWrite,
+      ...transferMediaWrite,
     ]);
     const { secret: withKeys } = await service.createKey("key importer", [
       Claims.TransferImport,
       Claims.KeysImport,
       ...instanceWideWrite,
+      ...transferMediaWrite,
     ]);
     const request = (secret: string) =>
       app.request("/api/import?dry_run=true", {
@@ -292,6 +302,7 @@ describe("claims API authorization", () => {
     const { secret: wide } = await service.createKey("instance exporter", [
       Claims.TransferExport,
       ...instanceWideRead,
+      ...transferMediaRead,
     ]);
     expect(
       (await app.request("/api/export", { headers: { Authorization: `Bearer ${wide}` } })).status,
@@ -344,6 +355,7 @@ describe("claims API authorization", () => {
     const { secret: full } = await service.createKey("importer", [
       Claims.TransferImport,
       ...instanceWideWrite,
+      ...transferMediaWrite,
     ]);
     expect(
       (await app.request("/api/import?dry_run=true", {
@@ -369,6 +381,7 @@ describe("claims API authorization", () => {
     const { secret: mergeOnly } = await service.createKey("merge importer", [
       Claims.TransferImport,
       ...instanceWideWrite,
+      ...transferMediaWrite,
     ]);
     expect((await request(mergeOnly, "merge")).status).toBe(200);
     const denied = await request(mergeOnly, "replace");
@@ -380,12 +393,59 @@ describe("claims API authorization", () => {
     const { secret: replacer } = await service.createKey("replace importer", [
       Claims.TransferImport,
       ...instanceWideWrite,
+      ...transferMediaWrite,
       ...instanceWideReplace,
+      ...transferMediaReplace,
     ]);
     expect((await request(replacer, "replace")).status).toBe(200);
 
     // An unrecognised mode is not `replace`, so it clears the write guard and
     // is then rejected on its own terms rather than silently treated as one.
     expect((await request(mergeOnly, "REPLACE")).status).toBe(400);
+  });
+
+  test("transfer claims do not confer media authority (D24)", async () => {
+    // D21 gated the mechanism on holding, at instance scope, the collection
+    // permissions the operation exercises — and deferred media. It is the one
+    // surface where `transfer:import` alone could still write, and in
+    // `replace` wipe, every blob in the instance. These assertions are the
+    // closing of that hole: each key holds everything the operation needs
+    // except the media claim it exercises.
+    const { secret: exportNoMedia } = await service.createKey("export sans media", [
+      Claims.TransferExport,
+      ...instanceWideRead,
+    ]);
+    expect(
+      (await app.request("/api/export", { headers: { Authorization: `Bearer ${exportNoMedia}` } }))
+        .status,
+    ).toBe(403);
+
+    const archivePath = path.join(tempDir, "d24.tar.gz");
+    await service.exportTarGz(archivePath, { withKeys: false });
+    const archive = await fs.readFile(archivePath);
+    const post = (secret: string, query = "") =>
+      app.request(`/api/import${query}`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${secret}`, "Content-Type": "application/gzip" },
+        body: archive,
+      });
+
+    const { secret: importNoMedia } = await service.createKey("import sans media", [
+      Claims.TransferImport,
+      ...instanceWideWrite,
+    ]);
+    expect((await post(importNoMedia, "?dry_run=true")).status).toBe(403);
+
+    // Holds media:create, so merge is allowed — but `replace` clears every
+    // blob, and that needs media:delete on top, split by mode exactly as D21
+    // splits its own list.
+    const { secret: mergeOnly } = await service.createKey("merge sans media delete", [
+      Claims.TransferImport,
+      ...instanceWideWrite,
+      ...instanceWideReplace,
+      ...transferMediaWrite,
+    ]);
+    expect((await post(mergeOnly, "?mode=merge&dry_run=true")).status).toBe(200);
+    expect((await post(mergeOnly, "?mode=replace&dry_run=true")).status).toBe(403);
   });
 });

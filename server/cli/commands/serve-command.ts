@@ -20,6 +20,25 @@ export class ServeCommand {
       );
     }
 
+    // Finishes any media deletion the process died partway through: the
+    // catalog and a remote object store cannot share a transaction, so the
+    // saga's last two steps are retried here rather than left staged
+    // indefinitely (D23).
+    const resumed = await svc.resumePendingMediaDeletions();
+    if (resumed.finished > 0) {
+      console.log(
+        `finished ${resumed.finished} pending media deletion${resumed.finished === 1 ? "" : "s"}`
+      );
+    }
+    if (resumed.pending > 0) {
+      // Non-fatal by design, but not silent: an asset stuck in `deleting`
+      // refuses new references until something clears it, and
+      // `silo media reconcile` is what returns it to active.
+      console.log(
+        `WARNING: ${resumed.pending} media deletion${resumed.pending === 1 ? "" : "s"} could not be completed — the blob store rejected the delete. Run "silo media reconcile" to retry, or to return the asset to active if the delete keeps failing.`
+      );
+    }
+
     const meta = await svc.meta();
     const app = new SiloServer(svc, version, cfg.auth.disabled).build();
 

@@ -204,7 +204,7 @@ describe("Projects API", () => {
       created_at: new Date(),
       updated_at: new Date(),
       data: { a: 1 },
-    });
+    }, []);
     expect((await store.listScopes()).map((s) => s.key())).toContain("orph/env");
 
     const rootHeaders = { Authorization: `Bearer ${rootKey}` };
@@ -294,7 +294,7 @@ describe("Projects API", () => {
       updated_at: new Date(),
       data: { title: "no schema here" },
     };
-    await store.put(orphan);
+    await store.put(orphan, []);
 
     const archive = path.join(tempDir, "orphan-export");
     await Exporter.exportDir(store, archive, {});

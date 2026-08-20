@@ -8,6 +8,7 @@ import { AuthMiddleware } from "./middleware/auth-middleware";
 import { ValidationError } from "@silo/shared/validation-error";
 import { NotFoundError } from "../core/errors/not-found-error";
 import { ConflictError } from "../core/errors/conflict-error";
+import { MediaDeleteStalledError } from "../core/errors/media-delete-stalled-error";
 import { UnauthorizedError } from "../core/errors/unauthorized-error";
 import { ForbiddenError } from "../core/errors/forbidden-error";
 
@@ -63,6 +64,27 @@ export class SiloServer {
         return c.json(
           { error: { code: "not_found", message: err.message } },
           404
+        );
+      }
+      // Before ConflictError only because it is not one: a staged deletion is
+      // a storage failure the caller can act on, not a refusal, and it needs
+      // its own code so a client can tell the two media-delete outcomes apart.
+      if (err instanceof MediaDeleteStalledError) {
+        console.error("media delete stalled:", err.reason);
+        return c.json(
+          {
+            error: {
+              code: "media_delete_stalled",
+              message: err.message,
+              details: {
+                media_id: err.mediaId,
+                blob_key: err.blobKey,
+                reason: err.reason,
+                remedy: "silo media reconcile",
+              },
+            },
+          },
+          500
         );
       }
       if (err instanceof ConflictError) {

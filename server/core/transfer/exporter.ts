@@ -8,6 +8,7 @@ import { FsBlobStorage } from "../../adapters/blob/fs-blob-storage";
 import { EntryUtils } from "../domain/entry-utils";
 import { Scope } from "../domain/scope";
 import { KeyUtils } from "../keys/key-utils";
+import { MediaCatalog } from "../media/media-catalog";
 import { FormatVersion } from "./format-version";
 import type { ExportOptions } from "./export-options";
 import type { ExportManifest } from "./export-manifest";
@@ -21,6 +22,13 @@ export class Exporter {
   // and `ImportWalker` recreates the pair from it.
   private static skipCollection(name: string, withKeys?: boolean): boolean {
     if (name.startsWith("_")) {
+      // The media catalog is data, not a credential (D23): an archive that
+      // carried the bytes without their filenames and folders would restore a
+      // library with no organisation in it, so `_media`/`_media_folders` are
+      // never gated on --with-keys the way `_keys` is.
+      if (name === MediaCatalog.Collection || name === MediaCatalog.FoldersCollection) {
+        return false;
+      }
       return name !== KeyUtils.KeysCollection || !withKeys;
     }
     return false;
@@ -150,7 +158,9 @@ export class Exporter {
           for (const blob of blobs) {
             const res = await bStore.get(blob.key);
             if (res) {
-              await fs.writeFile(path.join(mediaDest, blob.key), res.data);
+              const dest = path.join(mediaDest, blob.key);
+              await fs.mkdir(path.dirname(dest), { recursive: true });
+              await fs.writeFile(dest, res.data);
             }
           }
         }

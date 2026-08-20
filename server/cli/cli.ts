@@ -7,6 +7,7 @@ import { ConfigLoader } from "../config/config-loader";
 import { Service } from "../core/service/service";
 import { ExportCommand } from "./commands/export-command";
 import { ImportCommand } from "./commands/import-command";
+import { MediaCommand } from "./commands/media-command";
 import { KeysCommand } from "./commands/keys-command";
 import { ServeCommand } from "./commands/serve-command";
 
@@ -24,6 +25,7 @@ Usage:
   silo keys revoke [flags] <id>          revoke a key
   silo export [flags]                    export schemas and entries
   silo import [flags] <dir|tarball>      import schemas and entries
+  silo media reconcile [flags]           repair the media catalog against stored blobs
   silo version
   silo help
 
@@ -168,6 +170,9 @@ Subcommands operate directly on the data dir — no running server needed.
           break;
         case "import":
           await ImportCommand.run(svc, store, positionals, values);
+          break;
+        case "media":
+          await MediaCommand.run(svc, positionals);
           break;
         default:
           console.error(`silo: unknown command "${cmd}"`);
