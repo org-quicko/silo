@@ -34,6 +34,7 @@ import { CellValue } from './CellValue'
 import { RowMenu } from './RowMenu'
 import table from '../../components/DataTable.module.css'
 import styles from './Entries.module.css'
+import type { SessionBadge } from '../shell/session-badge'
 
 const PAGE_SIZE = 50
 const SEARCH_DEBOUNCE_MS = 280
@@ -44,7 +45,7 @@ interface Props {
   apiKey: string
   scope: ScopeRef
   claims: string[]
-  session: string
+  session: SessionBadge
   /** Filter/sort/page live in the URL, so a filtered view is linkable. */
   query: ListQuery
   onQueryChange: (next: ListQuery, replace?: boolean) => void

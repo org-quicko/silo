@@ -8,6 +8,7 @@ import { Routes } from '../../../router/routes'
 import { TopBar } from '../../shell/TopBar'
 import type { Server } from '../../servers/server'
 import styles from '../SettingsView.module.css'
+import type { SessionBadge } from '../../shell/session-badge'
 
 /**
  * The environments of one project. The project is named by the URL, so this
@@ -28,7 +29,7 @@ export function ProjectEnvironmentsPage({
   environments: string[]
   loading: boolean
   claims: string[]
-  session: string
+  session: SessionBadge
   onChanged: () => void
 }) {
   const [isAdding, setIsAdding] = useState(false)

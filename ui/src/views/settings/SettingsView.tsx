@@ -19,6 +19,7 @@ import { ProjectEnvironmentsPage } from './pages/ProjectEnvironmentsPage'
 import { ProjectGeneralPage } from './pages/ProjectGeneralPage'
 import { ProjectsPage } from './pages/ProjectsPage'
 import styles from './SettingsView.module.css'
+import { buildSessionBadge } from '../shell/build-session-badge'
 
 interface SettingsViewProps {
   server: Server
@@ -90,7 +91,7 @@ export function SettingsView({ server, route, onUpdateServer, onDeleteServer, on
     }
   }, [url, apiKey, scope?.project, scope?.env])
 
-  const session = `${sessionLabel || Claims.label(claims)} · ${server.name}`
+  const session = buildSessionBadge({ label: sessionLabel, prefix: keyPrefix, claims }, scope)
   const projectSection = route.view === 'project-settings' ? route.section : null
   const envSection = route.view === 'env-settings' ? route.section : null
 

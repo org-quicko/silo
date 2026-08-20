@@ -12,6 +12,7 @@ import { ModalHeader } from '../../components/ModalHeader'
 import { ModalIcon } from '../../components/ModalIcon'
 import { TopBar } from '../shell/TopBar'
 import styles from './MediaLibrary.module.css'
+import type { SessionBadge } from '../shell/session-badge'
 
 export function MediaLibraryView({
   url,
@@ -21,7 +22,7 @@ export function MediaLibraryView({
 }: {
   url: string
   apiKey: string
-  session: string
+  session: SessionBadge
   claims: string[]
 }) {
   const [mediaList, setMediaList] = useState<MediaMetadata[]>([])

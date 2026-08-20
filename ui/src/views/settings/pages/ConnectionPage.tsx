@@ -22,10 +22,11 @@ import { api } from '../../../api/api-client'
 import type { Server } from '../../servers/server'
 import passwordStyles from '../../../components/PasswordInput.module.css'
 import styles from '../SettingsView.module.css'
+import type { SessionBadge } from '../../shell/session-badge'
 
 interface ConnectionPageProps {
   server: Server
-  session: string
+  session: SessionBadge
   claims: string[]
   sessionLabel: string
   keyPrefix: string
@@ -280,7 +281,7 @@ export function ConnectionPage({
               <div className={styles.diagCard}>
                 <span className={styles.diagLabel}>API Key</span>
                 <span className={styles.diagMono}>
-                  {sessionLabel ? `${sessionLabel} (${keyPrefix}…)` : keyPrefix ? `${keyPrefix}…` : '—'}
+                  {sessionLabel ? `${sessionLabel} (${keyPrefix})` : keyPrefix || '—'}
                 </span>
               </div>
             </div>

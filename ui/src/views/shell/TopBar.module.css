@@ -44,15 +44,23 @@
   gap: 12px;
 }
 
+/*
+ * The session pill states what the current key can do *in the scope on
+ * screen* — see build-session-badge.ts for why that rather than the key's
+ * label. `--session-tone` lets the level colour the dot without a rule per
+ * level, and the text stays --text-2 throughout: this is a standing fact about
+ * the session, not an alert, so only the dot is tinted.
+ */
 .session {
   display: flex;
   align-items: center;
   gap: 7px;
-  padding: 6px 11px;
+  padding: 5px 10px;
   border: 1px solid var(--line);
-  border-radius: 999px;
+  border-radius: 6px;
   color: var(--text-2);
   font-size: 12px;
+  cursor: default;
 }
 
 .sessionDot {
@@ -60,6 +68,18 @@
   height: 6px;
   flex: none;
   border-radius: 99px;
-  background: var(--ok);
+  background: var(--session-tone, var(--ok));
+}
+
+/* Writing is the ordinary case, so it gets the unremarkable colour; read-only
+   is muted rather than warned about, and no access is the only genuine fault. */
+.root { --session-tone: var(--accent); }
+.write { --session-tone: var(--ok); }
+.read { --session-tone: var(--text-3); }
+
+.none {
+  --session-tone: var(--bad);
+  border-color: color-mix(in oklab, var(--bad) 35%, transparent);
+  color: var(--text-2);
 }
 

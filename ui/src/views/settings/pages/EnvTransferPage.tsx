@@ -12,6 +12,7 @@ import { TopBar } from '../../shell/TopBar'
 import type { Server } from '../../servers/server'
 import settings from '../SettingsView.module.css'
 import styles from './EnvTransferPage.module.css'
+import type { SessionBadge } from '../../shell/session-badge'
 
 type Mode = 'merge' | 'replace'
 type Prefer = '' | 'local' | 'remote'
@@ -36,7 +37,7 @@ export function EnvTransferPage({
   scope: ScopeRef
   projects: string[]
   claims: string[]
-  session: string
+  session: SessionBadge
 }) {
   const [sourceProject, setSourceProject] = useState(scope.project)
   const [sourceEnvs, setSourceEnvs] = useState<string[]>([])

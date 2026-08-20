@@ -12,6 +12,7 @@ import { Routes } from '../../../router/routes'
 import { TopBar } from '../../shell/TopBar'
 import type { Server } from '../../servers/server'
 import styles from '../SettingsView.module.css'
+import type { SessionBadge } from '../../shell/session-badge'
 
 /**
  * One environment: what it holds, how to address it, and how to delete it.
@@ -30,7 +31,7 @@ export function EnvGeneralPage({
   scope: ScopeRef
   collections: Collection[]
   claims: string[]
-  session: string
+  session: SessionBadge
   onDeleted: () => void
 }) {
   const [confirming, setConfirming] = useState(false)

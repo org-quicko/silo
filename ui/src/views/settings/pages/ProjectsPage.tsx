@@ -8,6 +8,7 @@ import { Routes } from '../../../router/routes'
 import { TopBar } from '../../shell/TopBar'
 import type { Server } from '../../servers/server'
 import styles from '../SettingsView.module.css'
+import type { SessionBadge } from '../../shell/session-badge'
 
 /**
  * Every project on this instance, and creating one.
@@ -30,7 +31,7 @@ export function ProjectsPage({
   projects: string[]
   loading: boolean
   claims: string[]
-  session: string
+  session: SessionBadge
   onChanged: () => void
 }) {
   const [isAdding, setIsAdding] = useState(false)

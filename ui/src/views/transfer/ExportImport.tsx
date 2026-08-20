@@ -11,6 +11,7 @@ import { Toggle } from '../../components/Toggle'
 import { TopBar } from '../shell/TopBar'
 import { CopyServerPanel } from './CopyServer'
 import styles from './Transfer.module.css'
+import type { SessionBadge } from '../shell/session-badge'
 
 type Mode = 'merge' | 'replace'
 type Prefer = '' | 'local' | 'remote'
@@ -27,7 +28,7 @@ export function ExportImportView({
   url: string
   apiKey: string
   claims: string[]
-  session: string
+  session: SessionBadge
   collectionCount: number
   onImported: () => void
   onDestinationKeyChanged: (key: string) => void

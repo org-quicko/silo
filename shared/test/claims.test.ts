@@ -185,3 +185,44 @@ describe("claim matching", () => {
     expect(Claims.hasScopeWide([Claims.Root], Claims.ScopeCopyReplacePermissions, "acme", "prod")).toBe(true);
   });
 });
+
+describe("access level", () => {
+  test("reports the level for the scope asked about, not the widest one held", () => {
+    // The case the top bar exists for: one key, two environments, two answers.
+    const claims = [
+      Claims.collection("acme", "dev", "*", Claims.CollectionEntriesRead),
+      Claims.collection("acme", "dev", "*", Claims.CollectionEntriesUpdate),
+      Claims.collection("acme", "prod", "*", Claims.CollectionEntriesRead),
+    ];
+    expect(Claims.accessLevel(claims, "acme", "dev")).toBe("write");
+    expect(Claims.accessLevel(claims, "acme", "prod")).toBe("read");
+    expect(Claims.accessLevel(claims, "other", "prod")).toBe("none");
+  });
+
+  test("root outranks every scope", () => {
+    expect(Claims.accessLevel([Claims.Root], "acme", "prod")).toBe("root");
+    expect(Claims.accessLevel([Claims.Root])).toBe("root");
+  });
+
+  test("schema and collection writes count as write, schema:read alone as read", () => {
+    const schemaOnly = [Claims.collection("acme", "prod", "posts", Claims.CollectionSchemaRead)];
+    expect(Claims.accessLevel(schemaOnly, "acme", "prod")).toBe("read");
+
+    const schemaWriter = [Claims.collection("acme", "prod", "posts", Claims.CollectionSchemaUpdate)];
+    expect(Claims.accessLevel(schemaWriter, "acme", "prod")).toBe("write");
+
+    const creator = [Claims.collection("acme", "prod", "posts", Claims.CollectionCreate)];
+    expect(Claims.accessLevel(creator, "acme", "prod")).toBe("write");
+  });
+
+  test("omitting the scope asks the instance as a whole", () => {
+    const claims = [Claims.collection("acme", "dev", "*", Claims.CollectionEntriesCreate)];
+    expect(Claims.accessLevel(claims)).toBe("write");
+    expect(Claims.accessLevel([])).toBe("none");
+  });
+
+  test("non-collection claims alone grant no scope access", () => {
+    const claims = [Claims.MediaRead, Claims.KeysRead, Claims.TransferExport];
+    expect(Claims.accessLevel(claims, "acme", "prod")).toBe("none");
+  });
+});

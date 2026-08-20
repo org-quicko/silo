@@ -5,9 +5,10 @@ import { Pill } from '../../../components/Pill'
 import { TopBar } from '../../shell/TopBar'
 import { ThemeManager, type ThemeSettings } from '../../../utils/theme-manager'
 import styles from './AppearancePage.module.css'
+import type { SessionBadge } from '../../shell/session-badge'
 
 interface AppearancePageProps {
-  session: string
+  session: SessionBadge
 }
 
 function getCategoryFallback(category: string): string {

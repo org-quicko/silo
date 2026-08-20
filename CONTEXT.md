@@ -15,6 +15,46 @@ A minimal, self-hostable headless CMS. Users define collections with JSON Schema
 
 *Last updated: 2026-08-20*
 
+- **Top bar session pill now states scope access, not the key's name
+  (2026-08-20):** the pill read `key label · server name`
+  (`${sessionInfo?.label || Claims.label(claims)} · ${server.name}`), and both
+  halves were already on screen — the server name is the sidebar's scope
+  switcher heading, and a key's label is chosen by whoever minted it, so it
+  tends to echo the server it was made for (`read · silo-read`). Neither half
+  changed as the user moved around, so the pill cost topbar width to repeat the
+  sidebar.
+
+  It now shows what the current key can actually do **in the scope on screen**:
+  *Full access* / *Read & write* / *Read-only* / *No access*.
+
+  - **Why this and not the label.** The level is *derived*, so unlike a label it
+    changes with the route: one key scoped to `default/prod` reads `Read-only`
+    there and `No access` in `default/dev`. It is also the only chrome that
+    answers "why is there no New entry button here?" — the claims that hide an
+    action and the pill now come from the same place.
+  - `Claims.accessLevel(claims, project?, env?)`
+    (`shared/src/claims/claims.ts`) returns the `AccessLevel` band
+    (`shared/src/claims/access-level.ts`). Bands are widest-first: **any** write
+    permission anywhere in the scope — entries, collection create/delete, schema
+    or access update — makes it `write`, because a pill claiming read-only
+    beside a live create button is the more misleading of the two errors.
+    Omitting the scope asks the same question instance-wide, which is what
+    settings needs when no scope has resolved. `shared/test/claims.test.ts`
+    pins the bands, including that non-collection claims (`media:*`, `keys:*`,
+    `transfer:*`) grant no scope access on their own.
+  - **The key's identity moved to the tooltip** — `buildSessionBadge`
+    (`ui/src/views/shell/build-session-badge.ts`) puts label, prefix and scope
+    in `SessionBadge.detail`, with the full record still at Settings →
+    Connection. `TopBar`'s `session` prop is a `SessionBadge`
+    (`ui/src/views/shell/session-badge.ts`) rather than a string, so the 14
+    views that forward it are typed rather than formatting their own.
+  - Only the dot is tinted (`--session-tone`): accent for root, `--ok` for
+    write, `--text-3` for read-only, `--bad` for none. This is a standing fact
+    about the session, not an alert, so the label stays `--text-2`.
+  - Fixed alongside: the stored key prefix already ends in an ellipsis
+    (`KeyFormat.displayPrefix`), so the Connection page's `${keyPrefix}…`
+    rendered `silo_uTNaCEf……`.
+
 - **Consolidated server/scope switcher & modal Server Browser (2026-08-20):**
   - Removed redundant ways to navigate back to the servers view (topbar Globe "Servers" button, topbar Lock icon button, and settings nav Globe icon).
   - The left sidebar below the Silo logo/version is now the single scope switcher (`silo-server-name \n project · env`), displaying up/down chevrons (`ChevronsUpDown`).

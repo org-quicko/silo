@@ -1,6 +1,19 @@
 import type { ReactNode } from 'react'
+import type { AccessLevel } from '@silo/shared/access-level'
 import { Link } from '../../router/Link'
+import type { SessionBadge } from './session-badge'
 import styles from './TopBar.module.css'
+
+/**
+ * Phrased from the reader's side ("what can I do here"), not the claim
+ * grammar's — the claims themselves are on the Keys page.
+ */
+const ACCESS_TEXT: Record<AccessLevel, string> = {
+  root: 'Full access',
+  write: 'Read & write',
+  read: 'Read-only',
+  none: 'No access',
+}
 
 export interface Crumb {
   label: string
@@ -15,7 +28,7 @@ export function TopBar({
   children,
 }: {
   crumbs: Crumb[]
-  session: string
+  session: SessionBadge
   children?: ReactNode
 }) {
   return (
@@ -42,8 +55,11 @@ export function TopBar({
       </div>
       <div className={styles.right}>
         {children}
-        <div className={styles.session}>
-          <span className={styles.sessionDot} /> {session}
+        <div
+          className={`${styles.session} ${styles[session.level]}`}
+          title={session.detail}
+        >
+          <span className={styles.sessionDot} /> {ACCESS_TEXT[session.level]}
         </div>
       </div>
     </div>

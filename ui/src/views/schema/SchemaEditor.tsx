@@ -16,6 +16,7 @@ import { TopBar } from '../shell/TopBar'
 import { RefTarget } from './RefTarget'
 import { EnumValues } from './EnumValues'
 import styles from './SchemaEditor.module.css'
+import type { SessionBadge } from '../shell/session-badge'
 
 type Kind = 'string' | 'number' | 'integer' | 'boolean' | 'object' | 'array' | 'enum' | 'ref' | 'ref-array' | 'media'
 
@@ -161,7 +162,7 @@ interface Props {
   apiKey: string
   scope: ScopeRef
   claims: string[]
-  session: string
+  session: SessionBadge
   /** URL to return to on cancel — the breadcrumbs link back to it. */
   backTo: string
   onSaved: (name: string) => void

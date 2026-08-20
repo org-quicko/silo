@@ -413,7 +413,7 @@ React + TypeScript + Vite + RJSF (`@rjsf/core` + `@rjsf/validator-ajv8` for 2020
 **Layout:** a server manager, then a two-pane shell, with settings as a second two-pane shell of its own:
 
 - **Sidebar (nav):** the visible collections with in-memory search and user-resizable width (persisted in `localStorage`); selecting one shows its entries. Pinned at the bottom when authorized: *Keys*, *Media*, and *Data transfer*. Navigation and page actions adapt to the session's claims.
-- **Top bar (slim):** instance name, active key's label, and a lock button that clears the stored key.
+- **Top bar (slim):** breadcrumbs for the current page, its actions, and a session pill stating what the active key can do **in the scope on screen** (full access / read & write / read-only / none), derived from its claims by `Claims.accessLevel`. The key's own label and prefix are the pill's tooltip; the instance name and the lock live in the sidebar's scope switcher, so the top bar does not repeat them.
 - **Main pane:** whatever the nav selected.
 
 **Views:**
