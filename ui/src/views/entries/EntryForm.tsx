@@ -55,13 +55,12 @@ interface Props {
   session: string
   /** URL of the collection's entry list — the breadcrumbs link back to it. */
   backTo: string
-  onLock: () => void
   onSaved: () => void
   onCancel: () => void
   onDeleted: () => void
 }
 
-export function EntryForm({ collection, collections, url, entry, apiKey, scope, claims, session, backTo, onLock, onSaved, onCancel, onDeleted }: Props) {
+export function EntryForm({ collection, collections, url, entry, apiKey, scope, claims, session, backTo, onSaved, onCancel, onDeleted }: Props) {
   // SiloRefs inlines silo://collections/* refs as internal pointers (RJSF and
   // its ajv8 validator only follow #/... pointers) and strips $schema, which
   // the draft-07 ajv8 meta-schema would trip over. The server remains the
@@ -142,7 +141,6 @@ export function EntryForm({ collection, collections, url, entry, apiKey, scope, 
           { label: entry ? 'Edit entry' : 'New entry' },
         ]}
         session={session}
-        onLock={onLock}
       >
         {dirty && (
           <span className={styles.unsaved}>

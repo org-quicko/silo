@@ -8,7 +8,6 @@ import styles from './AppearancePage.module.css'
 
 interface AppearancePageProps {
   session: string
-  onBack: () => void
 }
 
 function getCategoryFallback(category: string): string {
@@ -24,7 +23,7 @@ function getCategoryFallback(category: string): string {
   }
 }
 
-export function AppearancePage({ session, onBack }: AppearancePageProps) {
+export function AppearancePage({ session }: AppearancePageProps) {
   const [settings, setSettings] = useState<ThemeSettings>(() => ThemeManager.getSettings())
   const [customFontInput, setCustomFontInput] = useState('')
   const [customHexInput, setCustomHexInput] = useState(settings.accent)
@@ -87,7 +86,7 @@ export function AppearancePage({ session, onBack }: AppearancePageProps) {
 
   return (
     <>
-      <TopBar crumbs={[{ label: 'Application' }, { label: 'Appearance' }]} session={session} onLock={onBack}>
+      <TopBar crumbs={[{ label: 'Application' }, { label: 'Appearance' }]} session={session}>
         {savedSuccess && (
           <div style={{ display: 'flex', alignItems: 'center', gap: '6px', color: 'var(--ok)', fontSize: '13px', fontWeight: 500 }}>
             <CheckCircle2 size={15} />

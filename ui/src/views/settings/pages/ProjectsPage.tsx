@@ -25,7 +25,6 @@ export function ProjectsPage({
   claims,
   session,
   onChanged,
-  onLock,
 }: {
   server: Server
   projects: string[]
@@ -33,7 +32,6 @@ export function ProjectsPage({
   claims: string[]
   session: string
   onChanged: () => void
-  onLock: () => void
 }) {
   const [isAdding, setIsAdding] = useState(false)
   const [draft, setDraft] = useState('')
@@ -66,7 +64,7 @@ export function ProjectsPage({
 
   return (
     <>
-      <TopBar crumbs={[{ label: 'Projects' }]} session={session} onLock={onLock}>
+      <TopBar crumbs={[{ label: 'Projects' }]} session={session}>
         {canCreate && !isAdding && (
           <Button variant="primary" onClick={() => setIsAdding(true)}>
             <Plus size={14} />

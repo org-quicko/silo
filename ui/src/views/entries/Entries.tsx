@@ -48,12 +48,10 @@ interface Props {
   /** Filter/sort/page live in the URL, so a filtered view is linkable. */
   query: ListQuery
   onQueryChange: (next: ListQuery, replace?: boolean) => void
-  onLock: () => void
   onEditSchema: () => void
   onNewEntry: () => void
   onEditEntry: (e: Entry) => void
   onChanged: () => void
-  onGoToServers?: () => void
 }
 
 function schemaColumns(schema: any): string[] {
@@ -75,12 +73,10 @@ export function EntriesView({
   session,
   query,
   onQueryChange,
-  onLock,
   onEditSchema,
   onNewEntry,
   onEditEntry,
   onChanged,
-  onGoToServers,
 }: Props) {
   const [entries, setEntries] = useState<Entry[]>([])
   const [total, setTotal] = useState(0)
@@ -189,7 +185,7 @@ export function EntriesView({
 
   return (
     <>
-      <TopBar crumbs={[{ label: 'Collections' }, { label: collection.name }]} session={session} onLock={onLock} onGoToServers={onGoToServers}>
+      <TopBar crumbs={[{ label: 'Collections' }, { label: collection.name }]} session={session}>
         <div className={styles.filterField}>
           <Search size={15} />
           <input value={search} placeholder="Filter entries…" onChange={(e) => setSearch(e.target.value)} />

@@ -1,5 +1,4 @@
 import type { ReactNode } from 'react'
-import { Lock, Globe } from 'lucide-react'
 import { Link } from '../../router/Link'
 import styles from './TopBar.module.css'
 
@@ -13,14 +12,10 @@ export interface Crumb {
 export function TopBar({
   crumbs,
   session,
-  onLock,
-  onGoToServers,
   children,
 }: {
   crumbs: Crumb[]
   session: string
-  onLock: () => void
-  onGoToServers?: () => void
   children?: ReactNode
 }) {
   return (
@@ -47,21 +42,9 @@ export function TopBar({
       </div>
       <div className={styles.right}>
         {children}
-        {onGoToServers && (
-          <button
-            type="button"
-            className={`${styles.crumb} ${styles.link} ${styles.serverSwitch}`}
-            onClick={onGoToServers}
-          >
-            <Globe size={14} /> Servers
-          </button>
-        )}
         <div className={styles.session}>
           <span className={styles.sessionDot} /> {session}
         </div>
-        <button className={styles.iconButton} title="Disconnect / Switch Server" onClick={onLock}>
-          <Lock size={15} />
-        </button>
       </div>
     </div>
   )

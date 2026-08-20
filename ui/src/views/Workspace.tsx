@@ -10,6 +10,7 @@ import { router } from '../router/router'
 import type { ListQuery } from '../router/list-query'
 import type { ServerRoute } from '../router/route'
 import type { Server } from './servers/server'
+import { ServerManager } from './servers/ServerManager'
 import type { ScopeRef } from '../api/types/scope-ref'
 import { ScopeMemory } from '../utils/scope-memory'
 import { Sidebar } from './shell/Sidebar'
@@ -22,15 +23,26 @@ import styles from './Workspace.module.css'
 
 interface Props {
   server: Server
+  servers: Server[]
   route: ServerRoute
   onDisconnect: () => void
   onApiKeyChange: (apiKey: string) => void
+  onAddServer: (server: Server) => void
 }
 
 /** The connected two-pane shell. Mounted per server (keyed on id by App). */
-export function Workspace({ server, route, onDisconnect, onApiKeyChange: _onApiKeyChange }: Props) {
+export function Workspace({
+  server,
+  servers,
+  route,
+  onDisconnect,
+  onApiKeyChange: _onApiKeyChange,
+  onAddServer,
+}: Props) {
   const { id: serverId, url, apiKey } = server
   const scope: ScopeRef = { project: route.project, env: route.env }
+
+  const [showServerBrowser, setShowServerBrowser] = useState(false)
 
   // The settings shell's PROJECT/ENVIRONMENT groups need a scope even on its
   // unscoped pages (keys, connection); this is where one is known for certain.
@@ -181,11 +193,12 @@ export function Workspace({ server, route, onDisconnect, onApiKeyChange: _onApiK
         url={url}
         apiKey={apiKey}
         scope={scope}
+        onOpenServerBrowser={() => setShowServerBrowser(true)}
       />
 
       <main className={styles.main}>
         {route.view === 'media' && (
-          <MediaLibraryView url={url} apiKey={apiKey} session={session} claims={claims} onLock={onDisconnect} />
+          <MediaLibraryView url={url} apiKey={apiKey} session={session} claims={claims} />
         )}
 
         {route.view === 'schema' && (() => {
@@ -203,8 +216,6 @@ export function Workspace({ server, route, onDisconnect, onApiKeyChange: _onApiK
               claims={claims}
               session={session}
               backTo={backTo}
-              onLock={onDisconnect}
-              onGoToServers={onDisconnect}
               onSaved={(name) => {
                 refreshCollections().then(() => goToEntries(name))
               }}
@@ -225,7 +236,6 @@ export function Workspace({ server, route, onDisconnect, onApiKeyChange: _onApiK
             claims={claims}
             session={session}
             backTo={Routes.entries(serverId, scope.project, scope.env, activeCollection.name)}
-            onLock={onDisconnect}
             onSaved={() => {
               afterCountsChange()
               goToEntries(activeCollection.name)
@@ -255,12 +265,10 @@ export function Workspace({ server, route, onDisconnect, onApiKeyChange: _onApiK
             onQueryChange={(next: ListQuery, replace?: boolean) =>
               router.navigate(Routes.entries(serverId, scope.project, scope.env, activeCollection.name, next), { replace })
             }
-            onLock={onDisconnect}
             onEditSchema={() => router.navigate(Routes.schema(serverId, scope.project, scope.env, activeCollection.name))}
             onNewEntry={() => router.navigate(Routes.newEntry(serverId, scope.project, scope.env, activeCollection.name))}
             onEditEntry={(e) => router.navigate(Routes.entry(serverId, scope.project, scope.env, activeCollection.name, e.id))}
             onChanged={afterCountsChange}
-            onGoToServers={onDisconnect}
           />
         )}
 
@@ -269,8 +277,6 @@ export function Workspace({ server, route, onDisconnect, onApiKeyChange: _onApiK
             <TopBar
               crumbs={[{ label: server.name }]}
               session={session}
-              onLock={onDisconnect}
-              onGoToServers={onDisconnect}
             />
             <div className="content">
               <div className={`center-wrap ${styles.emptyCollections}`}>
@@ -288,6 +294,25 @@ export function Workspace({ server, route, onDisconnect, onApiKeyChange: _onApiK
           </>
         )}
       </main>
+
+      {showServerBrowser && (
+        <ServerManager
+          servers={servers}
+          initialServerId={server.id}
+          initialProject={scope.project}
+          initialEnv={scope.env}
+          onConnect={(id, project, env) => {
+            setShowServerBrowser(false)
+            router.navigate(Routes.collections(id, project, env))
+          }}
+          onAddServer={onAddServer}
+          onOpenStatus={(id) => {
+            setShowServerBrowser(false)
+            router.navigate(Routes.serverSettings(id, 'connection'))
+          }}
+          onClose={() => setShowServerBrowser(false)}
+        />
+      )}
     </div>
   )
 }

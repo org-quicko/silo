@@ -1,5 +1,5 @@
 import { useState, useMemo, useCallback, useRef, useEffect } from 'react'
-import { Plus, Image, ChevronLeft, Settings, Search, X } from 'lucide-react'
+import { Plus, Image, ChevronsUpDown, Settings, Search, X } from 'lucide-react'
 import { Claims } from '@silo/shared/claims'
 import { SiloMark } from '../../components/SiloMark'
 import { Link } from '../../router/Link'
@@ -27,6 +27,7 @@ export function Sidebar({
   instanceLabel,
   totalEntries,
   scope,
+  onOpenServerBrowser,
 }: {
   serverId: string
   collections: SidebarCollection[]
@@ -40,6 +41,7 @@ export function Sidebar({
   apiKey: string
   scope: ScopeRef
   onScopeChange?: (next: ScopeRef) => void
+  onOpenServerBrowser?: () => void
 }) {
   const [width, setWidth] = useState<number>(() => {
     const stored = localStorage.getItem(SIDEBAR_WIDTH_KEY)
@@ -119,7 +121,7 @@ export function Sidebar({
       className={`${styles.sidebar} ${isResizing ? styles.resizing : ''}`}
       style={{ width: `${width}px` }}
     >
-      <Link to={Routes.servers()} className={styles.brand} title="Back to servers">
+      <Link to={Routes.collections(serverId, scope.project, scope.env)} className={styles.brand} title="Silo">
         <div className={styles.brandLogo}>
           <SiloMark size={16} />
         </div>
@@ -128,15 +130,20 @@ export function Sidebar({
       </Link>
 
       <div className={styles.instance}>
-        <Link to={Routes.servers()} className={styles.instanceCopy} title="Switch server, project, or environment">
+        <button
+          type="button"
+          className={styles.instanceBtn}
+          onClick={onOpenServerBrowser}
+          title="Switch server, project, or environment"
+        >
           <div className={styles.instanceHeader}>
             <span className={styles.instanceName}>{instanceLabel}</span>
-            <ChevronLeft size={13} className={styles.instanceBack} />
+            <ChevronsUpDown size={13} className={styles.instanceChevron} />
           </div>
           <span className={styles.instanceSubtitle}>
             {scope.project} · {scope.env}
           </span>
-        </Link>
+        </button>
       </div>
 
       <div className={styles.scroll}>

@@ -97,7 +97,6 @@ export function NewKeyView({
   keysUrl,
   onCancel,
   onDone,
-  onLock,
 }: {
   url: string
   apiKey: string
@@ -108,7 +107,6 @@ export function NewKeyView({
   keysUrl: string
   onCancel: () => void
   onDone: () => void
-  onLock: () => void
 }) {
   const [label, setLabel] = useState('')
   const [mode, setMode] = useState<Mode>('standard')
@@ -190,7 +188,7 @@ export function NewKeyView({
   if (created) {
     return (
       <>
-        <TopBar crumbs={[{ label: 'API keys', to: keysUrl }, { label: 'Key created' }]} session={session} onLock={onLock} />
+        <TopBar crumbs={[{ label: 'API keys', to: keysUrl }, { label: 'Key created' }]} session={session} />
         <div className={`content ${styles.wrap}`}>
           <div className={`card ${styles.success}`}>
             <ModalIcon tone="ok" className={styles.successIcon}><Check size={20} /></ModalIcon>
@@ -208,7 +206,7 @@ export function NewKeyView({
 
   return (
     <>
-      <TopBar crumbs={[{ label: 'API keys', to: keysUrl }, { label: 'Create key' }]} session={session} onLock={onLock}>
+      <TopBar crumbs={[{ label: 'API keys', to: keysUrl }, { label: 'Create key' }]} session={session}>
         <Button variant="secondary" onClick={onCancel}>Cancel</Button>
         <Button variant="primary" onClick={submit} disabled={busy}>{busy ? 'Creating…' : 'Create key'}</Button>
       </TopBar>

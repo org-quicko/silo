@@ -35,7 +35,6 @@ export function KeysView({
   scope: _scope,
   claims,
   session,
-  onLock,
   onCreate,
 }: {
   url: string
@@ -43,7 +42,6 @@ export function KeysView({
   scope?: ScopeRef
   claims: string[]
   session: string
-  onLock: () => void
   onCreate: () => void
 }) {
   const [keys, setKeys] = useState<KeyView[]>([])
@@ -81,7 +79,7 @@ export function KeysView({
 
   return (
     <>
-      <TopBar crumbs={[{ label: 'Admin' }, { label: 'API keys' }]} session={session} onLock={onLock}>
+      <TopBar crumbs={[{ label: 'Admin' }, { label: 'API keys' }]} session={session}>
         {canCreate && <Button variant="primary" onClick={onCreate}><Plus size={14} /> Create key</Button>}
       </TopBar>
       <div className="content">

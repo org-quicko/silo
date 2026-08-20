@@ -30,7 +30,6 @@ export function EnvTransferPage({
   projects,
   claims,
   session,
-  onLock,
 }: {
   server: Server
   /** The destination — the environment whose settings these are. */
@@ -38,7 +37,6 @@ export function EnvTransferPage({
   projects: string[]
   claims: string[]
   session: string
-  onLock: () => void
 }) {
   const [sourceProject, setSourceProject] = useState(scope.project)
   const [sourceEnvs, setSourceEnvs] = useState<string[]>([])
@@ -115,7 +113,6 @@ export function EnvTransferPage({
           { label: 'Data Transfer' },
         ]}
         session={session}
-        onLock={onLock}
       />
 
       <div className="content">

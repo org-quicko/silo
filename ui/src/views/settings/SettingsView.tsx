@@ -157,7 +157,6 @@ export function SettingsView({ server, route, onUpdateServer, onDeleteServer, on
               reloadProjects()
               router.navigate(Routes.servers())
             }}
-            onLock={onBack}
           />
         )}
 
@@ -171,7 +170,6 @@ export function SettingsView({ server, route, onUpdateServer, onDeleteServer, on
             claims={claims}
             session={session}
             onChanged={reloadEnvironments}
-            onLock={onBack}
           />
         )}
 
@@ -187,7 +185,6 @@ export function SettingsView({ server, route, onUpdateServer, onDeleteServer, on
               reloadEnvironments()
               router.navigate(Routes.projectSettings(serverId, route.project, 'environments'))
             }}
-            onLock={onBack}
           />
         )}
 
@@ -199,7 +196,6 @@ export function SettingsView({ server, route, onUpdateServer, onDeleteServer, on
             projects={projects}
             claims={claims}
             session={session}
-            onLock={onBack}
           />
         )}
 
@@ -211,7 +207,6 @@ export function SettingsView({ server, route, onUpdateServer, onDeleteServer, on
             claims={claims}
             session={session}
             onChanged={reloadProjects}
-            onLock={onBack}
           />
         )}
 
@@ -221,7 +216,6 @@ export function SettingsView({ server, route, onUpdateServer, onDeleteServer, on
             apiKey={apiKey}
             claims={claims}
             session={session}
-            onLock={onBack}
             onCreate={() => router.navigate(Routes.serverSettings(serverId, 'key-new'))}
           />
         )}
@@ -237,7 +231,6 @@ export function SettingsView({ server, route, onUpdateServer, onDeleteServer, on
             keysUrl={Routes.serverSettings(serverId, 'keys')}
             onCancel={() => router.navigate(Routes.serverSettings(serverId, 'keys'))}
             onDone={() => router.navigate(Routes.serverSettings(serverId, 'keys'))}
-            onLock={onBack}
           />
         )}
 
@@ -247,7 +240,6 @@ export function SettingsView({ server, route, onUpdateServer, onDeleteServer, on
             apiKey={apiKey}
             claims={claims}
             session={session}
-            onLock={onBack}
             collectionCount={collections.length}
             onImported={() => {
               reloadProjects()
@@ -267,12 +259,11 @@ export function SettingsView({ server, route, onUpdateServer, onDeleteServer, on
             version={version}
             onUpdateServer={onUpdateServer}
             onDeleteServer={onDeleteServer}
-            onBack={onBack}
           />
         )}
 
         {route.view === 'server-settings' && route.section === 'appearance' && (
-          <AppearancePage session={session} onBack={onBack} />
+          <AppearancePage session={session} />
         )}
       </div>
     </div>

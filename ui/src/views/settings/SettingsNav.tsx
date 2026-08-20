@@ -1,21 +1,20 @@
-import { useEffect, useState } from 'react'
 import {
   ArrowLeft,
   ArrowUpDown,
   FolderGit2,
-  Globe,
   KeyRound,
   Layers,
   Palette,
   Server as ServerIcon,
   SlidersHorizontal,
 } from 'lucide-react'
-import { Routes } from '../../router/routes'
-import type { SettingsRoute } from '../../router/route'
+import { useEffect, useState } from 'react'
 import type { ScopeRef } from '../../api/types/scope-ref'
+import type { SettingsRoute } from '../../router/route'
+import { Routes } from '../../router/routes'
 import { ScopeSwitcher } from './ScopeSwitcher'
-import { SettingsNavItem } from './SettingsNavItem'
 import styles from './SettingsNav.module.css'
+import { SettingsNavItem } from './SettingsNavItem'
 
 /**
  * Three groups, ordered outside-in: the server that hosts everything, the
@@ -103,7 +102,7 @@ export function SettingsNav({
           >
             <ArrowLeft size={14} className={styles.navHeaderIcon} />
             <span className={styles.backCopy}>
-              <span className={styles.navTitle}>Workspace</span>
+              <span className={styles.navTitle}>Settings</span>
               <span className={styles.backScope}>
                 {scope.project} · {scope.env}
               </span>
@@ -113,18 +112,6 @@ export function SettingsNav({
           <button type="button" className={styles.backBtn} onClick={onBack} title="Back to servers">
             <ArrowLeft size={14} className={styles.navHeaderIcon} />
             <span className={styles.navTitle}>All servers</span>
-          </button>
-        )}
-
-        {onBackToWorkspace && (
-          <button
-            type="button"
-            className={styles.headerIcon}
-            onClick={onBack}
-            title={`All servers (currently ${serverName})`}
-            aria-label="All servers"
-          >
-            <Globe size={14} />
           </button>
         )}
       </div>
