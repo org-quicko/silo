@@ -234,6 +234,11 @@ jobs:
       - name: Install it on Amazon Linux 2023
         run: |
           docker run --rm -v "$PWD:/w" -w /w amazonlinux:2023 bash -euxo pipefail -c '
+            # Test scaffolding, not a silo dependency: the base image is minimal
+            # enough to have no `runuser`, which the privilege-drop check below
+            # needs. Everything silo itself requires comes in through the RPM.
+            dnf install -y --setopt=install_weak_deps=False util-linux >/dev/null
+
             if [ "${{ steps.key.outputs.signed }}" = "true" ]; then
               rpm --import packaging/SIGNING_KEY.asc
               rpm -K dist/silo-*.x86_64.rpm | tee /dev/stderr | grep -q "digests signatures OK"
