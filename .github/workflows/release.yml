@@ -256,9 +256,22 @@ jobs:
             id silo
             test "$(stat -c "%U:%G %a" /var/lib/silo)" = "silo:silo 750"
 
-            # It has to actually run as that user, against that data directory.
-            runuser -u silo -- /usr/bin/silo init --config /tmp/probe.toml
-            runuser -u silo -- /usr/bin/silo status --data /var/lib/silo
+            # `silo status` exits non-zero when no server is running. That is
+            # its contract — a shell branches on it, the way `systemctl status`
+            # does — so the assertion is that it fails, and an exit 0 here would
+            # mean something is running that should not be.
+            ! runuser -u silo -- /usr/bin/silo status --config /etc/silo/silo.toml
+
+            # The property the packaging actually has to get right: the silo
+            # user can read the packaged config (0640 root:silo, so this passes
+            # only because the user is in the group) and write to the packaged
+            # data directory. Minting a key opens the store and creates it,
+            # which no amount of status-checking would. Output is dropped
+            # because it contains a root key, and a public CI log is no place
+            # for something that looks like one.
+            runuser -u silo -- /usr/bin/silo keys create \
+              --config /etc/silo/silo.toml --preset root --label rpm-install-check >/dev/null
+            test "$(stat -c "%U" /var/lib/silo/silo.db)" = "silo"
 
             # And come back off cleanly, leaving the data behind.
             dnf remove -y silo

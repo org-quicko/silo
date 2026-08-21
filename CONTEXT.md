@@ -96,6 +96,20 @@ A minimal, self-hostable headless CMS. Users define collections with JSON Schema
     `dnf remove` and an assertion that `/var/lib/silo` survives it. The
     `dnf-repo` job repeats it against the assembled index over `file://` with
     both gpg checks on, before anything is published.
+  - **Two rounds of that container test were wrong, and neither was the
+    package's fault** — the `v0.2.0` run reached it twice with the RPM itself
+    verifying, installing, and reporting the right version each time. First
+    `runuser` is absent from the minimal `amazonlinux:2023` image, so the step
+    now installs `util-linux` as test scaffolding, commented as such: nothing
+    silo needs arrives any way but through the RPM's own `Requires`. Then
+    `silo status` was asserted to succeed on a data directory with no server —
+    the exact opposite of its contract, which is to **exit non-zero so a shell
+    can branch on it**, the way `systemctl status` does. The test now asserts
+    the failure, and does the check that was actually wanted alongside it: the
+    silo user mints a key through `/etc/silo/silo.toml`, which passes only if
+    the packaged config is readable at `0640 root:silo` by a member of that
+    group and the packaged data directory is writable. `silo status` never
+    touched either.
 
 - **silo is installable — `brew install org-quicko/tap/silo` — and a release is
   one tag push (2026-08-21):** there was no CI, no tag, and no artifact anyone
