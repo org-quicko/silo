@@ -69,6 +69,47 @@ it in git.
 
 ## Quick start
 
+### Homebrew
+
+```sh
+brew install org-quicko/tap/silo
+silo serve
+```
+
+`brew services start silo` runs it in the background instead, keeping its data
+under Homebrew's prefix (`$(brew --prefix)/var/silo`) rather than in whatever
+directory you started it from.
+
+### dnf (Amazon Linux 2023, RHEL, Fedora)
+
+```sh
+sudo curl -fsSL -o /etc/yum.repos.d/silo.repo https://org-quicko.github.io/silo/silo.repo
+sudo dnf install silo
+```
+
+The package installs a `silo` system user, a config at `/etc/silo/silo.toml`, a
+data directory at `/var/lib/silo`, and a systemd unit. Nothing starts on
+install; `sudo systemctl enable --now silo` does. On first start silo prints a
+root API key to the journal, once:
+
+```sh
+sudo journalctl -u silo | grep -A2 'root API key'
+```
+
+Packages and the repository index are both signed, and the `.repo` file turns
+on `gpgcheck` and `repo_gpgcheck`, so dnf verifies both.
+
+### Prebuilt binaries
+
+Every [release](https://github.com/org-quicko/silo/releases) has an archive for
+macOS and Linux on x64 and arm64. Each holds a single self-contained `silo` —
+the admin UI is inside the executable — so unpacking it somewhere on your
+`PATH` is the whole installation.
+
+Releases are checksummed and signed — `SHA256SUMS` and two signatures over it
+(Sigstore keyless, and GPG) are attached alongside each release, with the
+verification commands in that release's notes.
+
 ### Docker
 
 ```sh
@@ -93,8 +134,10 @@ bun run server/main.ts serve
 `bun run server/main.ts init` first writes a `silo.toml` of default settings if
 you would rather configure silo in a file than with flags; it is optional.
 
-The server hosts the admin UI from `./ui/dist` relative to its working
-directory, with an SPA fallback. Skip the UI build if you only want the API.
+From source the server hosts the admin UI from `./ui/dist` relative to its
+working directory, with an SPA fallback; skip the UI build if you only want the
+API. A released binary is different — `bun run build` embeds `ui/dist` into the
+executable, so an installed `silo` serves the UI wherever it is run from.
 
 `serve` runs in the foreground. Add `--detach` to run it in the background
 instead and get `silo status`, `silo logs` and `silo stop` — see
@@ -111,7 +154,7 @@ instead and get `silo status`, `silo logs` and `silo stop` — see
  Store it safely. Create more keys with: silo keys create
 ================================================================
 
-silo 0.1.0-dev listening on :8090 (instance 01J..., driver sqlite, data ./silo_data)
+silo 0.2.0 listening on :8090 (instance 01J..., driver sqlite, data ./silo_data)
 ```
 
 Open <http://localhost:8090>, add the server with its URL and that key, and you
@@ -718,8 +761,30 @@ cd ui && bun run lint   # oxlint plus stylelint
 `silo.exe` on Windows, where Bun adds the extension itself. It runs wherever Bun
 does: the ad-hoc `codesign` pass that a Bun-compiled Mach-O needs is applied on
 macOS and skipped everywhere else, so nothing in the build is host specific. The
-binary still serves the admin UI from `./ui/dist` relative to its working
-directory.
+admin UI is built and embedded into the executable, so the result serves it from
+any working directory.
+
+The same script builds every release artifact, so one is reproducible locally:
+
+```sh
+bun run build -- --target linux-x64 --version 0.2.0 --out dist/linux-x64/silo --archive
+```
+
+### Versioning
+
+The root `package.json` is the only place silo's version is written. Everything
+derives from it — the binary, the archives, the RPM, the Homebrew formula — and
+one command moves the lot:
+
+```sh
+bun run set-version 0.2.0
+```
+
+It rewrites every workspace manifest and commits nothing. A build that is not a
+release reports the version with a `-dev` suffix, so a local `silo version` is
+never mistaken for the published artifact of the same number; pushing a `v0.2.0`
+tag is what publishes it, and the release refuses a tag that disagrees with the
+manifest.
 
 | Path | What it is |
 |------|------------|
@@ -727,7 +792,8 @@ directory.
 | `shared/` | `@silo/shared`, a Bun workspace holding runtime-neutral rules both the server and UI depend on: claims, validation errors, schema keywords, key format |
 | `ui/` | React and Vite admin UI, built to `ui/dist` |
 | `server/test/`, `shared/test/` | `bun test` suites |
-| `scripts/` | Build tooling invoked through `bun run`, outside the server's source tree |
+| `scripts/` | Build, packaging, and versioning tooling invoked through `bun run`, outside the server's source tree |
+| `packaging/` | The Homebrew formula and the dnf package: systemd unit, scriptlets, and repository metadata |
 
 The architecture is ports and adapters: `server/core/` defines domain types and
 the `Storage` and `BlobStorage` interfaces and imports no adapter, adapters

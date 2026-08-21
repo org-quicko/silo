@@ -18,10 +18,11 @@ import { StatusCommand } from "./commands/status-command";
 import { StopCommand } from "./commands/stop-command";
 import { Logger } from "../logging/logger";
 import { Daemon } from "../runtime/daemon";
+import { SiloVersion } from "../version";
 
 /** Argv parsing, subcommand routing, and dependency wiring for the silo CLI. */
 export class Cli {
-  private static readonly version = "0.1.0-dev";
+  private static readonly version = SiloVersion;
 
   private static printUsage() {
     console.log(`silo, minimal portable headless CMS

@@ -60,6 +60,16 @@ describe("silo serve --detach, compiled", () => {
     expect(built.code).toBe(0);
     const binary = process.platform === "win32" ? `${requested}.exe` : requested;
 
+    // The same ad-hoc re-sign `scripts/build.ts` applies, and for the same
+    // reason: `--compile` invalidates the signature its Bun copy arrived with,
+    // and macOS on arm64 answers that by killing the process on exec. Without
+    // this the test measures the signature, not the argv shaping it is here for
+    // — every assertion below fails with a bare exit code 137.
+    if (process.platform === "darwin") {
+      const signed = await run(["codesign", "--sign", "-", "--force", binary]);
+      expect(signed.code).toBe(0);
+    }
+
     const dir = await tempDir("silo-compiled-detach-");
     const listen = ":8951";
     const start = await run([binary, "serve", "--detach", "--data", dir, "--listen", listen]);

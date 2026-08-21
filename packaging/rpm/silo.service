@@ -1,0 +1,52 @@
+[Unit]
+Description=silo — minimal, self-hostable headless CMS
+Documentation=https://github.com/org-quicko/silo
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=exec
+User=silo
+Group=silo
+
+# Foreground, deliberately: `--detach` is for a human at a terminal, and a
+# service that daemonises itself is a service systemd cannot supervise. stdout
+# is the log — `journalctl -u silo` — which is also why the packaged config
+# leaves `[log] file` unset.
+ExecStart=/usr/bin/silo serve --config /etc/silo/silo.toml
+
+Restart=on-failure
+RestartSec=5s
+
+# /var/lib/silo, created and chowned to this unit's user if it is missing.
+StateDirectory=silo
+StateDirectoryMode=0750
+
+NoNewPrivileges=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectSystem=strict
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+ProtectClock=true
+ProtectHostname=true
+RestrictSUIDSGID=true
+RestrictRealtime=true
+RestrictNamespaces=true
+LockPersonality=true
+SystemCallArchitectures=native
+
+# Deliberately false, and not merely omitted: silo is a Bun binary and Bun's
+# JavaScript engine JITs, which means mapping pages writable and then
+# executable. Setting this true is the obvious next hardening step and it
+# stops the server from starting at all.
+MemoryDenyWriteExecute=false
+
+# Uncomment if you set `listen` to a port below 1024. The default is :8090,
+# which needs no capability.
+# AmbientCapabilities=CAP_NET_BIND_SERVICE
+
+[Install]
+WantedBy=multi-user.target

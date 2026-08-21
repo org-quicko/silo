@@ -1,0 +1,55 @@
+<title>silo dnf repository</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+  :root { color-scheme: light dark; --fg: #1a1a1a; --bg: #fdfdfc; --muted: #6b6b68; --line: #e3e3e0; --code-bg: #f4f4f2; }
+  @media (prefers-color-scheme: dark) {
+    :root { --fg: #e8e8e6; --bg: #1a1a19; --muted: #9a9a96; --line: #33332f; --code-bg: #232321; }
+  }
+  body { max-width: 46rem; margin: 0 auto; padding: 3rem 1.25rem 6rem; background: var(--bg); color: var(--fg);
+         font: 16px/1.65 ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif; }
+  h1 { font-size: 1.6rem; margin: 0 0 .25rem; }
+  h2 { font-size: 1.05rem; margin: 2.5rem 0 .75rem; padding-top: 1.25rem; border-top: 1px solid var(--line); }
+  p.lede { color: var(--muted); margin: 0 0 2rem; }
+  pre { background: var(--code-bg); border: 1px solid var(--line); border-radius: 6px;
+        padding: .85rem 1rem; overflow-x: auto; font-size: .875rem; }
+  code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+  p code { background: var(--code-bg); padding: .1em .35em; border-radius: 3px; font-size: .9em; }
+  a { color: inherit; }
+  footer { margin-top: 3rem; color: var(--muted); font-size: .875rem; }
+</style>
+
+<h1>silo — dnf repository</h1>
+<p class="lede">
+  Packages for Amazon Linux 2023, RHEL 8/9 and derivatives, and Fedora, on
+  x86_64 and aarch64.
+</p>
+
+<h2>Install</h2>
+<pre><code>sudo curl -fsSL -o /etc/yum.repos.d/silo.repo https://org-quicko.github.io/silo/silo.repo
+sudo dnf install silo</code></pre>
+
+<p>
+  The package installs a <code>silo</code> system user, a config file at
+  <code>/etc/silo/silo.toml</code>, a data directory at
+  <code>/var/lib/silo</code>, and a systemd unit. Nothing starts on install:
+</p>
+<pre><code>sudo systemctl enable --now silo</code></pre>
+
+<p>
+  On first start silo prints a root API key to the journal, once and never
+  again:
+</p>
+<pre><code>sudo journalctl -u silo | grep -A2 'root API key'</code></pre>
+
+<h2>Verification</h2>
+<p>
+  Packages and the repository index are both signed with silo's release key,
+  and the repo file turns on <code>gpgcheck</code> and
+  <code>repo_gpgcheck</code>, so dnf checks both for you. To inspect the key
+  yourself:
+</p>
+<pre><code>curl -fsSL https://org-quicko.github.io/silo/SIGNING_KEY.asc | gpg --show-keys</code></pre>
+
+<footer>
+  <a href="https://github.com/org-quicko/silo">github.com/org-quicko/silo</a>
+</footer>

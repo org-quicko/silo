@@ -15,6 +15,183 @@ A minimal, self-hostable headless CMS. Users define collections with JSON Schema
 
 *Last updated: 2026-08-21*
 
+- **The version has one home now: the root `package.json` (2026-08-21):** it
+  had four — `package.json`, `shared/package.json`, the literal in `Cli`, and
+  the fallback in `Exporter` — plus `ui/package.json`, which had quietly sat at
+  `0.0.0` since the project began and was found by the test written to check
+  exactly this. `bun run set-version 0.2.0` now moves every one of them
+  (**D28**).
+  - **`server/version.ts` imports the manifest rather than restating it**, which
+    is what deletes the copies instead of adding a rule about keeping them in
+    step. `bun build --compile` bundles the JSON, so a binary reports the right
+    version from any working directory with no file to read and no build flag
+    required — verified from source, compiled, and compiled with the define.
+  - **`-dev` survives on purpose.** `SILO_VERSION` no longer supplies the
+    version, only the fact that this build is a *release*: a release passes the
+    tag it was cut from, everything else appends `-dev`. Collapsing both onto
+    one number would lose the distinction that matters most often — whether a
+    binary is the published artifact or something built on a laptop — which is
+    how a bug report ends up filed against the wrong one.
+  - **The release refuses a tag that disagrees with the manifest**, naming the
+    command that fixes it. A `workflow_dispatch` rehearsal only warns, because
+    building a version the tree does not declare is the point of a rehearsal.
+    Exercised locally against a matching tag, a mismatched tag, a mismatched
+    dispatch, and a non-semver tag.
+  - `set-version` rewrites the `version` field by text rather than reparsing:
+    `JSON.parse` then `JSON.stringify` preserves key order but not indentation
+    or the trailing newline, and a version bump that reflows three manifests is
+    a version bump nobody can review. It commits and tags nothing — staging in
+    this repo is the author's.
+
+- **`dnf install silo` works on Amazon Linux 2023, and the release now
+  publishes a signed yum repository (2026-08-21):** Homebrew covers laptops;
+  the machines silo actually runs on are EC2 instances, and there was nothing
+  for them but a tarball. A `rpm` job now builds a signed RPM per architecture
+  with [nfpm](https://nfpm.goreleaser.com/) (`packaging/rpm/nfpm.yaml`,
+  `scripts/build-rpm.ts`), and a `dnf-repo` job indexes the last
+  `DNF_REPO_RELEASES` releases with `createrepo_c` and publishes the result to
+  GitHub Pages (**D27**).
+  - **One RPM covers the whole RHEL family, and that is a measured claim.** The
+    released Linux binary references no symbol newer than `GLIBC_2.17` and links
+    no libstdc++ — Bun statically links nearly everything — while AL2023 ships
+    glibc 2.34. So the package is built per architecture, not per distribution,
+    and the same file installs on RHEL 8/9 and Fedora.
+  - **It is a service package, not a binary drop.** A `silo` system user,
+    `/etc/silo/silo.toml` marked `config|noreplace`, `/var/lib/silo` at
+    `silo:silo 0750`, and a systemd unit. `%post` runs `systemctl preset` rather
+    than `enable`, which on RHEL-family hosts leaves the unit **off** — a
+    package manager must not open a port on a host nobody has configured yet —
+    so installing prints how to start it and where the one-time root key will
+    appear (`journalctl -u silo`).
+  - **The unit sets `MemoryDenyWriteExecute=false` explicitly.** It is the
+    obvious next line of hardening to add to a unit that already has a dozen
+    `Protect*` directives, and it stops silo from starting at all: Bun's engine
+    JITs, which means mapping pages writable and then executable. Absent, the
+    setting invites someone to add it; present and commented, it does not.
+  - **nfpm expands environment variables in scalar fields but not in content
+    globs** — `src: ${SILO_BINARY}` made it search for a directory of that
+    literal name. `build-rpm.ts` stages the binary at the fixed path the config
+    names instead, which is also where the executable bit is restored: a CI
+    artifact round trip loses it.
+  - **Pages holds no state.** Every deploy replaces the whole site, and the
+    packages it serves are downloaded back out of recent GitHub releases — the
+    release assets are the durable copy, the repository is a derived index.
+    That is what keeps Pages' 1 GB soft limit from becoming an unwritten
+    retention policy at ~60 MB of RPMs per release, and it means the index can
+    be rebuilt from scratch at any time. A release cut before dnf support has no
+    RPMs to download, which is tolerated; an *empty* index is not, and fails the
+    job.
+  - **Both signatures are checked, and the second is the one that matters
+    less obviously.** `gpgcheck` verifies each package; `repo_gpgcheck` verifies
+    the index that lists them. Without the latter, whoever serves the index
+    still chooses which signed packages you are offered — including an old one
+    with a known bug. This is the apt/rpm use the release key was chosen for
+    (D26): RSA-4096 precisely so the oldest verifier in the family can read it.
+  - Verified before shipping: RPMs built locally and their headers parsed
+    directly — ownership, modes, `config|noreplace` (file flags 17), all four
+    scriptlets, and `Requires: shadow-utils` for the `useradd` in `%pre`; the
+    signed and unsigned builds differ by exactly the `RSAHEADER`/`PGP` signature
+    tags. CI goes further and does the real thing: `dnf install` inside an
+    `amazonlinux:2023` container, running silo as the packaged user, then
+    `dnf remove` and an assertion that `/var/lib/silo` survives it. The
+    `dnf-repo` job repeats it against the assembled index over `file://` with
+    both gpg checks on, before anything is published.
+  - **Two rounds of that container test were wrong, and neither was the
+    package's fault** — the `v0.2.0` run reached it twice with the RPM itself
+    verifying, installing, and reporting the right version each time. First
+    `runuser` is absent from the minimal `amazonlinux:2023` image, so the step
+    now installs `util-linux` as test scaffolding, commented as such: nothing
+    silo needs arrives any way but through the RPM's own `Requires`. Then
+    `silo status` was asserted to succeed on a data directory with no server —
+    the exact opposite of its contract, which is to **exit non-zero so a shell
+    can branch on it**, the way `systemctl status` does. The test now asserts
+    the failure, and does the check that was actually wanted alongside it: the
+    silo user mints a key through `/etc/silo/silo.toml`, which passes only if
+    the packaged config is readable at `0640 root:silo` by a member of that
+    group and the packaged data directory is writable. `silo status` never
+    touched either.
+
+- **silo is installable — `brew install org-quicko/tap/silo` — and a release is
+  one tag push (2026-08-21):** there was no CI, no tag, and no artifact anyone
+  could install; `bun run build` produced a binary for the machine that ran it
+  and nothing carried it further. `.github/workflows/release.yml` now builds
+  four targets on a `v*` tag, checksums them, signs the checksum file twice,
+  publishes the release, and rewrites the formula in `org-quicko/homebrew-tap`.
+  The runbook and key setup live in Notion (moved 2026-08-21 — package
+  managers accumulate, and a per-manager doc belongs somewhere that isn't a
+  code review); `packaging/` in this repo now holds only what CI reads:
+  `homebrew/silo.rb.tmpl` and the public half of the signing key.
+  - **The compiled binary had to start carrying the admin UI first, and that was
+    the real blocker.** `SiloServer` served `./ui/dist` *relative to the working
+    directory*, so a `silo` on `$PATH` answered every UI route with "Admin UI
+    not built" unless the user happened to be standing in a source checkout.
+    `UiAssets` (`server/http/ui-assets.ts`) now brokers it: a release build hands
+    it a route→path map through `useEmbedded`, everything else reads the
+    directory as before. IMPLEMENTATION.md §9 had claimed a self-contained
+    binary since the Go era; this is the first build for which it is true.
+  - **The embedding is generated, not written.** `scripts/build.ts` emits
+    `.build/entry.ts` — a `with { type: "file" }` import per file in `ui/dist`,
+    the map, then `Cli.run()` — and compiles *that* instead of `server/main.ts`.
+    Those imports survive `--compile` as `/$bunfs/root/…` paths that `Bun.file`
+    reads from any cwd (verified: 200s and byte-exact bodies with correct MIME
+    from a binary run out of `/private/tmp`). The names are content-hashed, so
+    something has to hold the map; and the entry cannot be `server/main.ts`,
+    which calls `Cli.run()` on import and would start the server before there
+    was anything to hand it.
+  - **`bun run build` is now the only build path.** Same script, same flags:
+    `--target`, `--version`, `--out`, `--archive`, `--skip-ui`. A release
+    artifact is reproducible locally, and CI runs nothing that a developer
+    cannot. The version stops being the `0.1.0-dev` literal in `Cli` — a release
+    passes `--define SILO_VERSION='"1.2.3"'` and `typeof` picks the fallback
+    everywhere else, which is what lets Homebrew's `test do` assert on it.
+  - **Both Darwin targets are built on the macOS runner because `codesign` only
+    exists there.** Cross-compiling the x64 half from the arm64 runner is fine —
+    `codesign` signs a foreign-arch Mach-O quite happily, measured — and this
+    sidesteps the retirement of the Intel `macos-13` image entirely. What cannot
+    move is the signing: an unsigned arm64 Mach-O is not slow or warned about,
+    it is SIGKILLed at exec.
+  - **`compiled-detach.test.ts` was failing on macOS arm64 before any of this,
+    for exactly that reason** — it compiles a binary and never signed it, so
+    every assertion in it died behind a bare exit code 137. It now applies the
+    same ad-hoc sign the build does. It is the one other place in the repo that
+    compiles, which is why it is the one other place that has to.
+  - **Signing is two signatures over one checksum file, not one per artifact.**
+    Sigstore keyless (`SHA256SUMS.cosign.bundle`) means no private key exists in
+    the repository at all — the identity is the workflow's OIDC token — and a
+    GPG detached signature (`SHA256SUMS.asc`) is there for verifiers that want a
+    fingerprint to pin, and because apt and rpm will both need that key later.
+    Neither can be Apple's or Microsoft's: those trust only certificates they
+    issued, which is the one thing a "common signing key" cannot span. The
+    Darwin builds stay ad-hoc signed, which is sufficient for Homebrew — a
+    formula's tarball comes down over curl and is never quarantined.
+  - The GPG step warns and skips when `GPG_PRIVATE_KEY` is unset, so the first
+    release can precede the key. `HOMEBREW_TAP_TOKEN` has no such fallback: the
+    tap is another repository and `GITHUB_TOKEN` cannot write to one.
+  - **The first tag pushed, `v0.1.0`, failed at the last step: `gh` could not
+    tell which repository it was releasing into.** Every job before it passed —
+    four artifacts built, checksummed, and signed both ways — and then
+    `gh release create` exited on `failed to run git: fatal: not a git
+    repository`. The release job deliberately checks nothing out, having no work
+    for a source tree, and `gh` falls back to reading the repository off a git
+    remote for commands that "otherwise operate on a local repository". It now
+    passes `GH_REPO: ${{ github.repository }}` instead, which is the documented
+    way to say so; cloning the repo to let `gh` read a remote URL back out of it
+    would be the other fix and a worse one. Reproduced outside a git directory
+    before and after, against the real `gh`.
+    - **A re-run will not pick this up.** GitHub runs a workflow from the file
+      at the commit being built, so the fix has to be committed and the `v0.1.0`
+      tag moved onto it (or a fresh tag cut) — re-running the failed job replays
+      the broken file.
+  - **The actions were pinned at majors that target Node 20**, which GitHub has
+    been force-running on Node 24 since the September 2025 deprecation and will
+    eventually stop accommodating: `checkout` v4→v7, `upload-artifact` v4→v7,
+    `download-artifact` v4→v8, `attest-build-provenance` v2→v4. Every input the
+    workflow passes was checked against the new majors first — `merge-multiple`,
+    `pattern`, `subject-path`, `if-no-files-found` all survive. `setup-bun@v2`
+    and `cosign-installer@v3` were never flagged and stay put: the first already
+    resolves to a Node 24 build, the second is a composite action with no Node
+    runtime of its own.
+
 - **`serve --detach` worked from source and failed from the compiled binary
   (2026-08-21):** every detached start of a built `silo` died instantly with
   `unknown command "B:/~BUN/root/silo"`, its usage dump landing in the log file.
@@ -848,7 +1025,9 @@ A minimal, self-hostable headless CMS. Users define collections with JSON Schema
   undocumented. Two facts are documented as they behave rather than as
   IMPLEMENTATION.md describes them: the admin UI is served from `./ui/dist`
   relative to the process working directory (no `go:embed` equivalent, so a
-  compiled binary is not self-contained), and `EntryUtils.toApiResponse` omits
+  compiled binary is not self-contained — no longer true as of the release
+  work at the top of this file, where the binary gained the UI), and
+  `EntryUtils.toApiResponse` omits
   `rev`, so the `If-Match`/`?rev=` requirement on entry `PUT`/`DELETE` is
   documented without claiming the API hands clients a revision to send.
   (That second one was a bug, not a documentation nuance — fixed 2026-08-20
@@ -1204,13 +1383,14 @@ A minimal, self-hostable headless CMS. Users define collections with JSON Schema
 
 | Path | What it is |
 |------|------------|
-| `IMPLEMENTATION.md` | Design spec + decisions log (D1–D25) |
+| `IMPLEMENTATION.md` | Design spec + decisions log (D1–D28) |
 | `CONTEXT.md` | This file — current state of the project |
 | `CLAUDE.md` | Standing instructions for AI assistants |
 | `package.json` | Project metadata, TypeScript 7 setup, Bun/Hono dependencies, and AWS S3 SDK; declares the `shared` and `ui` Bun workspaces, and is the one install root and one lockfile for all three packages. `build` delegates to `scripts/build.ts` rather than inlining the compile, because the signing step is platform-conditional |
 | `tsconfig.json` | TypeScript configuration for the Bun server, shared package, and build scripts (`include: ["server/**/*", "shared/**/*", "scripts/**/*"]`) |
 | `shared/` | Local `@silo/shared` package (a Bun workspace of the root) for runtime-neutral client/server rules. `src/claims/` is the single source of truth for claim constants, the `Claim`/`FixedClaim`/`CollectionClaim`/`CollectionPermission`/`ClaimPreset` types, `ParsedClaim`, validation, matching, delegation, and presets; `src/errors/` holds `ValidationError` and the `ValidationDetail` wire shape; `src/schema/` holds `SiloRef` (the `silo://collections/` `$ref` scheme), `SchemaAccess` (`x-silo-auth`), and `MediaField` (`x-silo-type: "media"`); `src/keys/` holds `KeyFormat` (secret prefix and display truncation); `src/media/` holds `MediaRef` (the `silo://media/<ulid>` scheme, its pre-D23 `/media/<key>` dual-read, and the canonical form the write path stores). Tests under `shared/test/`. Each artifact is its own file and its own `exports` subpath |
 | `server/main.ts` | Thin CLI entrypoint — imports `Cli` and runs it |
+| `server/version.ts` | `SiloVersion` (what this build calls itself) and `PackageVersion` (what the manifest declares), both derived from the root `package.json` — the single place the version is written (D28). A release build overrides `SiloVersion` through `--define SILO_VERSION`; every other build carries a `-dev` suffix |
 | `server/cli/` | `cli.ts` (argv parsing, subcommand routing, dependency wiring), `bootstrap-banner.ts` (the first-boot root key announcement), and `commands/` (one command class per subcommand: `serve-command.ts`, `keys-command.ts`, `export-command.ts`, `import-command.ts`, `init-command.ts` — `silo init`, the config scaffold rendered from `ConfigLoader.defaultConfig()` so it cannot drift from the built-in defaults, `media-command.ts` — `silo media reconcile`, the catalog repair that runs against the data dir with no server, reporting what it adopted, pruned, finished and returned to active, and the four process-lifecycle commands: `serve-detached-command.ts` — `silo serve --detach`, which spawns the child and waits for *its* run file before reporting success, `stop-command.ts`, `status-command.ts`, `logs-command.ts`). `Cli` routes `serve --detach`, `stop`, `status` and `logs` before storage is opened, like `init`: none of them is the server, so none may create a data dir or take a handle on another process's database |
 | `server/config/` | `Config` type and its sub-shapes (`storage-config.ts`, `blob-storage-config.ts`, `auth-config.ts`, `schema-config.ts`, `log-config.ts`) plus `ConfigLoader` (`config-loader.ts`) — `loadConfig` walks file then env, and `resolveDerivedDefaults` fills in the paths derived from others (the fs blob dir) once flags have been applied |
 | `server/logging/` | The server's log (D25): `Logger` (level threshold, `text`/`json` formatting, `raw` for the bootstrap banner, `silent()` for tests), `LogLevel` + `LogLevels`, the `LogSink` port with `ConsoleSink` and a size-rotating `FileSink`, `LogLocation` (where a detached run writes, and where `silo logs` reads) and `LogTail` (the last n lines, and follow across a rotation) |
@@ -1228,13 +1408,17 @@ A minimal, self-hostable headless CMS. Users define collections with JSON Schema
 | `server/adapters/storage/fs/` | `FsStore` + `FsFilter` + `FsManifest` |
 | `server/adapters/blob/` | `FsBlobStorage`, `S3BlobStorage`, `BlobStorageFactory` (imported directly — no barrel) |
 | `server/adapters/http/` | `HttpSiloClient` (+ `Fetcher` type) — the authenticated HTTP source client for direct copy |
-| `server/http/server.ts` | `SiloServer` class — builds the Hono app (middleware, routes, static UI serving with SPA fallback). Takes `SiloServerOptions` (`version`, `authDisabled`, `logger`, `logRequests`) rather than positional arguments; request logging is registered only when asked for, so a server with it off pays nothing per request |
+| `server/http/server.ts` | `SiloServer` class — builds the Hono app (middleware, routes, and one handler for the admin UI and its SPA fallback, sourced through `UiAssets`). Takes `SiloServerOptions` (`version`, `authDisabled`, `logger`, `logRequests`) rather than positional arguments; request logging is registered only when asked for, so a server with it off pays nothing per request |
+| `server/http/ui-assets.ts` | `UiAssets` — where the admin UI comes from. A release build registers an embedded route→path map through `useEmbedded` (generated by `scripts/build.ts`); everything else reads `./ui/dist`, the documented dev flow. The disk branch normalises before joining, so a request path cannot climb out of the UI root |
 | `server/http/middleware/` | `LoggingMiddleware`, `AuthMiddleware` |
 | `server/http/auth/` | `RouteAuth` — claim-checking helpers for route handlers |
 | `server/http/routes/` | `RouteManager` plus one routes class per resource (`projects-routes.ts`, `collections-routes.ts`, `entries-routes.ts` + `request-utils.ts`, `keys-routes.ts`, `media-routes.ts`, `transfer-routes.ts`, `copy-routes.ts` + `copy-request.ts` + `scope-copy-request.ts`, `session-routes.ts`). `CopyRoutes` serves both the whole-instance `/api/copy` and the scoped `/api/projects/:p/environments/:e/copy` |
-| `server/test/` | Test suites running via `bun test`: `conformance/` (storage conformance suite), `adapters/`, `core/`, `cli/` (bootstrap banner rendering, `silo init`'s scaffold round-tripping back to the defaults), `config/` (config layering, the derived fs blob path, and the `[log]` block), `logging/` (level thresholds, both formats, rotation, tailing and following across a rotation), `runtime/` (run-file staleness and the one-server-per-data-dir refusal, the process title leading with the name and never throwing, the argv a detached child inherits, a real detached start/stop/status round trip that pins the lost-the-port regression, and the same round trip against a freshly compiled binary — the only place the virtual-entry-path bug exists), `http/` (claims enforcement/delegation, entries API, export/import, direct server copy, scope-to-scope copy, media catalog/folders/search/reference integrity, schema `$ref`, projects API tests). The conformance suite pins media usages on both adapters — the one D23 invariant they answer by completely different means |
+| `server/test/` | Test suites running via `bun test`: `conformance/` (storage conformance suite), `adapters/`, `core/`, `cli/` (bootstrap banner rendering, `silo init`'s scaffold round-tripping back to the defaults), `config/` (config layering, the derived fs blob path, and the `[log]` block), `version.test.ts` (every manifest agrees, the runtime version derives from the root one, a non-release build is marked `-dev`, and no source file has reacquired a hard-coded version), `logging/` (level thresholds, both formats, rotation, tailing and following across a rotation), `runtime/` (run-file staleness and the one-server-per-data-dir refusal, the process title leading with the name and never throwing, the argv a detached child inherits, a real detached start/stop/status round trip that pins the lost-the-port regression, and the same round trip against a freshly compiled binary — the only place the virtual-entry-path bug exists), `http/` (claims enforcement/delegation, entries API, export/import, direct server copy, scope-to-scope copy, media catalog/folders/search/reference integrity, schema `$ref`, projects API tests). The conformance suite pins media usages on both adapters — the one D23 invariant they answer by completely different means |
 | `ui/` | React + TS + Vite SPA (Slate design), organized into feature dirs (`api/`, `schema/`, `components/`, `forms/`, `router/`, `utils/` with `Formatters`, `ThemeManager` & `ScopeMemory`, `views/*`) with colocated CSS Modules and a small global foundation under `styles/`. Every collection/entry call is scoped through `ApiClient.collectionsPath`; the active `(project, env)` is part of the URL, switched from the `/servers` gate in the workspace and from the settings nav's scope switchers. Shared protocol rules come from `@silo/shared`; `ui/dist` contains the compiled SPA served at the web root. `src/**/*.test.ts` are `bun test` suites in their own TS project (`tsconfig.test.json`) and run from the repo root alongside the server's |
-| `scripts/` | Tooling run through `bun run`, kept out of the server's source tree: `build.ts` (`BuildBinary`) compiles `server/main.ts` into the standalone binary and ad-hoc signs it on macOS only |
+| `scripts/` | Tooling run through `bun run`, kept out of the server's source tree. `build.ts` (`BuildBinary`) is the single build path for every artifact, local or released: it builds the admin UI, generates `.build/entry.ts` (the embedded-asset imports plus `Cli.run()`), compiles that for `--target`, stamps `--version` through `--define SILO_VERSION`, ad-hoc signs Darwin output on macOS, and with `--archive` writes `dist/silo-<version>-<os>-<arch>.tar.gz`. `build-rpm.ts` (`BuildRpm`) wraps an already-compiled Linux binary as an RPM via nfpm — it stages the binary where the config can find it, maps a silo target onto nfpm's architecture name, and turns an absent signing key into an unsigned package while a mistyped one stays a hard error. `set-version.ts` (`SetVersion`) rewrites the version across every workspace manifest in place, and commits nothing. `render-formula.ts` (`RenderFormula`) fills `packaging/homebrew/silo.rb.tmpl` from a `SHA256SUMS` file, keyed by artifact filename and failing loudly on a missing target rather than shipping a formula with a blank checksum |
+| `.github/workflows/release.yml` | The release: tests, four targets (Darwin arm64/x64 on `macos-15`, Linux x64/arm64 on `ubuntu-24.04`), `SHA256SUMS`, a Sigstore keyless signature and a GPG one over it, build-provenance attestations, the GitHub release, and the formula push to the tap. then the RPMs (built, signed, and `dnf install`-tested on `amazonlinux:2023`), and finally the dnf repository index published to GitHub Pages. `workflow_dispatch` runs the build and publishes nothing |
+| `packaging/rpm/` | The dnf package: `nfpm.yaml` (contents, scriptlet wiring, `shadow-utils` dependency, RPM signing), `silo.service` (systemd unit — foreground, hardened, `MemoryDenyWriteExecute=false` because Bun JITs), `silo.toml` (the packaged config: only the keys the layout requires, so there is little to drift), `scripts/` (the four rpm scriptlets — user creation, `systemctl preset`, and a removal that deliberately leaves `/var/lib/silo` behind), `silo.repo` (what users drop in `/etc/yum.repos.d/`), and `index.html` (the GitHub Pages landing page) |
+| `packaging/` | `homebrew/silo.rb.tmpl` is the Homebrew formula, and the source of truth for it — the tap's copy is generated and overwritten every release. `SIGNING_KEY.asc` is the public half of the release GPG key, committed so a verifier needs no keyserver. The release runbook (tap creation, secrets, what each signature layer proves) is a Notion doc, not a file here — it names accounts and setup steps that don't need to be in the source tree or reviewed as a diff |
 | `README.md` | User-facing docs: why/quick start, concepts, configuration, CLI, HTTP API, claims, portability, deployment, development, roadmap, contributing. Rewritten 2026-08-18; deliberately links neither this file nor IMPLEMENTATION.md |
 | `ui/README.md` | Admin UI docs: dev workflow, the server-connection model, URL grammar, RJSF theme notes, styling conventions, and how `@silo/shared` resolves through the workspace symlink. Rewritten 2026-08-18 (was the stock Vite template) |
 

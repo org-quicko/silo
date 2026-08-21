@@ -1,0 +1,23 @@
+# Install with:
+#   sudo curl -fsSL -o /etc/yum.repos.d/silo.repo https://org-quicko.github.io/silo/silo.repo
+#   sudo dnf install silo
+#
+# Works on Amazon Linux 2023, RHEL 8/9 and derivatives, and Fedora: the binary
+# needs no glibc symbol newer than 2.17, so there is one package per
+# architecture rather than one per distribution.
+[silo]
+name=silo
+baseurl=https://org-quicko.github.io/silo/rpm/$basearch/
+enabled=1
+
+# gpgcheck verifies each package; repo_gpgcheck verifies the repository index
+# that lists them. Both matter — without the second, whoever serves the index
+# chooses which packages you are offered, whatever their individual signatures
+# say.
+gpgcheck=1
+repo_gpgcheck=1
+gpgkey=https://org-quicko.github.io/silo/SIGNING_KEY.asc
+
+# The index is regenerated on every release and is small; five minutes keeps a
+# new version visible without meaningful cost.
+metadata_expire=300

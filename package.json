@@ -1,6 +1,6 @@
 {
   "name": "silo",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "A minimal, self-hostable headless CMS in TypeScript on Bun and Hono",
   "main": "server/main.ts",
   "type": "module",
@@ -8,7 +8,8 @@
   "scripts": {
     "start": "bun run server/main.ts serve",
     "test": "bun test",
-    "build": "bun run scripts/build.ts"
+    "build": "bun run scripts/build.ts",
+    "set-version": "bun run scripts/set-version.ts"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1114.0",

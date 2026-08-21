@@ -1,0 +1,90 @@
+# nfpm configuration for silo's RPM. Built by `scripts/build-rpm.ts`, which is
+# what fills the three environment variables below.
+#
+# nfpm expands ${...} itself, so this file needs no rendering step of its own —
+# unlike the Homebrew formula, whose checksums have to be looked up per target.
+#
+#     https://nfpm.goreleaser.com/configuration/
+name: silo
+arch: ${SILO_NFPM_ARCH} # nfpm's Go-style name; it writes x86_64 / aarch64 into the RPM
+platform: linux
+version: ${SILO_VERSION}
+version_schema: semver
+release: "1"
+maintainer: Quicko <developer@quicko.company>
+vendor: Quicko
+homepage: https://github.com/org-quicko/silo
+license: AGPL-3.0-only
+description: |
+  Minimal, self-hostable headless CMS.
+
+  Define collections with JSON Schema and get an admin UI with generated forms
+  plus a REST API over them. Content is stored as plain JSON documents in
+  SQLite or flat files, and every instance can be exported, imported, or
+  cloned with one command.
+
+contents:
+  # A fixed path, not ${SILO_BINARY}: nfpm expands environment variables in
+  # scalar fields like `version` and `arch` but *not* in content globs, where
+  # it would look for a directory literally named "${SILO_BINARY}". The build
+  # script stages whichever architecture it is packaging here instead.
+  - src: .build/rpm/silo
+    dst: /usr/bin/silo
+    file_info:
+      mode: 0755
+
+  - src: packaging/rpm/silo.service
+    dst: /usr/lib/systemd/system/silo.service
+    file_info:
+      mode: 0644
+
+  # noreplace: an upgrade must not overwrite a config the administrator edited.
+  # rpm writes the new one alongside as silo.toml.rpmnew instead.
+  - src: packaging/rpm/silo.toml
+    dst: /etc/silo/silo.toml
+    type: config|noreplace
+    file_info:
+      mode: 0640
+      owner: root
+      group: silo
+
+  - src: LICENSE
+    dst: /usr/share/licenses/silo/LICENSE
+    file_info:
+      mode: 0644
+
+  - src: README.md
+    dst: /usr/share/doc/silo/README.md
+    file_info:
+      mode: 0644
+
+  # Packaged as well as declared by the unit's StateDirectory, so the ownership
+  # is right even for someone who runs silo by hand before ever starting it.
+  - dst: /var/lib/silo
+    type: dir
+    file_info:
+      mode: 0750
+      owner: silo
+      group: silo
+
+# The preinstall scriptlet calls groupadd/useradd, which live here. systemd is
+# deliberately *not* required: every systemctl call in the scriptlets is guarded
+# with `|| :`, so the package also installs cleanly into a container that has no
+# init, and requiring it would break that for no gain on a real host.
+depends:
+  - shadow-utils
+
+scripts:
+  preinstall: packaging/rpm/scripts/preinstall.sh
+  postinstall: packaging/rpm/scripts/postinstall.sh
+  preremove: packaging/rpm/scripts/preremove.sh
+  postremove: packaging/rpm/scripts/postremove.sh
+
+rpm:
+  group: Applications/Internet
+  compression: xz
+  signature:
+    # Set by the release workflow to the imported release key. Unset locally,
+    # which produces an unsigned package — fine for a build you are inspecting,
+    # and rejected by dnf on a host that has gpgcheck on.
+    key_file: ${SILO_RPM_SIGNING_KEY}
