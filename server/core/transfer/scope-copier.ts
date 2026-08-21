@@ -97,7 +97,7 @@ export class ScopeCopier {
     let offset = 0;
     while (true) {
       const page = await st.list(from, collection, {
-        sort: [{ field: "$id", desc: false }],
+        sort: [{ path: "$.id", desc: false }],
         limit: 100,
         offset,
       });

@@ -45,7 +45,7 @@ export class Exporter {
     let count = 0;
     while (true) {
       const { items } = await st.list(scope, colName, {
-        sort: [{ field: "$id", desc: false }],
+        sort: [{ path: "$.id", desc: false }],
         limit: 100,
         offset,
       });

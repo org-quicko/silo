@@ -1,4 +1,5 @@
 import { ValidationError } from "@silo/shared/validation-error";
+import { JsonPath } from "@silo/shared/json-path";
 import { DefaultLimit, MaxLimit, MaxFilterDepth, MaxFilterNodes, type Query } from "./query";
 import type { Filter } from "./filter";
 import type { SortKey } from "./sort-key";
@@ -13,24 +14,37 @@ export class QueryUtils {
     "lte",
     "in",
     "contains",
+    "exists",
   ]);
 
-  private static readonly envelopeFields = new Set([
-    "$id",
-    "$created_at",
-    "$updated_at",
-    "$seq",
-    "$rev",
-  ]);
+  private static readonly groupOps = new Set(["and", "or", "not"]);
 
-  private static readonly fieldRe = /^[a-zA-Z_][a-zA-Z0-9_]*(\.[a-zA-Z_][a-zA-Z0-9_]*)*$/;
-
-  static isEnvelopeField(f: string): boolean {
-    return QueryUtils.envelopeFields.has(f);
+  /** Parses and validates a filter path, raising `ValidationError` (D29). */
+  static path(raw: string | undefined): JsonPath {
+    if (!raw) {
+      // Reached by anything that omits `path` — including the pre-D29 `field`
+      // spelling, which is not detected on purpose (D29) but still deserves an
+      // error that names what the op actually wants.
+      throw new ValidationError(
+        'every leaf op needs a "path", an RFC 9535 path such as "$.data.title" or "$.updated_at"'
+      );
+    }
+    return JsonPath.parse(raw);
   }
 
-  static validField(f: string): boolean {
-    return QueryUtils.isEnvelopeField(f) || QueryUtils.fieldRe.test(f);
+  /**
+   * A sort key must select at most one node — a wildcard path has no
+   * deterministic order, so it is refused here rather than producing an
+   * arbitrary one that differs per adapter.
+   */
+  static sortPath(raw: string): JsonPath {
+    const p = JsonPath.parse(raw);
+    if (!p.singular) {
+      throw new ValidationError(
+        `invalid sort path "${raw}": a wildcard selects many nodes and has no deterministic order`
+      );
+    }
+    return p;
   }
 
   static normalizeQuery(q: Partial<Query>): Query {
@@ -48,9 +62,7 @@ export class QueryUtils {
 
     if (normalized.sort) {
       for (const s of normalized.sort) {
-        if (!QueryUtils.validField(s.field)) {
-          throw new ValidationError(`invalid sort field "${s.field}"`);
-        }
+        QueryUtils.sortPath(s.path);
       }
     }
 
@@ -74,8 +86,8 @@ export class QueryUtils {
       const trimmed = part.trim();
       if (trimmed === "") continue;
       const desc = trimmed.startsWith("-");
-      const field = desc ? trimmed.slice(1) : trimmed;
-      keys.push({ field, desc });
+      const path = desc ? trimmed.slice(1) : trimmed;
+      keys.push({ path, desc });
     }
     return keys;
   }
@@ -91,30 +103,62 @@ export class QueryUtils {
       );
     }
 
-    if (f.op === "and" || f.op === "or") {
+    if (QueryUtils.groupOps.has(f.op)) {
       if (!f.args || f.args.length === 0) {
         throw new ValidationError(`op "${f.op}" requires args`);
       }
-      if (f.field != null || f.value !== undefined) {
-        throw new ValidationError(`op "${f.op}" takes args, not field/value`);
+      // `not` negates one completed predicate. Allowing a list would leave its
+      // meaning open — "none of" or "not all of" — so the arity is pinned
+      // instead of guessed.
+      if (f.op === "not" && f.args.length !== 1) {
+        throw new ValidationError(`op "not" takes exactly one arg`);
+      }
+      if (f.path != null || f.value !== undefined) {
+        throw new ValidationError(`op "${f.op}" takes args, not path/value`);
       }
       for (const arg of f.args) {
         QueryUtils.validateFilter(arg, depth + 1, state);
       }
-    } else if (QueryUtils.leafOps.has(f.op)) {
-      if (!f.field || !QueryUtils.validField(f.field)) {
-        throw new ValidationError(`invalid filter field "${f.field || ""}"`);
-      }
-      if (f.args && f.args.length > 0) {
-        throw new ValidationError(`op "${f.op}" takes field/value, not args`);
-      }
-      if (f.op === "in") {
-        if (!Array.isArray(f.value) || f.value.length === 0) {
-          throw new ValidationError(`op "in" requires a non-empty array value`);
-        }
-      }
-    } else {
+      return;
+    }
+
+    if (!QueryUtils.leafOps.has(f.op)) {
       throw new ValidationError(`unknown filter op "${f.op}"`);
     }
+
+    QueryUtils.path(f.path);
+
+    if (f.args && f.args.length > 0) {
+      throw new ValidationError(`op "${f.op}" takes path/value, not args`);
+    }
+    if (f.op === "exists") {
+      if (f.value !== undefined) {
+        throw new ValidationError(`op "exists" takes a path only, not a value`);
+      }
+      return;
+    }
+    if (f.op === "in") {
+      if (!Array.isArray(f.value) || f.value.length === 0) {
+        throw new ValidationError(`op "in" requires a non-empty array value`);
+      }
+      for (const v of f.value) QueryUtils.assertScalar(f.op, v);
+      return;
+    }
+    QueryUtils.assertScalar(f.op, f.value);
+  }
+
+  /**
+   * Comparison values are scalars. An object or array here has no consistent
+   * answer: the in-memory evaluator would compare by reference and always say
+   * false, while SQLite cannot bind it at all — so the two engines would
+   * disagree by throwing versus quietly returning nothing.
+   */
+  private static assertScalar(op: string, v: any): void {
+    if (v === null) return;
+    const t = typeof v;
+    if (t === "string" || t === "number" || t === "boolean") return;
+    throw new ValidationError(
+      `op "${op}" requires a string, number, boolean or null value, not ${Array.isArray(v) ? "an array" : t}`
+    );
   }
 }

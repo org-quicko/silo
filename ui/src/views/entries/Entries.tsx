@@ -13,6 +13,7 @@ import {
   Calendar,
 } from 'lucide-react'
 import { Claims } from '@silo/shared/claims'
+import { JsonPath } from '@silo/shared/json-path'
 import type { CollectionPermission } from '@silo/shared/collection-permission'
 import { SchemaAccess } from '@silo/shared/schema-access'
 import { api } from '../../api/api-client'
@@ -127,7 +128,9 @@ export function EntriesView({
 
   const reload = () => {
     setLoading(true)
-    const filter = query.q.trim() && primary ? { op: 'contains', field: primary, value: query.q.trim() } : undefined
+    const filter = query.q.trim() && primary
+      ? { op: 'contains', path: JsonPath.dataField(primary), value: query.q.trim() }
+      : undefined
     return api
       .listEntries(url, apiKey, scope, collection.name, { limit: PAGE_SIZE, offset, sort: (desc ? '-' : '') + sort, filter })
       .then((r) => {
@@ -141,7 +144,9 @@ export function EntriesView({
   useEffect(() => {
     let alive = true
     setLoading(true)
-    const filter = query.q.trim() && primary ? { op: 'contains', field: primary, value: query.q.trim() } : undefined
+    const filter = query.q.trim() && primary
+      ? { op: 'contains', path: JsonPath.dataField(primary), value: query.q.trim() }
+      : undefined
     api
       .listEntries(url, apiKey, scope, collection.name, { limit: PAGE_SIZE, offset, sort: (desc ? '-' : '') + sort, filter })
       .then((r) => {
@@ -157,8 +162,9 @@ export function EntriesView({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [url, apiKey, scope, collection.name, offset, sort, desc, query.q])
 
-  const toggleSort = (field: string) => {
-    onQueryChange({ ...query, sort: field, desc: sort === field ? !desc : true, page: 1 })
+  /** Takes a path (D29), so the URL and the API speak the same language. */
+  const toggleSort = (path: string) => {
+    onQueryChange({ ...query, sort: path, desc: sort === path ? !desc : true, page: 1 })
   }
 
   const goToPage = (page: number) => onQueryChange({ ...query, page })
@@ -265,22 +271,22 @@ export function EntriesView({
                 </span>
               )}
               <div className={styles.toolbarSpacer} />
-              <Button variant="secondary" size="sm" onClick={() => toggleSort('$updated_at')}>
+              <Button variant="secondary" size="sm" onClick={() => toggleSort(JsonPath.UpdatedAt)}>
                 Sort: Updated <ArrowUpDown size={13} />
               </Button>
             </div>
 
             <div className="card">
               <div className={`${table.header} ${table.table}`} style={{ ['--cols' as any]: gridCols }}>
-                <span className={table.sortable} onClick={() => primary && toggleSort(primary)}>
+                <span className={table.sortable} onClick={() => primary && toggleSort(JsonPath.dataField(primary))}>
                   {primary || 'ID'} <ArrowUpDown size={11} />
                 </span>
                 {extra.map((c) => (
-                  <span key={c} className={table.sortable} onClick={() => toggleSort(c)}>
+                  <span key={c} className={table.sortable} onClick={() => toggleSort(JsonPath.dataField(c))}>
                     {c} <ArrowUpDown size={11} />
                   </span>
                 ))}
-                <span className={table.sortable} onClick={() => toggleSort('$updated_at')}>
+                <span className={table.sortable} onClick={() => toggleSort(JsonPath.UpdatedAt)}>
                   Updated
                 </span>
                 <span />

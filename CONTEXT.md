@@ -15,6 +15,118 @@ A minimal, self-hostable headless CMS. Users define collections with JSON Schema
 
 *Last updated: 2026-08-21*
 
+- **Search works on every adapter, before FTS5 exists (2026-08-21):** P1 of
+  **D30** (§5.5). A `Searcher` port with one implementation so far —
+  `ScanSearcher`, which reads entries through `Storage` and matches in memory,
+  so it answers on SQLite and fs alike and will answer on any future adapter.
+  FTS5 is P2 and makes this *fast*, not *possible*.
+  - **Three reaches, addressed by path** (D19): `GET` on
+    `/api/projects/{p}/envs/{e}/collections/{name}/search`,
+    `/api/projects/{p}/envs/{e}/search`, and `/api/search`. `GET` is the only
+    method — see D30 for why `POST` was specified and then dropped. The routes
+    register **before** `EntriesRoutes`, or `/collections/{name}/search` is
+    captured as an entry whose id is `"search"`.
+  - **Authorization is a compiled plan, not a claim string.**
+    `Service.searchAccess` turns a key's `entries:read` claims into concrete
+    `SearchTarget`s, intersected with the reach the route took from its path —
+    a `*` claim narrows *to* the reach instead of escaping it — and the engine
+    applies them before rank, count and paging, so `total` and every page
+    boundary are right rather than post-filtered. An unparseable stored claim
+    is skipped, not thrown: one bad record must not 500 every search.
+  - **Anonymous search reaches public collections only**, and a collection
+    with **no schema** is not public — an import archive can carry entries with
+    no schema, and nobody declared those readable.
+  - **`x-silo-search`** (`shared/src/schema/search-fields.ts`) selects the
+    corpus with D29 paths: `label` weights, `include` replaces the default,
+    `exclude` subtracts a subtree. Validated on schema save, so a mistyped path
+    is a `400` instead of a field that quietly stops being searchable. It is
+    **not** an access control — an excluded field is still returned on read,
+    and there is a test that says so.
+  - **What is indexed by default:** every string and number leaf under
+    `$.data`. Not field names (a search for "title" would match everything),
+    not booleans or nulls, not `silo://media/...` references, and not past a
+    byte cap.
+  - **The tokenizer is pinned to measured FTS5 behaviour**, not to a
+    description of it: `server/test/core/search-tokens.test.ts` holds fixtures
+    read out of SQLite with `fts5vocab` — `foo_bar` splits on the underscore, a
+    ULID stays one token, a URL splits into seven, `Café` folds to `cafe`, and
+    `日本語のテキスト` is **one** token. P2's engine has a target to match
+    rather than prose to interpret. Snippets fold to match but quote the
+    original, so a search for `cafe` returns `[Café]`.
+  - **The scan is bounded and says so.** A visit cap *and* a time budget, both
+    checked per entry — at page granularity one page overruns the cap by its
+    whole size, which a conformance test now pins. `truncated: true` means
+    `total` counts what was examined.
+  - **The port change is deliberately not here.** `Storage.put(e, { usages,
+    search })` lands in P2 with the engine that stores the text; `ScanSearcher`
+    extracts at query time, and a required argument every caller computes and
+    every adapter ignores is the speculative interface D7 rejects. D30 and §5.5
+    were corrected to say this.
+  - `EntryNodes` (`server/core/query/entry-nodes.ts`) now owns in-memory path
+    selection and value ordering — `FsFilter` and `ScanSearcher` both needed
+    it, and a second copy would be a second definition of what a path selects.
+  - Tests: `search-tokens.test.ts` (parity fixtures), `search-text.test.ts`
+    (corpus, `x-silo-search`, keyword validation), `http/search-api.test.ts`
+    (20 tests — reaches, claim boundaries, anonymous, snippets, filters, sort,
+    paging, rejections), plus a portable-engine section in the storage
+    conformance suite that runs on **both** adapters. 407 pass.
+  - Still to come in P2: the FTS5 engine, the port change, `silo search
+    reindex`, and a `[search]` config block — the scan caps are constants on
+    `ScanSearcher` today.
+
+- **Queries address entries with JSONPath now, and `contains` means one thing
+  (2026-08-21):** filter and sort fields were a private dot-grammar
+  (`author.name`, `$id`) that every client had to learn. They are RFC 9535
+  paths over a virtual entry document — `{ id, rev, created_at, updated_at,
+  data }` — parsed once in `shared/src/query/path/` and read by the UI, the
+  validator, the SQL compiler and the in-memory evaluator (**D29**, §5.3).
+  `Filter.field` is now `Filter.path`, and `SortKey.field` is `SortKey.path`.
+  This is P0 of the search work (**D30**, §5.5); nothing of the `Searcher` port
+  exists yet.
+  - **The subset is closed and refused by name.** Root, name selector, array
+    index (negative included) and the child wildcard are in. Recursive descent,
+    slices, index unions, filter selectors and function extensions each raise a
+    `400` that names the construct — a selector that parsed and was then
+    dropped would answer a different question and return a wrong result, which
+    no test written with well-formed paths would catch.
+  - **`project`, `env`, `collection` and `seq` are unaddressable**, derived
+    from §5.1 hiding them rather than from a second allow-list. `$.seq` returns
+    "not part of the entry document" and names what is addressable.
+  - **ANY over zero nodes is false, for every op.** A leaf is true when any
+    selected node satisfies it, so `neq` on a *missing* field returned true
+    before and returns false now; "absent, or not equal" is
+    `or(not(exists(p)), neq(p, v))`. `not` compiles to `NOT COALESCE(cond, 0)`
+    and never a bare `NOT` — SQL three-valued logic drops NULL rows, so a bare
+    negation disagreed with the fs adapter on exactly the missing fields a
+    negation is usually asked about (measured: 0 rows vs 2).
+  - **`contains` is substring-on-a-string only.** Array membership is `eq` over
+    `$.data.tags[*]`, which deleted the `json_type(...) = 'array'` CASE from
+    the SQL compiler and the array branch from `FsFilter`. `Service.listMedia`
+    moved its tag filter accordingly — and stopped matching "newsletter" for a
+    search of "news" as a side effect. A wildcard selects children of an array
+    or object and never a scalar, on both adapters.
+  - **`exists` and `not` joined the op set**; leaf values are now required to
+    be scalars, because an object has no consistent answer (the evaluator
+    compares by reference and says false; SQLite cannot bind it at all).
+  - **This is an API break with no shim and no detection**, per the pre-1.0
+    stance D18 set. `?filter={"field":...}` and `sort=-$updated_at` return
+    `400`. The admin UI ships in the same binary (D13) and moved with it; the
+    one thing that outlives a binary is a *bookmarked* list URL, so
+    `Routes.decodeQuery` maps an old sort key to a path client-side — the
+    server stays clean, and shared links keep working.
+  - `shared/test/json-path.test.ts` (17 tests) pins the subset and every
+    refusal; the storage conformance suite pins the semantics on **both**
+    adapters, including the wildcard, the negative index, nested wildcards,
+    presence, and that `neq` no longer matches a missing field;
+    `server/test/http/entries-api.test.ts` pins the wire behaviour and the
+    rejections.
+  - **Two things this turned up.** `entries-api.test.ts` built a bare `Hono`
+    instead of `SiloServer`, so it had no `onError` and reported every rejected
+    query as a `500` — it now builds the app the way every other HTTP test
+    does. And a new directory under `shared/src/` needs `bun install` before
+    the UI can import it: the workspace link mirrors `shared/src` as real
+    directories with per-file symlinks, frozen at install time.
+
 - **The version has one home now: the root `package.json` (2026-08-21):** it
   had four — `package.json`, `shared/package.json`, the literal in `Cli`, and
   the fallback in `Exporter` — plus `ui/package.json`, which had quietly sat at
@@ -1383,12 +1495,12 @@ A minimal, self-hostable headless CMS. Users define collections with JSON Schema
 
 | Path | What it is |
 |------|------------|
-| `IMPLEMENTATION.md` | Design spec + decisions log (D1–D28) |
+| `IMPLEMENTATION.md` | Design spec + decisions log (D1–D30) |
 | `CONTEXT.md` | This file — current state of the project |
 | `CLAUDE.md` | Standing instructions for AI assistants |
 | `package.json` | Project metadata, TypeScript 7 setup, Bun/Hono dependencies, and AWS S3 SDK; declares the `shared` and `ui` Bun workspaces, and is the one install root and one lockfile for all three packages. `build` delegates to `scripts/build.ts` rather than inlining the compile, because the signing step is platform-conditional |
 | `tsconfig.json` | TypeScript configuration for the Bun server, shared package, and build scripts (`include: ["server/**/*", "shared/**/*", "scripts/**/*"]`) |
-| `shared/` | Local `@silo/shared` package (a Bun workspace of the root) for runtime-neutral client/server rules. `src/claims/` is the single source of truth for claim constants, the `Claim`/`FixedClaim`/`CollectionClaim`/`CollectionPermission`/`ClaimPreset` types, `ParsedClaim`, validation, matching, delegation, and presets; `src/errors/` holds `ValidationError` and the `ValidationDetail` wire shape; `src/schema/` holds `SiloRef` (the `silo://collections/` `$ref` scheme), `SchemaAccess` (`x-silo-auth`), and `MediaField` (`x-silo-type: "media"`); `src/keys/` holds `KeyFormat` (secret prefix and display truncation); `src/media/` holds `MediaRef` (the `silo://media/<ulid>` scheme, its pre-D23 `/media/<key>` dual-read, and the canonical form the write path stores). Tests under `shared/test/`. Each artifact is its own file and its own `exports` subpath |
+| `shared/` | Local `@silo/shared` package (a Bun workspace of the root) for runtime-neutral client/server rules. `src/claims/` is the single source of truth for claim constants, the `Claim`/`FixedClaim`/`CollectionClaim`/`CollectionPermission`/`ClaimPreset` types, `ParsedClaim`, validation, matching, delegation, and presets; `src/errors/` holds `ValidationError` and the `ValidationDetail` wire shape; `src/schema/` holds `SiloRef` (the `silo://collections/` `$ref` scheme), `SchemaAccess` (`x-silo-auth`), and `MediaField` (`x-silo-type: "media"`); `src/keys/` holds `KeyFormat` (secret prefix and display truncation); `src/media/` holds `MediaRef` (the `silo://media/<ulid>` scheme, its pre-D23 `/media/<key>` dual-read, and the canonical form the write path stores). Tests under `shared/test/`. Each artifact is its own file and its own `exports` subpath. `src/query/path/` holds `JsonPath` and `PathSelector` — the RFC 9535 subset parser (D29), placed here because the filter builder, the query validator, the SQL compiler and the in-memory evaluator must agree on what a path means. `src/schema/search-fields.ts` reads and validates the `x-silo-search` keyword (D30), beside `schema-access.ts` and `media-field.ts` for the same reason those live here |
 | `server/main.ts` | Thin CLI entrypoint — imports `Cli` and runs it |
 | `server/version.ts` | `SiloVersion` (what this build calls itself) and `PackageVersion` (what the manifest declares), both derived from the root `package.json` — the single place the version is written (D28). A release build overrides `SiloVersion` through `--define SILO_VERSION`; every other build carries a `-dev` suffix |
 | `server/cli/` | `cli.ts` (argv parsing, subcommand routing, dependency wiring), `bootstrap-banner.ts` (the first-boot root key announcement), and `commands/` (one command class per subcommand: `serve-command.ts`, `keys-command.ts`, `export-command.ts`, `import-command.ts`, `init-command.ts` — `silo init`, the config scaffold rendered from `ConfigLoader.defaultConfig()` so it cannot drift from the built-in defaults, `media-command.ts` — `silo media reconcile`, the catalog repair that runs against the data dir with no server, reporting what it adopted, pruned, finished and returned to active, and the four process-lifecycle commands: `serve-detached-command.ts` — `silo serve --detach`, which spawns the child and waits for *its* run file before reporting success, `stop-command.ts`, `status-command.ts`, `logs-command.ts`). `Cli` routes `serve --detach`, `stop`, `status` and `logs` before storage is opened, like `init`: none of them is the server, so none may create a data dir or take a handle on another process's database |
@@ -1397,14 +1509,15 @@ A minimal, self-hostable headless CMS. Users define collections with JSON Schema
 | `server/runtime/` | Process lifecycle (D25): `RunState` and `RunFile` (`<data dir>/silo.run.json` — written after the bind, removed on clean shutdown, and the guard that refuses a second server over a live one), `Daemon` (detached spawn, health polling, SIGTERM-then-SIGKILL), `ListenAddress` (the `[host]:port` grammar, shared by `serve` and the health probe), `ProcessTitle` (what a running server calls itself in the OS process list — the real thing on Linux/macOS, where it replaces argv; the console title only on Windows, where an image name is fixed by the executable) |
 | `server/core/domain/` | `Entry`, `Meta`, `EntryUtils`, `Collection`, `Scope` |
 | `server/core/ports/` | `Storage` and `BlobStorage` port interfaces |
-| `server/core/query/` | Query AST (`Filter`, `SortKey`, `Query` + limits) and `QueryUtils` |
+| `server/core/search/` | Search (D30, §5.5): the `Searcher` port and its value types, `SearchText` (the `x-silo-search`-driven extractor), `SearchTokens` (the tokenizer both engines answer to), `SearchSnippets`, and `ScanSearcher` — the portable engine that speaks only through `Storage`, so it works on every adapter |
+| `server/core/query/` | Query AST (`Filter`, `SortKey`, `Query` + limits), `QueryUtils` — path *validation* lives here, the path *grammar* lives in `@silo/shared` (D29) — and `EntryNodes`, in-memory path selection and value ordering shared by `FsFilter` and `ScanSearcher` |
 | `server/core/errors/` | One error class per file (`NotFoundError`, `ConflictError`, `UnauthorizedError`, `ForbiddenError`, `MediaInUseError` — a `ConflictError` carrying the true usage count for a refused media delete — and `MediaDeleteStalledError`, raised when the blob store refuses the delete, carrying the remedy). `ValidationError` lives in `@silo/shared` because shared rules raise it |
 | `server/core/schema/` | `SchemaValidator`, `SchemaBundler`, `RemoteSchemaLoader` (Ajv 2020 validation, `$ref` bundling) |
 | `server/core/keys/` | Server-only key persistence/secret concerns: `KeyInfo`, `KeyUtils` (generation and hashing; the wire format lives in `@silo/shared`'s `KeyFormat`) |
 | `server/core/media/` | The media catalog (D23): `MediaAsset`, `MediaAssetView`, `MediaFolder`, `MediaUsage`, `MediaQuery`, `MediaReconcileResult`, `MediaCatalog` (the `_media`/`_media_folders` collections and document↔asset mapping), `MediaRefs` (the one structural extractor and canonicaliser), `MediaPaths` (folder/filename/blob-key rules), plus `MediaResolver` and `MimeUtils` |
 | `server/core/transfer/` | Export/import engine: `FormatVersion`, `Exporter`, `Importer`, `ImportWalker`, `ScopeCopier` (scope-to-scope copy, D22 — reuses `Importer.executeImport` rather than forking its merge logic), and their options/result/manifest types |
-| `server/core/service/` | `Service` (orchestration), `KeyView`, `AsyncMutex`, `CollectionEraser` |
-| `server/adapters/storage/sqlite/` | `SqliteStore` + `SqliteCompiler` (query compiler) |
+| `server/core/service/` | `Service` (orchestration, and since D30 the compiler of a key's claims into a `SearchAccess` plan), `KeyView`, `AsyncMutex`, `CollectionEraser` |
+| `server/adapters/storage/sqlite/` | `SqliteStore` + `SqliteCompiler` — compiles a parsed `JsonPath` to `json_extract` for a singular path and to a nested `EXISTS`/`json_each` chain for a wildcard, translating RFC 9535's `[-1]` into SQLite's `[#-1]` (D29) |
 | `server/adapters/storage/fs/` | `FsStore` + `FsFilter` + `FsManifest` |
 | `server/adapters/blob/` | `FsBlobStorage`, `S3BlobStorage`, `BlobStorageFactory` (imported directly — no barrel) |
 | `server/adapters/http/` | `HttpSiloClient` (+ `Fetcher` type) — the authenticated HTTP source client for direct copy |

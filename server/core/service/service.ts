@@ -3,6 +3,13 @@ import type { BlobStorage } from "../ports/blob-storage";
 import { Claims } from "@silo/shared/claims";
 import { KeyFormat } from "@silo/shared/key-format";
 import { SchemaAccess } from "@silo/shared/schema-access";
+import { SearchFields } from "@silo/shared/search-fields";
+import type { Searcher } from "../search/searcher";
+import type { SearchAccess } from "../search/search-access";
+import type { SearchRequest } from "../search/search-request";
+import type { SearchResult } from "../search/search-result";
+import type { SearchTarget } from "../search/search-target";
+import { ScanSearcher } from "../search/scan-searcher";
 import { FsBlobStorage } from "../../adapters/blob/fs-blob-storage";
 import { MimeUtils } from "../media/mime-utils";
 import { SchemaValidator, type SchemaValidatorOptions } from "../schema/schema-validator";
@@ -60,12 +67,22 @@ export class Service {
   private writeMu = new AsyncMutex();
   private publicScopeCache: Map<string, Set<string>> | null = null;
 
+  private readonly searcher: Searcher;
+
   constructor(
     store: Storage,
-    schemaOpts: SchemaValidatorOptions & { mediaDir?: string; blobStore?: BlobStorage } = {}
+    schemaOpts: SchemaValidatorOptions & {
+      mediaDir?: string;
+      blobStore?: BlobStorage;
+      searcher?: Searcher;
+    } = {}
   ) {
     this.store = store;
     this.schemas = new SchemaValidator(store, schemaOpts);
+    // The portable engine is the default rather than an absence, so search
+    // works on every adapter without wiring (D30). A native engine is passed
+    // in when the adapter has one.
+    this.searcher = schemaOpts.searcher ?? new ScanSearcher(store);
     if (schemaOpts.blobStore) {
       this.blobStore = schemaOpts.blobStore;
     } else {
@@ -312,6 +329,10 @@ export class Service {
         `invalid collection name "${name}": want lowercase letter first, then [a-z0-9_-], max 64 chars`
       );
     }
+    // Checked on save, so a mistyped search path is a 400 the author sees now
+    // rather than a field that quietly stops being searchable — the kind of
+    // failure nobody reports, because nothing looks broken (D30).
+    SearchFields.validate(schema);
     const bundledSchema = await SchemaBundler.bundle(
       scope,
       schema,
@@ -471,6 +492,123 @@ export class Service {
     };
   }
 
+  // ---- Search (D30) ----
+
+  /**
+   * Compile what this caller may search into concrete targets, **before** the
+   * query runs. Post-filtering results would leave `total` and every page
+   * boundary wrong, and the engine must never see a claim string — the claim
+   * grammar belongs to `@silo/shared`, and a second parser of it is a second
+   * enforcement point that can disagree with the first.
+   *
+   * `claims` is `null` for an anonymous request. That case cannot be expressed
+   * as claim-derived targets at all: readability comes from the schema's
+   * `x-silo-auth`, so the public collections are enumerated and expanded here.
+   * The count is bounded by how many collections exist, which is small.
+   */
+  async searchAccess(
+    claims: readonly string[] | null,
+    reach: { project?: string; env?: string; collection?: string } = {}
+  ): Promise<SearchAccess> {
+    if (claims === null) return { targets: await this.publicTargets(reach) };
+
+    const targets: SearchTarget[] = [];
+    for (const raw of claims) {
+      // A stored key is validated when it is minted (D12), but a hand-edited
+      // or imported record need not be. Skipping an unparseable claim narrows
+      // what the caller can reach; throwing would turn one bad record into a
+      // 500 on every search.
+      let parsed;
+      try {
+        parsed = Claims.parse(raw);
+      } catch {
+        continue;
+      }
+      if (parsed.kind === "root") {
+        const all = Service.intersect({ project: "*", env: "*", collection: "*" }, reach);
+        if (all) targets.push(all);
+        continue;
+      }
+      if (parsed.kind !== "collection") continue;
+      if (parsed.permission !== Claims.CollectionEntriesRead) continue;
+
+      const target = Service.intersect(
+        { project: parsed.project!, env: parsed.env!, collection: parsed.name! },
+        reach
+      );
+      if (target) targets.push(target);
+    }
+    return { targets };
+  }
+
+  async search(request: SearchRequest, access: SearchAccess): Promise<SearchResult> {
+    const normalized = QueryUtils.normalizeQuery({
+      filter: request.filter,
+      sort: request.sort,
+      limit: request.limit,
+      offset: request.offset,
+    });
+    return this.searcher.search(
+      { ...request, filter: normalized.filter, sort: normalized.sort, limit: normalized.limit, offset: normalized.offset },
+      access
+    );
+  }
+
+  searchCapabilities(): { engine: "fts5" | "scan"; snippets: boolean } {
+    return this.searcher.capabilities();
+  }
+
+  /**
+   * Narrows a claim's target by the reach the route derived from its path. A
+   * wildcard segment takes the reach's value; a named segment that disagrees
+   * with the reach drops the target entirely. Both directions matter: without
+   * the first, a `*` claim would search outside the collection the caller
+   * asked about; without the second, a claim for another project would widen
+   * a scoped search back out.
+   */
+  private static intersect(
+    target: SearchTarget,
+    reach: { project?: string; env?: string; collection?: string }
+  ): SearchTarget | null {
+    const seg = (claim: string, asked?: string): string | null => {
+      if (asked === undefined) return claim;
+      if (claim === "*") return asked;
+      return claim === asked ? claim : null;
+    };
+    const project = seg(target.project, reach.project);
+    const env = seg(target.env, reach.env);
+    const collection = seg(target.collection, reach.collection);
+    if (project === null || env === null || collection === null) return null;
+    return { project, env, collection };
+  }
+
+  /**
+   * Collections an anonymous caller may read: those with a schema that does
+   * not set `x-silo-auth`. A collection with **no** schema is deliberately
+   * excluded — an import archive can carry entries with no schema (§6.1), and
+   * nobody has declared those public, so inferring it from an absent
+   * declaration would publish content by accident.
+   */
+  private async publicTargets(reach: {
+    project?: string;
+    env?: string;
+    collection?: string;
+  }): Promise<SearchTarget[]> {
+    const targets: SearchTarget[] = [];
+    for (const scope of await this.store.listScopes()) {
+      if (reach.project && scope.project !== reach.project) continue;
+      if (reach.env && scope.env !== reach.env) continue;
+
+      for (const [name, schema] of (await this.store.listSchemas(scope)).entries()) {
+        if (EntryUtils.isSystemCollection(name)) continue;
+        if (reach.collection && name !== reach.collection) continue;
+        if (SchemaAccess.requiresAuth(schema)) continue;
+        targets.push({ project: scope.project, env: scope.env, collection: name });
+      }
+    }
+    return targets;
+  }
+
   async updateEntry(
     scope: Scope,
     collection: string,
@@ -567,7 +705,7 @@ export class Service {
 
   async listKeys(): Promise<Entry[]> {
     const res = await this.store.list(Scope.System, KeyUtils.KeysCollection, {
-      sort: [{ field: "$created_at", desc: false }],
+      sort: [{ path: "$.created_at", desc: false }],
       limit: 500,
       offset: 0,
     });
@@ -597,7 +735,7 @@ export class Service {
     }
     const hash = KeyUtils.hashKey(secret);
     const res = await this.store.list(Scope.System, KeyUtils.KeysCollection, {
-      filter: { op: "eq", field: "hash", value: hash },
+      filter: { op: "eq", path: "$.data.hash", value: hash },
       limit: 1,
       offset: 0,
     });
@@ -722,23 +860,29 @@ export class Service {
   }
 
   private static readonly MediaSortFields: Record<string, string> = {
-    created_at: "$created_at",
-    updated_at: "$updated_at",
-    filename: "filename",
-    size: "size",
+    created_at: "$.created_at",
+    updated_at: "$.updated_at",
+    filename: "$.data.filename",
+    size: "$.data.size",
   };
 
-  private static mediaSort(sort?: string): { field: string; desc: boolean }[] {
+  private static mediaSort(sort?: string): { path: string; desc: boolean }[] {
     const raw = (sort || "-created_at").trim();
     const desc = raw.startsWith("-");
     const name = desc ? raw.slice(1) : raw;
-    const field = Service.MediaSortFields[name];
-    if (!field) {
+    // `Object.hasOwn`, not a bare lookup: `name` is caller-supplied, so
+    // `?sort=constructor` would otherwise find an inherited key and pass the
+    // check below with a function as the "path" (the hazard `Claims`
+    // documents for exactly this shape of table).
+    const path = Object.hasOwn(Service.MediaSortFields, name)
+      ? Service.MediaSortFields[name]
+      : undefined;
+    if (!path) {
       throw new ValidationError(
         `invalid media sort "${raw}"; expected one of ${Object.keys(Service.MediaSortFields).join(", ")} with an optional "-" prefix`
       );
     }
-    return [{ field, desc }];
+    return [{ path, desc }];
   }
 
   /**
@@ -751,13 +895,16 @@ export class Service {
   ): Promise<{ items: MediaAssetView[]; total: number; limit: number; offset: number }> {
     const args: Filter[] = [];
     if (opts.q && opts.q.trim()) {
-      args.push({ op: "contains", field: "filename", value: opts.q.trim() });
+      args.push({ op: "contains", path: "$.data.filename", value: opts.q.trim() });
     }
     if (opts.type && opts.type.trim()) {
-      args.push({ op: "contains", field: "content_type", value: opts.type.trim() });
+      args.push({ op: "contains", path: "$.data.content_type", value: opts.type.trim() });
     }
     if (opts.tag && opts.tag.trim()) {
-      args.push({ op: "contains", field: "tags", value: opts.tag.trim() });
+      // `tags` is an array, and since D29 `contains` is substring-on-string
+      // only — membership is `eq` over a wildcard, which also stops a tag
+      // "news" from matching a stored "newsletter".
+      args.push({ op: "eq", path: "$.data.tags[*]", value: opts.tag.trim() });
     }
     // A recursive folder filter can't be one AST op — `contains` on a string
     // would also match "/marketing-old" for "/marketing". Filter it after the
@@ -765,7 +912,7 @@ export class Service {
     // both have to implement forever.
     const folder = opts.folder === undefined ? undefined : MediaPaths.normalizeFolder(opts.folder);
     if (folder !== undefined && !opts.recursive) {
-      args.push({ op: "eq", field: "folder", value: folder });
+      args.push({ op: "eq", path: "$.data.folder", value: folder });
     }
 
     const filter: Filter | undefined =
@@ -989,7 +1136,7 @@ export class Service {
    */
   async resumePendingMediaDeletions(): Promise<{ finished: number; pending: number }> {
     const res = await this.store.list(this.mediaScope(), MediaCatalog.Collection, {
-      filter: { op: "eq", field: "state", value: "deleting" },
+      filter: { op: "eq", path: "$.data.state", value: "deleting" },
       limit: 500,
       offset: 0,
     });
@@ -1062,7 +1209,7 @@ export class Service {
 
   private async folderEntry(folderPath: string): Promise<Entry | null> {
     const res = await this.store.list(this.mediaScope(), MediaCatalog.FoldersCollection, {
-      filter: { op: "eq", field: "path", value: folderPath },
+      filter: { op: "eq", path: "$.data.path", value: folderPath },
       limit: 1,
       offset: 0,
     });

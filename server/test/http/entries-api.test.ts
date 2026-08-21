@@ -8,7 +8,6 @@ import { Service } from "../../core/service/service";
 import { EntryUtils } from "../../core/domain/entry-utils";
 import type { Entry } from "../../core/domain/entry";
 import { Scope } from "../../core/domain/scope";
-import { RouteManager } from "../../http/routes/route-manager";
 import { SiloServer } from "../../http/server";
 import { Logger } from "../../logging/logger";
 
@@ -22,8 +21,10 @@ describe("Entries API Response Format", () => {
     tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "silo-entries-api-test-"));
     store = await SqliteStore.open(path.join(tempDir, "test.db"));
     svc = new Service(store);
-    app = new Hono();
-    RouteManager.registerRoutes(app, svc);
+    // Built through SiloServer, not a bare Hono: the error handler that maps
+    // ValidationError to a 400 lives there, so a bare app reports every
+    // rejected query as a 500 and no test can tell the two apart.
+    app = new SiloServer(svc, { version: "test", authDisabled: true, logger: Logger.silent() }).build();
   });
 
   afterEach(async () => {
@@ -68,6 +69,87 @@ describe("Entries API Response Format", () => {
       },
       created_at: "2026-07-09T13:01:42.112Z",
       updated_at: "2026-07-09T13:01:42.112Z",
+    });
+  });
+
+  // D29 over the wire: the query string is where a client meets the path
+  // grammar, so the rejections matter as much as the matches.
+  describe("list query paths (D29)", () => {
+    const seed = async () => {
+      await svc.putSchema(Scope.Default, "posts", { type: "object" });
+      await svc.createEntry(Scope.Default, "posts", {
+        title: "alpha",
+        views: 10,
+        tags: ["go", "cms"],
+      });
+      await svc.createEntry(Scope.Default, "posts", { title: "beta", views: 3 });
+    };
+    const list = (qs: string) =>
+      app.request(`/api/projects/default/environments/prod/collections/posts?${qs}`);
+    const titles = async (res: Response) =>
+      ((await res.json()) as { data: any[] }).data.map((e) => e.title);
+
+    test("filters and sorts on paths", async () => {
+      await seed();
+      const filter = encodeURIComponent(
+        JSON.stringify({ op: "gt", path: "$.data.views", value: 5 })
+      );
+      expect(await titles(await list(`filter=${filter}`))).toEqual(["alpha"]);
+
+      const res = await list(`sort=-${encodeURIComponent("$.data.views")}`);
+      expect(await titles(res)).toEqual(["alpha", "beta"]);
+    });
+
+    test("array membership is a wildcard path", async () => {
+      await seed();
+      const filter = encodeURIComponent(
+        JSON.stringify({ op: "eq", path: "$.data.tags[*]", value: "cms" })
+      );
+      expect(await titles(await list(`filter=${filter}`))).toEqual(["alpha"]);
+    });
+
+    test("the pre-D29 spellings are rejected, not reinterpreted", async () => {
+      await seed();
+      const legacyFilter = encodeURIComponent(
+        JSON.stringify({ op: "eq", field: "title", value: "alpha" })
+      );
+      const res = await list(`filter=${legacyFilter}`);
+      expect(res.status).toBe(400);
+
+      const legacySort = await list(`sort=-${encodeURIComponent("$updated_at")}`);
+      expect(legacySort.status).toBe(400);
+    });
+
+    test("storage-only fields stay unaddressable", async () => {
+      await seed();
+      for (const hidden of ["$.seq", "$.project", "$.env", "$.collection"]) {
+        const filter = encodeURIComponent(JSON.stringify({ op: "eq", path: hidden, value: 1 }));
+        const res = await list(`filter=${filter}`);
+        expect(res.status).toBe(400);
+        expect(JSON.stringify(await res.json())).toContain("not part of the entry document");
+      }
+    });
+
+    test("selectors outside the subset are refused by name", async () => {
+      await seed();
+      for (const [path, named] of [
+        ["$..title", "recursive-descent selectors"],
+        ["$.data.tags[0:2]", "slice selectors"],
+        ["$.data.tags[0,1]", "index-union selectors"],
+        ["$.data.tags[?@.x]", "filter selectors"],
+      ] as const) {
+        const filter = encodeURIComponent(JSON.stringify({ op: "eq", path, value: "x" }));
+        const res = await list(`filter=${filter}`);
+        expect(res.status).toBe(400);
+        expect(JSON.stringify(await res.json())).toContain(named);
+      }
+    });
+
+    test("a wildcard cannot be a sort key", async () => {
+      await seed();
+      const res = await list(`sort=${encodeURIComponent("$.data.tags[*]")}`);
+      expect(res.status).toBe(400);
+      expect(JSON.stringify(await res.json())).toContain("no deterministic order");
     });
   });
 

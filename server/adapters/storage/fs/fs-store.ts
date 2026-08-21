@@ -10,6 +10,7 @@ import { NotFoundError } from "../../../core/errors/not-found-error";
 import { MediaRefs } from "../../../core/media/media-refs";
 import type { MediaUsage } from "../../../core/media/media-usage";
 import { FormatVersion } from "../../../core/transfer/format-version";
+import { EntryNodes } from "../../../core/query/entry-nodes";
 import { FsFilter } from "./fs-filter";
 import type { FsManifest } from "./fs-manifest";
 
@@ -453,9 +454,9 @@ export class FsStore implements Storage {
     filtered.sort((a, b) => {
       if (q.sort) {
         for (const key of q.sort) {
-          const valA = FsFilter.getFieldValue(a, key.field);
-          const valB = FsFilter.getFieldValue(b, key.field);
-          const cmp = FsFilter.compareValues(valA, valB);
+          const valA = EntryNodes.sortValue(a, key.path);
+          const valB = EntryNodes.sortValue(b, key.path);
+          const cmp = EntryNodes.compare(valA, valB);
           if (cmp !== 0) {
             return key.desc ? -cmp : cmp;
           }

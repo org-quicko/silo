@@ -1,8 +1,24 @@
+import { JsonPath } from '@silo/shared/json-path'
 import { DEFAULT_LIST_QUERY, type ListQuery } from './list-query'
 import type { EnvSettingsSection, ProjectSettingsSection, Route, ServerSettingsSection } from './route'
 import type { ScopeRef } from '../api/types/scope-ref'
 
-const DEFAULT_SORT = '-$updated_at'
+const DEFAULT_SORT = '-' + JsonPath.UpdatedAt
+
+/**
+ * Sort keys became paths in D29, and this one lives in the URL — so a link
+ * bookmarked or shared before the change carries `$updated_at`, which the API
+ * now rejects. The server breaks cleanly and offers no compatibility parsing;
+ * mapping the old spelling here costs nothing, touches no contract, and keeps
+ * those links working.
+ */
+function adoptLegacySort(sort: string): string {
+  const desc = sort.startsWith('-')
+  const key = desc ? sort.slice(1) : sort
+  if (key.startsWith('$.')) return sort
+  const path = key.startsWith('$') ? `$.${key.slice(1)}` : JsonPath.dataField(key)
+  return (desc ? '-' : '') + path
+}
 
 /**
  * URL grammar. Settings pages nest under the resource they configure, using
@@ -223,7 +239,7 @@ export class Routes {
 
   private static decodeQuery(search: string): ListQuery {
     const params = new URLSearchParams(search)
-    const sort = params.get('sort') || DEFAULT_SORT
+    const sort = adoptLegacySort(params.get('sort') || DEFAULT_SORT)
     const desc = sort.startsWith('-')
     const page = Number.parseInt(params.get('page') || '1', 10)
     return {
