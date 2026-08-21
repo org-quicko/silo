@@ -27,10 +27,11 @@ describe("validation error across the shared package boundary", () => {
   });
 
   test("the shared package resolves to one on-disk copy from every install root", () => {
-    // `ui/` is a second install root and `shared/` is the package's own; if any
-    // of them ever resolved to a private copy — the `file:` protocol duplicates
-    // rather than symlinks — errors raised through one copy would be invisible
-    // to `instanceof` checks against the other. That is the bug this catches.
+    // `ui/` and `shared/` are workspace members that both reach for the package;
+    // if either ever resolved to a private copy — the `file:` protocol these two
+    // once used duplicates rather than symlinks — errors raised through one copy
+    // would be invisible to `instanceof` checks against the other. That is the
+    // bug this catches.
     const roots = [repoRoot, path.join(repoRoot, "shared"), path.join(repoRoot, "ui")];
     const modules = [
       { subpath: "@silo/shared/validation-error", source: "shared/src/errors/validation-error.ts" },

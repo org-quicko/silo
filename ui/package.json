@@ -16,7 +16,7 @@
     "@rjsf/core": "^6.8.0",
     "@rjsf/utils": "^6.8.0",
     "@rjsf/validator-ajv8": "^6.8.0",
-    "@silo/shared": "file:../shared",
+    "@silo/shared": "workspace:*",
     "@uiw/react-codemirror": "^4.25.11",
     "lucide-react": "^1.33.0",
     "react": "^19.2.8",

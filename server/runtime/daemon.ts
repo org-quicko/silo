@@ -55,21 +55,44 @@ export class Daemon {
    *
    * Two shapes to cover: `bun run server/main.ts serve …`, where argv[1] is
    * the entry script and has to be passed on, and a compiled `silo` binary,
-   * where argv[1] is either the executable itself or a path inside Bun's
-   * virtual filesystem. Testing that argv[1] is a real file that is not the
-   * executable separates them without depending on how Bun spells the latter.
+   * where argv[1] is a path inside Bun's virtual filesystem — `/$bunfs/root/silo`,
+   * or `B:/~BUN/root/silo` on Windows. That one must never be forwarded: the
+   * child gets its own, so a second copy arrives as argv[2] and the CLI, which
+   * reads `argv.slice(2)`, takes it for a subcommand and exits on
+   * `unknown command "B:/~BUN/root/silo"`.
+   *
+   * `realpathSync` is what separates the two. `existsSync` cannot, which is the
+   * bug this replaced: inside a compiled binary it answers **true** for the
+   * virtual path, as does `statSync`, because Bun serves both from the embedded
+   * filesystem. Only resolving the path against the real one fails there
+   * (`ENOENT`), so the check stays independent of how Bun spells its virtual
+   * root — while no longer trusting it to be absent from the filesystem API.
+   *
+   * Parameterized because the compiled shape is otherwise only reachable by
+   * building a binary: the defaults are the real process, and the tests pass
+   * both argv shapes in directly.
    */
-  private static relaunchArgs(): string[] {
+  static relaunchArgs(argv: string[] = process.argv, execPath: string = process.execPath): string[] {
     const args: string[] = [];
-    const script = process.argv[1];
-    if (script && script !== process.execPath && fs.existsSync(script)) {
+    const script = argv[1];
+    if (script && script !== execPath && Daemon.isRealFile(script)) {
       args.push(script);
     }
-    for (const arg of process.argv.slice(2)) {
+    for (const arg of argv.slice(2)) {
       if (arg === "--detach" || arg === "-d") continue;
       args.push(arg);
     }
     return args;
+  }
+
+  /** True only for a path the operating system can resolve to a file of its
+   *  own — see `relaunchArgs` for why the weaker checks do not do. */
+  private static isRealFile(candidate: string): boolean {
+    try {
+      return fs.statSync(fs.realpathSync(candidate)).isFile();
+    } catch {
+      return false;
+    }
   }
 
   /**

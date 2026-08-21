@@ -15,5 +15,5 @@
     // silently litters a .js file beside every source file.
     "noEmit": true
   },
-  "include": ["server/**/*", "shared/**/*"]
+  "include": ["server/**/*", "shared/**/*", "scripts/**/*"]
 }

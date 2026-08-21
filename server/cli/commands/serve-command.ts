@@ -4,6 +4,7 @@ import { Service } from "../../core/service/service";
 import { SiloServer } from "../../http/server";
 import type { Logger } from "../../logging/logger";
 import { ListenAddress } from "../../runtime/listen-address";
+import { ProcessTitle } from "../../runtime/process-title";
 import { RunFile } from "../../runtime/run-file";
 import { BootstrapBanner } from "../bootstrap-banner";
 
@@ -70,6 +71,10 @@ export class ServeCommand {
 
     const { hostname, port } = ListenAddress.parse(cfg.listen);
     const server = Bun.serve({ port, hostname, fetch: app.fetch });
+
+    // Named after the bind, for the reason the run file is written after it:
+    // a start that lost the port race must not announce that address anywhere.
+    ProcessTitle.set(cfg.listen);
 
     // Written after the bind succeeds, so a start that lost a port race never
     // leaves a record claiming the address.
