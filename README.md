@@ -69,6 +69,28 @@ it in git.
 
 ## Quick start
 
+### Homebrew
+
+```sh
+brew install org-quicko/tap/silo
+silo serve
+```
+
+`brew services start silo` runs it in the background instead, keeping its data
+under Homebrew's prefix (`$(brew --prefix)/var/silo`) rather than in whatever
+directory you started it from.
+
+### Prebuilt binaries
+
+Every [release](https://github.com/org-quicko/silo/releases) has an archive for
+macOS and Linux on x64 and arm64. Each holds a single self-contained `silo` —
+the admin UI is inside the executable — so unpacking it somewhere on your
+`PATH` is the whole installation.
+
+Releases are checksummed and signed — `SHA256SUMS` and two signatures over it
+(Sigstore keyless, and GPG) are attached alongside each release, with the
+verification commands in that release's notes.
+
 ### Docker
 
 ```sh
@@ -93,8 +115,10 @@ bun run server/main.ts serve
 `bun run server/main.ts init` first writes a `silo.toml` of default settings if
 you would rather configure silo in a file than with flags; it is optional.
 
-The server hosts the admin UI from `./ui/dist` relative to its working
-directory, with an SPA fallback. Skip the UI build if you only want the API.
+From source the server hosts the admin UI from `./ui/dist` relative to its
+working directory, with an SPA fallback; skip the UI build if you only want the
+API. A released binary is different — `bun run build` embeds `ui/dist` into the
+executable, so an installed `silo` serves the UI wherever it is run from.
 
 `serve` runs in the foreground. Add `--detach` to run it in the background
 instead and get `silo status`, `silo logs` and `silo stop` — see

@@ -1,5 +1,4 @@
 import { Hono } from "hono";
-import { serveStatic } from "hono/bun";
 import { cors } from "hono/cors";
 import type { Service } from "../core/service/service";
 import { RouteManager } from "./routes/route-manager";
@@ -12,6 +11,7 @@ import { MediaDeleteStalledError } from "../core/errors/media-delete-stalled-err
 import { UnauthorizedError } from "../core/errors/unauthorized-error";
 import { ForbiddenError } from "../core/errors/forbidden-error";
 import type { Logger } from "../logging/logger";
+import { UiAssets } from "./ui-assets";
 
 /** How to build the app. An options object rather than a fourth and fifth
  *  positional argument, two of which would be bare booleans. */
@@ -133,15 +133,10 @@ export class SiloServer {
       );
     });
 
-    // Serve static assets if they exist in ui/dist
-    app.use(
-      "/*",
-      serveStatic({
-        root: "./ui/dist",
-      })
-    );
-
-    // Fallback for SPA routing to index.html (excluding api routes)
+    // The admin UI. One handler serves the files and the SPA fallback both,
+    // because every path that is neither an API route nor an asset belongs to
+    // the client router. Where the files come from is `UiAssets`' problem: a
+    // release binary carries them, a source checkout reads ./ui/dist.
     app.all("/*", async (c) => {
       const reqPath = c.req.path;
       if (reqPath.startsWith("/api/")) {
@@ -151,19 +146,34 @@ export class SiloServer {
         );
       }
 
-      try {
-        const file = Bun.file("./ui/dist/index.html");
-        if (await file.exists()) {
-          return new Response(file);
-        }
-      } catch {}
+      const asset = await UiAssets.resolve(reqPath);
+      if (asset) {
+        return new Response(asset, { headers: SiloServer.cacheHeaders(reqPath) });
+      }
+
+      const index = await UiAssets.index();
+      if (index) {
+        return new Response(index, { headers: { "cache-control": "no-cache" } });
+      }
 
       return c.text(
-        "Admin UI not built. Run 'npm run build' inside ui/ directory.",
+        "Admin UI not built. Run 'bun run --cwd ui build' from the repo root.",
         404
       );
     });
 
     return app;
+  }
+
+  /**
+   * Vite content-hashes everything it emits under `/assets/`, so those URLs
+   * name one immutable body for all time and can be cached as such. Nothing
+   * else can: `index.html` is the file that points at the current hashes, and
+   * the two SVGs keep their names across builds.
+   */
+  private static cacheHeaders(requestPath: string): Record<string, string> {
+    return requestPath.startsWith("/assets/")
+      ? { "cache-control": "public, max-age=31536000, immutable" }
+      : { "cache-control": "no-cache" };
   }
 }

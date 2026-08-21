@@ -1,0 +1,298 @@
+# Cuts a silo release: one executable per platform, checksummed, signed twice,
+# published, and pushed to the Homebrew tap.
+#
+# Everything the build does lives in `scripts/build.ts`, which is also what
+# `bun run build` runs, so a release is the local build with flags rather than a
+# recipe that only exists here and only runs on tags.
+#
+# Triggered by pushing a tag:
+#
+#     git tag -a v0.2.0 -m "v0.2.0" && git push origin v0.2.0
+#
+# `workflow_dispatch` runs the same build and uploads the artifacts to the run
+# without publishing anything, which is how to rehearse a release — or bisect a
+# broken one — without burning a version number.
+name: release
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version to build, without the leading v. Nothing is published."
+        required: true
+        type: string
+
+# Read-only by default; the two jobs that need more ask for it themselves.
+permissions:
+  contents: read
+
+env:
+  # Keep in step with the Dockerfile's BUN_VERSION: the binary users install and
+  # the image they deploy should not be built by different runtimes.
+  BUN_VERSION: "1.3.14"
+
+# A second tag pushed while the first is mid-release would race it to the tap.
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  # One place that decides what version this run is building, so nothing
+  # downstream has to re-derive it from a ref and get it subtly different.
+  version:
+    runs-on: ubuntu-24.04
+    outputs:
+      version: ${{ steps.resolve.outputs.version }}
+      prerelease: ${{ steps.resolve.outputs.prerelease }}
+    steps:
+      - id: resolve
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            version="${{ inputs.version }}"
+          else
+            version="${GITHUB_REF_NAME#v}"
+          fi
+
+          case "$version" in
+            [0-9]*.[0-9]*.[0-9]*) ;;
+            *) echo "::error::'$version' is not a semantic version" && exit 1 ;;
+          esac
+
+          # A version with a pre-release suffix (1.0.0-rc.1) is published as a
+          # GitHub pre-release and never reaches the tap: `brew install silo`
+          # must not hand someone a release candidate.
+          case "$version" in
+            *-*) prerelease=true ;;
+            *) prerelease=false ;;
+          esac
+
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "prerelease=$prerelease" >> "$GITHUB_OUTPUT"
+          echo "silo $version (prerelease=$prerelease)"
+
+  verify:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: ${{ env.BUN_VERSION }}
+      - run: bun install --frozen-lockfile
+      - name: Type-check
+        run: bunx tsc -b
+      - name: Test
+        run: bun test
+
+  build:
+    needs: [version, verify]
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # Both Darwin targets are built on macOS because `codesign` only
+          # exists there, and an unsigned arm64 Mach-O is not a binary that runs
+          # badly — the kernel refuses to exec it. Cross-compiling x64 from the
+          # arm64 runner is fine; codesign signs a foreign-arch Mach-O happily.
+          - target: darwin-arm64
+            runs-on: macos-15
+            native: true
+          - target: darwin-x64
+            runs-on: macos-15
+            native: false
+          - target: linux-x64
+            runs-on: ubuntu-24.04
+            native: true
+          - target: linux-arm64
+            runs-on: ubuntu-24.04
+            native: false
+    runs-on: ${{ matrix.runs-on }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: ${{ env.BUN_VERSION }}
+      - run: bun install --frozen-lockfile
+
+      - name: Build ${{ matrix.target }}
+        run: |
+          bun run build -- \
+            --target "${{ matrix.target }}" \
+            --version "${{ needs.version.outputs.version }}" \
+            --out "dist/${{ matrix.target }}/silo" \
+            --archive
+
+      # Proves the artifact starts, is signed acceptably, and was stamped with
+      # the version this run is building. Only where the runner can execute it:
+      # the cross-compiled halves have no interpreter here.
+      - name: Smoke-test the binary
+        if: matrix.native
+        run: |
+          version="${{ needs.version.outputs.version }}"
+          got="$(./dist/${{ matrix.target }}/silo version)"
+          echo "$got"
+          [ "$got" = "silo $version" ] || { echo "::error::expected 'silo $version'"; exit 1; }
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: silo-${{ matrix.target }}
+          path: dist/*.tar.gz
+          if-no-files-found: error
+          retention-days: 7
+
+  release:
+    needs: [version, build]
+    if: startsWith(github.ref, 'refs/tags/')
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write # create the release
+      id-token: write # Sigstore keyless signing, and the provenance attestation
+      attestations: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          pattern: silo-*
+          merge-multiple: true
+
+      - name: Checksum every artifact
+        working-directory: dist
+        run: |
+          sha256sum silo-*.tar.gz | tee SHA256SUMS
+
+      # Two signatures over the one checksum file, which is what makes the
+      # checksum file worth having: it is the single object every downstream
+      # package manager can be pointed at, whatever it is able to verify.
+      #
+      # Sigstore is keyless — the signing identity is this workflow's OIDC
+      # token, so there is no private key in this repository to leak or rotate.
+      - uses: sigstore/cosign-installer@v3
+      - name: Sign SHA256SUMS with Sigstore
+        working-directory: dist
+        run: cosign sign-blob --yes --bundle SHA256SUMS.cosign.bundle SHA256SUMS
+
+      # The GPG key is the one an apt or rpm repository will need later, and the
+      # one a user can pin a fingerprint for. Skipped rather than failed when the
+      # secret is absent, so the first releases can go out before the key exists.
+      - name: Sign SHA256SUMS with the release GPG key
+        working-directory: dist
+        env:
+          GPG_PRIVATE_KEY: ${{ secrets.GPG_PRIVATE_KEY }}
+          GPG_PASSPHRASE: ${{ secrets.GPG_PASSPHRASE }}
+        run: |
+          if [ -z "$GPG_PRIVATE_KEY" ]; then
+            echo "::warning::GPG_PRIVATE_KEY is not set — publishing without SHA256SUMS.asc"
+            exit 0
+          fi
+          printf '%s' "$GPG_PRIVATE_KEY" | gpg --batch --quiet --import
+          printf '%s' "$GPG_PASSPHRASE" | gpg --batch --yes --quiet \
+            --pinentry-mode loopback --passphrase-fd 0 \
+            --detach-sign --armor --output SHA256SUMS.asc SHA256SUMS
+          gpg --verify SHA256SUMS.asc SHA256SUMS
+
+      # Machine-readable provenance: which workflow, at which commit, built each
+      # tarball. Verified with `gh attestation verify`, no tooling to install.
+      - uses: actions/attest-build-provenance@v2
+        with:
+          subject-path: dist/*.tar.gz
+
+      - name: Publish the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ needs.version.outputs.version }}
+          PRERELEASE: ${{ needs.version.outputs.prerelease }}
+        run: |
+          cat > notes.md <<'EOF'
+          ## Install
+
+          ```sh
+          brew install org-quicko/tap/silo
+          ```
+
+          Or download the archive for your platform below and put `silo` on your `PATH`.
+
+          ## Verify
+
+          Check the archive against `SHA256SUMS`:
+
+          ```sh
+          sha256sum --ignore-missing --check SHA256SUMS
+          ```
+
+          `SHA256SUMS` itself is signed. With [cosign](https://docs.sigstore.dev/):
+
+          ```sh
+          cosign verify-blob --bundle SHA256SUMS.cosign.bundle \
+            --certificate-identity-regexp '^https://github\.com/org-quicko/silo/\.github/workflows/release\.yml@' \
+            --certificate-oidc-issuer https://token.actions.githubusercontent.com \
+            SHA256SUMS
+          ```
+
+          Or, with the release GPG key, `gpg --verify SHA256SUMS.asc SHA256SUMS`.
+
+          Each archive also carries build provenance:
+
+          ```sh
+          gh attestation verify silo-*.tar.gz --repo org-quicko/silo
+          ```
+          EOF
+
+          flags=(--title "silo $VERSION" --notes-file notes.md --generate-notes)
+          if [ "$PRERELEASE" = "true" ]; then flags+=(--prerelease); fi
+
+          assets=(dist/silo-*.tar.gz dist/SHA256SUMS dist/SHA256SUMS.cosign.bundle)
+          if [ -f dist/SHA256SUMS.asc ]; then assets+=(dist/SHA256SUMS.asc); fi
+
+          gh release create "v$VERSION" "${flags[@]}" "${assets[@]}"
+
+  homebrew:
+    needs: [version, release]
+    if: needs.version.outputs.prerelease == 'false'
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: silo
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: ${{ env.BUN_VERSION }}
+
+      # A PAT, not GITHUB_TOKEN: the tap is a different repository, and the
+      # token this run was handed cannot write to one.
+      - uses: actions/checkout@v4
+        with:
+          repository: org-quicko/homebrew-tap
+          token: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+          path: tap
+
+      # Downloaded from the published release rather than passed between jobs,
+      # so the checksums that reach the formula are the ones a user's `brew
+      # install` will be checking against — not an artifact that agreed with
+      # them at upload time.
+      - name: Fetch the published checksums
+        env:
+          GH_TOKEN: ${{ github.token }}
+        working-directory: silo
+        run: gh release download "v${{ needs.version.outputs.version }}" --repo org-quicko/silo --pattern SHA256SUMS
+
+      - name: Render the formula
+        working-directory: silo
+        run: |
+          bun run scripts/render-formula.ts \
+            --version "${{ needs.version.outputs.version }}" \
+            --checksums SHA256SUMS \
+            --out ../tap/Formula/silo.rb
+
+      - name: Commit to the tap
+        working-directory: tap
+        run: |
+          if [ -z "$(git status --porcelain -- Formula/silo.rb)" ]; then
+            echo "::notice::formula already at ${{ needs.version.outputs.version }}"
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add Formula/silo.rb
+          git commit -m "silo ${{ needs.version.outputs.version }}"
+          git push

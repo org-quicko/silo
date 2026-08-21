@@ -15,6 +15,63 @@ A minimal, self-hostable headless CMS. Users define collections with JSON Schema
 
 *Last updated: 2026-08-21*
 
+- **silo is installable — `brew install org-quicko/tap/silo` — and a release is
+  one tag push (2026-08-21):** there was no CI, no tag, and no artifact anyone
+  could install; `bun run build` produced a binary for the machine that ran it
+  and nothing carried it further. `.github/workflows/release.yml` now builds
+  four targets on a `v*` tag, checksums them, signs the checksum file twice,
+  publishes the release, and rewrites the formula in `org-quicko/homebrew-tap`.
+  The runbook and key setup live in Notion (moved 2026-08-21 — package
+  managers accumulate, and a per-manager doc belongs somewhere that isn't a
+  code review); `packaging/` in this repo now holds only what CI reads:
+  `homebrew/silo.rb.tmpl` and the public half of the signing key.
+  - **The compiled binary had to start carrying the admin UI first, and that was
+    the real blocker.** `SiloServer` served `./ui/dist` *relative to the working
+    directory*, so a `silo` on `$PATH` answered every UI route with "Admin UI
+    not built" unless the user happened to be standing in a source checkout.
+    `UiAssets` (`server/http/ui-assets.ts`) now brokers it: a release build hands
+    it a route→path map through `useEmbedded`, everything else reads the
+    directory as before. IMPLEMENTATION.md §9 had claimed a self-contained
+    binary since the Go era; this is the first build for which it is true.
+  - **The embedding is generated, not written.** `scripts/build.ts` emits
+    `.build/entry.ts` — a `with { type: "file" }` import per file in `ui/dist`,
+    the map, then `Cli.run()` — and compiles *that* instead of `server/main.ts`.
+    Those imports survive `--compile` as `/$bunfs/root/…` paths that `Bun.file`
+    reads from any cwd (verified: 200s and byte-exact bodies with correct MIME
+    from a binary run out of `/private/tmp`). The names are content-hashed, so
+    something has to hold the map; and the entry cannot be `server/main.ts`,
+    which calls `Cli.run()` on import and would start the server before there
+    was anything to hand it.
+  - **`bun run build` is now the only build path.** Same script, same flags:
+    `--target`, `--version`, `--out`, `--archive`, `--skip-ui`. A release
+    artifact is reproducible locally, and CI runs nothing that a developer
+    cannot. The version stops being the `0.1.0-dev` literal in `Cli` — a release
+    passes `--define SILO_VERSION='"1.2.3"'` and `typeof` picks the fallback
+    everywhere else, which is what lets Homebrew's `test do` assert on it.
+  - **Both Darwin targets are built on the macOS runner because `codesign` only
+    exists there.** Cross-compiling the x64 half from the arm64 runner is fine —
+    `codesign` signs a foreign-arch Mach-O quite happily, measured — and this
+    sidesteps the retirement of the Intel `macos-13` image entirely. What cannot
+    move is the signing: an unsigned arm64 Mach-O is not slow or warned about,
+    it is SIGKILLed at exec.
+  - **`compiled-detach.test.ts` was failing on macOS arm64 before any of this,
+    for exactly that reason** — it compiles a binary and never signed it, so
+    every assertion in it died behind a bare exit code 137. It now applies the
+    same ad-hoc sign the build does. It is the one other place in the repo that
+    compiles, which is why it is the one other place that has to.
+  - **Signing is two signatures over one checksum file, not one per artifact.**
+    Sigstore keyless (`SHA256SUMS.cosign.bundle`) means no private key exists in
+    the repository at all — the identity is the workflow's OIDC token — and a
+    GPG detached signature (`SHA256SUMS.asc`) is there for verifiers that want a
+    fingerprint to pin, and because apt and rpm will both need that key later.
+    Neither can be Apple's or Microsoft's: those trust only certificates they
+    issued, which is the one thing a "common signing key" cannot span. The
+    Darwin builds stay ad-hoc signed, which is sufficient for Homebrew — a
+    formula's tarball comes down over curl and is never quarantined.
+  - The GPG step warns and skips when `GPG_PRIVATE_KEY` is unset, so the first
+    release can precede the key. `HOMEBREW_TAP_TOKEN` has no such fallback: the
+    tap is another repository and `GITHUB_TOKEN` cannot write to one.
+
 - **`serve --detach` worked from source and failed from the compiled binary
   (2026-08-21):** every detached start of a built `silo` died instantly with
   `unknown command "B:/~BUN/root/silo"`, its usage dump landing in the log file.
@@ -848,7 +905,9 @@ A minimal, self-hostable headless CMS. Users define collections with JSON Schema
   undocumented. Two facts are documented as they behave rather than as
   IMPLEMENTATION.md describes them: the admin UI is served from `./ui/dist`
   relative to the process working directory (no `go:embed` equivalent, so a
-  compiled binary is not self-contained), and `EntryUtils.toApiResponse` omits
+  compiled binary is not self-contained — no longer true as of the release
+  work at the top of this file, where the binary gained the UI), and
+  `EntryUtils.toApiResponse` omits
   `rev`, so the `If-Match`/`?rev=` requirement on entry `PUT`/`DELETE` is
   documented without claiming the API hands clients a revision to send.
   (That second one was a bug, not a documentation nuance — fixed 2026-08-20
@@ -1204,7 +1263,7 @@ A minimal, self-hostable headless CMS. Users define collections with JSON Schema
 
 | Path | What it is |
 |------|------------|
-| `IMPLEMENTATION.md` | Design spec + decisions log (D1–D25) |
+| `IMPLEMENTATION.md` | Design spec + decisions log (D1–D26) |
 | `CONTEXT.md` | This file — current state of the project |
 | `CLAUDE.md` | Standing instructions for AI assistants |
 | `package.json` | Project metadata, TypeScript 7 setup, Bun/Hono dependencies, and AWS S3 SDK; declares the `shared` and `ui` Bun workspaces, and is the one install root and one lockfile for all three packages. `build` delegates to `scripts/build.ts` rather than inlining the compile, because the signing step is platform-conditional |
@@ -1228,13 +1287,16 @@ A minimal, self-hostable headless CMS. Users define collections with JSON Schema
 | `server/adapters/storage/fs/` | `FsStore` + `FsFilter` + `FsManifest` |
 | `server/adapters/blob/` | `FsBlobStorage`, `S3BlobStorage`, `BlobStorageFactory` (imported directly — no barrel) |
 | `server/adapters/http/` | `HttpSiloClient` (+ `Fetcher` type) — the authenticated HTTP source client for direct copy |
-| `server/http/server.ts` | `SiloServer` class — builds the Hono app (middleware, routes, static UI serving with SPA fallback). Takes `SiloServerOptions` (`version`, `authDisabled`, `logger`, `logRequests`) rather than positional arguments; request logging is registered only when asked for, so a server with it off pays nothing per request |
+| `server/http/server.ts` | `SiloServer` class — builds the Hono app (middleware, routes, and one handler for the admin UI and its SPA fallback, sourced through `UiAssets`). Takes `SiloServerOptions` (`version`, `authDisabled`, `logger`, `logRequests`) rather than positional arguments; request logging is registered only when asked for, so a server with it off pays nothing per request |
+| `server/http/ui-assets.ts` | `UiAssets` — where the admin UI comes from. A release build registers an embedded route→path map through `useEmbedded` (generated by `scripts/build.ts`); everything else reads `./ui/dist`, the documented dev flow. The disk branch normalises before joining, so a request path cannot climb out of the UI root |
 | `server/http/middleware/` | `LoggingMiddleware`, `AuthMiddleware` |
 | `server/http/auth/` | `RouteAuth` — claim-checking helpers for route handlers |
 | `server/http/routes/` | `RouteManager` plus one routes class per resource (`projects-routes.ts`, `collections-routes.ts`, `entries-routes.ts` + `request-utils.ts`, `keys-routes.ts`, `media-routes.ts`, `transfer-routes.ts`, `copy-routes.ts` + `copy-request.ts` + `scope-copy-request.ts`, `session-routes.ts`). `CopyRoutes` serves both the whole-instance `/api/copy` and the scoped `/api/projects/:p/environments/:e/copy` |
 | `server/test/` | Test suites running via `bun test`: `conformance/` (storage conformance suite), `adapters/`, `core/`, `cli/` (bootstrap banner rendering, `silo init`'s scaffold round-tripping back to the defaults), `config/` (config layering, the derived fs blob path, and the `[log]` block), `logging/` (level thresholds, both formats, rotation, tailing and following across a rotation), `runtime/` (run-file staleness and the one-server-per-data-dir refusal, the process title leading with the name and never throwing, the argv a detached child inherits, a real detached start/stop/status round trip that pins the lost-the-port regression, and the same round trip against a freshly compiled binary — the only place the virtual-entry-path bug exists), `http/` (claims enforcement/delegation, entries API, export/import, direct server copy, scope-to-scope copy, media catalog/folders/search/reference integrity, schema `$ref`, projects API tests). The conformance suite pins media usages on both adapters — the one D23 invariant they answer by completely different means |
 | `ui/` | React + TS + Vite SPA (Slate design), organized into feature dirs (`api/`, `schema/`, `components/`, `forms/`, `router/`, `utils/` with `Formatters`, `ThemeManager` & `ScopeMemory`, `views/*`) with colocated CSS Modules and a small global foundation under `styles/`. Every collection/entry call is scoped through `ApiClient.collectionsPath`; the active `(project, env)` is part of the URL, switched from the `/servers` gate in the workspace and from the settings nav's scope switchers. Shared protocol rules come from `@silo/shared`; `ui/dist` contains the compiled SPA served at the web root. `src/**/*.test.ts` are `bun test` suites in their own TS project (`tsconfig.test.json`) and run from the repo root alongside the server's |
-| `scripts/` | Tooling run through `bun run`, kept out of the server's source tree: `build.ts` (`BuildBinary`) compiles `server/main.ts` into the standalone binary and ad-hoc signs it on macOS only |
+| `scripts/` | Tooling run through `bun run`, kept out of the server's source tree. `build.ts` (`BuildBinary`) is the single build path for every artifact, local or released: it builds the admin UI, generates `.build/entry.ts` (the embedded-asset imports plus `Cli.run()`), compiles that for `--target`, stamps `--version` through `--define SILO_VERSION`, ad-hoc signs Darwin output on macOS, and with `--archive` writes `dist/silo-<version>-<os>-<arch>.tar.gz`. `render-formula.ts` (`RenderFormula`) fills `packaging/homebrew/silo.rb.tmpl` from a `SHA256SUMS` file, keyed by artifact filename and failing loudly on a missing target rather than shipping a formula with a blank checksum |
+| `.github/workflows/release.yml` | The release: tests, four targets (Darwin arm64/x64 on `macos-15`, Linux x64/arm64 on `ubuntu-24.04`), `SHA256SUMS`, a Sigstore keyless signature and a GPG one over it, build-provenance attestations, the GitHub release, and the formula push to the tap. `workflow_dispatch` runs the build and publishes nothing |
+| `packaging/` | `homebrew/silo.rb.tmpl` is the Homebrew formula, and the source of truth for it — the tap's copy is generated and overwritten every release. `SIGNING_KEY.asc` is the public half of the release GPG key, committed so a verifier needs no keyserver. The release runbook (tap creation, secrets, what each signature layer proves) is a Notion doc, not a file here — it names accounts and setup steps that don't need to be in the source tree or reviewed as a diff |
 | `README.md` | User-facing docs: why/quick start, concepts, configuration, CLI, HTTP API, claims, portability, deployment, development, roadmap, contributing. Rewritten 2026-08-18; deliberately links neither this file nor IMPLEMENTATION.md |
 | `ui/README.md` | Admin UI docs: dev workflow, the server-connection model, URL grammar, RJSF theme notes, styling conventions, and how `@silo/shared` resolves through the workspace symlink. Rewritten 2026-08-18 (was the stock Vite template) |
 
