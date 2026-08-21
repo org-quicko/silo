@@ -18,24 +18,11 @@ import { StatusCommand } from "./commands/status-command";
 import { StopCommand } from "./commands/stop-command";
 import { Logger } from "../logging/logger";
 import { Daemon } from "../runtime/daemon";
-
-/**
- * The version a release build was stamped with.
- *
- * `scripts/build.ts` passes `--define SILO_VERSION='"1.2.3"'`, which substitutes
- * the identifier at bundle time, so a released binary reports the tag it was cut
- * from with nothing to read at runtime. It is deliberately not an environment
- * variable: the version of a binary is a property of the binary, not of the
- * shell that happens to launch it.
- *
- * Undeclared everywhere else — `typeof` is the one operator that tolerates that
- * — so running from source reports `0.1.0-dev` and says so honestly.
- */
-declare const SILO_VERSION: string | undefined;
+import { SiloVersion } from "../version";
 
 /** Argv parsing, subcommand routing, and dependency wiring for the silo CLI. */
 export class Cli {
-  private static readonly version = typeof SILO_VERSION === "string" ? SILO_VERSION : "0.1.0-dev";
+  private static readonly version = SiloVersion;
 
   private static printUsage() {
     console.log(`silo, minimal portable headless CMS

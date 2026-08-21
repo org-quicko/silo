@@ -154,7 +154,7 @@ instead and get `silo status`, `silo logs` and `silo stop` — see
  Store it safely. Create more keys with: silo keys create
 ================================================================
 
-silo 0.1.0-dev listening on :8090 (instance 01J..., driver sqlite, data ./silo_data)
+silo 0.2.0 listening on :8090 (instance 01J..., driver sqlite, data ./silo_data)
 ```
 
 Open <http://localhost:8090>, add the server with its URL and that key, and you
@@ -761,8 +761,30 @@ cd ui && bun run lint   # oxlint plus stylelint
 `silo.exe` on Windows, where Bun adds the extension itself. It runs wherever Bun
 does: the ad-hoc `codesign` pass that a Bun-compiled Mach-O needs is applied on
 macOS and skipped everywhere else, so nothing in the build is host specific. The
-binary still serves the admin UI from `./ui/dist` relative to its working
-directory.
+admin UI is built and embedded into the executable, so the result serves it from
+any working directory.
+
+The same script builds every release artifact, so one is reproducible locally:
+
+```sh
+bun run build -- --target linux-x64 --version 0.2.0 --out dist/linux-x64/silo --archive
+```
+
+### Versioning
+
+The root `package.json` is the only place silo's version is written. Everything
+derives from it — the binary, the archives, the RPM, the Homebrew formula — and
+one command moves the lot:
+
+```sh
+bun run set-version 0.2.0
+```
+
+It rewrites every workspace manifest and commits nothing. A build that is not a
+release reports the version with a `-dev` suffix, so a local `silo version` is
+never mistaken for the published artifact of the same number; pushing a `v0.2.0`
+tag is what publishes it, and the release refuses a tag that disagrees with the
+manifest.
 
 | Path | What it is |
 |------|------------|
@@ -770,7 +792,8 @@ directory.
 | `shared/` | `@silo/shared`, a Bun workspace holding runtime-neutral rules both the server and UI depend on: claims, validation errors, schema keywords, key format |
 | `ui/` | React and Vite admin UI, built to `ui/dist` |
 | `server/test/`, `shared/test/` | `bun test` suites |
-| `scripts/` | Build tooling invoked through `bun run`, outside the server's source tree |
+| `scripts/` | Build, packaging, and versioning tooling invoked through `bun run`, outside the server's source tree |
+| `packaging/` | The Homebrew formula and the dnf package: systemd unit, scriptlets, and repository metadata |
 
 The architecture is ports and adapters: `server/core/` defines domain types and
 the `Storage` and `BlobStorage` interfaces and imports no adapter, adapters

@@ -53,6 +53,7 @@ jobs:
       version: ${{ steps.resolve.outputs.version }}
       prerelease: ${{ steps.resolve.outputs.prerelease }}
     steps:
+      - uses: actions/checkout@v7
       - id: resolve
         run: |
           if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
@@ -74,9 +75,24 @@ jobs:
             *) prerelease=false ;;
           esac
 
+          # package.json is the single source of truth (D28); the tag is a
+          # request to publish what it already says. When the two disagree the
+          # tag is wrong or the bump was forgotten, and either way the artifacts
+          # would be named for one version and built from a tree that believes
+          # in another. `bun run set-version <v>` is what keeps them together.
+          declared=$(jq -r .version package.json)
+          if [ "$declared" != "$version" ]; then
+            if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+              echo "::warning::building $version from a tree that declares $declared — fine for a rehearsal, not for a tag"
+            else
+              echo "::error::tag v$version does not match package.json ($declared). Run: bun run set-version $version"
+              exit 1
+            fi
+          fi
+
           echo "version=$version" >> "$GITHUB_OUTPUT"
           echo "prerelease=$prerelease" >> "$GITHUB_OUTPUT"
-          echo "silo $version (prerelease=$prerelease)"
+          echo "silo $version (prerelease=$prerelease, declared=$declared)"
 
   verify:
     runs-on: ubuntu-24.04

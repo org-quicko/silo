@@ -10,6 +10,7 @@ import { Scope } from "../domain/scope";
 import { KeyUtils } from "../keys/key-utils";
 import { MediaCatalog } from "../media/media-catalog";
 import { FormatVersion } from "./format-version";
+import { SiloVersion } from "../../version";
 import type { ExportOptions } from "./export-options";
 import type { ExportManifest } from "./export-manifest";
 
@@ -133,7 +134,7 @@ export class Exporter {
     await fs.mkdir(dest, { recursive: true });
 
     const exportedAt = opts.exportedAt || EntryUtils.now();
-    const siloVer = opts.siloVersion || "0.1.0-dev";
+    const siloVer = opts.siloVersion || SiloVersion;
     const colCounts: Record<string, number> = {};
 
     // The system scope is always visited so --with-keys has something to

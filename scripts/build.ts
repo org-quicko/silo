@@ -2,6 +2,7 @@ import { parseArgs } from "util";
 import fs from "fs/promises";
 import path from "path";
 import { create as createTar } from "tar";
+import { PackageVersion } from "../server/version";
 
 /** A platform silo can be built for, and the names that follow from it. */
 interface Target {
@@ -43,7 +44,9 @@ export class BuildBinary {
   private static readonly uiDist = "ui/dist";
   private static readonly generatedDir = ".build";
   private static readonly distDir = "dist";
-  private static readonly devVersion = "0.1.0-dev";
+  /** Anything that is not a release says so, rather than claiming to be the
+   *  published artifact of the same number. */
+  private static readonly devVersion = `${PackageVersion}-dev`;
 
   /** Shipped alongside the executable. The licence is not optional: silo is
    *  AGPL, and a binary handed to someone travels with its terms. */
@@ -62,6 +65,8 @@ export class BuildBinary {
       args: Bun.argv.slice(2),
       options: {
         target: { type: "string", default: "host" },
+        // Defaults to the manifest's version marked `-dev`; the release
+        // workflow passes the tag, having first checked the two agree.
         version: { type: "string", default: BuildBinary.devVersion },
         out: { type: "string" },
         archive: { type: "boolean", default: false },
