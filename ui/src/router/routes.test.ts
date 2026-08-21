@@ -1,6 +1,8 @@
 import { describe, expect, test } from 'bun:test'
+import { JsonPath } from '@silo/shared/json-path'
 import { Routes } from './routes'
 import type { Route } from './route'
+import { DEFAULT_LIST_QUERY, type ListQuery } from './list-query'
 
 /**
  * The URL grammar, which is the part of the admin UI a mistake is quietest in:
@@ -67,6 +69,52 @@ describe('Routes.parse', () => {
   test('scope ids are decoded, and list query params survive', () => {
     const route = Routes.parse('/servers/s1/projects/a%20cme/environments/prod/collections/posts?page=3&q=hi')
     expect(route).toMatchObject({ view: 'entries', project: 'a cme', query: { page: 3, q: 'hi' } })
+  })
+})
+
+/**
+ * The list URL carries the whole view — text, sort, filter and page — because
+ * a filtered list that cannot be linked to is a filtered list nobody shares.
+ */
+describe('the list query in the URL', () => {
+  const queryOf = (url: string) => {
+    const route = Routes.parse(url)
+    if (!route || route.view !== 'entries') throw new Error(`not an entries route: ${url}`)
+    return route.query
+  }
+  const entries = (query: ListQuery) => Routes.entries('s1', 'acme', 'prod', 'posts', query)
+
+  test('no sort in the URL means no sort was chosen, which is what lets search rank', () => {
+    expect(queryOf('/servers/s1/projects/acme/environments/prod/collections/posts')).toEqual(
+      DEFAULT_LIST_QUERY,
+    )
+    // And the builder writes nothing back, rather than pinning the default.
+    expect(entries(DEFAULT_LIST_QUERY)).not.toContain('sort=')
+  })
+
+  test('a chosen sort round-trips, direction included', () => {
+    const url = entries({ ...DEFAULT_LIST_QUERY, sort: JsonPath.dataField('title'), desc: false })
+    expect(url).toContain('sort=%24.data.title')
+    expect(queryOf(url)).toMatchObject({ sort: '$.data.title', desc: false })
+  })
+
+  test('a filter round-trips as the AST the API takes', () => {
+    const filter = JSON.stringify({ op: 'eq', path: '$.data.draft', value: true })
+    expect(queryOf(entries({ ...DEFAULT_LIST_QUERY, filter }))).toMatchObject({ filter })
+  })
+
+  test('a filter that is not JSON is carried, not dropped', () => {
+    // Dropping it would widen the list to everything while the URL still
+    // claims to be filtered; the view refuses instead.
+    expect(queryOf('/servers/s1/projects/acme/environments/prod/collections/posts?filter=%7Bbroken')
+      .filter).toBe('{broken')
+  })
+
+  test('a sort bookmarked before D29 still opens', () => {
+    expect(queryOf('/servers/s1/projects/acme/environments/prod/collections/posts?sort=-%24updated_at'))
+      .toMatchObject({ sort: '$.updated_at', desc: true })
+    expect(queryOf('/servers/s1/projects/acme/environments/prod/collections/posts?sort=title'))
+      .toMatchObject({ sort: '$.data.title', desc: false })
   })
 })
 

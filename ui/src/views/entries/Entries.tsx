@@ -1,16 +1,19 @@
 import { Button } from '../../components/Button'
 import { Pill } from '../../components/Pill'
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import {
   Plus,
   SlidersHorizontal,
   ArrowUpDown,
+  ArrowDown,
+  ArrowUp,
   Globe,
   Lock,
   Search,
   MoreHorizontal,
   Trash2,
   Calendar,
+  TriangleAlert,
 } from 'lucide-react'
 import { Claims } from '@silo/shared/claims'
 import { JsonPath } from '@silo/shared/json-path'
@@ -20,8 +23,12 @@ import { api } from '../../api/api-client'
 import { Formatters } from '../../utils/formatters'
 import type { Collection } from '../../api/types/collection'
 import type { Entry } from '../../api/types/entry'
+import type { SearchSnippet } from '../../api/types/search-snippet'
 import type { ListQuery } from '../../router/list-query'
 import type { ScopeRef } from '../../api/types/scope-ref'
+import { FilterModel, type FilterDraft } from '../../query/filter-model'
+import { PathLabel } from '../../query/path-label'
+import { UrlFilter } from '../../query/url-filter'
 import { Modal } from '../../components/Modal'
 import { ModalActions } from '../../components/ModalActions'
 import { ModalBody } from '../../components/ModalBody'
@@ -32,7 +39,9 @@ import { ModalSubject } from '../../components/ModalSubject'
 import { TopBar } from '../shell/TopBar'
 import { ApiGuide } from '../ApiGuide'
 import { CellValue } from './CellValue'
+import { FilterBuilder } from './FilterBuilder'
 import { RowMenu } from './RowMenu'
+import { Snippets } from './Snippets'
 import table from '../../components/DataTable.module.css'
 import styles from './Entries.module.css'
 import type { SessionBadge } from '../shell/session-badge'
@@ -47,7 +56,7 @@ interface Props {
   scope: ScopeRef
   claims: string[]
   session: SessionBadge
-  /** Filter/sort/page live in the URL, so a filtered view is linkable. */
+  /** Text, filter, sort and page live in the URL, so a view is linkable. */
   query: ListQuery
   onQueryChange: (next: ListQuery, replace?: boolean) => void
   onEditSchema: () => void
@@ -81,13 +90,26 @@ export function EntriesView({
   onChanged,
 }: Props) {
   const [entries, setEntries] = useState<Entry[]>([])
+  const [snippets, setSnippets] = useState<Record<string, SearchSnippet[]>>({})
   const [total, setTotal] = useState(0)
+  const [truncated, setTruncated] = useState(false)
+  const [engine, setEngine] = useState<'fts5' | 'scan' | null>(null)
+  const [error, setError] = useState('')
   const [loading, setLoading] = useState(true)
   const [menuId, setMenuId] = useState<string | null>(null)
+  const [showFilter, setShowFilter] = useState(false)
   const [toDelete, setToDelete] = useState<Entry | null>(null)
 
-  const { sort, desc } = query
+  const { desc } = query
   const offset = (query.page - 1) * PAGE_SIZE
+  const searching = query.q.trim() !== ''
+  // No chosen sort means relevance while searching and newest-first otherwise;
+  // an explicit one wins over both (§5.5).
+  const sort = query.sort ?? JsonPath.UpdatedAt
+  const sortParam = query.sort ? (desc ? '-' : '') + query.sort : undefined
+
+  const parsed = useMemo(() => UrlFilter.parse(query.filter), [query.filter])
+  const draft = useMemo(() => FilterModel.fromFilter(parsed.filter), [parsed.filter])
 
   // The text box keeps its own state so typing stays responsive; the URL only
   // gets the settled value. `synced` tracks what the URL already holds, which
@@ -107,14 +129,14 @@ export function EntriesView({
   const canEditSchema = can(Claims.CollectionSchemaUpdate)
   const gridCols = `1.9fr ${extra.map(() => '1fr').join(' ')} 0.8fr 44px`
 
-  // Back/forward (or a fresh deep link) changed the filter — adopt it.
+  // Back/forward (or a fresh deep link) changed the text — adopt it.
   useEffect(() => {
     if (query.q === synced.current) return
     synced.current = query.q
     setSearch(query.q)
   }, [query.q])
 
-  // Settle typing into the URL. Replaces rather than pushes, so a filtered
+  // Settle typing into the URL. Replaces rather than pushes, so a searched
   // list is one back-press away from where the user came from.
   useEffect(() => {
     if (search === synced.current) return
@@ -126,45 +148,114 @@ export function EntriesView({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [search])
 
-  const reload = () => {
+  /**
+   * One loader for both routes. Text runs the collection-reach `/search`
+   * (D30), which ranks and explains itself with snippets; without text the
+   * plain list route answers, because a filter-only search returns the same
+   * set in a shape the table does not need.
+   *
+   * Responses are ticketed rather than cancelled: typing fires several, and
+   * they can land out of order — the last one *asked for* must win, not the
+   * last one to arrive.
+   */
+  const seq = useRef(0)
+  const load = (): Promise<void> => {
+    const ticket = ++seq.current
+    const fresh = () => seq.current === ticket
     setLoading(true)
-    const filter = query.q.trim() && primary
-      ? { op: 'contains', path: JsonPath.dataField(primary), value: query.q.trim() }
-      : undefined
-    return api
-      .listEntries(url, apiKey, scope, collection.name, { limit: PAGE_SIZE, offset, sort: (desc ? '-' : '') + sort, filter })
-      .then((r) => {
-        setEntries(r.items)
-        setTotal(r.total)
+
+    if (parsed.error) {
+      // A filter that cannot be read is refused, not dropped: showing every
+      // entry under a URL that claims to be filtered is the one failure
+      // direction that misleads instead of interrupting.
+      setEntries([])
+      setSnippets({})
+      setTotal(0)
+      setError(parsed.error)
+      setLoading(false)
+      return Promise.resolve()
+    }
+
+    const request = searching
+      ? api
+          .search(
+            url,
+            apiKey,
+            { kind: 'collection', scope, collection: collection.name },
+            { q: query.q.trim(), filter: parsed.filter, sort: sortParam, limit: PAGE_SIZE, offset },
+          )
+          .then((r) => {
+            if (!fresh()) return
+            setEntries(r.items.map((h) => h.entry))
+            setSnippets(Object.fromEntries(r.items.map((h) => [h.entry.id, h.snippets])))
+            setTotal(r.total)
+            setTruncated(r.truncated)
+            setEngine(r.engine)
+          })
+      : api
+          .listEntries(url, apiKey, scope, collection.name, {
+            limit: PAGE_SIZE,
+            offset,
+            sort: (desc ? '-' : '') + sort,
+            filter: parsed.filter ?? undefined,
+          })
+          .then((r) => {
+            if (!fresh()) return
+            setEntries(r.items)
+            setSnippets({})
+            setTotal(r.total)
+            setTruncated(false)
+            setEngine(null)
+          })
+
+    return request
+      .then(() => fresh() && setError(''))
+      .catch((e: unknown) => {
+        if (!fresh()) return
+        setEntries([])
+        setSnippets({})
+        setTotal(0)
+        setError(e instanceof Error ? e.message : 'Could not load entries')
       })
-      .catch(() => setEntries([]))
-      .finally(() => setLoading(false))
+      .then(() => {
+        if (fresh()) setLoading(false)
+      })
   }
 
+  // Depends on the scope's *values*, not the prop's identity: `scope` is built
+  // fresh by the parent on every render, so depending on the object reloads
+  // the whole page — a second search per render — every time anything above
+  // this view changes state.
   useEffect(() => {
-    let alive = true
-    setLoading(true)
-    const filter = query.q.trim() && primary
-      ? { op: 'contains', path: JsonPath.dataField(primary), value: query.q.trim() }
-      : undefined
-    api
-      .listEntries(url, apiKey, scope, collection.name, { limit: PAGE_SIZE, offset, sort: (desc ? '-' : '') + sort, filter })
-      .then((r) => {
-        if (!alive) return
-        setEntries(r.items)
-        setTotal(r.total)
-      })
-      .catch(() => alive && setEntries([]))
-      .finally(() => alive && setLoading(false))
-    return () => {
-      alive = false
-    }
+    load()
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [url, apiKey, scope, collection.name, offset, sort, desc, query.q])
+  }, [
+    url,
+    apiKey,
+    scope.project,
+    scope.env,
+    collection.name,
+    offset,
+    sort,
+    desc,
+    query.q,
+    query.filter,
+    query.sort,
+  ])
 
   /** Takes a path (D29), so the URL and the API speak the same language. */
   const toggleSort = (path: string) => {
-    onQueryChange({ ...query, sort: path, desc: sort === path ? !desc : true, page: 1 })
+    onQueryChange({ ...query, sort: path, desc: query.sort === path ? !desc : true, page: 1 })
+  }
+
+  const sortIcon = (path: string) => {
+    if (query.sort !== path) return <ArrowUpDown size={11} />
+    return desc ? <ArrowDown size={11} /> : <ArrowUp size={11} />
+  }
+
+  const applyFilter = (next: FilterDraft) => {
+    setShowFilter(false)
+    onQueryChange({ ...query, filter: UrlFilter.stringify(FilterModel.toFilter(next)), page: 1 })
   }
 
   const goToPage = (page: number) => onQueryChange({ ...query, page })
@@ -174,7 +265,7 @@ export function EntriesView({
     try {
       await api.deleteEntry(url, apiKey, scope, collection.name, toDelete.id, toDelete.rev)
       setToDelete(null)
-      await reload()
+      await load()
       onChanged()
     } catch (e: any) {
       alert(e.message || 'Delete failed')
@@ -189,14 +280,18 @@ export function EntriesView({
     onQueryChange({ ...query, q: '', page: 1 }, true)
   }
   const label = (e: Entry) => (primary ? String(e.data?.[primary] ?? Formatters.shortId(e.id)) : Formatters.shortId(e.id))
+  const conditions = draft ? draft.rows.filter(FilterModel.isComplete).length : 0
 
   return (
     <>
       <TopBar crumbs={[{ label: 'Collections' }, { label: collection.name }]} session={session}>
         <div className={styles.filterField}>
           <Search size={15} />
-          <input value={search} placeholder="Filter entries…" onChange={(e) => setSearch(e.target.value)} />
-          <span className={styles.keycap}>⌘K</span>
+          <input
+            value={search}
+            placeholder={`Search ${collection.name}…`}
+            onChange={(e) => setSearch(e.target.value)}
+          />
         </div>
       </TopBar>
 
@@ -230,7 +325,18 @@ export function EntriesView({
           </div>
         </div>
 
-        {!loading && total === 0 && !query.q.trim() ? (
+        {error && (
+          <div className={styles.errorBanner}>
+            <TriangleAlert size={14} /> {error}
+            {parsed.error && (
+              <button className={styles.bannerAction} onClick={() => onQueryChange({ ...query, filter: null, page: 1 })}>
+                Clear filter
+              </button>
+            )}
+          </div>
+        )}
+
+        {!loading && !error && total === 0 && !searching && conditions === 0 && !parsed.filter ? (
           <div className={`card ${styles.emptyCard}`}>
             <div className={styles.empty}>
               <div className={styles.emptyIcon}>
@@ -257,37 +363,79 @@ export function EntriesView({
         ) : (
           <>
             <div className={styles.toolbar}>
-              <Button variant="secondary" size="sm">
-                <SlidersHorizontal size={14} /> Filter
-              </Button>
-              {query.q.trim() && primary && (
+              <div className={styles.filterAnchor}>
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  onClick={() => setShowFilter(!showFilter)}
+                  className={parsed.filter ? styles.filterActive : undefined}
+                >
+                  <SlidersHorizontal size={14} /> Filter
+                  {conditions > 0 && <span className={styles.filterCount}>{conditions}</span>}
+                </Button>
+                {showFilter && (
+                  <FilterBuilder
+                    schema={collection.schema}
+                    draft={draft ?? FilterModel.Empty}
+                    advanced={draft === null ? query.filter : null}
+                    onApply={applyFilter}
+                    onClose={() => setShowFilter(false)}
+                  />
+                )}
+              </div>
+
+              {searching && (
                 <span className={styles.filterPill}>
-                  <span className={styles.filterKey}>{primary}</span>
-                  <span className={styles.filterOperator}>contains</span>
+                  <span className={styles.filterKey}>search</span>
                   <span className={styles.filterValue}>{query.q.trim()}</span>
-                  <button className={styles.clearFilter} onClick={clearSearch}>
+                  <button className={styles.clearFilter} onClick={clearSearch} aria-label="Clear search">
                     ✕
                   </button>
                 </span>
               )}
+              {draft === null && (
+                <span className={styles.filterPill}>
+                  <span className={styles.filterKey}>filter</span>
+                  <span className={styles.filterOperator}>advanced</span>
+                </span>
+              )}
+
               <div className={styles.toolbarSpacer} />
-              <Button variant="secondary" size="sm" onClick={() => toggleSort(JsonPath.UpdatedAt)}>
-                Sort: Updated <ArrowUpDown size={13} />
-              </Button>
+
+              {engine && <span className={styles.engineTag} title="Which engine answered (D30)">{engine}</span>}
+              {query.sort ? (
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  title={`Sorted by ${query.sort} — click to go back to the default order`}
+                  onClick={() => onQueryChange({ ...query, sort: null, page: 1 })}
+                >
+                  Sort: {PathLabel.of(query.sort)} {desc ? <ArrowDown size={13} /> : <ArrowUp size={13} />}
+                </Button>
+              ) : (
+                <span className={styles.sortNote}>{searching ? 'Sorted by relevance' : 'Newest first'}</span>
+              )}
             </div>
+
+            {truncated && (
+              <div className={styles.truncatedNote}>
+                This search stopped at its scan limit, so {total} counts what was examined rather than what exists.
+                Narrow it, or enable the SQLite index.
+              </div>
+            )}
 
             <div className="card">
               <div className={`${table.header} ${table.table}`} style={{ ['--cols' as any]: gridCols }}>
                 <span className={table.sortable} onClick={() => primary && toggleSort(JsonPath.dataField(primary))}>
-                  {primary || 'ID'} <ArrowUpDown size={11} />
+                  {primary || 'ID'} {primary && sortIcon(JsonPath.dataField(primary))}
                 </span>
                 {extra.map((c) => (
                   <span key={c} className={table.sortable} onClick={() => toggleSort(JsonPath.dataField(c))}>
-                    {c} <ArrowUpDown size={11} />
+                    {c} {sortIcon(JsonPath.dataField(c))}
                   </span>
                 ))}
                 <span className={table.sortable} onClick={() => toggleSort(JsonPath.UpdatedAt)}>
-                  Updated
+                  Updated {sortIcon(JsonPath.UpdatedAt)}
                 </span>
                 <span />
               </div>
@@ -303,6 +451,7 @@ export function EntriesView({
                     <div className={table.primary}>
                       <span className={table.title}>{label(e)}</span>
                       <span className={table.subtitle}>{sub ? String(e.data?.[sub] ?? '') : Formatters.shortId(e.id)}</span>
+                      <Snippets snippets={snippets[e.id]} />
                     </div>
                   </div>
                   {extra.map((c) => (
@@ -342,9 +491,9 @@ export function EntriesView({
                 </div>
               ))}
 
-              {!loading && entries.length === 0 && (
+              {!loading && !error && entries.length === 0 && (
                 <div className={`${table.cell} ${styles.noResults}`}>
-                  No entries match “{query.q.trim()}”.
+                  {searching ? `Nothing in ${collection.name} matches “${query.q.trim()}”.` : 'No entries match this filter.'}
                 </div>
               )}
             </div>

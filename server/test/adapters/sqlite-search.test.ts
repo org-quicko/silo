@@ -197,7 +197,7 @@ describe("SQLite FTS5 searcher", () => {
     await put(Scope.Default, "posts", { title: "x", body: "We met in Café Central." }, schema);
     const { res } = await titles("cafe");
     const snippet = res.items[0].snippets.find((s) => s.path === "$.data.body");
-    expect(snippet?.text).toContain("[Café]");
+    expect(snippet?.match).toBe("Café");
   });
 
   test("paging is stable across pages", async () => {

@@ -1,4 +1,4 @@
-import type { Filter } from "../query/filter";
+import type { Filter } from "@silo/shared/filter";
 import type { SortKey } from "../query/sort-key";
 
 /**

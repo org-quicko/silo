@@ -207,6 +207,12 @@ form cannot render, a schema editor, a media library, key management, and a data
 transfer view for export, import, and direct server copy. Navigation and actions
 adapt to the claims of the key in use.
 
+Search is on the table and on `⌘K`: the table searches its own collection and
+shows which field each result matched, while `⌘K` searches every collection the
+key can read, across projects and environments, with media as its own group. A
+filter builder writes the same query AST the API takes. All of it lives in the
+URL, so a searched, filtered, sorted view is a link you can send someone.
+
 See [ui/README.md](ui/README.md) for its architecture and development workflow.
 
 ## Configuration
@@ -244,6 +250,14 @@ disabled = false        # dev only: if true, every request is treated as root
 [schema]
 allow_remote_refs = false  # opt in to fetching http(s) $refs during validation
 
+[search]
+enabled             = true          # false keeps no index; search falls back to a full scan
+tokenizer           = "unicode61"   # "unicode61" (words) | "trigram" (substrings; required for CJK)
+max_entry_bytes     = 65536         # per-entry cap on indexed text
+scan_limit          = 20000         # entries one un-indexed scan may visit before truncating
+scan_time_budget_ms = 3000          # ...and how long, whichever comes first
+# Changing the tokenizer rebuilds the index on the next start.
+
 [log]
 level       = "info"          # "debug" | "info" | "warn" | "error" | "silent"
 format      = "text"          # "text" (human) | "json" (one object per line)
@@ -264,6 +278,7 @@ max_files   = 5               # kept as silo.log.1 … silo.log.5
 | `SILO_BLOB_S3_FORCE_PATH_STYLE` | `[blob_storage]` |
 | `SILO_AUTH_DISABLED` | `[auth] disabled` |
 | `SILO_SCHEMA_ALLOW_REMOTE_REFS` | `[schema] allow_remote_refs` |
+| `SILO_SEARCH_ENABLED`, `SILO_SEARCH_TOKENIZER` | `[search]` |
 | `SILO_LOG_LEVEL`, `SILO_LOG_FILE`, `SILO_LOG_FORMAT` | `[log]` |
 | `SILO_LOG_REQUESTS`, `SILO_LOG_MAX_SIZE_MB`, `SILO_LOG_MAX_FILES` | `[log]` |
 
@@ -389,6 +404,7 @@ bun run server/main.ts keys revoke <id>              revoke a key
 bun run server/main.ts export [flags]                export schemas, entries, and media
 bun run server/main.ts import [flags] <dir|tarball>  import an export
 bun run server/main.ts media reconcile               repair the media catalog against stored blobs
+bun run server/main.ts search reindex [--check]      rebuild the search index, and verify it
 bun run server/main.ts version                       print the version
 ```
 
@@ -418,6 +434,7 @@ bun run server/main.ts version                       print the version
 | `--validate` | `import` | validate entries against their schema |
 | `--dry-run` | `import` | report what would be written, write nothing |
 | `--prefer <local\|remote>` | `import` | override merge conflict resolution |
+| `--check` | `search reindex` | also report both index integrity checks, exiting non-zero on disagreement |
 
 A bare collection name in `--collections` grants the permission in **every**
 project and environment (`collections:*/*/<name>:...`). Write
@@ -450,7 +467,11 @@ Present a key as `Authorization: Bearer <key>` or `X-Api-Key: <key>`.
 | `GET` / `POST` | `/api/keys` | list keys / create one, the secret is returned exactly once |
 | `DELETE` | `/api/keys/{id}` | revoke a key |
 | `GET` / `POST` | `/api/media` | list / upload media |
-| `DELETE` | `/api/media/{filename}` | delete a media file |
+| `DELETE` | `/api/media/{id}` | delete a media asset, refused while an entry still references it |
+| `GET` | `/api/projects/{project}/envs/{env}/collections/{name}/search` | search one collection |
+| `GET` | `/api/projects/{project}/envs/{env}/search` | search one environment |
+| `GET` | `/api/search` | search everything the key can read |
+| `POST` | `/api/search/reindex` | rebuild the search index |
 | `GET` | `/media/{filename}` | public asset streaming, immutable cache headers |
 
 `/environments` is accepted anywhere `/envs` appears. Collection, entry, and
@@ -472,20 +493,61 @@ curl -X POST http://localhost:8090/api/projects/default/envs/prod/collections/po
 fields, then `created_at` and `updated_at`. The rest of the envelope stays
 internal.
 
-**List queries.** `?filter=<url-encoded JSON>&sort=-$updated_at,title&limit=50&offset=0`.
-Envelope fields carry a `$` prefix (`$id`, `$created_at`, `$updated_at`). The
-filter is a small AST rather than a string language:
+**List queries.** `?filter=<url-encoded JSON>&sort=-$.updated_at,$.data.title&limit=50&offset=0`.
+
+Fields are addressed with [RFC 9535](https://www.rfc-editor.org/rfc/rfc9535)
+JSONPath, over an entry document of `{id, rev, created_at, updated_at, data}` —
+your own fields live under `$.data`, so a field named `id` can never shadow the
+envelope's. The supported subset is the root, name selectors, array indices
+(negative included), and the child wildcard `[*]`. Recursive descent, slices,
+unions, filter selectors and function extensions are refused by name rather than
+silently ignored.
+
+The filter is a small AST rather than a string language:
 
 ```json
 {"op": "and", "args": [
-  {"op": "eq", "field": "status", "value": "published"},
-  {"op": "contains", "field": "author.name", "value": "ada"}
+  {"op": "eq", "path": "$.data.status", "value": "published"},
+  {"op": "contains", "path": "$.data.author.name", "value": "ada"},
+  {"op": "eq", "path": "$.data.tags[*]", "value": "release"}
 ]}
 ```
 
-Leaf operators are `eq`, `neq`, `gt`, `gte`, `lt`, `lte`, `in`, and `contains`;
-`and` and `or` take `args`. The default limit is 50 and the maximum is 500. The
-response is `{"data": [...], "total": n, "limit": ..., "offset": ...}`.
+Leaf operators are `eq`, `neq`, `gt`, `gte`, `lt`, `lte`, `in`, `contains`, and
+`exists`; `and`, `or` and `not` take `args`. A leaf is true when **any** node
+the path selects satisfies it, and any-over-nothing is false — so
+`neq($.data.tags[*], "x")` means *some tag is not "x"*, while
+`not(eq($.data.tags[*], "x"))` means *no tag is*. Sort paths must select at
+most one node. The default limit is 50 and the maximum is 500. The response is
+`{"data": [...], "total": n, "limit": ..., "offset": ...}`.
+
+**Search.** The same `filter`, `sort`, `limit` and `offset`, plus `q` for text,
+at three reaches — one collection, one environment, or everything the key can
+read. The reach is in the path and never in a parameter, so a forgotten value
+cannot widen a search:
+
+```sh
+curl "http://localhost:8090/api/search?q=pricing" -H "Authorization: Bearer $SILO_KEY"
+```
+
+A result names where it was found, and quotes why it matched:
+
+```json
+{"data": [{"project": "acme", "env": "prod", "collection": "posts",
+           "entry": {"id": "01J8…", "title": "Pricing changes"},
+           "snippets": [{"path": "$.data.body",
+                         "before": "…our ", "match": "pricing", "after": " page…"}]}],
+ "total": 1, "limit": 50, "offset": 0, "truncated": false, "engine": "fts5"}
+```
+
+A snippet is three strings — the fragment is `before + match + after`, and
+`match` is the run to highlight — so text containing brackets of its own needs
+no escaping. `engine` is `fts5` when SQLite's full-text index answered and
+`scan` when the portable engine walked the entries instead; `truncated` is true
+only for the latter, and means `total` counts what was examined. A `sort` beats
+relevance, so omit it to rank. Which fields are indexed is a schema decision
+(`x-silo-search`), and an anonymous caller reaches only collections whose schema
+does not set `x-silo-auth`.
 
 **Optimistic concurrency.** `PUT` and `DELETE` on an entry require the revision
 you expect, as `If-Match: "3"` or `?rev=3`. Every entry response carries its
@@ -826,8 +888,7 @@ and static helpers rather than loose top-level functions.
 
 Further out, and already designed for rather than built: a sync engine using the
 `rev` and `seq` metadata every entry already carries, tombstones so deletions
-propagate through a merge, key expiry, relation integrity enforcement, and
-full-text search behind an optional interface.
+propagate through a merge, key expiry, and relation integrity enforcement.
 
 ## Contributing
 

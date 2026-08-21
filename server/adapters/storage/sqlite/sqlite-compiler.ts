@@ -2,7 +2,7 @@ import { ValidationError } from "@silo/shared/validation-error";
 import { JsonPath } from "@silo/shared/json-path";
 import type { PathSelector } from "@silo/shared/path-selector";
 import { QueryUtils } from "../../../core/query/query-utils";
-import type { Filter } from "../../../core/query/filter";
+import type { Filter } from "@silo/shared/filter";
 import type { SortKey } from "../../../core/query/sort-key";
 
 /**

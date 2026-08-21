@@ -1,23 +1,11 @@
 import { ValidationError } from "@silo/shared/validation-error";
 import { JsonPath } from "@silo/shared/json-path";
 import { DefaultLimit, MaxLimit, MaxFilterDepth, MaxFilterNodes, type Query } from "./query";
-import type { Filter } from "./filter";
+import type { Filter } from "@silo/shared/filter";
+import { FilterOps } from "@silo/shared/filter-ops";
 import type { SortKey } from "./sort-key";
 
 export class QueryUtils {
-  private static readonly leafOps = new Set([
-    "eq",
-    "neq",
-    "gt",
-    "gte",
-    "lt",
-    "lte",
-    "in",
-    "contains",
-    "exists",
-  ]);
-
-  private static readonly groupOps = new Set(["and", "or", "not"]);
 
   /** Parses and validates a filter path, raising `ValidationError` (D29). */
   static path(raw: string | undefined): JsonPath {
@@ -103,7 +91,7 @@ export class QueryUtils {
       );
     }
 
-    if (QueryUtils.groupOps.has(f.op)) {
+    if (FilterOps.isGroup(f.op)) {
       if (!f.args || f.args.length === 0) {
         throw new ValidationError(`op "${f.op}" requires args`);
       }
@@ -122,7 +110,7 @@ export class QueryUtils {
       return;
     }
 
-    if (!QueryUtils.leafOps.has(f.op)) {
+    if (!FilterOps.isLeaf(f.op)) {
       throw new ValidationError(`unknown filter op "${f.op}"`);
     }
 

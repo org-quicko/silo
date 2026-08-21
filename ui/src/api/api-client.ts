@@ -15,6 +15,9 @@ import type { MediaQuery } from './types/media-query'
 import type { MediaUsage } from './types/media-usage'
 import type { EntryQuery } from './types/entry-query'
 import type { ScopeRef } from './types/scope-ref'
+import type { SearchPage } from './types/search-page'
+import type { SearchQuery } from './types/search-query'
+import type { SearchReach } from './types/search-reach'
 
 export class ApiClient {
   private onUnauthorized: (() => void) | null = null
@@ -284,6 +287,53 @@ export class ApiClient {
       ),
       { method: 'DELETE' },
     )
+  }
+
+  // ---- Search (D30) ----
+
+  /**
+   * The reach is in the path, never in a parameter — see `SearchReach`. One
+   * builder for all three, so no call site can assemble a flat one.
+   */
+  static searchPath(reach: SearchReach): string {
+    if (reach.kind === 'instance') return '/api/search'
+    const base =
+      `/api/projects/${encodeURIComponent(reach.scope.project)}` +
+      `/environments/${encodeURIComponent(reach.scope.env)}`
+    return reach.kind === 'scope'
+      ? `${base}/search`
+      : `${base}/collections/${encodeURIComponent(reach.collection)}/search`
+  }
+
+  search(url: string, key: string, reach: SearchReach, query: SearchQuery = {}): Promise<SearchPage> {
+    const params = new URLSearchParams()
+    if (query.q) params.set('q', query.q)
+    if (query.filter) params.set('filter', JSON.stringify(query.filter))
+    // Omitted rather than defaulted: §5.5 gives a supplied sort precedence
+    // over relevance, so sending one "just to be explicit" would silently turn
+    // every text search into a date listing.
+    if (query.sort) params.set('sort', query.sort)
+    if (query.limit != null) params.set('limit', String(query.limit))
+    if (query.offset != null) params.set('offset', String(query.offset))
+    const qs = params.toString()
+    return this.req<{ data: any[]; total: number; limit: number; offset: number; truncated: boolean; engine: 'fts5' | 'scan' }>(
+      url,
+      key,
+      ApiClient.searchPath(reach) + (qs ? `?${qs}` : ''),
+    ).then((r) => ({
+      items: (r.data || []).map((hit) => ({
+        project: hit.project,
+        env: hit.env,
+        collection: hit.collection,
+        entry: EntryMapper.fromApiEntry(hit.entry, hit.collection),
+        snippets: hit.snippets || [],
+      })),
+      total: r.total,
+      limit: r.limit,
+      offset: r.offset,
+      truncated: r.truncated,
+      engine: r.engine,
+    }))
   }
 
   listKeys(url: string, key: string) {

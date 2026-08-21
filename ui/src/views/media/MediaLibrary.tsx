@@ -37,19 +37,22 @@ export function MediaLibraryView({
   apiKey,
   session,
   claims,
+  initialQuery = '',
 }: {
   url: string
   apiKey: string
   session: SessionBadge
   claims: string[]
+  /** A search carried in by the URL — the command palette links assets this way. */
+  initialQuery?: string
 }) {
   const [assets, setAssets] = useState<MediaAsset[]>([])
   const [total, setTotal] = useState(0)
   const [offset, setOffset] = useState(0)
   const [folders, setFolders] = useState<string[]>([])
   const [folder, setFolder] = useState('')
-  const [search, setSearch] = useState('')
-  const [query, setQuery] = useState('')
+  const [search, setSearch] = useState(initialQuery)
+  const [query, setQuery] = useState(initialQuery)
   const [loading, setLoading] = useState(true)
   const [uploading, setUploading] = useState(false)
   const [toDelete, setToDelete] = useState<MediaAsset | null>(null)
@@ -96,6 +99,14 @@ export function MediaLibraryView({
   }, [url, apiKey, query, folder, offset])
 
   useEffect(load, [load])
+
+  // The library stays mounted while the URL changes underneath it, so a second
+  // arrival from the palette has to be adopted rather than ignored.
+  useEffect(() => {
+    setSearch(initialQuery)
+    setQuery(initialQuery)
+    setOffset(0)
+  }, [initialQuery])
 
   // Debounced so typing pages the server once per pause, not once per key.
   useEffect(() => {

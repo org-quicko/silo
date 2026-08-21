@@ -28,6 +28,7 @@ export function Sidebar({
   totalEntries,
   scope,
   onOpenServerBrowser,
+  onOpenSearch,
 }: {
   serverId: string
   collections: SidebarCollection[]
@@ -42,6 +43,7 @@ export function Sidebar({
   scope: ScopeRef
   onScopeChange?: (next: ScopeRef) => void
   onOpenServerBrowser?: () => void
+  onOpenSearch?: () => void
 }) {
   const [width, setWidth] = useState<number>(() => {
     const stored = localStorage.getItem(SIDEBAR_WIDTH_KEY)
@@ -146,6 +148,14 @@ export function Sidebar({
         </button>
       </div>
 
+      {onOpenSearch && (
+        <button type="button" className={styles.commandTrigger} onClick={onOpenSearch}>
+          <Search size={13} />
+          <span className={styles.commandLabel}>Search entries</span>
+          <span className={styles.commandKey}>⌘K</span>
+        </button>
+      )}
+
       <div className={styles.scroll}>
         <div className={styles.groupHead}>
           <span className={styles.groupLabel}>COLLECTIONS</span>
@@ -166,21 +176,21 @@ export function Sidebar({
             <input
               type="text"
               className={styles.searchInput}
-              placeholder="Search collections…"
+              placeholder="Filter collections…"
               value={search}
               onChange={(e) => setSearch(e.target.value)}
               onKeyDown={(e) => {
                 if (e.key === 'Escape') setSearch('')
               }}
-              aria-label="Search collections"
+              aria-label="Filter collections"
             />
             {search && (
               <button
                 type="button"
                 className={styles.searchClear}
                 onClick={() => setSearch('')}
-                title="Clear search"
-                aria-label="Clear search"
+                title="Clear filter"
+                aria-label="Clear filter"
               >
                 <X size={11} />
               </button>

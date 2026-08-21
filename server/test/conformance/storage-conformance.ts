@@ -392,7 +392,7 @@ export function runStorageTestSuite(
       expect(hit.project).toBe(Scope.Default.project);
       expect(hit.env).toBe(Scope.Default.env);
       expect(hit.collection).toBe("posts");
-      expect(hit.snippets.some((sn) => sn.text.includes("[alpha]"))).toBe(true);
+      expect(hit.snippets.some((sn) => sn.match === "alpha")).toBe(true);
 
       // A visit cap reports itself rather than silently returning less.
       const capped = await new ScanSearcher(st, { visitLimit: 1 }).search(

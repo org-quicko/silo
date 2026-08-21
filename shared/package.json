@@ -14,6 +14,8 @@
     "./claims": "./src/claims/claims.ts",
     "./collection-claim": "./src/claims/collection-claim.ts",
     "./collection-permission": "./src/claims/collection-permission.ts",
+    "./filter": "./src/query/filter.ts",
+    "./filter-ops": "./src/query/filter-ops.ts",
     "./fixed-claim": "./src/claims/fixed-claim.ts",
     "./json-path": "./src/query/path/json-path.ts",
     "./key-format": "./src/keys/key-format.ts",

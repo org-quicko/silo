@@ -1,7 +1,7 @@
 import type { Entry } from "../../../core/domain/entry";
 import { EntryNodes } from "../../../core/query/entry-nodes";
 import { QueryUtils } from "../../../core/query/query-utils";
-import type { Filter } from "../../../core/query/filter";
+import type { Filter } from "@silo/shared/filter";
 
 /**
  * The in-memory half of the query engine. It answers the same questions the

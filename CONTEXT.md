@@ -15,6 +15,71 @@ A minimal, self-hostable headless CMS. Users define collections with JSON Schema
 
 *Last updated: 2026-08-21*
 
+- **The admin UI reads search now (2026-08-21):** P3 of **D30**, and the last
+  of it. Collection search with snippets, a `⌘K` instance-wide palette, and a
+  filter builder over the path AST (§9, views 2 and 3).
+  - **The entries view searches instead of pretending to.** Typing used to
+    compile a `contains` on whichever column looked like a title, so a word in
+    a body was unfindable and a collection without a string field could not be
+    searched at all. It now calls the collection-reach `/search`, shows the
+    snippets that say *which field* matched, and states the engine that
+    answered — `fts5` or `scan`, the same badge on both.
+  - **A snippet is three strings now, not one with markers in it.** The wire
+    shape changed from `text: "…our [pricing] page…"` to `{ before, match,
+    after }`. P3 was its first consumer and the reason: the very first fixture
+    with a markdown link — `See [our docs](https://silo.dev) — the new pricing
+    page` — would have highlighted *our docs* for a search for `pricing`,
+    because a highlighter reading in-band brackets cannot tell the engine's
+    pair from the content's. Verified in a live run that the highlight now
+    lands on `pricing`. §5.5 and D30 record it; both engines and every
+    assertion moved with it.
+  - **An absent `sort` in the URL means nobody chose one.** `ListQuery.sort` is
+    `string | null`, and the router writes nothing for the default. Without
+    that distinction the view would always send a sort, §5.5 would honour it,
+    and relevance ranking would be unreachable from the UI that asked for it.
+    Sort, text, filter and page all live in the URL, so any view is linkable.
+  - **The filter builder writes the Query AST (D29).** Fields come from the
+    schema (an `array` property is offered as `$.data.tags[*]`, since a path to
+    the array itself compares against the whole list and matches nothing), the
+    value type comes from the property's JSON Schema type — so `views ≥ 500`
+    sends `500` and not `"500"` — and the ops come from **`@silo/shared`**:
+    `Filter` and `FilterOps` moved there beside the path parser, because a menu
+    offering an op the validator refuses is a `400` the reader cannot act on.
+  - **What the builder cannot draw, it refuses to redraw.** A nested or
+    hand-written filter is shown read-only and still applied, rather than
+    silently simplified into the flat shape (`FilterModel.fromFilter` → `null`).
+    And an unreadable `?filter=` refuses to list anything instead of dropping
+    the filter — dropping it widens the page to everything while the URL still
+    claims to be filtered, which is the one failure direction that misleads
+    rather than interrupts.
+  - **`⌘K` searches the whole instance**, not the scope on screen, because the
+    key already bounds it: `searchAccess` compiles the caller's `entries:read`
+    claims, so asking for everything returns exactly what that key can see.
+    Verified with a key holding one collection claim: the palette showed that
+    collection and nothing else — no other scope, no media group.
+  - **Media is merged in the UI and nowhere else.** The server keeps it out of
+    the entry index (its own `media:*` claims, D23/D24); the palette adds it as
+    a separate group and links each asset by the search that found it, since
+    the library has no per-asset URL.
+  - **Two defects found by running it, not by testing it.** Every collection
+    search fired **twice** per load — the effect depended on the `scope` prop's
+    identity, which the parent rebuilds on every render. And `Escape` closed
+    the palette only while focus stayed inside it, unlike every other overlay
+    in the shell. Both fixed.
+  - Tests: `ui/src/query/filter-model.test.ts` (16 — both directions of the
+    AST round trip, including the five shapes the builder refuses),
+    `path-label.test.ts` (`$.database` must not shorten to `base`),
+    `views/search/palette-results.test.ts` (grouping, cross-scope links, media
+    as its own group), `snippet-view.test.ts`, and the list-URL grammar in
+    `router/routes.test.ts`. 488 pass.
+  - Verified on a running server across both engines: snippets and their field
+    paths, `x-silo-search` exclusion (an excluded note never appears in a
+    snippet), relevance order and an explicit sort overriding it, the filter
+    builder's typed values, a `not(...)` filter shown as advanced and still
+    applied, an unreadable filter refusing to list, cross-scope navigation out
+    of the palette, media landing on the library pre-searched, and the `scan`
+    badge with search switched off.
+
 - **The FTS5 engine, and the port change that feeds it (2026-08-21):** P2 of
   **D30**. `SqliteSearcher` matches and ranks in SQL; `ScanSearcher` stays the
   fallback. Both face the *same* API suite — `search-api.test.ts` runs twice,
@@ -1552,7 +1617,7 @@ A minimal, self-hostable headless CMS. Users define collections with JSON Schema
 | `CLAUDE.md` | Standing instructions for AI assistants |
 | `package.json` | Project metadata, TypeScript 7 setup, Bun/Hono dependencies, and AWS S3 SDK; declares the `shared` and `ui` Bun workspaces, and is the one install root and one lockfile for all three packages. `build` delegates to `scripts/build.ts` rather than inlining the compile, because the signing step is platform-conditional |
 | `tsconfig.json` | TypeScript configuration for the Bun server, shared package, and build scripts (`include: ["server/**/*", "shared/**/*", "scripts/**/*"]`) |
-| `shared/` | Local `@silo/shared` package (a Bun workspace of the root) for runtime-neutral client/server rules. `src/claims/` is the single source of truth for claim constants, the `Claim`/`FixedClaim`/`CollectionClaim`/`CollectionPermission`/`ClaimPreset` types, `ParsedClaim`, validation, matching, delegation, and presets; `src/errors/` holds `ValidationError` and the `ValidationDetail` wire shape; `src/schema/` holds `SiloRef` (the `silo://collections/` `$ref` scheme), `SchemaAccess` (`x-silo-auth`), and `MediaField` (`x-silo-type: "media"`); `src/keys/` holds `KeyFormat` (secret prefix and display truncation); `src/media/` holds `MediaRef` (the `silo://media/<ulid>` scheme, its pre-D23 `/media/<key>` dual-read, and the canonical form the write path stores). Tests under `shared/test/`. Each artifact is its own file and its own `exports` subpath. `src/query/path/` holds `JsonPath` and `PathSelector` — the RFC 9535 subset parser (D29), placed here because the filter builder, the query validator, the SQL compiler and the in-memory evaluator must agree on what a path means. `src/schema/search-fields.ts` reads and validates the `x-silo-search` keyword (D30), beside `schema-access.ts` and `media-field.ts` for the same reason those live here |
+| `shared/` | Local `@silo/shared` package (a Bun workspace of the root) for runtime-neutral client/server rules. `src/claims/` is the single source of truth for claim constants, the `Claim`/`FixedClaim`/`CollectionClaim`/`CollectionPermission`/`ClaimPreset` types, `ParsedClaim`, validation, matching, delegation, and presets; `src/errors/` holds `ValidationError` and the `ValidationDetail` wire shape; `src/schema/` holds `SiloRef` (the `silo://collections/` `$ref` scheme), `SchemaAccess` (`x-silo-auth`), and `MediaField` (`x-silo-type: "media"`); `src/keys/` holds `KeyFormat` (secret prefix and display truncation); `src/media/` holds `MediaRef` (the `silo://media/<ulid>` scheme, its pre-D23 `/media/<key>` dual-read, and the canonical form the write path stores). Tests under `shared/test/`. Each artifact is its own file and its own `exports` subpath. `src/query/path/` holds `JsonPath` and `PathSelector` — the RFC 9535 subset parser (D29), placed here because the filter builder, the query validator, the SQL compiler and the in-memory evaluator must agree on what a path means; `src/query/filter.ts` and `filter-ops.ts` hold the `Filter` node and the closed operator list for the same reason, so the UI's filter menu and the server's validator cannot disagree about what an op is. `src/schema/search-fields.ts` reads and validates the `x-silo-search` keyword (D30), beside `schema-access.ts` and `media-field.ts` for the same reason those live here |
 | `server/main.ts` | Thin CLI entrypoint — imports `Cli` and runs it |
 | `server/version.ts` | `SiloVersion` (what this build calls itself) and `PackageVersion` (what the manifest declares), both derived from the root `package.json` — the single place the version is written (D28). A release build overrides `SiloVersion` through `--define SILO_VERSION`; every other build carries a `-dev` suffix |
 | `server/cli/` | `cli.ts` (argv parsing, subcommand routing, dependency wiring), `bootstrap-banner.ts` (the first-boot root key announcement), and `commands/` (one command class per subcommand: `serve-command.ts`, `keys-command.ts`, `export-command.ts`, `import-command.ts`, `init-command.ts` — `silo init`, the config scaffold rendered from `ConfigLoader.defaultConfig()` so it cannot drift from the built-in defaults, `media-command.ts` — `silo media reconcile`, the catalog repair that runs against the data dir with no server, reporting what it adopted, pruned, finished and returned to active, and the four process-lifecycle commands: `serve-detached-command.ts` — `silo serve --detach`, which spawns the child and waits for *its* run file before reporting success, `stop-command.ts`, `status-command.ts`, `logs-command.ts`). `Cli` routes `serve --detach`, `stop`, `status` and `logs` before storage is opened, like `init`: none of them is the server, so none may create a data dir or take a handle on another process's database |
@@ -1562,7 +1627,7 @@ A minimal, self-hostable headless CMS. Users define collections with JSON Schema
 | `server/core/domain/` | `Entry`, `Meta`, `EntryUtils`, `Collection`, `Scope` |
 | `server/core/ports/` | `Storage` and `BlobStorage` port interfaces, and `DerivedIndex` — the media usages and search text a write carries into the adapter's own transaction (D23, D30) |
 | `server/core/search/` | Search (D30, §5.5): the `Searcher` port and its value types, `SearchText` (the `x-silo-search`-driven extractor), `SearchTokens` (the tokenizer both engines answer to), `SearchSnippets`, and `ScanSearcher` — the portable engine that speaks only through `Storage`, so it works on every adapter |
-| `server/core/query/` | Query AST (`Filter`, `SortKey`, `Query` + limits), `QueryUtils` — path *validation* lives here, the path *grammar* lives in `@silo/shared` (D29) — and `EntryNodes`, in-memory path selection and value ordering shared by `FsFilter` and `ScanSearcher` |
+| `server/core/query/` | Query AST plumbing: `SortKey`, `Query` + limits, and `QueryUtils` — *validation* lives here, the *vocabulary* (`Filter`, `FilterOps`) and the path *grammar* live in `@silo/shared` (D29) — plus `EntryNodes`, in-memory path selection and value ordering shared by `FsFilter` and `ScanSearcher` |
 | `server/core/errors/` | One error class per file (`NotFoundError`, `ConflictError`, `UnauthorizedError`, `ForbiddenError`, `MediaInUseError` — a `ConflictError` carrying the true usage count for a refused media delete — and `MediaDeleteStalledError`, raised when the blob store refuses the delete, carrying the remedy). `ValidationError` lives in `@silo/shared` because shared rules raise it |
 | `server/core/schema/` | `SchemaValidator`, `SchemaBundler`, `RemoteSchemaLoader` (Ajv 2020 validation, `$ref` bundling) |
 | `server/core/keys/` | Server-only key persistence/secret concerns: `KeyInfo`, `KeyUtils` (generation and hashing; the wire format lives in `@silo/shared`'s `KeyFormat`) |
@@ -1579,7 +1644,7 @@ A minimal, self-hostable headless CMS. Users define collections with JSON Schema
 | `server/http/auth/` | `RouteAuth` — claim-checking helpers for route handlers |
 | `server/http/routes/` | `RouteManager` plus one routes class per resource (`projects-routes.ts`, `collections-routes.ts`, `entries-routes.ts` + `request-utils.ts`, `keys-routes.ts`, `media-routes.ts`, `transfer-routes.ts`, `copy-routes.ts` + `copy-request.ts` + `scope-copy-request.ts`, `session-routes.ts`). `CopyRoutes` serves both the whole-instance `/api/copy` and the scoped `/api/projects/:p/environments/:e/copy` |
 | `server/test/` | Test suites running via `bun test`: `conformance/` (storage conformance suite), `adapters/`, `core/`, `cli/` (bootstrap banner rendering, `silo init`'s scaffold round-tripping back to the defaults), `config/` (config layering, the derived fs blob path, and the `[log]` block), `version.test.ts` (every manifest agrees, the runtime version derives from the root one, a non-release build is marked `-dev`, and no source file has reacquired a hard-coded version), `logging/` (level thresholds, both formats, rotation, tailing and following across a rotation), `runtime/` (run-file staleness and the one-server-per-data-dir refusal, the process title leading with the name and never throwing, the argv a detached child inherits, a real detached start/stop/status round trip that pins the lost-the-port regression, and the same round trip against a freshly compiled binary — the only place the virtual-entry-path bug exists), `http/` (claims enforcement/delegation, entries API, export/import, direct server copy, scope-to-scope copy, media catalog/folders/search/reference integrity, schema `$ref`, projects API tests). The conformance suite pins media usages on both adapters — the one D23 invariant they answer by completely different means |
-| `ui/` | React + TS + Vite SPA (Slate design), organized into feature dirs (`api/`, `schema/`, `components/`, `forms/`, `router/`, `utils/` with `Formatters`, `ThemeManager` & `ScopeMemory`, `views/*`) with colocated CSS Modules and a small global foundation under `styles/`. Every collection/entry call is scoped through `ApiClient.collectionsPath`; the active `(project, env)` is part of the URL, switched from the `/servers` gate in the workspace and from the settings nav's scope switchers. Shared protocol rules come from `@silo/shared`; `ui/dist` contains the compiled SPA served at the web root. `src/**/*.test.ts` are `bun test` suites in their own TS project (`tsconfig.test.json`) and run from the repo root alongside the server's |
+| `ui/` | React + TS + Vite SPA (Slate design), organized into feature dirs (`api/`, `schema/`, `components/`, `forms/`, `query/` — the Query AST's round trip through the URL and the builder's flat model, `router/`, `utils/` with `Formatters`, `ThemeManager` & `ScopeMemory`, `views/*`) with colocated CSS Modules and a small global foundation under `styles/`. Every collection/entry call is scoped through `ApiClient.collectionsPath`; the active `(project, env)` is part of the URL, switched from the `/servers` gate in the workspace and from the settings nav's scope switchers. Shared protocol rules come from `@silo/shared`; `ui/dist` contains the compiled SPA served at the web root. `src/**/*.test.ts` are `bun test` suites in their own TS project (`tsconfig.test.json`) and run from the repo root alongside the server's |
 | `scripts/` | Tooling run through `bun run`, kept out of the server's source tree. `build.ts` (`BuildBinary`) is the single build path for every artifact, local or released: it builds the admin UI, generates `.build/entry.ts` (the embedded-asset imports plus `Cli.run()`), compiles that for `--target`, stamps `--version` through `--define SILO_VERSION`, ad-hoc signs Darwin output on macOS, and with `--archive` writes `dist/silo-<version>-<os>-<arch>.tar.gz`. `build-rpm.ts` (`BuildRpm`) wraps an already-compiled Linux binary as an RPM via nfpm — it stages the binary where the config can find it, maps a silo target onto nfpm's architecture name, and turns an absent signing key into an unsigned package while a mistyped one stays a hard error. `set-version.ts` (`SetVersion`) rewrites the version across every workspace manifest in place, and commits nothing. `render-formula.ts` (`RenderFormula`) fills `packaging/homebrew/silo.rb.tmpl` from a `SHA256SUMS` file, keyed by artifact filename and failing loudly on a missing target rather than shipping a formula with a blank checksum |
 | `.github/workflows/release.yml` | The release: tests, four targets (Darwin arm64/x64 on `macos-15`, Linux x64/arm64 on `ubuntu-24.04`), `SHA256SUMS`, a Sigstore keyless signature and a GPG one over it, build-provenance attestations, the GitHub release, and the formula push to the tap. then the RPMs (built, signed, and `dnf install`-tested on `amazonlinux:2023`), and finally the dnf repository index published to GitHub Pages. `workflow_dispatch` runs the build and publishes nothing |
 | `packaging/rpm/` | The dnf package: `nfpm.yaml` (contents, scriptlet wiring, `shadow-utils` dependency, RPM signing), `silo.service` (systemd unit — foreground, hardened, `MemoryDenyWriteExecute=false` because Bun JITs), `silo.toml` (the packaged config: only the keys the layout requires, so there is little to drift), `scripts/` (the four rpm scriptlets — user creation, `systemctl preset`, and a removal that deliberately leaves `/var/lib/silo` behind), `silo.repo` (what users drop in `/etc/yum.repos.d/`), and `index.html` (the GitHub Pages landing page) |
@@ -1693,4 +1758,4 @@ Notable implementation facts:
   - `server/core/`: Domain models (`domain/`), port interfaces (`ports/`), query AST (`query/`), error classes (`errors/`), schema validation (`schema/`), server-only key persistence/secret logic (`keys/`), media helpers (`media/`), export/import engine (`transfer/`), and the `Service` orchestration layer (`service/`).
   - `server/adapters/`: Database / storage drivers (`storage/sqlite/`, `storage/fs/`) and their private helper classes (compilers, filters), blob storage drivers (`blob/`), and the outbound HTTP client (`http/`).
   - `server/http/`: HTTP web server definition (`server.ts`), routing handlers (`routes/`), claim-auth helpers (`auth/`), and web-specific middleware (`middleware/`).
-  - `ui/src/`: `api/` (typed client, `EntryMapper`, and DTOs under `api/types/`), `schema/` (silo `$ref` resolution), `components/` (shared visual primitives), `forms/` (the RJSF theme: `templates/`, `widgets/`, `fields/`), `router/`, `styles/` (the intentionally global CSS foundation), `utils/` (`Formatters`, `ThemeManager`, `ScopeMemory`), and `views/` grouped by feature (`shell/`, `servers/`, `entries/`, `schema/`, `keys/`, `media/`, `transfer/`, `settings/` — whose shell, nav and scope switchers sit at its root and whose one-per-section pages sit under `pages/`).
+  - `ui/src/`: `api/` (typed client, `EntryMapper`, and DTOs under `api/types/`), `schema/` (silo `$ref` resolution), `components/` (shared visual primitives), `forms/` (the RJSF theme: `templates/`, `widgets/`, `fields/`), `query/` (`FilterModel` — the builder's flat model ↔ the Query AST, `UrlFilter` — the AST's round trip through the address bar, `PathLabel`), `router/`, `styles/` (the intentionally global CSS foundation), `utils/` (`Formatters`, `ThemeManager`, `ScopeMemory`), and `views/` grouped by feature (`shell/`, `servers/`, `entries/`, `search/` — the `⌘K` palette and the snippet helpers both it and the entries table read, `schema/`, `keys/`, `media/`, `transfer/`, `settings/` — whose shell, nav and scope switchers sit at its root and whose one-per-section pages sit under `pages/`).

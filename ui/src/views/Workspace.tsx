@@ -13,6 +13,7 @@ import type { Server } from './servers/server'
 import { ServerManager } from './servers/ServerManager'
 import type { ScopeRef } from '../api/types/scope-ref'
 import { ScopeMemory } from '../utils/scope-memory'
+import { CommandPalette } from './search/CommandPalette'
 import { Sidebar } from './shell/Sidebar'
 import { TopBar } from './shell/TopBar'
 import { EntriesView } from './entries/Entries'
@@ -44,6 +45,21 @@ export function Workspace({
   const scope: ScopeRef = { project: route.project, env: route.env }
 
   const [showServerBrowser, setShowServerBrowser] = useState(false)
+  const [showPalette, setShowPalette] = useState(false)
+
+  // ⌘K / Ctrl-K opens instance-wide search from anywhere in the shell,
+  // including from inside a text field — it is a chord, not a bare key, so
+  // nothing legitimate is being intercepted.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key.toLowerCase() === 'k' && (e.metaKey || e.ctrlKey)) {
+        e.preventDefault()
+        setShowPalette(true)
+      }
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [])
 
   // The settings shell's PROJECT/ENVIRONMENT groups need a scope even on its
   // unscoped pages (keys, connection); this is where one is known for certain.
@@ -195,11 +211,12 @@ export function Workspace({
         apiKey={apiKey}
         scope={scope}
         onOpenServerBrowser={() => setShowServerBrowser(true)}
+        onOpenSearch={() => setShowPalette(true)}
       />
 
       <main className={styles.main}>
         {route.view === 'media' && (
-          <MediaLibraryView url={url} apiKey={apiKey} session={session} claims={claims} />
+          <MediaLibraryView url={url} apiKey={apiKey} session={session} claims={claims} initialQuery={route.q} />
         )}
 
         {route.view === 'schema' && (() => {
@@ -304,6 +321,18 @@ export function Workspace({
           </>
         )}
       </main>
+
+      {showPalette && (
+        <CommandPalette
+          serverId={serverId}
+          url={url}
+          apiKey={apiKey}
+          scope={scope}
+          claims={claims}
+          onNavigate={(href) => router.navigate(href)}
+          onClose={() => setShowPalette(false)}
+        />
+      )}
 
       {showServerBrowser && (
         <ServerManager

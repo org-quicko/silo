@@ -1,4 +1,4 @@
-import type { Filter } from "./filter";
+import type { Filter } from "@silo/shared/filter";
 import type { SortKey } from "./sort-key";
 
 export const DefaultLimit = 50;

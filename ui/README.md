@@ -101,9 +101,16 @@ lives in one file.
 
 Every workspace URL carries its server, project, and environment, so links are
 shareable and a reload lands in the same place. Anything unparseable, including
-`/`, redirects to `/servers`. Entry list state (search, sort, page) is encoded in
-the query string, and only non-default values are written so ordinary URLs stay
-clean.
+`/`, redirects to `/servers`. Entry list state — text (`q`), the Query AST
+(`filter`, as raw JSON), `sort` and `page` — is encoded in the query string, and
+only non-default values are written so ordinary URLs stay clean.
+
+An **absent `sort` means nobody chose one**, which is not the same as choosing
+the default: the API gives a supplied `sort` precedence over relevance, so
+writing the default out would make a text search unable to rank. The `filter`
+travels as raw text and is parsed in the view rather than the router, because
+one that cannot be read has to be *reported* — dropping it would widen the page
+to everything while the URL still claims to be filtered.
 
 Settings pages use the **same scope prefix** as the workspace routes, with
 `settings` as the tail, so a workspace URL becomes its settings URL by swapping
@@ -135,6 +142,7 @@ src/
   api/           ApiClient, ApiError, EntryMapper, DTOs under api/types/
   components/    Shared visual primitives: Button, Modal, Toast, Pill, Segmented, DataTable, ...
   forms/         The RJSF theme: templates/, widgets/, fields/, build-ui-schema.ts
+  query/         FilterModel (the builder's flat model <-> the Query AST), UrlFilter, PathLabel
   router/        Routes, route types, the history store, Link
   schema/        SiloRefs, silo:// $ref resolution for RJSF
   styles/        The deliberately global CSS foundation
@@ -142,7 +150,8 @@ src/
   views/         Feature views with colocated *.module.css
     servers/     Server, project, and environment browser (the welcome screen)
     shell/       Sidebar and top bar
-    entries/     Entries table, entry form, row actions
+    entries/     Entries table, entry form, row actions, the filter builder
+    search/      The Cmd-K palette, its result grouping, and snippet rendering
     schema/      Schema editor and builder
     keys/        Key list and creation
     media/       Media library

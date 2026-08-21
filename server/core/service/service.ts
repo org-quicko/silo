@@ -27,7 +27,7 @@ import { KeyUtils } from "../keys/key-utils";
 import type { KeyInfo } from "../keys/key-info";
 import { QueryUtils } from "../query/query-utils";
 import type { Query } from "../query/query";
-import type { Filter } from "../query/filter";
+import type { Filter } from "@silo/shared/filter";
 import { Exporter } from "../transfer/exporter";
 import type { ExportOptions } from "../transfer/export-options";
 import { Importer } from "../transfer/importer";

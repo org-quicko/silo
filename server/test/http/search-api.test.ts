@@ -16,7 +16,7 @@ interface SearchBody {
     env: string;
     collection: string;
     entry: Record<string, any>;
-    snippets: { path: string; text: string }[];
+    snippets: { path: string; before: string; match: string; after: string }[];
   }[];
   total: number;
   limit: number;
@@ -204,8 +204,10 @@ describe.each(["scan", "fts5"] as const)("search API (%s engine)", (engine) => {
       expect(body.data).toHaveLength(1);
       const snippet = body.data[0].snippets.find((s) => s.path === "$.data.body");
       expect(snippet).toBeDefined();
-      // Matched folded ("cafe"), quoted unfolded ("Café").
-      expect(snippet!.text).toContain("[Café]");
+      // Matched folded ("cafe"), quoted unfolded ("Café") — and handed over
+      // as its own field, so a highlighter never has to find it in prose that
+      // may hold brackets of its own.
+      expect(snippet!.match).toBe("Café");
     });
 
     test("no relevance score is exposed", async () => {
