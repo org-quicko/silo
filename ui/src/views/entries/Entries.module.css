@@ -38,7 +38,9 @@
 .menuButton { width: 26px; height: 26px; border-radius: 5px; }
 .menuButton:hover { background: var(--panel-2); color: var(--text-2); }
 .relativeTime { font-size: 12.5px; }
-.noResults { padding: 40px 16px; color: var(--text-3); text-align: center; }
+/* The empty-state message borrows .cell for its padding but is a paragraph,
+   not a column: it opts back out of the single-line clipping. */
+.noResults { padding: 40px 16px; color: var(--text-3); text-align: center; white-space: normal; }
 
 .pager { display: flex; align-items: center; justify-content: space-between; margin-top: 14px; }
 .pagerInfo { color: var(--text-3); font-size: 12.5px; }

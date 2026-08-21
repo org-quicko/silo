@@ -13,7 +13,28 @@ A minimal, self-hostable headless CMS. Users define collections with JSON Schema
 
 ## Where things stand
 
-*Last updated: 2026-08-21*
+*Last updated: 2026-08-22*
+
+- **A long cell no longer paints over the column beside it (2026-08-22):**
+  `.cell` in `ui/src/components/DataTable.module.css` could shrink
+  (`min-width: 0`) but nothing clipped what overflowed it, so a long string in
+  an entries column ran across the ones next to it — the body column over
+  views and draft. The cells that looked right were the ones inside
+  `.primary`: `.title`/`.subtitle` are flex items, so their own
+  `overflow: hidden` applied. `CellValue`'s `.text` is an inline span, where
+  `overflow` does nothing at all and only its `white-space: nowrap` took
+  effect — which is exactly what pushed the line past the column edge. The
+  shared primitive truncates now (`overflow: hidden; text-overflow: ellipsis;
+  white-space: nowrap`), so every table built on it gets one line ending in an
+  ellipsis. Two consumers opt back out where they mean to: the entries
+  empty-state message (`.noResults`) borrows `.cell` for its padding but is a
+  paragraph, so it restores `white-space: normal`; the keys table's `.label`
+  truncates itself, because `.cell`'s ellipsis belongs to its block box and
+  not to a flex item inside `.labelCell`. Wrapping chips (`CellValue`'s
+  `.tags`) are untouched — `white-space` does not govern flex line breaking —
+  and the entries row menu hangs off `.actions`, not `.cell`, so nothing clips
+  it. Pre-existing; older than the P3 search work, and left out of it because
+  it is shared by every table.
 
 - **The admin UI reads search now (2026-08-21):** P3 of **D30**, and the last
   of it. Collection search with snippets, a `⌘K` instance-wide palette, and a
