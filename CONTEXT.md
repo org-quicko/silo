@@ -71,6 +71,30 @@ A minimal, self-hostable headless CMS. Users define collections with JSON Schema
   - The GPG step warns and skips when `GPG_PRIVATE_KEY` is unset, so the first
     release can precede the key. `HOMEBREW_TAP_TOKEN` has no such fallback: the
     tap is another repository and `GITHUB_TOKEN` cannot write to one.
+  - **The first tag pushed, `v0.1.0`, failed at the last step: `gh` could not
+    tell which repository it was releasing into.** Every job before it passed —
+    four artifacts built, checksummed, and signed both ways — and then
+    `gh release create` exited on `failed to run git: fatal: not a git
+    repository`. The release job deliberately checks nothing out, having no work
+    for a source tree, and `gh` falls back to reading the repository off a git
+    remote for commands that "otherwise operate on a local repository". It now
+    passes `GH_REPO: ${{ github.repository }}` instead, which is the documented
+    way to say so; cloning the repo to let `gh` read a remote URL back out of it
+    would be the other fix and a worse one. Reproduced outside a git directory
+    before and after, against the real `gh`.
+    - **A re-run will not pick this up.** GitHub runs a workflow from the file
+      at the commit being built, so the fix has to be committed and the `v0.1.0`
+      tag moved onto it (or a fresh tag cut) — re-running the failed job replays
+      the broken file.
+  - **The actions were pinned at majors that target Node 20**, which GitHub has
+    been force-running on Node 24 since the September 2025 deprecation and will
+    eventually stop accommodating: `checkout` v4→v7, `upload-artifact` v4→v7,
+    `download-artifact` v4→v8, `attest-build-provenance` v2→v4. Every input the
+    workflow passes was checked against the new majors first — `merge-multiple`,
+    `pattern`, `subject-path`, `if-no-files-found` all survive. `setup-bun@v2`
+    and `cosign-installer@v3` were never flagged and stay put: the first already
+    resolves to a Node 24 build, the second is a composite action with no Node
+    runtime of its own.
 
 - **`serve --detach` worked from source and failed from the compiled binary
   (2026-08-21):** every detached start of a built `silo` died instantly with

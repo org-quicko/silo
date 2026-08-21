@@ -75,7 +75,7 @@ jobs:
   verify:
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: oven-sh/setup-bun@v2
         with:
           bun-version: ${{ env.BUN_VERSION }}
@@ -109,7 +109,7 @@ jobs:
             native: false
     runs-on: ${{ matrix.runs-on }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: oven-sh/setup-bun@v2
         with:
           bun-version: ${{ env.BUN_VERSION }}
@@ -134,7 +134,7 @@ jobs:
           echo "$got"
           [ "$got" = "silo $version" ] || { echo "::error::expected 'silo $version'"; exit 1; }
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: silo-${{ matrix.target }}
           path: dist/*.tar.gz
@@ -150,7 +150,7 @@ jobs:
       id-token: write # Sigstore keyless signing, and the provenance attestation
       attestations: write
     steps:
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           path: dist
           pattern: silo-*
@@ -193,13 +193,18 @@ jobs:
 
       # Machine-readable provenance: which workflow, at which commit, built each
       # tarball. Verified with `gh attestation verify`, no tooling to install.
-      - uses: actions/attest-build-provenance@v2
+      - uses: actions/attest-build-provenance@v4
         with:
           subject-path: dist/*.tar.gz
 
       - name: Publish the release
         env:
           GH_TOKEN: ${{ github.token }}
+          # This job checks nothing out — it has no work for a source tree — so
+          # `gh` has no git remote to infer the repository from and refuses with
+          # "not a git repository". Naming it is the fix; cloning 60 MB to let
+          # `gh` read a remote URL is not.
+          GH_REPO: ${{ github.repository }}
           VERSION: ${{ needs.version.outputs.version }}
           PRERELEASE: ${{ needs.version.outputs.prerelease }}
         run: |
@@ -251,7 +256,7 @@ jobs:
     if: needs.version.outputs.prerelease == 'false'
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           path: silo
       - uses: oven-sh/setup-bun@v2
@@ -260,7 +265,7 @@ jobs:
 
       # A PAT, not GITHUB_TOKEN: the tap is a different repository, and the
       # token this run was handed cannot write to one.
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           repository: org-quicko/homebrew-tap
           token: ${{ secrets.HOMEBREW_TAP_TOKEN }}
