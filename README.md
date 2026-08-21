@@ -80,6 +80,25 @@ silo serve
 under Homebrew's prefix (`$(brew --prefix)/var/silo`) rather than in whatever
 directory you started it from.
 
+### dnf (Amazon Linux 2023, RHEL, Fedora)
+
+```sh
+sudo curl -fsSL -o /etc/yum.repos.d/silo.repo https://org-quicko.github.io/silo/silo.repo
+sudo dnf install silo
+```
+
+The package installs a `silo` system user, a config at `/etc/silo/silo.toml`, a
+data directory at `/var/lib/silo`, and a systemd unit. Nothing starts on
+install; `sudo systemctl enable --now silo` does. On first start silo prints a
+root API key to the journal, once:
+
+```sh
+sudo journalctl -u silo | grep -A2 'root API key'
+```
+
+Packages and the repository index are both signed, and the `.repo` file turns
+on `gpgcheck` and `repo_gpgcheck`, so dnf verifies both.
+
 ### Prebuilt binaries
 
 Every [release](https://github.com/org-quicko/silo/releases) has an archive for

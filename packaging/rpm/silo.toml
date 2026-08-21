@@ -1,0 +1,26 @@
+# silo.toml — the packaged configuration for a systemd-managed install.
+#
+# Only the keys this package's layout requires are set here; everything else
+# follows silo's built-in defaults, so there is very little to drift. To see
+# every key silo reads, annotated with its default, write a scratch copy:
+#
+#     silo init --config /tmp/silo-defaults.toml
+#
+# Precedence: flags > SILO_* env vars > this file > defaults.
+
+listen = ":8090"
+
+[storage]
+driver = "sqlite"
+path   = "/var/lib/silo"
+
+# [blob_storage] is deliberately absent. An unset fs path means "follow the
+# data dir", which puts uploads in /var/lib/silo/media; naming it here would
+# pin media in place if the data directory ever moved.
+
+[log]
+level = "info"
+
+# [log] file is deliberately absent too. The unit runs silo in the foreground
+# and journald captures stdout, so `journalctl -u silo` is the whole log.
+# Setting a file here would split it across two places.

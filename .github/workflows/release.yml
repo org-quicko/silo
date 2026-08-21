@@ -32,6 +32,12 @@ env:
   # Keep in step with the Dockerfile's BUN_VERSION: the binary users install and
   # the image they deploy should not be built by different runtimes.
   BUN_VERSION: "1.3.14"
+  NFPM_VERSION: "2.47.0"
+  # How many past releases stay installable from the dnf repo. GitHub Pages has
+  # a 1 GB soft limit and each release is ~60 MB of RPMs, so this cannot be
+  # "all of them". Nothing is lost by trimming: the release assets are the
+  # durable copy and the repo index is rebuilt from them every time.
+  DNF_REPO_RELEASES: "3"
 
 # A second tag pushed while the first is mid-release would race it to the tap.
 concurrency:
@@ -141,8 +147,126 @@ jobs:
           if-no-files-found: error
           retention-days: 7
 
-  release:
+  rpm:
     needs: [version, build]
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: ${{ env.BUN_VERSION }}
+
+      - name: Install nfpm
+        run: |
+          curl -fsSL "https://github.com/goreleaser/nfpm/releases/download/v${NFPM_VERSION}/nfpm_${NFPM_VERSION}_Linux_x86_64.tar.gz" \
+            | tar -xz -C /usr/local/bin nfpm
+          nfpm --version
+
+      - uses: actions/download-artifact@v8
+        with:
+          path: artifacts
+          pattern: silo-linux-*
+          merge-multiple: true
+
+      # The build job publishes tarballs, not bare executables, so the binary
+      # comes back out of one. Its mode does not survive the round trip; the
+      # build script chmods what it stages for exactly that reason.
+      - name: Unpack the Linux binaries
+        run: |
+          version="${{ needs.version.outputs.version }}"
+          for arch in x64 arm64; do
+            mkdir -p "binaries/linux-$arch"
+            tar -xzf "artifacts/silo-$version-linux-$arch.tar.gz" -C "binaries/linux-$arch" silo
+          done
+          ls -l binaries/*/silo
+
+      # Written to a file because that is what nfpm's signer reads. It lands on
+      # a runner that is destroyed with the job, and only this job needs it —
+      # which is why the RPMs are built here rather than in the build matrix,
+      # where the key would be exposed to four runners including two macOS ones.
+      - name: Stage the signing key
+        id: key
+        env:
+          GPG_PRIVATE_KEY: ${{ secrets.GPG_PRIVATE_KEY }}
+        run: |
+          if [ -z "$GPG_PRIVATE_KEY" ]; then
+            echo "::warning::GPG_PRIVATE_KEY is not set — the RPMs will be unsigned"
+            echo "signed=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          umask 077
+          printf '%s' "$GPG_PRIVATE_KEY" > "$RUNNER_TEMP/signing-key.asc"
+          echo "signed=true" >> "$GITHUB_OUTPUT"
+
+      - name: Build the RPMs
+        env:
+          NFPM_PASSPHRASE: ${{ secrets.GPG_PASSPHRASE }}
+        run: |
+          for target in linux-x64 linux-arm64; do
+            args=(--target "$target" --version "${{ needs.version.outputs.version }}" --binary "binaries/$target/silo" --out dist)
+            if [ "${{ steps.key.outputs.signed }}" = "true" ]; then
+              args+=(--sign-key "$RUNNER_TEMP/signing-key.asc")
+            fi
+            bun run scripts/build-rpm.ts "${args[@]}"
+          done
+          ls -l dist/
+
+      # The real thing: a dnf install on the distribution this is for. Amazon
+      # Linux 2023 in a container is not an EC2 instance — there is no systemd
+      # for the scriptlets to talk to — but it is the same rpm, the same dnf,
+      # and the same glibc, which is what the package's claims rest on.
+      - name: Install it on Amazon Linux 2023
+        run: |
+          docker run --rm -v "$PWD:/w" -w /w amazonlinux:2023 bash -euxo pipefail -c '
+            if [ "${{ steps.key.outputs.signed }}" = "true" ]; then
+              rpm --import packaging/SIGNING_KEY.asc
+              rpm -K dist/silo-*.x86_64.rpm | tee /dev/stderr | grep -q "digests signatures OK"
+            fi
+
+            dnf install -y ./dist/silo-*.x86_64.rpm
+
+            # Installed, runnable, and reporting the version it was stamped with.
+            test "$(silo version)" = "silo ${{ needs.version.outputs.version }}"
+
+            # Everything the systemd story depends on, checked as files rather
+            # than by starting anything.
+            test -f /usr/lib/systemd/system/silo.service
+            test -f /etc/silo/silo.toml
+            id silo
+            test "$(stat -c "%U:%G %a" /var/lib/silo)" = "silo:silo 750"
+
+            # It has to actually run as that user, against that data directory.
+            runuser -u silo -- /usr/bin/silo init --config /tmp/probe.toml
+            runuser -u silo -- /usr/bin/silo status --data /var/lib/silo
+
+            # And come back off cleanly, leaving the data behind.
+            dnf remove -y silo
+            test ! -f /usr/bin/silo
+            test -d /var/lib/silo
+          '
+
+      # aarch64 cannot be installed on an x86_64 runner, so it is checked as
+      # metadata: right architecture, right signature, right payload.
+      - name: Inspect the aarch64 package
+        run: |
+          docker run --rm -v "$PWD:/w" -w /w amazonlinux:2023 bash -euxo pipefail -c '
+            if [ "${{ steps.key.outputs.signed }}" = "true" ]; then
+              rpm --import packaging/SIGNING_KEY.asc
+              rpm -K dist/silo-*.aarch64.rpm | grep -q "digests signatures OK"
+            fi
+            rpm -qip dist/silo-*.aarch64.rpm | grep -E "^Architecture *: aarch64"
+            rpm -qlp dist/silo-*.aarch64.rpm | grep -qx /usr/bin/silo
+          '
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: silo-rpm
+          path: dist/*.rpm
+          if-no-files-found: error
+          retention-days: 7
+
+  release:
+    needs: [version, build, rpm]
     if: startsWith(github.ref, 'refs/tags/')
     runs-on: ubuntu-24.04
     permissions:
@@ -159,7 +283,7 @@ jobs:
       - name: Checksum every artifact
         working-directory: dist
         run: |
-          sha256sum silo-*.tar.gz | tee SHA256SUMS
+          sha256sum silo-*.tar.gz silo-*.rpm | tee SHA256SUMS
 
       # Two signatures over the one checksum file, which is what makes the
       # checksum file worth having: it is the single object every downstream
@@ -195,7 +319,9 @@ jobs:
       # tarball. Verified with `gh attestation verify`, no tooling to install.
       - uses: actions/attest-build-provenance@v4
         with:
-          subject-path: dist/*.tar.gz
+          subject-path: |
+            dist/*.tar.gz
+            dist/*.rpm
 
       - name: Publish the release
         env:
@@ -246,7 +372,7 @@ jobs:
           flags=(--title "silo $VERSION" --notes-file notes.md --generate-notes)
           if [ "$PRERELEASE" = "true" ]; then flags+=(--prerelease); fi
 
-          assets=(dist/silo-*.tar.gz dist/SHA256SUMS dist/SHA256SUMS.cosign.bundle)
+          assets=(dist/silo-*.tar.gz dist/silo-*.rpm dist/SHA256SUMS dist/SHA256SUMS.cosign.bundle)
           if [ -f dist/SHA256SUMS.asc ]; then assets+=(dist/SHA256SUMS.asc); fi
 
           gh release create "v$VERSION" "${flags[@]}" "${assets[@]}"
@@ -301,3 +427,139 @@ jobs:
           git add Formula/silo.rb
           git commit -m "silo ${{ needs.version.outputs.version }}"
           git push
+
+  # Rebuilds the dnf repository index and publishes it to GitHub Pages.
+  #
+  # Pages holds no state of its own: every deploy replaces the whole site, and
+  # the packages it serves are downloaded back out of the last few GitHub
+  # releases. The release assets are the durable copy, the site is a derived
+  # index — which is what keeps the 1 GB Pages limit from being a retention
+  # policy nobody wrote down.
+  dnf-repo:
+    needs: [version, release]
+    if: needs.version.outputs.prerelease == 'false'
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Install createrepo_c
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends createrepo-c
+
+      # Newest first, drafts and pre-releases excluded — a release candidate
+      # must not be installable by someone who just typed `dnf install silo`.
+      - name: Collect the RPMs of the last ${{ env.DNF_REPO_RELEASES }} releases
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          mkdir -p site/rpm/x86_64 site/rpm/aarch64
+
+          tags=$(gh release list --limit 40 \
+            --json tagName,isPrerelease,isDraft \
+            --jq "[.[] | select(.isPrerelease == false and .isDraft == false) | .tagName] | .[:${DNF_REPO_RELEASES}] | .[]")
+
+          if [ -z "$tags" ]; then echo "::error::no published releases to index" && exit 1; fi
+
+          # A release cut before dnf support has no RPMs, and for the first few
+          # runs that is every release but the newest. Missing assets are a
+          # normal state of the window, not a failure — an empty index is the
+          # failure, and it is checked for below.
+          for tag in $tags; do
+            echo "::group::$tag"
+            gh release download "$tag" --pattern '*.rpm' --dir pool --clobber \
+              || echo "::notice::$tag has no RPM assets — skipping it"
+            echo "::endgroup::"
+          done
+
+          if ! ls pool/*.rpm >/dev/null 2>&1; then
+            echo "::error::none of the last ${DNF_REPO_RELEASES} releases carry RPMs"
+            exit 1
+          fi
+
+          for rpm in pool/*.rpm; do
+            case "$rpm" in
+              *.x86_64.rpm)  cp "$rpm" site/rpm/x86_64/ ;;
+              *.aarch64.rpm) cp "$rpm" site/rpm/aarch64/ ;;
+              *) echo "::warning::skipping $rpm — unrecognised architecture" ;;
+            esac
+          done
+          find site/rpm -name '*.rpm' -printf '%p  %s bytes\n' | sort
+
+          for arch in x86_64 aarch64; do
+            ls "site/rpm/$arch"/*.rpm >/dev/null 2>&1 \
+              || { echo "::error::no packages for $arch"; exit 1; }
+          done
+
+      - name: Build the repository metadata
+        run: |
+          for arch in x86_64 aarch64; do
+            createrepo_c --general-compress-type=gz "site/rpm/$arch"
+          done
+
+      # repo_gpgcheck in the .repo file verifies this signature. Without it a
+      # package signature only proves each package's origin, not that this is
+      # the set of packages silo published — whoever serves the index would
+      # still choose which of them you are offered, including an old one with
+      # a known bug.
+      - name: Sign the repository indexes
+        env:
+          GPG_PRIVATE_KEY: ${{ secrets.GPG_PRIVATE_KEY }}
+          GPG_PASSPHRASE: ${{ secrets.GPG_PASSPHRASE }}
+        run: |
+          if [ -z "$GPG_PRIVATE_KEY" ]; then
+            echo "::error::GPG_PRIVATE_KEY is required to publish the dnf repo — the .repo file sets repo_gpgcheck=1"
+            exit 1
+          fi
+          printf '%s' "$GPG_PRIVATE_KEY" | gpg --batch --quiet --import
+          for arch in x86_64 aarch64; do
+            printf '%s' "$GPG_PASSPHRASE" | gpg --batch --yes --quiet \
+              --pinentry-mode loopback --passphrase-fd 0 \
+              --detach-sign --armor \
+              --output "site/rpm/$arch/repodata/repomd.xml.asc" \
+              "site/rpm/$arch/repodata/repomd.xml"
+            gpg --verify "site/rpm/$arch/repodata/repomd.xml.asc" "site/rpm/$arch/repodata/repomd.xml"
+          done
+
+      - name: Assemble the site
+        run: |
+          cp packaging/rpm/index.html site/index.html
+          cp packaging/rpm/silo.repo  site/silo.repo
+          cp packaging/SIGNING_KEY.asc site/SIGNING_KEY.asc
+          # Pages would otherwise be free to treat this as a Jekyll source tree,
+          # and Jekyll drops directories it does not recognise.
+          touch site/.nojekyll
+          find site -maxdepth 2 -type d | sort
+
+      # End to end, against what is about to be published: a real dnf pointed
+      # at a real index, with signature checking on. `file://` exercises every
+      # part of this except the HTTP hop.
+      - name: Install from the assembled repo
+        run: |
+          docker run --rm -v "$PWD/site:/site:ro" amazonlinux:2023 bash -euxo pipefail -c '
+            rpm --import /site/SIGNING_KEY.asc
+            cat >/etc/yum.repos.d/silo.repo <<EOF
+          [silo-local]
+          name=silo (local check)
+          baseurl=file:///site/rpm/\$basearch/
+          enabled=1
+          gpgcheck=1
+          repo_gpgcheck=1
+          gpgkey=file:///site/SIGNING_KEY.asc
+          EOF
+            dnf install -y silo
+            test "$(silo version)" = "silo ${{ needs.version.outputs.version }}"
+          '
+
+      - uses: actions/upload-pages-artifact@v5
+        with:
+          path: site
+
+      - id: deploy
+        uses: actions/deploy-pages@v5
