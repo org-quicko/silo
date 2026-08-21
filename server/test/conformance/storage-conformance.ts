@@ -5,6 +5,7 @@ import type { Entry } from "../../core/domain/entry";
 import { Scope } from "../../core/domain/scope";
 import { ScanSearcher } from "../../core/search/scan-searcher";
 import { MediaRefs } from "../../core/media/media-refs";
+import { SearchText } from "../../core/search/search-text";
 import { MediaRef } from "@silo/shared/media-ref";
 
 export function runStorageTestSuite(
@@ -42,7 +43,7 @@ export function runStorageTestSuite(
         updated_at: ts,
         data,
       };
-      await st.put(e, MediaRefs.extract(e.data));
+      await st.put(e, { usages: MediaRefs.extract(e.data), search: SearchText.extract(e.data) });
       return e;
     };
 
@@ -120,7 +121,7 @@ export function runStorageTestSuite(
       const upd = { ...got };
       upd.rev = 2;
       upd.data = { title: "alpha2" };
-      await st.put(upd, MediaRefs.extract(upd.data));
+      await st.put(upd, { usages: MediaRefs.extract(upd.data), search: SearchText.extract(upd.data) });
       expect(upd.seq).toBeGreaterThan(e.seq);
 
       const got2 = await st.get(scope, "posts", e.id);
@@ -836,8 +837,8 @@ export function runStorageTestSuite(
         id: sharedId, project: scopeB.project, env: scopeB.env, collection: "posts",
         rev: 1, seq: 0, created_at: ts, updated_at: ts, data: { title: "b" },
       };
-      await st.put(a, []);
-      await st.put(b, []);
+      await st.put(a, { usages: [], search: null });
+      await st.put(b, { usages: [], search: null });
 
       // The identical id in two scopes must resolve to two independent
       // entries — this would still pass if a storage engine's primary key
@@ -895,8 +896,8 @@ export function runStorageTestSuite(
       });
 
       for (const bad of unsafe) {
-        await expect(st.put(entryWith({ id: bad }), [])).rejects.toThrow();
-        await expect(st.put(entryWith({ collection: bad }), [])).rejects.toThrow();
+        await expect(st.put(entryWith({ id: bad }), { usages: [], search: null })).rejects.toThrow();
+        await expect(st.put(entryWith({ collection: bad }), { usages: [], search: null })).rejects.toThrow();
         await expect(st.get(scope, bad, "someid")).rejects.toThrow();
         await expect(st.delete(scope, bad, "someid")).rejects.toThrow();
         await expect(st.list(scope, bad, { limit: 50, offset: 0 })).rejects.toThrow();
@@ -904,8 +905,8 @@ export function runStorageTestSuite(
         await expect(st.delete(scope, "posts", bad)).rejects.toThrow();
       }
 
-      await expect(st.put(entryWith({ project: "../evil" }), [])).rejects.toThrow();
-      await expect(st.put(entryWith({ env: "../evil" }), [])).rejects.toThrow();
+      await expect(st.put(entryWith({ project: "../evil" }), { usages: [], search: null })).rejects.toThrow();
+      await expect(st.put(entryWith({ env: "../evil" }), { usages: [], search: null })).rejects.toThrow();
 
       // The store must still work normally after rejecting malformed input.
       const ok = await putEntry(st, scope, "posts", 2, { title: "fine" });
@@ -949,7 +950,7 @@ export function runStorageTestSuite(
             gallery: refs.slice(1).map((r) => MediaRef.url(r)),
           },
         };
-        await st.put(e, MediaRefs.extract(e.data));
+        await st.put(e, { usages: MediaRefs.extract(e.data), search: SearchText.extract(e.data) });
         return e;
       };
 
@@ -980,7 +981,7 @@ export function runStorageTestSuite(
         const e = await putWithRefs(st, Scope.Default, "posts", [REF_A]);
 
         const moved: Entry = { ...e, rev: 2, data: { cover: MediaRef.url(REF_B) } };
-        await st.put(moved, MediaRefs.extract(moved.data));
+        await st.put(moved, { usages: MediaRefs.extract(moved.data), search: SearchText.extract(moved.data) });
 
         // The old reference must be gone, not merely joined by the new one —
         // an accumulating index would keep REF_A blocked forever.

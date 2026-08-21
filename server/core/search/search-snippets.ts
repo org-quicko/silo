@@ -4,9 +4,10 @@ import { SearchTokens, type SearchQuery } from "./search-tokens";
 
 /**
  * Cuts the "why did this match" fragment out of the fields an entry
- * contributed. Snippet text is engine-specific by contract (D30) — FTS5 will
- * produce its own with `snippet()` — so nothing here is a promise the SQLite
- * engine has to reproduce character for character.
+ * contributed. Snippet text is engine-specific by contract (D30), so nothing
+ * here is a promise another engine has to reproduce character for character —
+ * only the shape is fixed, and `SearchSnippet` says why it is three strings
+ * and not one.
  */
 export class SearchSnippets {
   static readonly DefaultWindow = 40;
@@ -52,15 +53,13 @@ export class SearchSnippets {
     const from = Math.max(0, start - SearchSnippets.DefaultWindow);
     const to = Math.min(field.text.length, end + SearchSnippets.DefaultWindow);
 
-    const text =
-      (from > 0 ? "…" : "") +
-      field.text.slice(from, start) +
-      "[" +
-      field.text.slice(start, end) +
-      "]" +
-      field.text.slice(end, to) +
-      (to < field.text.length ? "…" : "");
-
-    return { path: field.path, text };
+    return {
+      path: field.path,
+      before: (from > 0 ? "…" : "") + field.text.slice(from, start),
+      // Quoted from the original rather than from the folded copy, so a search
+      // for `cafe` shows `Café` back to the reader.
+      match: field.text.slice(start, end),
+      after: field.text.slice(end, to) + (to < field.text.length ? "…" : ""),
+    };
   }
 }

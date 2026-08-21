@@ -3,6 +3,7 @@ import type { BlobStorageConfig } from "./blob-storage-config";
 import type { AuthConfig } from "./auth-config";
 import type { SchemaConfig } from "./schema-config";
 import type { LogConfig } from "./log-config";
+import type { SearchConfig } from "./search-config";
 
 export interface Config {
   listen: string;
@@ -13,4 +14,5 @@ export interface Config {
   auth: AuthConfig;
   schema: SchemaConfig;
   log: LogConfig;
+  search: SearchConfig;
 }

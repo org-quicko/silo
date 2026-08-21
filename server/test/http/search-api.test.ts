@@ -25,7 +25,14 @@ interface SearchBody {
   engine: string;
 }
 
-describe("search API", () => {
+/**
+ * Both engines face the identical suite. That is the D30 parity contract made
+ * executable: the same fixtures must match, `total` must respect the same
+ * access boundary, and only rank order and truncation are allowed to differ —
+ * so a behaviour that holds on the portable engine and not on FTS5 fails here
+ * rather than in production, where FTS5 is the default.
+ */
+describe.each(["scan", "fts5"] as const)("search API (%s engine)", (engine) => {
   let tempDir: string;
   let store: SqliteStore;
   let svc: Service;
@@ -38,8 +45,14 @@ describe("search API", () => {
 
   beforeEach(async () => {
     tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "silo-search-test-"));
-    store = await SqliteStore.open(path.join(tempDir, "silo.db"));
-    svc = new Service(store, { mediaDir: path.join(tempDir, "media") });
+    store = await SqliteStore.open(path.join(tempDir, "silo.db"), {
+      enabled: engine === "fts5",
+      tokenizer: "unicode61 remove_diacritics 2",
+    });
+    svc = new Service(store, {
+      mediaDir: path.join(tempDir, "media"),
+      searcher: engine === "fts5" ? store.createSearcher("unicode61 remove_diacritics 2")! : undefined,
+    });
     rootKey = await svc.bootstrap();
 
     await svc.putSchema(prod, "posts", {
@@ -89,7 +102,7 @@ describe("search API", () => {
         "default/prod/posts:Pricing changes",
         "default/staging/posts:Staging pricing draft",
       ]);
-      expect(body.engine).toBe("scan");
+      expect(body.engine).toBe(engine);
       expect(body.truncated).toBe(false);
     });
 
@@ -125,7 +138,7 @@ describe("search API", () => {
         { headers: { Authorization: `Bearer ${rootKey}` } }
       );
       expect(res.status).toBe(200);
-      expect(((await res.json()) as SearchBody).engine).toBe("scan");
+      expect(((await res.json()) as SearchBody).engine).toBe(engine);
     });
   });
 

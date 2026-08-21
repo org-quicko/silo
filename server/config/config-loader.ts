@@ -26,6 +26,13 @@ export class ConfigLoader {
       schema: {
         allow_remote_refs: false,
       },
+      search: {
+        enabled: true,
+        tokenizer: "unicode61",
+        max_entry_bytes: 65536,
+        scan_limit: 20000,
+        scan_time_budget_ms: 3000,
+      },
       log: {
         level: "info",
         // No file: unset means the console, and a detached run derives
@@ -104,6 +111,19 @@ export class ConfigLoader {
               cfg.schema.allow_remote_refs = parsed.schema.allow_remote_refs;
             }
           }
+          if (parsed.search && typeof parsed.search === "object") {
+            if (typeof parsed.search.enabled === "boolean") {
+              cfg.search.enabled = parsed.search.enabled;
+            }
+            if (parsed.search.tokenizer === "unicode61" || parsed.search.tokenizer === "trigram") {
+              cfg.search.tokenizer = parsed.search.tokenizer;
+            }
+            for (const key of ["max_entry_bytes", "scan_limit", "scan_time_budget_ms"] as const) {
+              if (typeof parsed.search[key] === "number" && parsed.search[key] > 0) {
+                cfg.search[key] = parsed.search[key];
+              }
+            }
+          }
           if (parsed.log && typeof parsed.log === "object") {
             if (typeof parsed.log.level === "string") {
               cfg.log.level = parsed.log.level;
@@ -174,6 +194,12 @@ export class ConfigLoader {
     }
     if (process.env.SILO_AUTH_DISABLED) {
       cfg.auth.disabled = process.env.SILO_AUTH_DISABLED === "true";
+    }
+    if (process.env.SILO_SEARCH_ENABLED) {
+      cfg.search.enabled = process.env.SILO_SEARCH_ENABLED === "true";
+    }
+    if (process.env.SILO_SEARCH_TOKENIZER === "unicode61" || process.env.SILO_SEARCH_TOKENIZER === "trigram") {
+      cfg.search.tokenizer = process.env.SILO_SEARCH_TOKENIZER;
     }
     if (process.env.SILO_SCHEMA_ALLOW_REMOTE_REFS) {
       cfg.schema.allow_remote_refs = process.env.SILO_SCHEMA_ALLOW_REMOTE_REFS === "true";

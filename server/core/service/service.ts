@@ -9,7 +9,10 @@ import type { SearchAccess } from "../search/search-access";
 import type { SearchRequest } from "../search/search-request";
 import type { SearchResult } from "../search/search-result";
 import type { SearchTarget } from "../search/search-target";
+import type { SearchIntegrity } from "../search/search-integrity";
 import { ScanSearcher } from "../search/scan-searcher";
+import { SearchText } from "../search/search-text";
+import type { DerivedIndex } from "../ports/derived-index";
 import { FsBlobStorage } from "../../adapters/blob/fs-blob-storage";
 import { MimeUtils } from "../media/mime-utils";
 import { SchemaValidator, type SchemaValidatorOptions } from "../schema/schema-validator";
@@ -75,6 +78,8 @@ export class Service {
       mediaDir?: string;
       blobStore?: BlobStorage;
       searcher?: Searcher;
+      /** Bounds for the portable engine; ignored when a native one is given. */
+      scan?: { visitLimit?: number; timeBudgetMs?: number };
     } = {}
   ) {
     this.store = store;
@@ -82,7 +87,7 @@ export class Service {
     // The portable engine is the default rather than an absence, so search
     // works on every adapter without wiring (D30). A native engine is passed
     // in when the adapter has one.
-    this.searcher = schemaOpts.searcher ?? new ScanSearcher(store);
+    this.searcher = schemaOpts.searcher ?? new ScanSearcher(store, schemaOpts.scan ?? {});
     if (schemaOpts.blobStore) {
       this.blobStore = schemaOpts.blobStore;
     } else {
@@ -462,7 +467,7 @@ export class Service {
       // race to a delete, and then write a reference to bytes that are
       // already gone.
       await this.assertMediaReferencable(usages);
-      await this.store.put(e, usages);
+      await this.store.put(e, await this.derived(scope, collection, data, usages));
       return e;
     } finally {
       release();
@@ -490,6 +495,27 @@ export class Service {
       limit: normalized.limit,
       offset: normalized.offset,
     };
+  }
+
+  /**
+   * The derived state a write carries into the adapter's transaction (D23,
+   * D30). The schema is fetched here because the extractor needs it and no
+   * adapter may have one; a collection without a schema still indexes, just
+   * without weighting.
+   */
+  private async derived(
+    scope: Scope,
+    collection: string,
+    data: any,
+    usages: string[]
+  ): Promise<DerivedIndex> {
+    let schema: any;
+    try {
+      schema = await this.store.getSchema(scope, collection);
+    } catch (err) {
+      if (!(err instanceof NotFoundError)) throw err;
+    }
+    return { usages, search: SearchText.extract(data, schema) };
   }
 
   // ---- Search (D30) ----
@@ -556,6 +582,14 @@ export class Service {
 
   searchCapabilities(): { engine: "fts5" | "scan"; snippets: boolean } {
     return this.searcher.capabilities();
+  }
+
+  async reindexSearch(target?: SearchTarget): Promise<{ collections: number; entries: number }> {
+    return this.searcher.reindex(target);
+  }
+
+  checkSearch(): SearchIntegrity | null {
+    return this.searcher.check();
   }
 
   /**
@@ -639,7 +673,7 @@ export class Service {
         data,
       };
 
-      await this.store.put(e, usages);
+      await this.store.put(e, await this.derived(scope, collection, data, usages));
       return e;
     } finally {
       release();
@@ -696,7 +730,7 @@ export class Service {
 
     const release = await this.writeMu.acquire();
     try {
-      await this.store.put(e, []);
+      await this.store.put(e, { usages: [], search: null });
       return { secret, entry: e };
     } finally {
       release();
@@ -855,7 +889,7 @@ export class Service {
       data: asset,
     };
     // A catalog record holds no media reference of its own.
-    await this.store.put(e, []);
+    await this.store.put(e, { usages: [], search: null });
     return e;
   }
 
@@ -1236,7 +1270,7 @@ export class Service {
         updated_at: now,
         data: { path: normalized } satisfies MediaFolder,
       };
-      await this.store.put(e, []);
+      await this.store.put(e, { usages: [], search: null });
       return normalized;
     } finally {
       release();

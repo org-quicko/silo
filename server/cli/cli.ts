@@ -3,6 +3,7 @@ import { parseArgs } from "util";
 import { BlobStorageFactory } from "../adapters/blob/blob-storage-factory";
 import { FsStore } from "../adapters/storage/fs/fs-store";
 import { SqliteStore } from "../adapters/storage/sqlite/sqlite-store";
+import { SearchTokenizers } from "../core/search/search-tokenizers";
 import type { Config } from "../config/config";
 import { ConfigLoader } from "../config/config-loader";
 import { Service } from "../core/service/service";
@@ -11,6 +12,7 @@ import { ImportCommand } from "./commands/import-command";
 import { InitCommand } from "./commands/init-command";
 import { LogsCommand } from "./commands/logs-command";
 import { MediaCommand } from "./commands/media-command";
+import { SearchCommand } from "./commands/search-command";
 import { KeysCommand } from "./commands/keys-command";
 import { ServeCommand } from "./commands/serve-command";
 import { ServeDetachedCommand } from "./commands/serve-detached-command";
@@ -39,6 +41,7 @@ Usage:
   silo export [flags]                    export schemas and entries
   silo import [flags] <dir|tarball>      import schemas and entries
   silo media reconcile [flags]           repair the media catalog against stored blobs
+  silo search reindex [--check]          rebuild the search index (--check validates it too)
   silo version
   silo help
 
@@ -170,6 +173,7 @@ Subcommands operate directly on the data dir — no running server needed.
         follow: { type: "boolean", short: "f" },
         lines: { type: "string", short: "n" },
         timeout: { type: "string" },
+        check: { type: "boolean" },
         help: { type: "boolean", short: "h" },
       } as const,
       strict: false,
@@ -242,8 +246,12 @@ Subcommands operate directly on the data dir — no running server needed.
 
     // Initialize service
     let store: any;
+    const tokenizer = SearchTokenizers.sqlite(cfg.search.tokenizer);
     if (cfg.storage.driver === "sqlite") {
-      store = await SqliteStore.open(path.join(cfg.storage.path, "silo.db"));
+      store = await SqliteStore.open(path.join(cfg.storage.path, "silo.db"), {
+        enabled: cfg.search.enabled,
+        tokenizer,
+      });
     } else if (cfg.storage.driver === "fs") {
       store = await FsStore.open(cfg.storage.path);
     } else {
@@ -253,10 +261,32 @@ Subcommands operate directly on the data dir — no running server needed.
 
     const blobStore = BlobStorageFactory.create(cfg.blob_storage);
 
+    // The native engine when this build has FTS5 and search is on, the
+    // portable one otherwise (D30). `createSearcher` returns null rather than
+    // throwing, because a SQLite without FTS5 cannot be repaired at runtime —
+    // the shipped build sets OMIT_LOAD_EXTENSION — so it must degrade.
+    const searcher =
+      store instanceof SqliteStore ? store.createSearcher(tokenizer) ?? undefined : undefined;
+
     const svc = new Service(store, {
       allowRemoteRefs: cfg.schema.allow_remote_refs,
       blobStore,
+      searcher,
+      scan: { visitLimit: cfg.search.scan_limit, timeBudgetMs: cfg.search.scan_time_budget_ms },
     });
+
+    // Before the bind, never after: a half-filled index answers with a subset
+    // and nothing says so, which is worse than a slow start. Only a stamp
+    // change or an empty index triggers this, so a normal start does no work.
+    if (store instanceof SqliteStore && store.needsSearchRebuild() && searcher) {
+      const report = await searcher.reindex();
+      store.searchRebuilt();
+      if (cmd === "serve" && report.entries > 0) {
+        console.error(
+          `silo: rebuilt the search index (${report.entries} entries in ${report.collections} collections)`
+        );
+      }
+    }
 
 
     // Only `serve` logs: every other subcommand writes *program output* to
@@ -280,6 +310,9 @@ Subcommands operate directly on the data dir — no running server needed.
           break;
         case "media":
           await MediaCommand.run(svc, positionals);
+          break;
+        case "search":
+          await SearchCommand.run(svc, positionals, values);
           break;
         default:
           console.error(`silo: unknown command "${cmd}"`);

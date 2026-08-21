@@ -1,10 +1,12 @@
 import type { Context } from "hono";
+import { Claims } from "@silo/shared/claims";
 import { ValidationError } from "@silo/shared/validation-error";
 import type { Service } from "../../core/service/service";
 import type { KeyInfo } from "../../core/keys/key-info";
 import { EntryUtils } from "../../core/domain/entry-utils";
 import { Scope } from "../../core/domain/scope";
 import { QueryUtils } from "../../core/query/query-utils";
+import { RouteAuth } from "../auth/route-auth";
 import { RequestUtils } from "./request-utils";
 
 /**
@@ -82,6 +84,20 @@ export class SearchRoutes {
         engine: res.engine,
       });
     };
+
+    // Rebuilding reads every entry in the instance to derive its text, so it
+    // asks for the same instance-wide read authority an export does — holding
+    // a narrow key must not become a way to make the whole instance
+    // searchable, or to learn how much of it there is.
+    app.post("/api/search/reindex", async (c: Context) => {
+      RouteAuth.requireInstanceWide(c, "a search reindex", Claims.TransferReadPermissions);
+      const report = await svc.reindexSearch();
+      return c.json({
+        ...report,
+        integrity: svc.checkSearch(),
+        engine: svc.searchCapabilities().engine,
+      });
+    });
 
     // Registered before the entry routes: Hono matches in registration order,
     // so `/collections/{name}/search` would otherwise be captured by the

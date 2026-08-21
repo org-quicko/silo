@@ -59,9 +59,13 @@ export class ScanSearcher implements Searcher {
     return { engine: "scan", snippets: true };
   }
 
-  /** Nothing is stored, so there is nothing to rebuild. */
+  /** Nothing is stored, so there is nothing to rebuild — or to check. */
   async reindex(): Promise<{ collections: number; entries: number }> {
     return { collections: 0, entries: 0 };
+  }
+
+  check(): null {
+    return null;
   }
 
   async search(request: SearchRequest, access: SearchAccess): Promise<SearchResult> {

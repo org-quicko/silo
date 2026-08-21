@@ -3,6 +3,7 @@ import type { Meta } from "../domain/meta";
 import type { Scope } from "../domain/scope";
 import type { Query } from "../query/query";
 import type { MediaUsage } from "../media/media-usage";
+import type { DerivedIndex } from "./derived-index";
 
 export interface Storage {
   // Projects and Environments (D20).
@@ -51,7 +52,8 @@ export interface Storage {
   // raise `ValidationError`. Ids are intentionally not narrowed to ULID
   // shape — imported historical entries may carry arbitrary ids.
   //
-  // `usages` is the entry's **complete** set of media reference tokens (D23),
+  // `derived` carries the state the write must land atomically with (D23,
+  // D30): `usages` is the entry's **complete** set of media reference tokens,
   // produced by `MediaRefs.extract` and replacing whatever the entry
   // referenced before, in the same operation as the write itself. SQLite
   // writes it inside `put`'s existing seq transaction, so an entry and its
@@ -64,7 +66,15 @@ export interface Storage {
   // reading — treating it as "no references" silently orphans a live file,
   // treating it as "leave them alone" silently rots the index — so a caller
   // who forgets gets a type error instead of a bug.
-  put(e: Entry, usages: string[]): Promise<void>;
+  //
+  // `derived.search` is the same bargain for search (D30): the caller extracts
+  // it because the extractor needs the collection's schema and no adapter
+  // should ever have one, and `null` means "index nothing", which is what
+  // system data passes. An adapter that keeps no index ignores it — the fs
+  // adapter does, since its own reason to exist is rsync and git, and an
+  // on-disk index would both break the frozen layout (D5) and go stale under a
+  // `git checkout` beneath a running process.
+  put(e: Entry, derived: DerivedIndex): Promise<void>;
   get(scope: Scope, collection: string, id: string): Promise<Entry>;
   // Drops the entry's usages as part of the same operation.
   delete(scope: Scope, collection: string, id: string): Promise<void>;

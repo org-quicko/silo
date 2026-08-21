@@ -15,6 +15,58 @@ A minimal, self-hostable headless CMS. Users define collections with JSON Schema
 
 *Last updated: 2026-08-21*
 
+- **The FTS5 engine, and the port change that feeds it (2026-08-21):** P2 of
+  **D30**. `SqliteSearcher` matches and ranks in SQL; `ScanSearcher` stays the
+  fallback. Both face the *same* API suite — `search-api.test.ts` runs twice,
+  once per engine — which is the parity contract made executable.
+  - **`Storage.put(e, { usages, search })`.** The port change D30 deferred out
+    of P1 lands here, with the engine that stores the text. Both adapters, all
+    call sites and the conformance suite moved; the fs adapter ignores
+    `search` for the reason it ignores usages (D5, and an index that goes stale
+    under a `git checkout`).
+  - **`entry_search_documents` + `entry_search_fts`** (external content, three
+    sync triggers), written **inside** `put`/`delete`/`deleteProject`/
+    `deleteEnvironment`'s existing transactions. `docid` is an explicit
+    `INTEGER PRIMARY KEY`: `VACUUM` renumbers the implicit rowid of a
+    composite-PK table, which would point the index at the wrong rows without
+    a single error. The upsert is `ON CONFLICT DO UPDATE`, so it survives a
+    rewrite.
+  - **The external-content trap is closed and pinned.** Update and delete
+    triggers use FTS5's documented `'delete'` command with `old.*`, or terms
+    for text that no longer exists keep matching. Verified on a live server:
+    renaming an entry stopped it matching its old title.
+  - **FTS5 is probed, never assumed** — Bun links a different SQLite per
+    platform and the shipped build sets `OMIT_LOAD_EXTENSION`, so a build
+    without it cannot be repaired, only degraded from. `createSearcher()`
+    returns null and `Service` falls back to the portable engine.
+  - **Opening with search disabled drops nothing** — it clears the version
+    stamp instead. This was a real bug found in a live run: every CLI
+    subcommand opens the store, so `silo keys list` from a build without FTS5
+    would have deleted the index a running server was maintaining on the same
+    data dir. A cleared stamp already forces the rebuild correctness needs.
+  - **The stamp covers engine, extractor and tokenizer.** The tokenizer is
+    fixed into the virtual table at creation, so changing it is a rebuild —
+    which runs **before the bind**, because a half-filled index answers with a
+    subset and nothing says so.
+  - **Snippets come from the shared builder on both engines**, not FTS5's
+    `snippet()`. Only two concatenated columns are indexed, so `snippet()`
+    could not name the field a match came from; re-extracting over one page
+    removes an engine difference rather than adding one.
+  - **`[search]` config** (`enabled`, `tokenizer`, `max_entry_bytes`,
+    `scan_limit`, `scan_time_budget_ms`), in `silo init`'s scaffold, with
+    `SILO_SEARCH_ENABLED` / `SILO_SEARCH_TOKENIZER` overrides.
+    **`silo search reindex [--check]`** and `POST /api/search/reindex` rebuild
+    and validate; the route asks for the instance-wide read authority an export
+    does, since a rebuild reads every entry.
+  - **Two integrity checks, because one is not enough.** FTS5's built-in check
+    compares the index to its content table and is blind to a document whose
+    entry has gone — the second anti-join catches that in both directions.
+  - Verified on a running server: `engine=fts5`, label-weighted ranking,
+    diacritic folding (`cafe` → `[Café]`), `x-silo-search` exclusion, FTS5
+    operator words searched for rather than obeyed, stale-term removal on
+    update, trigram substring search after a tokenizer change, and the scan
+    fallback when disabled. 450 tests pass.
+
 - **Search works on every adapter, before FTS5 exists (2026-08-21):** P1 of
   **D30** (§5.5). A `Searcher` port with one implementation so far —
   `ScanSearcher`, which reads entries through `Storage` and matches in memory,
@@ -1504,11 +1556,11 @@ A minimal, self-hostable headless CMS. Users define collections with JSON Schema
 | `server/main.ts` | Thin CLI entrypoint — imports `Cli` and runs it |
 | `server/version.ts` | `SiloVersion` (what this build calls itself) and `PackageVersion` (what the manifest declares), both derived from the root `package.json` — the single place the version is written (D28). A release build overrides `SiloVersion` through `--define SILO_VERSION`; every other build carries a `-dev` suffix |
 | `server/cli/` | `cli.ts` (argv parsing, subcommand routing, dependency wiring), `bootstrap-banner.ts` (the first-boot root key announcement), and `commands/` (one command class per subcommand: `serve-command.ts`, `keys-command.ts`, `export-command.ts`, `import-command.ts`, `init-command.ts` — `silo init`, the config scaffold rendered from `ConfigLoader.defaultConfig()` so it cannot drift from the built-in defaults, `media-command.ts` — `silo media reconcile`, the catalog repair that runs against the data dir with no server, reporting what it adopted, pruned, finished and returned to active, and the four process-lifecycle commands: `serve-detached-command.ts` — `silo serve --detach`, which spawns the child and waits for *its* run file before reporting success, `stop-command.ts`, `status-command.ts`, `logs-command.ts`). `Cli` routes `serve --detach`, `stop`, `status` and `logs` before storage is opened, like `init`: none of them is the server, so none may create a data dir or take a handle on another process's database |
-| `server/config/` | `Config` type and its sub-shapes (`storage-config.ts`, `blob-storage-config.ts`, `auth-config.ts`, `schema-config.ts`, `log-config.ts`) plus `ConfigLoader` (`config-loader.ts`) — `loadConfig` walks file then env, and `resolveDerivedDefaults` fills in the paths derived from others (the fs blob dir) once flags have been applied |
+| `server/config/` | `Config` type and its sub-shapes (`storage-config.ts`, `blob-storage-config.ts`, `auth-config.ts`, `schema-config.ts`, `search-config.ts`, `log-config.ts`) plus `ConfigLoader` (`config-loader.ts`) — `loadConfig` walks file then env, and `resolveDerivedDefaults` fills in the paths derived from others (the fs blob dir) once flags have been applied |
 | `server/logging/` | The server's log (D25): `Logger` (level threshold, `text`/`json` formatting, `raw` for the bootstrap banner, `silent()` for tests), `LogLevel` + `LogLevels`, the `LogSink` port with `ConsoleSink` and a size-rotating `FileSink`, `LogLocation` (where a detached run writes, and where `silo logs` reads) and `LogTail` (the last n lines, and follow across a rotation) |
 | `server/runtime/` | Process lifecycle (D25): `RunState` and `RunFile` (`<data dir>/silo.run.json` — written after the bind, removed on clean shutdown, and the guard that refuses a second server over a live one), `Daemon` (detached spawn, health polling, SIGTERM-then-SIGKILL), `ListenAddress` (the `[host]:port` grammar, shared by `serve` and the health probe), `ProcessTitle` (what a running server calls itself in the OS process list — the real thing on Linux/macOS, where it replaces argv; the console title only on Windows, where an image name is fixed by the executable) |
 | `server/core/domain/` | `Entry`, `Meta`, `EntryUtils`, `Collection`, `Scope` |
-| `server/core/ports/` | `Storage` and `BlobStorage` port interfaces |
+| `server/core/ports/` | `Storage` and `BlobStorage` port interfaces, and `DerivedIndex` — the media usages and search text a write carries into the adapter's own transaction (D23, D30) |
 | `server/core/search/` | Search (D30, §5.5): the `Searcher` port and its value types, `SearchText` (the `x-silo-search`-driven extractor), `SearchTokens` (the tokenizer both engines answer to), `SearchSnippets`, and `ScanSearcher` — the portable engine that speaks only through `Storage`, so it works on every adapter |
 | `server/core/query/` | Query AST (`Filter`, `SortKey`, `Query` + limits), `QueryUtils` — path *validation* lives here, the path *grammar* lives in `@silo/shared` (D29) — and `EntryNodes`, in-memory path selection and value ordering shared by `FsFilter` and `ScanSearcher` |
 | `server/core/errors/` | One error class per file (`NotFoundError`, `ConflictError`, `UnauthorizedError`, `ForbiddenError`, `MediaInUseError` — a `ConflictError` carrying the true usage count for a refused media delete — and `MediaDeleteStalledError`, raised when the blob store refuses the delete, carrying the remedy). `ValidationError` lives in `@silo/shared` because shared rules raise it |
@@ -1517,7 +1569,7 @@ A minimal, self-hostable headless CMS. Users define collections with JSON Schema
 | `server/core/media/` | The media catalog (D23): `MediaAsset`, `MediaAssetView`, `MediaFolder`, `MediaUsage`, `MediaQuery`, `MediaReconcileResult`, `MediaCatalog` (the `_media`/`_media_folders` collections and document↔asset mapping), `MediaRefs` (the one structural extractor and canonicaliser), `MediaPaths` (folder/filename/blob-key rules), plus `MediaResolver` and `MimeUtils` |
 | `server/core/transfer/` | Export/import engine: `FormatVersion`, `Exporter`, `Importer`, `ImportWalker`, `ScopeCopier` (scope-to-scope copy, D22 — reuses `Importer.executeImport` rather than forking its merge logic), and their options/result/manifest types |
 | `server/core/service/` | `Service` (orchestration, and since D30 the compiler of a key's claims into a `SearchAccess` plan), `KeyView`, `AsyncMutex`, `CollectionEraser` |
-| `server/adapters/storage/sqlite/` | `SqliteStore` + `SqliteCompiler` — compiles a parsed `JsonPath` to `json_extract` for a singular path and to a nested `EXISTS`/`json_each` chain for a wildcard, translating RFC 9535's `[-1]` into SQLite's `[#-1]` (D29) |
+| `server/adapters/storage/sqlite/` | `SqliteStore`, `SearchIndex` (FTS5 tables, capability probe, version stamp) and `SqliteSearcher` (D30), plus `SqliteCompiler` — which compiles a parsed `JsonPath` to `json_extract` for a singular path and to a nested `EXISTS`/`json_each` chain for a wildcard, translating RFC 9535's `[-1]` into SQLite's `[#-1]` (D29) |
 | `server/adapters/storage/fs/` | `FsStore` + `FsFilter` + `FsManifest` |
 | `server/adapters/blob/` | `FsBlobStorage`, `S3BlobStorage`, `BlobStorageFactory` (imported directly — no barrel) |
 | `server/adapters/http/` | `HttpSiloClient` (+ `Fetcher` type) — the authenticated HTTP source client for direct copy |

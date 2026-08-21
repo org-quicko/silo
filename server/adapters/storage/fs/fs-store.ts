@@ -1,6 +1,7 @@
 import fs from "fs/promises";
 import path from "path";
 import type { Storage } from "../../../core/ports/storage";
+import type { DerivedIndex } from "../../../core/ports/derived-index";
 import { EntryUtils } from "../../../core/domain/entry-utils";
 import type { Entry } from "../../../core/domain/entry";
 import type { Meta } from "../../../core/domain/meta";
@@ -353,7 +354,13 @@ export class FsStore implements Storage {
   // under a running process, which silently permits deleting a referenced
   // file. Scanning has no staleness window and is the O(n)-per-query
   // character §6.3 already commits this adapter to.
-  async put(e: Entry, _usages: string[]): Promise<void> {
+  // `_derived` is deliberately unused: the fs adapter keeps no index of either
+  // kind. Usages are derived by scanning entry files at query time (D23), and
+  // search is the same bargain (D30) — an on-disk index would break the frozen
+  // layout (D5) and would go stale under an rsync or a `git checkout` beneath
+  // a running process, which is precisely the staleness this adapter exists to
+  // not have.
+  async put(e: Entry, _derived: DerivedIndex): Promise<void> {
     EntryUtils.assertSafeSegment(e.project, "project");
     EntryUtils.assertSafeSegment(e.env, "env");
     EntryUtils.assertSafeSegment(e.collection, "collection");
