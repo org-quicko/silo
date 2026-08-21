@@ -819,6 +819,19 @@ cd ui && bun run dev    # hot-reloading admin UI against a running backend
 cd ui && bun run lint   # oxlint plus stylelint
 ```
 
+An empty instance hides most of what the admin UI does, so there is a seeder:
+
+```sh
+bun run scripts/seed.ts --key "$SILO_KEY"
+```
+
+It fills a running server over the HTTP API with roughly 5,000 entries across
+two projects, three environments each, and 5–20 collections apiece — enough for
+paging, ranking, filters and the scope switchers to behave as they would for a
+real tenant. `--dry-run` prints the plan without writing, `--help` lists the
+flags, and the corpus is a function of `--seed` and `--epoch`, which every run
+prints so it can be reproduced. It only ever adds.
+
 `bun run build` compiles the server into a standalone binary — `silo`, or
 `silo.exe` on Windows, where Bun adds the extension itself. It runs wherever Bun
 does: the ad-hoc `codesign` pass that a Bun-compiled Mach-O needs is applied on

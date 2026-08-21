@@ -15,6 +15,44 @@ A minimal, self-hostable headless CMS. Users define collections with JSON Schema
 
 *Last updated: 2026-08-22*
 
+- **There is a data seeder now (2026-08-22):** `scripts/seed.ts`, one file, run
+  with `bun run scripts/seed.ts --key "$SILO_KEY"`. It writes ~5,000 entries
+  across 2 projects × 3 environments (`dev`/`uat`/`prod`), 5–20 collections per
+  environment drawn from a 24-blueprint catalogue, 20–100 entries each — the
+  size at which paging, ranking and the scope switchers behave like they do for
+  a real user, and which nobody reaches by hand.
+  - **It speaks the HTTP API and imports nothing from this repo.** That is what
+    "self-contained" buys: it runs against any reachable instance, and it
+    exercises the same validation, media-reference and index paths a client
+    does instead of a private back door into `Storage`. It is also why one file
+    holds a dozen classes against the one-artifact-per-file rule below — a
+    seeder you cannot copy on its own is not self-contained. Deliberate, and
+    limited to this file.
+  - **A collection's schema and its entries come from one field list.** Each
+    blueprint is a list of `FieldSpec`s; `SchemaFactory` derives the JSON
+    Schema (including `x-silo-search` labels and exclusions, and `x-silo-auth`
+    on the four private collections) and `ValueFactory` derives values from the
+    *same* list. Two hand-written halves drift the first time a field changes,
+    and the drift arrives as a `400` several hundred entries into a run.
+  - **`--seed` alone was not reproducible, and the gap was invisible.** Two
+    instances seeded from one seed compared byte for byte differed only in date
+    fields: generation read `Date.now()`. Dates now come from a `Calendar` over
+    an explicit `--epoch` (default now, printed on every run as the pair that
+    reproduces it), and the same seed and epoch produce an identical corpus at
+    any concurrency — verified across two instances at `--concurrency 8` and
+    `3`. What stays non-deterministic is the order writes land in, and so which
+    entry gets which id and `created_at`.
+  - **Refusals, not partial runs:** a `4xx` stops the run with the server's own
+    message, because thousands of quietly skipped entries under a summary that
+    claims success is the worse failure; `5xx` and connection errors retry.
+    Preflight checks health and `/api/session` before the first write, and a
+    non-localhost URL needs `--yes`.
+  - Verified on a live instance: 4,979 entries stored against a plan of 4,979,
+    `engine=fts5` search across scopes, `cafe` → `[Café]` and a CJK term both
+    matching, an excluded field never appearing in a snippet, `x-silo-auth`
+    collections `401`-ing anonymously while public ones serve, and a filtered
+    and sorted list query over the seeded rows. 488 tests still pass.
+
 - **A long cell no longer paints over the column beside it (2026-08-22):**
   `.cell` in `ui/src/components/DataTable.module.css` could shrink
   (`min-width: 0`) but nothing clipped what overflowed it, so a long string in
@@ -1666,7 +1704,7 @@ A minimal, self-hostable headless CMS. Users define collections with JSON Schema
 | `server/http/routes/` | `RouteManager` plus one routes class per resource (`projects-routes.ts`, `collections-routes.ts`, `entries-routes.ts` + `request-utils.ts`, `keys-routes.ts`, `media-routes.ts`, `transfer-routes.ts`, `copy-routes.ts` + `copy-request.ts` + `scope-copy-request.ts`, `session-routes.ts`). `CopyRoutes` serves both the whole-instance `/api/copy` and the scoped `/api/projects/:p/environments/:e/copy` |
 | `server/test/` | Test suites running via `bun test`: `conformance/` (storage conformance suite), `adapters/`, `core/`, `cli/` (bootstrap banner rendering, `silo init`'s scaffold round-tripping back to the defaults), `config/` (config layering, the derived fs blob path, and the `[log]` block), `version.test.ts` (every manifest agrees, the runtime version derives from the root one, a non-release build is marked `-dev`, and no source file has reacquired a hard-coded version), `logging/` (level thresholds, both formats, rotation, tailing and following across a rotation), `runtime/` (run-file staleness and the one-server-per-data-dir refusal, the process title leading with the name and never throwing, the argv a detached child inherits, a real detached start/stop/status round trip that pins the lost-the-port regression, and the same round trip against a freshly compiled binary — the only place the virtual-entry-path bug exists), `http/` (claims enforcement/delegation, entries API, export/import, direct server copy, scope-to-scope copy, media catalog/folders/search/reference integrity, schema `$ref`, projects API tests). The conformance suite pins media usages on both adapters — the one D23 invariant they answer by completely different means |
 | `ui/` | React + TS + Vite SPA (Slate design), organized into feature dirs (`api/`, `schema/`, `components/`, `forms/`, `query/` — the Query AST's round trip through the URL and the builder's flat model, `router/`, `utils/` with `Formatters`, `ThemeManager` & `ScopeMemory`, `views/*`) with colocated CSS Modules and a small global foundation under `styles/`. Every collection/entry call is scoped through `ApiClient.collectionsPath`; the active `(project, env)` is part of the URL, switched from the `/servers` gate in the workspace and from the settings nav's scope switchers. Shared protocol rules come from `@silo/shared`; `ui/dist` contains the compiled SPA served at the web root. `src/**/*.test.ts` are `bun test` suites in their own TS project (`tsconfig.test.json`) and run from the repo root alongside the server's |
-| `scripts/` | Tooling run through `bun run`, kept out of the server's source tree. `build.ts` (`BuildBinary`) is the single build path for every artifact, local or released: it builds the admin UI, generates `.build/entry.ts` (the embedded-asset imports plus `Cli.run()`), compiles that for `--target`, stamps `--version` through `--define SILO_VERSION`, ad-hoc signs Darwin output on macOS, and with `--archive` writes `dist/silo-<version>-<os>-<arch>.tar.gz`. `build-rpm.ts` (`BuildRpm`) wraps an already-compiled Linux binary as an RPM via nfpm — it stages the binary where the config can find it, maps a silo target onto nfpm's architecture name, and turns an absent signing key into an unsigned package while a mistyped one stays a hard error. `set-version.ts` (`SetVersion`) rewrites the version across every workspace manifest in place, and commits nothing. `render-formula.ts` (`RenderFormula`) fills `packaging/homebrew/silo.rb.tmpl` from a `SHA256SUMS` file, keyed by artifact filename and failing loudly on a missing target rather than shipping a formula with a blank checksum |
+| `scripts/` | Tooling run through `bun run`, kept out of the server's source tree. `build.ts` (`BuildBinary`) is the single build path for every artifact, local or released: it builds the admin UI, generates `.build/entry.ts` (the embedded-asset imports plus `Cli.run()`), compiles that for `--target`, stamps `--version` through `--define SILO_VERSION`, ad-hoc signs Darwin output on macOS, and with `--archive` writes `dist/silo-<version>-<os>-<arch>.tar.gz`. `build-rpm.ts` (`BuildRpm`) wraps an already-compiled Linux binary as an RPM via nfpm — it stages the binary where the config can find it, maps a silo target onto nfpm's architecture name, and turns an absent signing key into an unsigned package while a mistyped one stays a hard error. `set-version.ts` (`SetVersion`) rewrites the version across every workspace manifest in place, and commits nothing. `render-formula.ts` (`RenderFormula`) fills `packaging/homebrew/silo.rb.tmpl` from a `SHA256SUMS` file, keyed by artifact filename and failing loudly on a missing target rather than shipping a formula with a blank checksum . `seed.ts` (`Main`) fills a running instance with a large generated corpus over the HTTP API — the one file in the repo that deliberately holds many classes, because a seeder split across a directory stops being copyable at another instance |
 | `.github/workflows/release.yml` | The release: tests, four targets (Darwin arm64/x64 on `macos-15`, Linux x64/arm64 on `ubuntu-24.04`), `SHA256SUMS`, a Sigstore keyless signature and a GPG one over it, build-provenance attestations, the GitHub release, and the formula push to the tap. then the RPMs (built, signed, and `dnf install`-tested on `amazonlinux:2023`), and finally the dnf repository index published to GitHub Pages. `workflow_dispatch` runs the build and publishes nothing |
 | `packaging/rpm/` | The dnf package: `nfpm.yaml` (contents, scriptlet wiring, `shadow-utils` dependency, RPM signing), `silo.service` (systemd unit — foreground, hardened, `MemoryDenyWriteExecute=false` because Bun JITs), `silo.toml` (the packaged config: only the keys the layout requires, so there is little to drift), `scripts/` (the four rpm scriptlets — user creation, `systemctl preset`, and a removal that deliberately leaves `/var/lib/silo` behind), `silo.repo` (what users drop in `/etc/yum.repos.d/`), and `index.html` (the GitHub Pages landing page) |
 | `packaging/` | `homebrew/silo.rb.tmpl` is the Homebrew formula, and the source of truth for it — the tap's copy is generated and overwritten every release. `SIGNING_KEY.asc` is the public half of the release GPG key, committed so a verifier needs no keyserver. The release runbook (tap creation, secrets, what each signature layer proves) is a Notion doc, not a file here — it names accounts and setup steps that don't need to be in the source tree or reviewed as a diff |
