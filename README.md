@@ -85,9 +85,9 @@ container logs (`docker logs`). Store it: you need it to connect the admin UI at
 Requires Bun 1.3 or newer.
 
 ```sh
-bun install                              # server and shared package
-cd ui && bun install && bun run build     # admin UI, output in ui/dist
-cd .. && bun run server/main.ts serve
+bun install                    # every workspace: server, shared, admin UI
+bun run --cwd ui build         # admin UI, output in ui/dist
+bun run server/main.ts serve
 ```
 
 `bun run server/main.ts init` first writes a `silo.toml` of default settings if
@@ -714,9 +714,12 @@ cd ui && bun run dev    # hot-reloading admin UI against a running backend
 cd ui && bun run lint   # oxlint plus stylelint
 ```
 
-`bun run build` compiles the server into a standalone `silo` binary. The script
-also runs `codesign`, so it is macOS oriented as written. The binary still
-serves the admin UI from `./ui/dist` relative to its working directory.
+`bun run build` compiles the server into a standalone binary — `silo`, or
+`silo.exe` on Windows, where Bun adds the extension itself. It runs wherever Bun
+does: the ad-hoc `codesign` pass that a Bun-compiled Mach-O needs is applied on
+macOS and skipped everywhere else, so nothing in the build is host specific. The
+binary still serves the admin UI from `./ui/dist` relative to its working
+directory.
 
 | Path | What it is |
 |------|------------|
@@ -724,6 +727,7 @@ serves the admin UI from `./ui/dist` relative to its working directory.
 | `shared/` | `@silo/shared`, a Bun workspace holding runtime-neutral rules both the server and UI depend on: claims, validation errors, schema keywords, key format |
 | `ui/` | React and Vite admin UI, built to `ui/dist` |
 | `server/test/`, `shared/test/` | `bun test` suites |
+| `scripts/` | Build tooling invoked through `bun run`, outside the server's source tree |
 
 The architecture is ports and adapters: `server/core/` defines domain types and
 the `Storage` and `BlobStorage` interfaces and imports no adapter, adapters

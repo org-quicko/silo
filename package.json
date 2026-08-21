@@ -4,11 +4,11 @@
   "description": "A minimal, self-hostable headless CMS in TypeScript on Bun and Hono",
   "main": "server/main.ts",
   "type": "module",
-  "workspaces": ["shared"],
+  "workspaces": ["shared", "ui"],
   "scripts": {
     "start": "bun run server/main.ts serve",
     "test": "bun test",
-    "build": "bun build ./server/main.ts --compile --outfile silo && codesign -s - silo"
+    "build": "bun run scripts/build.ts"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1114.0",

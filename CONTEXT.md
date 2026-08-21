@@ -15,6 +15,116 @@ A minimal, self-hostable headless CMS. Users define collections with JSON Schema
 
 *Last updated: 2026-08-21*
 
+- **`serve --detach` worked from source and failed from the compiled binary
+  (2026-08-21):** every detached start of a built `silo` died instantly with
+  `unknown command "B:/~BUN/root/silo"`, its usage dump landing in the log file.
+  `Daemon.relaunchArgs` forwards argv[1] to the child because under `bun run`
+  that is the entry script and the child needs it; a compiled binary's argv[1]
+  is instead a path inside Bun's virtual filesystem, and the child already has
+  its own, so the forwarded copy arrived as argv[2] — where the CLI, reading
+  `argv.slice(2)`, took it for a subcommand. The guard meant to separate the two
+  tested `fs.existsSync(argv[1])`, which **answers `true` inside a compiled
+  binary** (so does `statSync`): Bun serves the virtual path from the embedded
+  filesystem. It now resolves the path instead — `fs.realpathSync` throws
+  `ENOENT` there and succeeds from source — which keeps the check independent of
+  how Bun spells its virtual root, the property the original was reaching for.
+  - **From source the bug is invisible, and that is why it shipped.** Outside a
+    compiled binary `B:/~BUN/root/silo` is absent from the filesystem, so the
+    broken check and the correct one return the same answer; the existing
+    `detached-serve.test.ts` round trip runs the entry script and passed
+    throughout. `server/test/runtime/compiled-detach.test.ts` closes that by
+    doing the only thing that reaches it: `bun build --compile` into a temp dir,
+    then a real detached start, stop, and an assertion that the log holds no
+    usage dump. It costs about 1.4s and a ~100 MB temporary file, which is why
+    it is one test — and it was confirmed to fail against the old check rather
+    than merely pass against the new one.
+  - `Daemon.relaunchArgs` is now public and takes `(argv, execPath)` with the
+    process values as defaults, so `relaunch-args.test.ts` can exercise the argv
+    shaping directly. That suite deliberately does not assert on the virtual
+    path: such a test passes with the bug present, which is worse than no test.
+  - This is a Bun behavior the fix depends on, not a specification. If a future
+    Bun resolves virtual paths through `realpathSync`, the discriminator goes
+    quiet again — the compiled test is the thing that would notice.
+
+- **`bun run build` is platform agnostic (2026-08-21):** the root build script
+  was `bun build … --compile --outfile silo && codesign -s - silo`, and the
+  second half is macOS-only — on Windows and Linux `codesign` does not exist, so
+  the script always exited non-zero *after* having produced a perfectly good
+  binary. The compile is now `scripts/build.ts` (`BuildBinary`), which runs the
+  same compile and applies `codesign` only when `process.platform === "darwin"`.
+  - **The signing is not incidental on macOS and could not simply be dropped.**
+    `--compile` appends its payload to a copy of the Bun executable, which
+    invalidates the signature that Mach-O shipped with, and macOS refuses to
+    run a binary whose signature does not match — so the ad-hoc re-sign is what
+    makes the artifact runnable there. Nothing to do on the other platforms;
+    they run the compiled file as it lands.
+  - The re-sign now passes `--force`, which replaces an existing signature
+    instead of failing on one. Without it the step is only correct while Bun
+    leaves its output unsigned, and that is a Bun implementation detail, not a
+    guarantee.
+  - **The output name needs no branching:** Bun writes `silo.exe` on Windows
+    from `--outfile silo` on its own. The script derives the artifact path the
+    same way, for the signing target and the size it reports, and `/silo.exe`
+    joins `/silo` in `.gitignore`. Verified on Windows: build exits 0 and
+    `./silo.exe --help` runs.
+
+- **`ui/` is a Bun workspace of the root, not its own install root
+  (2026-08-21):** adding `shared/src/media/media-ref.ts` broke `bun run build`
+  in `ui/` with an unresolved import of `@silo/shared/media-ref`, while `tsc -b`
+  in the same script passed. The cause was the `file:../shared` protocol: Bun
+  mirrors such a dependency as **per-file** symlinks taken at install time, so
+  the UI's copy had `src/{claims,errors,keys,schema}` and no `src/media` at all,
+  and the package's own `exports` map pointed at a file that was not there. The
+  root `package.json` now declares `"workspaces": ["shared", "ui"]` and `ui`
+  depends on `@silo/shared` via `workspace:*`, which symlinks the directory
+  itself — one entry, `node_modules/@silo/shared -> ../../shared` — so a file
+  added under `shared/src/` resolves from every member with no reinstall.
+  `ui/bun.lock` is deleted; the root lockfile is now the only one.
+  - **The failure was invisible to `tsc` by construction.** TypeScript follows
+    the symlink to the package's real path and type-checks against the true
+    source tree, so a subpath missing only from the mirror still type-checks;
+    the bundler resolves the mirror and does not. Any check that runs before
+    the bundle — `tsc -b`, `oxlint` — will stay green through this class of
+    breakage, which is why `bun run build` was the first thing to notice.
+  - **Bun aborts the install if a declared member is absent**, with
+    `error: Workspace not found "ui"`. That governs the Dockerfile: both stages
+    now install from the workspace root with every member's manifest copied in,
+    and the runtime stage copies `ui/package.json` for no other reason.
+    `--filter '!silo-ui'` there keeps the UI's dependencies (React, Vite,
+    CodeMirror) out of the runtime image, which otherwise grows from 25 MB of
+    `node_modules` to 95 MB for packages the server never imports — it serves
+    `ui/dist` as static files. Stage 1 inverts the filter (`--filter silo-ui`)
+    and skips the server's tree instead.
+  - Hoisting does not flatten the pinned versions apart: root and `ui` disagree
+    on TypeScript (7.x vs `~6.0.3`) and on `@types/node`, and Bun nests each
+    member's own copy, so `bun run --cwd ui build` still compiles on
+    TypeScript 6. Verified after the change: the full `bun test` suite passes,
+    both type-check targets are clean, and the UI bundle hashes identically to
+    the pre-change build.
+
+- **A running server names itself `silo` in the process list (2026-08-21):**
+  a detached server was named after whatever binary was executing it, so a
+  source deployment showed up in `ps` and `top` as `bun`, and finding silo
+  meant recognising it by its arguments. Every `serve` now sets its process
+  title to `silo <listen>` (`ProcessTitle`, `server/runtime/`), immediately
+  after the bind and for the same reason the run file is written there — a
+  start that lost the port race must not announce that address anywhere.
+  - **The address is in the title because the title replaces argv.** On Linux
+    and macOS this is the process title proper: it overwrites the argv the
+    kernel reports, which is what makes `pgrep silo` work and what takes the
+    flags off the `ps` line, so the one detail worth seeing there had to move
+    into the title. Several instances on one host stay distinguishable.
+  - **On Windows it does not rename the process, and cannot.** An image name
+    comes from the executable file; nothing a process does at runtime changes
+    it. The assignment reaches `SetConsoleTitle` instead, which renames a
+    foreground run's console and does nothing for a detached one — measured:
+    a detached child is still `bun.exe` in Task Manager afterwards. Naming a
+    process on Windows means shipping the compiled binary, whose image name is
+    already `silo.exe`.
+  - Cosmetic by design, so it never fails a start: the assignment is wrapped,
+    and `silo status`/`silo stop` find a server through `silo.run.json` and a
+    pid, never by name. Tests: `server/test/runtime/process-title.test.ts`.
+
 - **Collection editing now has the same management surface as entry editing
   (2026-08-21):** the schema editor uses the workspace top bar for cancel/save
   actions and, for an existing collection, shows a right-hand metadata rail
@@ -989,19 +1099,16 @@ A minimal, self-hostable headless CMS. Users define collections with JSON Schema
   `ui/src/auth/Claims` implementations were removed, and shared behavior is
   tested under `shared/test/`. Docker copies the local package into both build
   stages before their frozen installs.
-  - The root `package.json` declares `"workspaces": ["shared"]` and depends on
-    `@silo/shared` via `workspace:*`. This matters: with the previous
-    `file:./shared` protocol Bun **copied** the package into `node_modules`, so
-    the server kept running a stale snapshot after every edit to `shared/` while
-    `shared/test/` (which imports by relative path) tested the new code — one
-    `bun test` run could report green on two different versions. Workspaces
-    symlink the directory, so both halves always see the same source.
-  - `ui/` is a separate install root and still uses `file:../shared`, which Bun
-    mirrors as **per-file** symlinks: edits to an existing shared file propagate,
-    but **adding or removing a file under `shared/src/` requires
-    `cd ui && bun install`** before the UI can resolve it. TypeScript resolves
-    new subpaths through the package's realpath and will typecheck clean without
-    that reinstall, so the failure surfaces at bundle time, not at `tsc`.
+  - The root `package.json` declares `"workspaces": ["shared", "ui"]` and every
+    consumer depends on `@silo/shared` via `workspace:*`. This matters: with the
+    `file:` protocol Bun does not symlink the package directory. At the root it
+    **copied**, so the server kept running a stale snapshot after every edit to
+    `shared/` while `shared/test/` (which imports by relative path) tested the
+    new code — one `bun test` run could report green on two different versions.
+    From `ui/` it mirrored the package as **per-file** symlinks, an install-time
+    snapshot: edits to an existing shared file propagated, but a newly added one
+    stayed invisible until a reinstall. Workspaces symlink the directory itself,
+    so every member always sees the same source, new files included.
   - Errors that cross this boundary are identified by **brand, not
     `instanceof`**. `ValidationError` carries a `brand` field and a static
     `ValidationError.is()` guard, and every catch site uses it. `instanceof`
@@ -1018,8 +1125,8 @@ A minimal, self-hostable headless CMS. Users define collections with JSON Schema
     into a silent permanent deny. Scope them with `Claims.collection(name, perm)`.
 
 - **Production container refreshed (2026-08-14):** the Docker build now uses
-  Bun 1.3.14, installs both dependency trees from their committed `bun.lock`
-  files with `--frozen-lockfile`, and runs as the unprivileged `bun` user. The
+  Bun 1.3.14, installs from the committed root `bun.lock` with
+  `--frozen-lockfile`, and runs as the unprivileged `bun` user. The
   default filesystem blob path is `/data/media`, so an explicit runtime mount
   at `/data` persists both SQLite data and media (including Railway Volumes;
   the Dockerfile intentionally has no `VOLUME` instruction because Railway
@@ -1100,14 +1207,14 @@ A minimal, self-hostable headless CMS. Users define collections with JSON Schema
 | `IMPLEMENTATION.md` | Design spec + decisions log (D1–D25) |
 | `CONTEXT.md` | This file — current state of the project |
 | `CLAUDE.md` | Standing instructions for AI assistants |
-| `package.json` | Project metadata, TypeScript 7 setup, Bun/Hono dependencies, and AWS S3 SDK; declares the `shared` Bun workspace |
-| `tsconfig.json` | TypeScript configuration for the Bun server and shared package (`include: ["server/**/*", "shared/**/*"]`) |
+| `package.json` | Project metadata, TypeScript 7 setup, Bun/Hono dependencies, and AWS S3 SDK; declares the `shared` and `ui` Bun workspaces, and is the one install root and one lockfile for all three packages. `build` delegates to `scripts/build.ts` rather than inlining the compile, because the signing step is platform-conditional |
+| `tsconfig.json` | TypeScript configuration for the Bun server, shared package, and build scripts (`include: ["server/**/*", "shared/**/*", "scripts/**/*"]`) |
 | `shared/` | Local `@silo/shared` package (a Bun workspace of the root) for runtime-neutral client/server rules. `src/claims/` is the single source of truth for claim constants, the `Claim`/`FixedClaim`/`CollectionClaim`/`CollectionPermission`/`ClaimPreset` types, `ParsedClaim`, validation, matching, delegation, and presets; `src/errors/` holds `ValidationError` and the `ValidationDetail` wire shape; `src/schema/` holds `SiloRef` (the `silo://collections/` `$ref` scheme), `SchemaAccess` (`x-silo-auth`), and `MediaField` (`x-silo-type: "media"`); `src/keys/` holds `KeyFormat` (secret prefix and display truncation); `src/media/` holds `MediaRef` (the `silo://media/<ulid>` scheme, its pre-D23 `/media/<key>` dual-read, and the canonical form the write path stores). Tests under `shared/test/`. Each artifact is its own file and its own `exports` subpath |
 | `server/main.ts` | Thin CLI entrypoint — imports `Cli` and runs it |
 | `server/cli/` | `cli.ts` (argv parsing, subcommand routing, dependency wiring), `bootstrap-banner.ts` (the first-boot root key announcement), and `commands/` (one command class per subcommand: `serve-command.ts`, `keys-command.ts`, `export-command.ts`, `import-command.ts`, `init-command.ts` — `silo init`, the config scaffold rendered from `ConfigLoader.defaultConfig()` so it cannot drift from the built-in defaults, `media-command.ts` — `silo media reconcile`, the catalog repair that runs against the data dir with no server, reporting what it adopted, pruned, finished and returned to active, and the four process-lifecycle commands: `serve-detached-command.ts` — `silo serve --detach`, which spawns the child and waits for *its* run file before reporting success, `stop-command.ts`, `status-command.ts`, `logs-command.ts`). `Cli` routes `serve --detach`, `stop`, `status` and `logs` before storage is opened, like `init`: none of them is the server, so none may create a data dir or take a handle on another process's database |
 | `server/config/` | `Config` type and its sub-shapes (`storage-config.ts`, `blob-storage-config.ts`, `auth-config.ts`, `schema-config.ts`, `log-config.ts`) plus `ConfigLoader` (`config-loader.ts`) — `loadConfig` walks file then env, and `resolveDerivedDefaults` fills in the paths derived from others (the fs blob dir) once flags have been applied |
 | `server/logging/` | The server's log (D25): `Logger` (level threshold, `text`/`json` formatting, `raw` for the bootstrap banner, `silent()` for tests), `LogLevel` + `LogLevels`, the `LogSink` port with `ConsoleSink` and a size-rotating `FileSink`, `LogLocation` (where a detached run writes, and where `silo logs` reads) and `LogTail` (the last n lines, and follow across a rotation) |
-| `server/runtime/` | Process lifecycle (D25): `RunState` and `RunFile` (`<data dir>/silo.run.json` — written after the bind, removed on clean shutdown, and the guard that refuses a second server over a live one), `Daemon` (detached spawn, health polling, SIGTERM-then-SIGKILL), `ListenAddress` (the `[host]:port` grammar, shared by `serve` and the health probe) |
+| `server/runtime/` | Process lifecycle (D25): `RunState` and `RunFile` (`<data dir>/silo.run.json` — written after the bind, removed on clean shutdown, and the guard that refuses a second server over a live one), `Daemon` (detached spawn, health polling, SIGTERM-then-SIGKILL), `ListenAddress` (the `[host]:port` grammar, shared by `serve` and the health probe), `ProcessTitle` (what a running server calls itself in the OS process list — the real thing on Linux/macOS, where it replaces argv; the console title only on Windows, where an image name is fixed by the executable) |
 | `server/core/domain/` | `Entry`, `Meta`, `EntryUtils`, `Collection`, `Scope` |
 | `server/core/ports/` | `Storage` and `BlobStorage` port interfaces |
 | `server/core/query/` | Query AST (`Filter`, `SortKey`, `Query` + limits) and `QueryUtils` |
@@ -1125,10 +1232,11 @@ A minimal, self-hostable headless CMS. Users define collections with JSON Schema
 | `server/http/middleware/` | `LoggingMiddleware`, `AuthMiddleware` |
 | `server/http/auth/` | `RouteAuth` — claim-checking helpers for route handlers |
 | `server/http/routes/` | `RouteManager` plus one routes class per resource (`projects-routes.ts`, `collections-routes.ts`, `entries-routes.ts` + `request-utils.ts`, `keys-routes.ts`, `media-routes.ts`, `transfer-routes.ts`, `copy-routes.ts` + `copy-request.ts` + `scope-copy-request.ts`, `session-routes.ts`). `CopyRoutes` serves both the whole-instance `/api/copy` and the scoped `/api/projects/:p/environments/:e/copy` |
-| `server/test/` | Test suites running via `bun test`: `conformance/` (storage conformance suite), `adapters/`, `core/`, `cli/` (bootstrap banner rendering, `silo init`'s scaffold round-tripping back to the defaults), `config/` (config layering, the derived fs blob path, and the `[log]` block), `logging/` (level thresholds, both formats, rotation, tailing and following across a rotation), `runtime/` (run-file staleness and the one-server-per-data-dir refusal, plus a real detached start/stop/status round trip that pins the lost-the-port regression), `http/` (claims enforcement/delegation, entries API, export/import, direct server copy, scope-to-scope copy, media catalog/folders/search/reference integrity, schema `$ref`, projects API tests). The conformance suite pins media usages on both adapters — the one D23 invariant they answer by completely different means |
+| `server/test/` | Test suites running via `bun test`: `conformance/` (storage conformance suite), `adapters/`, `core/`, `cli/` (bootstrap banner rendering, `silo init`'s scaffold round-tripping back to the defaults), `config/` (config layering, the derived fs blob path, and the `[log]` block), `logging/` (level thresholds, both formats, rotation, tailing and following across a rotation), `runtime/` (run-file staleness and the one-server-per-data-dir refusal, the process title leading with the name and never throwing, the argv a detached child inherits, a real detached start/stop/status round trip that pins the lost-the-port regression, and the same round trip against a freshly compiled binary — the only place the virtual-entry-path bug exists), `http/` (claims enforcement/delegation, entries API, export/import, direct server copy, scope-to-scope copy, media catalog/folders/search/reference integrity, schema `$ref`, projects API tests). The conformance suite pins media usages on both adapters — the one D23 invariant they answer by completely different means |
 | `ui/` | React + TS + Vite SPA (Slate design), organized into feature dirs (`api/`, `schema/`, `components/`, `forms/`, `router/`, `utils/` with `Formatters`, `ThemeManager` & `ScopeMemory`, `views/*`) with colocated CSS Modules and a small global foundation under `styles/`. Every collection/entry call is scoped through `ApiClient.collectionsPath`; the active `(project, env)` is part of the URL, switched from the `/servers` gate in the workspace and from the settings nav's scope switchers. Shared protocol rules come from `@silo/shared`; `ui/dist` contains the compiled SPA served at the web root. `src/**/*.test.ts` are `bun test` suites in their own TS project (`tsconfig.test.json`) and run from the repo root alongside the server's |
+| `scripts/` | Tooling run through `bun run`, kept out of the server's source tree: `build.ts` (`BuildBinary`) compiles `server/main.ts` into the standalone binary and ad-hoc signs it on macOS only |
 | `README.md` | User-facing docs: why/quick start, concepts, configuration, CLI, HTTP API, claims, portability, deployment, development, roadmap, contributing. Rewritten 2026-08-18; deliberately links neither this file nor IMPLEMENTATION.md |
-| `ui/README.md` | Admin UI docs: dev workflow, the server-connection model, URL grammar, RJSF theme notes, styling conventions, and the `@silo/shared` per-file-symlink caveat. Rewritten 2026-08-18 (was the stock Vite template) |
+| `ui/README.md` | Admin UI docs: dev workflow, the server-connection model, URL grammar, RJSF theme notes, styling conventions, and how `@silo/shared` resolves through the workspace symlink. Rewritten 2026-08-18 (was the stock Vite template) |
 
 
 Notable implementation facts:
@@ -1231,7 +1339,7 @@ Notable implementation facts:
   - `server/cli/`: CLI subcommand execution handlers wrapped in command classes (`cli.ts` for argv parsing/wiring, `commands/` for one class per subcommand, `bootstrap-banner.ts` for the first-boot key announcement).
   - `server/config/`: `Config` and its sub-shapes, plus `ConfigLoader`.
   - `server/logging/`: the running server's log — `Logger`, the level union and its ranking, the `LogSink` port and its console/file implementations, and the two read-side helpers (`LogLocation`, `LogTail`). Nothing here knows about HTTP or storage.
-  - `server/runtime/`: process lifecycle — the run file that records a live server, the daemon mechanics that start and stop one, and the listen-address grammar they share. Separate from `cli/` because the run file is server state that four commands read, not one command's presentation.
+  - `server/runtime/`: process lifecycle — the run file that records a live server, the daemon mechanics that start and stop one, the listen-address grammar they share, and the name the process presents to the OS. Separate from `cli/` because the run file is server state that four commands read, not one command's presentation.
   - `shared/src/`: Runtime-neutral logic shared by server and UI, consumed through the local `@silo/shared` package: claim protocol behavior under `claims/`, and under `errors/` the errors shared rules must be able to raise. Something belongs here when both sides need it *or* when shared itself must produce it; anything importing `bun:*`, node builtins, `hono`, or React does not.
   - `server/core/`: Domain models (`domain/`), port interfaces (`ports/`), query AST (`query/`), error classes (`errors/`), schema validation (`schema/`), server-only key persistence/secret logic (`keys/`), media helpers (`media/`), export/import engine (`transfer/`), and the `Service` orchestration layer (`service/`).
   - `server/adapters/`: Database / storage drivers (`storage/sqlite/`, `storage/fs/`) and their private helper classes (compilers, filters), blob storage drivers (`blob/`), and the outbound HTTP client (`http/`).

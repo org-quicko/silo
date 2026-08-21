@@ -32,7 +32,6 @@ bun run server/main.ts serve
 
 # in another
 cd ui
-bun install
 bun run dev
 ```
 
@@ -216,13 +215,18 @@ shape, the `silo://` reference scheme, `x-silo-auth`, `x-silo-type: "media"`,
 and the API key display format. Import from there rather than restating a rule
 locally, so the two sides cannot drift.
 
-`ui/` is a separate install root and depends on the package through
-`file:../shared`, which Bun mirrors as per-file symlinks. Edits to an existing
-shared file propagate immediately, but **adding or removing a file under
-`shared/src/` requires `cd ui && bun install`** before the UI can resolve it.
-TypeScript resolves new subpaths through the package's real path and will
-type-check clean without that reinstall, so the failure shows up at bundle time
-rather than at `tsc`.
+`ui/` is a member of the root Bun workspace and depends on the package through
+`workspace:*`, so `node_modules/@silo/shared` is one symlink to the `shared/`
+directory itself. Everything under it — including files added after the last
+install — resolves immediately, and there is no separate install to run here:
+`bun install` at the repository root covers this package too.
+
+It was not always so. Under the `file:../shared` protocol Bun mirrored the
+package as *per-file* symlinks, a snapshot taken at install time: edits to an
+existing shared file propagated, but a newly added one was invisible until a
+reinstall. TypeScript resolved new subpaths through the package's real path and
+type-checked clean regardless, so the failure surfaced at bundle time as an
+unresolved import rather than at `tsc`.
 
 ## Production build
 
