@@ -2,13 +2,22 @@ import React, { useState, useEffect } from 'react'
 import { Type, Palette, RotateCcw, Check, Sparkles, CheckCircle2 } from 'lucide-react'
 import { Button } from '../../../components/Button'
 import { Pill } from '../../../components/Pill'
+import { Breadcrumb } from '../../../components/Breadcrumb'
 import { TopBar } from '../../shell/TopBar'
+import { SmartSearch } from '../../search/SmartSearch'
+import type { PaletteSeed } from '../../search/palette-seed'
+import type { ScopeRef } from '../../../api/types/scope-ref'
 import { ThemeManager, type ThemeSettings } from '../../../utils/theme-manager'
 import styles from './AppearancePage.module.css'
 import type { SessionBadge } from '../../shell/session-badge'
 
 interface AppearancePageProps {
+  serverId: string
+  scope: ScopeRef | null
+  smartCollections: readonly { name: string; count: number | null; schema?: any }[]
   session: SessionBadge
+  onOpenPalette: (seed: PaletteSeed) => void
+  onNavigateToCollection: (name: string, q: string) => void
 }
 
 function getCategoryFallback(category: string): string {
@@ -24,7 +33,14 @@ function getCategoryFallback(category: string): string {
   }
 }
 
-export function AppearancePage({ session }: AppearancePageProps) {
+export function AppearancePage({
+  serverId,
+  scope,
+  smartCollections,
+  session,
+  onOpenPalette,
+  onNavigateToCollection,
+}: AppearancePageProps) {
   const [settings, setSettings] = useState<ThemeSettings>(() => ThemeManager.getSettings())
   const [customFontInput, setCustomFontInput] = useState('')
   const [customHexInput, setCustomHexInput] = useState(settings.accent)
@@ -87,7 +103,19 @@ export function AppearancePage({ session }: AppearancePageProps) {
 
   return (
     <>
-      <TopBar crumbs={[{ label: 'Application' }, { label: 'Appearance' }]} session={session}>
+      <TopBar
+        search={
+          <SmartSearch
+            serverId={serverId}
+            scope={scope}
+            collection={null}
+            collections={smartCollections}
+            onNavigateToCollection={onNavigateToCollection}
+            onOpenPalette={onOpenPalette}
+          />
+        }
+        session={session}
+      >
         {savedSuccess && (
           <div style={{ display: 'flex', alignItems: 'center', gap: '6px', color: 'var(--ok)', fontSize: '13px', fontWeight: 500 }}>
             <CheckCircle2 size={15} />
@@ -97,6 +125,7 @@ export function AppearancePage({ session }: AppearancePageProps) {
       </TopBar>
 
       <div className="content">
+        <Breadcrumb crumbs={[{ label: 'Application' }, { label: 'Appearance' }]} />
         <div className="page-head">
           <div className="page-title-group">
             <h2 className="page-title">Appearance</h2>

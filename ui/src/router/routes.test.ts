@@ -116,6 +116,16 @@ describe('the list query in the URL', () => {
     expect(queryOf('/servers/s1/projects/acme/environments/prod/collections/posts?sort=title'))
       .toMatchObject({ sort: '$.data.title', desc: false })
   })
+
+  test('a chosen column selection round-trips', () => {
+    const url = entries({ ...DEFAULT_LIST_QUERY, cols: 'email,tags' })
+    expect(url).toContain('cols=email%2Ctags')
+    expect(queryOf(url)).toMatchObject({ cols: 'email,tags' })
+  })
+
+  test('no `cols` in the URL means the derived default, not an empty table', () => {
+    expect(queryOf('/servers/s1/projects/acme/environments/prod/collections/posts').cols).toBeNull()
+  })
 })
 
 describe('Routes builders', () => {

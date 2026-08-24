@@ -2,8 +2,14 @@ import type { Filter } from '@silo/shared/filter'
 import { FilterOps } from '@silo/shared/filter-ops'
 import { JsonPath } from '@silo/shared/json-path'
 
-/** The value type a row compares with, which decides how its text is read. */
-export type FilterValueType = 'string' | 'number' | 'boolean'
+/**
+ * The value type a row compares with, which decides how its text is read and
+ * which ops `FilterFields.ops` offers for it (handoff 1d). `enum` and
+ * `date-time` are JSON Schema refinements of `string` — the wire value is
+ * still a string — so `coerce` treats them like one; they exist as their own
+ * type only so the builder can narrow the op list and pick a value control.
+ */
+export type FilterValueType = 'string' | 'number' | 'boolean' | 'enum' | 'date-time'
 
 /**
  * One line of the filter builder. `value` stays the raw text the user typed —
@@ -12,7 +18,13 @@ export type FilterValueType = 'string' | 'number' | 'boolean'
  */
 export interface FilterRow {
   path: string
+  /**
+   * A `FilterOps.Leaf` op, or the synthetic `'between'` — a date-time range
+   * offered as one row (handoff 1d) but compiled to two real leaves, `gte`
+   * and `lte`, since the AST has no range op and does not need one.
+   */
   op: string
+  /** `'between'` packs `"from, to"` here, split the same way `in` splits a list. */
   value: string
   type: FilterValueType
 }
@@ -40,6 +52,10 @@ export class FilterModel {
   /** A row the user has finished — an unfinished one is not an empty filter. */
   static isComplete(row: FilterRow): boolean {
     if (!row.path || !JsonPath.isValid(row.path)) return false
+    if (row.op === 'between') {
+      const [from, to] = FilterModel.pair(row.value)
+      return from !== '' && to !== ''
+    }
     if (!FilterOps.isLeaf(row.op)) return false
     const arity = FilterOps.arity(row.op)
     if (arity === 'path') return true
@@ -82,6 +98,16 @@ export class FilterModel {
   }
 
   private static leaf(row: FilterRow): Filter {
+    if (row.op === 'between') {
+      const [from, to] = FilterModel.pair(row.value)
+      return {
+        op: 'and',
+        args: [
+          { op: 'gte', path: row.path, value: FilterModel.coerce(from, row.type) },
+          { op: 'lte', path: row.path, value: FilterModel.coerce(to, row.type) },
+        ],
+      }
+    }
     if (FilterOps.arity(row.op) === 'path') return { op: row.op, path: row.path }
     const values = FilterModel.values(row)
     return {
@@ -89,6 +115,12 @@ export class FilterModel {
       path: row.path,
       value: FilterOps.arity(row.op) === 'values' ? values : values[0],
     }
+  }
+
+  /** `"from, to"` → `["from", "to"]`, both trimmed; a missing half is `""`. */
+  private static pair(value: string): [string, string] {
+    const [from = '', to = ''] = value.split(',').map((p) => p.trim())
+    return [from, to]
   }
 
   /**

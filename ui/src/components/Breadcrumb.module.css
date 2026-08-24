@@ -1,0 +1,28 @@
+.breadcrumb {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  margin-bottom: 11px;
+  font-size: 12px;
+}
+
+.crumb {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--text-3);
+  font-family: var(--font-ui);
+  font-size: 12px;
+  text-decoration: none;
+  cursor: pointer;
+}
+
+.link:hover { color: var(--text-2); }
+
+.current {
+  color: var(--text-2);
+  cursor: default;
+}
+
+.crumbPart { display: contents; }
+.separator { color: var(--line-2); }

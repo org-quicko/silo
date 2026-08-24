@@ -241,6 +241,7 @@ export class Routes {
     if (query.sort) params.set('sort', (query.desc ? '-' : '') + query.sort)
     if (query.filter) params.set('filter', query.filter)
     if (query.page > 1) params.set('page', String(query.page))
+    if (query.cols) params.set('cols', query.cols)
     const encoded = params.toString()
     return encoded ? `?${encoded}` : ''
   }
@@ -257,6 +258,7 @@ export class Routes {
       desc,
       page: Number.isFinite(page) && page > 0 ? page : 1,
       filter: params.get('filter'),
+      cols: params.get('cols'),
     }
   }
 }

@@ -5,6 +5,7 @@ import { api } from '../../api/api-client'
 import type { MediaAsset } from '../../api/types/media-asset'
 import type { ScopeRef } from '../../api/types/scope-ref'
 import type { SearchHit } from '../../api/types/search-hit'
+import type { SearchReach } from '../../api/types/search-reach'
 import type { SearchSnippet } from '../../api/types/search-snippet'
 import { PaletteResults, type PaletteItem } from './palette-results'
 import { SnippetView } from './snippet-view'
@@ -15,13 +16,16 @@ const ENTRY_LIMIT = 20
 const MEDIA_LIMIT = 6
 
 /**
- * Instance-wide search (D30), on `⌘K`.
+ * Search, on `⌘K` or handed off from the smart bar's scope chip (D30, handoff
+ * 1c "Instance").
  *
- * It searches the whole instance rather than the scope on screen, because the
- * key already bounds it: `Service.searchAccess` compiles the caller's
- * `entries:read` claims into the set of collections that may be reached, so
- * asking for everything returns exactly what this key can see and nothing
- * needs to be narrowed here to be safe.
+ * With no `reach`, it searches the whole instance rather than the scope on
+ * screen, because the key already bounds it: `Service.searchAccess` compiles
+ * the caller's `entries:read` claims into the set of collections that may be
+ * reached, so asking for everything returns exactly what this key can see and
+ * nothing needs to be narrowed here to be safe. A `reach` narrows it further
+ * still — the smart bar hands one over when its scope chip named a collection
+ * on a page that has nowhere to show in-table results (anywhere but Entries).
  */
 export function CommandPalette({
   serverId,
@@ -29,6 +33,8 @@ export function CommandPalette({
   apiKey,
   scope,
   claims,
+  initialQuery,
+  reach,
   onNavigate,
   onClose,
 }: {
@@ -37,11 +43,15 @@ export function CommandPalette({
   apiKey: string
   scope: ScopeRef
   claims: string[]
+  /** Seeds the field when opened already carrying text, e.g. from the smart bar. */
+  initialQuery?: string
+  /** Narrows the search to one collection instead of the whole instance. */
+  reach?: { collection: string }
   onNavigate: (href: string) => void
   onClose: () => void
 }) {
-  const [text, setText] = useState('')
-  const [query, setQuery] = useState('')
+  const [text, setText] = useState(initialQuery ?? '')
+  const [query, setQuery] = useState(initialQuery?.trim() ?? '')
   const [hits, setHits] = useState<SearchHit[]>([])
   const [assets, setAssets] = useState<MediaAsset[]>([])
   const [engine, setEngine] = useState<'fts5' | 'scan' | null>(null)
@@ -88,6 +98,8 @@ export function CommandPalette({
     return () => clearTimeout(t)
   }, [text])
 
+  const target: SearchReach = reach ? { kind: 'collection', scope, collection: reach.collection } : { kind: 'instance' }
+
   useEffect(() => {
     setActive(0)
     if (!query) {
@@ -103,10 +115,11 @@ export function CommandPalette({
     const ticket = ++seq.current
     setLoading(true)
     Promise.all([
-      api.search(url, apiKey, { kind: 'instance' }, { q: query, limit: ENTRY_LIMIT }),
-      // Media is a second, independent search — it has its own claims, and a
-      // key that cannot read it simply gets no media group.
-      canReadMedia
+      api.search(url, apiKey, target, { q: query, limit: ENTRY_LIMIT }),
+      // Media is a second, independent search with its own claims — and it is
+      // not "inside" any one collection, so a scoped hand-off skips it rather
+      // than surfacing assets from outside the collection the chip named.
+      canReadMedia && !reach
         ? api.listMedia(url, apiKey, { q: query, limit: MEDIA_LIMIT }).catch(() => ({ items: [] as MediaAsset[] }))
         : Promise.resolve({ items: [] as MediaAsset[] }),
     ])
@@ -127,7 +140,8 @@ export function CommandPalette({
       .then(() => {
         if (seq.current === ticket) setLoading(false)
       })
-  }, [url, apiKey, query, canReadMedia])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [url, apiKey, query, canReadMedia, reach?.collection])
 
   const open = (item: PaletteItem) => {
     onNavigate(item.href)
@@ -163,7 +177,7 @@ export function CommandPalette({
           <input
             ref={input}
             value={text}
-            placeholder="Search every collection you can read…"
+            placeholder={reach ? `Search ${reach.collection}…` : 'Search every collection you can read…'}
             onChange={(e) => setText(e.target.value)}
             aria-label="Search"
           />
@@ -185,8 +199,9 @@ export function CommandPalette({
         <div className={styles.results} ref={listRef}>
           {!query && (
             <div className={styles.hint}>
-              Type to search entries across every project and environment this key can read
-              {canReadMedia ? ', and the media library' : ''}.
+              {reach
+                ? `Type to search ${reach.collection}.`
+                : `Type to search entries across every project and environment this key can read${canReadMedia ? ', and the media library' : ''}.`}
             </div>
           )}
           {query && !loading && items.length === 0 && !error && (

@@ -1,4 +1,5 @@
 import { Button } from '../../components/Button'
+import { Breadcrumb } from '../../components/Breadcrumb'
 import { useCallback, useEffect, useState, useRef } from 'react'
 import {
   Image,
@@ -27,24 +28,37 @@ import { ModalCopy } from '../../components/ModalCopy'
 import { ModalHeader } from '../../components/ModalHeader'
 import { ModalIcon } from '../../components/ModalIcon'
 import { TopBar } from '../shell/TopBar'
+import { SmartSearch } from '../search/SmartSearch'
+import type { PaletteSeed } from '../search/palette-seed'
+import type { ScopeRef } from '../../api/types/scope-ref'
 import styles from './MediaLibrary.module.css'
 import type { SessionBadge } from '../shell/session-badge'
 
 const PAGE_SIZE = 48
 
 export function MediaLibraryView({
+  serverId,
+  scope,
+  collections,
   url,
   apiKey,
   session,
   claims,
   initialQuery = '',
+  onOpenPalette,
+  onNavigateToCollection,
 }: {
+  serverId: string
+  scope: ScopeRef
+  collections: readonly { name: string; count: number | null; schema?: any }[]
   url: string
   apiKey: string
   session: SessionBadge
   claims: string[]
   /** A search carried in by the URL — the command palette links assets this way. */
   initialQuery?: string
+  onOpenPalette: (seed: PaletteSeed) => void
+  onNavigateToCollection: (name: string, q: string) => void
 }) {
   const [assets, setAssets] = useState<MediaAsset[]>([])
   const [total, setTotal] = useState(0)
@@ -210,7 +224,19 @@ export function MediaLibraryView({
 
   return (
     <>
-      <TopBar crumbs={[{ label: 'Library' }, { label: 'Media' }]} session={session}>
+      <TopBar
+        search={
+          <SmartSearch
+            serverId={serverId}
+            scope={scope}
+            collection={null}
+            collections={collections}
+            onNavigateToCollection={onNavigateToCollection}
+            onOpenPalette={onOpenPalette}
+          />
+        }
+        session={session}
+      >
         {canUpload && (
           <Button variant="primary" onClick={() => fileInputRef.current?.click()} disabled={uploading}>
             <Plus size={14} strokeWidth={2.4} /> Upload media
@@ -219,6 +245,7 @@ export function MediaLibraryView({
       </TopBar>
 
       <div className="content">
+        <Breadcrumb crumbs={[{ label: 'Library' }, { label: 'Media' }]} />
         <input
           type="file"
           ref={fileInputRef}

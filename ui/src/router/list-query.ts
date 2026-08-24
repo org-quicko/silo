@@ -19,6 +19,8 @@ export interface ListQuery {
    * screen, which is the one direction a failure must never take.
    */
   filter: string | null
+  /** Comma-separated extra column names, or `null` for the derived default (handoff 1e). */
+  cols: string | null
 }
 
-export const DEFAULT_LIST_QUERY: ListQuery = { q: '', sort: null, desc: true, page: 1, filter: null }
+export const DEFAULT_LIST_QUERY: ListQuery = { q: '', sort: null, desc: true, page: 1, filter: null, cols: null }

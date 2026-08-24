@@ -15,6 +15,154 @@ A minimal, self-hostable headless CMS. Users define collections with JSON Schema
 
 *Last updated: 2026-08-22*
 
+- **The Entries page — and the search model around it — is redesigned
+  (2026-08-22):** one smart search bar replaces the three fields that all said
+  "search" (an instance `⌘K` trigger, an in-memory sidebar filter, and a
+  per-collection search box), filters render as removable sentence chips
+  instead of a count badge, every JSON Schema type has one defined table-cell
+  rendering, and the long-standing cell-overlap defect's fix (2026-08-22,
+  below) is now load-bearing rather than incidental. Built from a design
+  handoff (`.claude/design_handoff_entries_redesign/`); ships across both the
+  connected workspace shell and the settings shell, not just the Entries page,
+  because the search bar's home is the top chrome on every page.
+  - **`SmartSearch` (`ui/src/views/search/SmartSearch.tsx`) is the one field.**
+    A scope chip prefills from the page's collection (`null` off the
+    workspace) and can be typed away with `@` — `MentionToken`
+    (`mention-token.ts`) tokenises `@name` only at a token start (position 0
+    or after whitespace), so an email in the query can never summon the
+    popup, and commits by consuming the run and, when the named collection
+    differs from the one on screen, navigating there with whatever text was
+    left over. `ScopeMatcher` (`scope-match.ts`) ranks the popup's matches —
+    collection-name hits before *field*-name hits (`orders — customer_id`),
+    recency of visit (`utils/collection-visits.ts`, a `Workspace`-level
+    effect that fires on every route landing, not only a mention commit)
+    before alphabetical. Chip on and a `listQuery` prop (only the Entries
+    page passes one) drives an in-table search exactly as before; chip off,
+    or a page with nowhere to show in-table results, hands off to
+    `CommandPalette` once per typing session — after that, DOM focus has
+    moved into the palette's own field, so further keystrokes land there
+    instead of re-seeding this one.
+  - **`CommandPalette` takes a seed now**: `initialQuery` and an optional
+    `reach` (`{ collection }`) that narrows its search — and skips the media
+    group, which is not "inside" any one collection — instead of always
+    searching the whole instance. `Workspace` and `SettingsView` each own one
+    `PaletteSeed | null` and mount the palette from it; the old bare
+    `showPalette` boolean and the sidebar's `⌘K` trigger button are gone; the
+    chord is now caught by whichever `SmartSearch` is mounted on the page,
+    and every page has one.
+  - **Breadcrumbs moved out of `TopBar` and into the page body**
+    (`components/Breadcrumb.tsx`, extracted from what was `TopBar`'s own
+    rendering) — the top chrome is now the search bar, page-specific action
+    buttons (`children`, unchanged), and the session pill. Every one of the
+    ~20 views that mount `TopBar` moved with it, workspace and settings alike.
+  - **Filters are chips, not a count badge** (`views/entries/FilterChips.tsx`):
+    one chip per condition, read as a sentence (`title · is · "Guide"`),
+    click the body to reopen `FilterBuilder` focused on that row (a
+    `focusRow` prop, a subtle highlight — the panel already shows every row,
+    so "focused" does not need to scroll), click `×` to drop just that
+    condition. `FilterBuilder` gained a `Match [all|any] of these` header
+    (`Segmented`, writing the root `and`/`or`), a type glyph per field, and
+    the resolved JSONPath under each row.
+  - **Ops narrow by JSON Schema type now** (`filter-fields.ts`:
+    `FilterFields.valueType` reads `enum` and `format` as well as `type`;
+    `FilterOpsByType` is the label table). `FilterValueType` grew `enum` and
+    `date-time`; `FilterRow.op` grew a client-only `'between'` that
+    `FilterModel` compiles to a `gte`+`lte` pair (there is no range op in the
+    AST, and does not need to be one) and reads back as that same pair — two
+    ordinary rows, not the one control it was entered with, which is a
+    deliberate, documented trade: still correct, still editable, just a
+    different shape after a reload. **Array fields are deliberately scoped
+    down to `includes` only** — `excludes` would need `not(eq(...))` and "is
+    empty" would need `not(exists(...))`, and `FilterModel`'s rows are flat
+    leaves with no `not`; a `neq` on a `[*]` path does not mean "excludes"
+    either (§5.3: it means *at least one* element differs). Offering a label
+    the AST cannot back correctly would be worse than offering fewer labels.
+    For the same reason the handoff's *"or the field is missing"* second line
+    on `is not` is **not** built: it compiles to `or(not(exists(p)),
+    neq(p, v))`, which nests and negates, so `fromFilter` would refuse to
+    redraw it and the condition would reopen as a read-only advanced filter —
+    a worse outcome than not offering it.
+  - **`CellValue` now has one rendering per JSON Schema type**
+    (`cell-format.ts` holds the pure shaping — `isMediaField`, `formatUri`,
+    `matchBranch` for `oneOf`/`anyOf`, number formatting from `multipleOf`,
+    a week-cutoff smart date). Boolean is a check glyph or a dash, never the
+    word; `format: uri` drops the scheme and shows host+path with a link
+    glyph; an array of objects is a count pill, never a preview; a plain
+    object is `{ n keys }`, never its first field's value. `x-silo-type:
+    media` resolves through a `mediaById` map the Entries page fills by
+    batching `getMediaAsset` for whatever ids are on screen (never the raw
+    stored `silo://media/<ulid>`) — deliberately **not** `x-silo-ref`, which
+    the handoff describes but which does not exist as a schema keyword
+    anywhere in this codebase yet.
+  - **Extra columns are chosen, not just the first three**
+    (`views/entries/columns.ts`, `ColumnsMenu.tsx`): a schema's scalar
+    properties in order, capped at three by default (objects and
+    arrays-of-objects excluded from the *default* but still pickable by
+    hand), overridable through a new `cols` URL param
+    (`ListQuery.cols`/`Routes`) so a chosen set of columns is linkable.
+    Reordering is not implemented — toggling visibility is what the default
+    cap needed most.
+  - **The grid's fractional tracks are `minmax(0, …fr)` now**, not bare `fr`
+    — a bare fractional track's minimum is its content's min-content width
+    regardless of the cell's own `min-width: 0`, which is exactly the gap the
+    2026-08-22 cell-overlap fix (below) did not close on its own.
+  - **A self-review after the first pass caught eight defects, and one of them
+    was live in the verification run.** Worth recording because most were
+    invisible on screen:
+    - **A filtered list re-requested itself forever.** `UrlFilter.parse`
+      returns a fresh object, `parsed.filter` is a dependency of the loader
+      effect, and dropping the `useMemo` it used to carry meant every response
+      re-rendered, every render minted a new filter identity, and the effect
+      fired again. The first verification pass captured four identical
+      filtered requests and it was read as "a couple of duplicate calls"
+      rather than as the runaway it was. Re-measured after the fix: **zero
+      requests in five idle seconds** on a filtered view. This is the same
+      identity-of-a-derived-object trap as the P3 `scope` prop — cheap to
+      reintroduce, and only ever visible in the network panel.
+    - **Four CSS classes were referenced and never defined** —
+      `.toolbarDivider`, `.resultSummary`, `.searchStatus`,
+      `.searchStatusAction`. A CSS-module miss is `className="undefined"`: no
+      error, no warning, just unstyled markup that reads as a design choice.
+    - **The advanced-filter pill became a `<button>` without losing the UA
+      border** — there is no global button reset here, only a `font-family`
+      inherit.
+    - **`⌥F` never opened the sidebar filter on macOS.** Option is a compose
+      modifier, so the event arrives as `key: "ƒ"`; the check now reads
+      `e.code === "KeyF"`.
+    - **The instance overlay opened once and then never again** — the
+      once-per-session latch was never released when the palette closed, so a
+      second search silently did nothing until the field was cleared. Released
+      on refocus now.
+    - **Walking from a searched list to a settings page popped the overlay by
+      itself**: the bar kept its text, the new page had no in-table search to
+      hand it to, and the settle timer treated that as "search everywhere".
+      Navigation now resets the bar to whatever the page it landed on says.
+    - **Escape while the `@` popup was open blurred the whole field**, because
+      the popup's own handler and the window-level one both ran.
+    - **The columns picker accepted a seventh column** that `Columns.parse`
+      then dropped on the next load; the cap is enforced in both places now.
+    Also: the access badge was rendering a status dot *and* a lock/globe
+    glyph (the design canvas draws the glyph alone), the engine tag was stated
+    twice on one screen, `@`-mention removal left a double space mid-sentence,
+    and five now-dead rules were still in `Entries.module.css`.
+  - Split for size along the way: `use-entries-data.ts` (the loader,
+    ticketed exactly as before), `EntriesTable.tsx` (header/rows/empty
+    state), `DeleteEntryModal.tsx` — `Entries.tsx` was 565 lines and doing
+    substantially more before this.
+  - Tests: `mention-token.test.ts` (token-start rule, one-chip-at-the-caret,
+    consume), `scope-match.test.ts` (name-before-field ranking, recency),
+    `filter-model.test.ts` gained the `between` compile/decompile pair,
+    `routes.test.ts` gained `cols`. 508 pass across the repo (`bun test`),
+    `tsc -b` and `oxlint`/`stylelint` clean.
+  - Verified end-to-end against a live server seeded with ~5,000 entries
+    (`scripts/seed.ts`): `@`-mention navigation across collections and
+    projects, the instance overlay opening mid-type with cross-scope
+    grouping, a `between` filter compiling to the exact `gte`/`lte` pair and
+    reopening as two chips, the Columns picker adding a live column and
+    writing `cols=`, boolean/uri/date/number/array-of-string cell rendering,
+    and the settings shell's pages (Keys, a project's General page) with
+    their own smart bar and breadcrumb.
+
 - **There is a data seeder now (2026-08-22):** `scripts/seed.ts`, one file, run
   with `bun run scripts/seed.ts --key "$SILO_KEY"`. It writes ~5,000 entries
   across 2 projects × 3 environments (`dev`/`uat`/`prod`), 5–20 collections per

@@ -1,17 +1,14 @@
 import { Button } from '../../components/Button'
 import { Pill } from '../../components/Pill'
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { Breadcrumb } from '../../components/Breadcrumb'
+import { useEffect, useMemo, useState } from 'react'
 import {
   Plus,
-  SlidersHorizontal,
   ArrowUpDown,
   ArrowDown,
   ArrowUp,
   Globe,
   Lock,
-  Search,
-  MoreHorizontal,
-  Trash2,
   Calendar,
   TriangleAlert,
 } from 'lucide-react'
@@ -19,50 +16,53 @@ import { Claims } from '@silo/shared/claims'
 import { JsonPath } from '@silo/shared/json-path'
 import type { CollectionPermission } from '@silo/shared/collection-permission'
 import { SchemaAccess } from '@silo/shared/schema-access'
+import { MediaRef } from '@silo/shared/media-ref'
 import { api } from '../../api/api-client'
 import { Formatters } from '../../utils/formatters'
 import type { Collection } from '../../api/types/collection'
 import type { Entry } from '../../api/types/entry'
-import type { SearchSnippet } from '../../api/types/search-snippet'
+import type { MediaAsset } from '../../api/types/media-asset'
 import type { ListQuery } from '../../router/list-query'
 import type { ScopeRef } from '../../api/types/scope-ref'
+import { Routes } from '../../router/routes'
 import { FilterModel, type FilterDraft } from '../../query/filter-model'
 import { PathLabel } from '../../query/path-label'
 import { UrlFilter } from '../../query/url-filter'
-import { Modal } from '../../components/Modal'
-import { ModalActions } from '../../components/ModalActions'
-import { ModalBody } from '../../components/ModalBody'
-import { ModalCopy } from '../../components/ModalCopy'
-import { ModalHeader } from '../../components/ModalHeader'
-import { ModalIcon } from '../../components/ModalIcon'
-import { ModalSubject } from '../../components/ModalSubject'
 import { TopBar } from '../shell/TopBar'
+import { SmartSearch } from '../search/SmartSearch'
+import type { PaletteSeed } from '../search/palette-seed'
 import { ApiGuide } from '../ApiGuide'
-import { CellValue } from './CellValue'
+import { Columns } from './columns'
+import { ColumnsMenu } from './ColumnsMenu'
+import { DeleteEntryModal } from './DeleteEntryModal'
+import { EntriesTable } from './EntriesTable'
 import { FilterBuilder } from './FilterBuilder'
-import { RowMenu } from './RowMenu'
-import { Snippets } from './Snippets'
-import table from '../../components/DataTable.module.css'
+import { FilterChips } from './FilterChips'
+import { useEntriesData } from './use-entries-data'
 import styles from './Entries.module.css'
 import type { SessionBadge } from '../shell/session-badge'
 
 const PAGE_SIZE = 50
-const SEARCH_DEBOUNCE_MS = 280
 
 interface Props {
+  serverId: string
   collection: Collection
+  /** For the smart bar's `@`-mention popup — every collection this key can reach, schema included. */
+  collections: readonly { name: string; count: number | null; schema?: any }[]
   url: string
   apiKey: string
   scope: ScopeRef
   claims: string[]
   session: SessionBadge
-  /** Text, filter, sort and page live in the URL, so a view is linkable. */
+  /** Text, filter, sort, page and column selection live in the URL, so a view is linkable. */
   query: ListQuery
   onQueryChange: (next: ListQuery, replace?: boolean) => void
   onEditSchema: () => void
   onNewEntry: () => void
   onEditEntry: (e: Entry) => void
   onChanged: () => void
+  onOpenPalette: (seed: PaletteSeed) => void
+  onNavigateToCollection: (name: string, q: string) => void
 }
 
 function schemaColumns(schema: any): string[] {
@@ -76,7 +76,9 @@ function pickPrimary(cols: string[]): { primary: string | null; sub: string | nu
 }
 
 export function EntriesView({
+  serverId,
   collection,
+  collections,
   url,
   apiKey,
   scope,
@@ -88,38 +90,35 @@ export function EntriesView({
   onNewEntry,
   onEditEntry,
   onChanged,
+  onOpenPalette,
+  onNavigateToCollection,
 }: Props) {
-  const [entries, setEntries] = useState<Entry[]>([])
-  const [snippets, setSnippets] = useState<Record<string, SearchSnippet[]>>({})
-  const [total, setTotal] = useState(0)
-  const [truncated, setTruncated] = useState(false)
-  const [engine, setEngine] = useState<'fts5' | 'scan' | null>(null)
-  const [error, setError] = useState('')
-  const [loading, setLoading] = useState(true)
   const [menuId, setMenuId] = useState<string | null>(null)
   const [showFilter, setShowFilter] = useState(false)
+  const [focusRow, setFocusRow] = useState<number | undefined>(undefined)
+  const [showColumns, setShowColumns] = useState(false)
   const [toDelete, setToDelete] = useState<Entry | null>(null)
+  const [mediaById, setMediaById] = useState<Record<string, MediaAsset>>({})
 
   const { desc } = query
   const offset = (query.page - 1) * PAGE_SIZE
   const searching = query.q.trim() !== ''
-  // No chosen sort means relevance while searching and newest-first otherwise;
-  // an explicit one wins over both (§5.5).
-  const sort = query.sort ?? JsonPath.UpdatedAt
-  const sortParam = query.sort ? (desc ? '-' : '') + query.sort : undefined
 
+  // Memoised on the URL string, not recomputed per render: `parsed.filter` is a
+  // fresh object out of `JSON.parse`, and it is a dependency of the loader
+  // effect below. Without this, every response re-renders, every render mints a
+  // new filter identity, and the effect fires again — a filtered view would
+  // re-request itself forever. This is the same class of defect P3 hit with the
+  // `scope` prop; it is cheap to reintroduce and invisible until you watch the
+  // network panel.
   const parsed = useMemo(() => UrlFilter.parse(query.filter), [query.filter])
   const draft = useMemo(() => FilterModel.fromFilter(parsed.filter), [parsed.filter])
 
-  // The text box keeps its own state so typing stays responsive; the URL only
-  // gets the settled value. `synced` tracks what the URL already holds, which
-  // both suppresses a redundant push and lets back/forward reset the box.
-  const [search, setSearch] = useState(query.q)
-  const synced = useRef(query.q)
-
   const cols = schemaColumns(collection.schema)
   const { primary, sub } = pickPrimary(cols)
-  const extra = cols.filter((c) => c !== primary && c !== sub).slice(0, 3)
+  const excludeFromColumns = [primary, sub].filter((c): c is string => c != null)
+  const eligibleColumns = Columns.eligible(collection.schema, excludeFromColumns)
+  const extra = Columns.parse(query.cols, collection.schema, excludeFromColumns) ?? Columns.defaults(collection.schema, excludeFromColumns)
   const isPrivate = SchemaAccess.requiresAuth(collection.schema)
   const can = (permission: CollectionPermission) =>
     Claims.has(claims, Claims.collection(scope.project, scope.env, collection.name, permission))
@@ -127,121 +126,49 @@ export function EntriesView({
   const canEdit = can(Claims.CollectionEntriesUpdate)
   const canDelete = can(Claims.CollectionEntriesDelete)
   const canEditSchema = can(Claims.CollectionSchemaUpdate)
-  const gridCols = `1.9fr ${extra.map(() => '1fr').join(' ')} 0.8fr 44px`
+  const gridCols = `minmax(0,1.9fr) ${extra.map(() => 'minmax(0,1fr)').join(' ')} minmax(0,0.8fr) 44px`
 
-  // Back/forward (or a fresh deep link) changed the text — adopt it.
-  useEffect(() => {
-    if (query.q === synced.current) return
-    synced.current = query.q
-    setSearch(query.q)
-  }, [query.q])
-
-  // Settle typing into the URL. Replaces rather than pushes, so a searched
-  // list is one back-press away from where the user came from.
-  useEffect(() => {
-    if (search === synced.current) return
-    const t = setTimeout(() => {
-      synced.current = search
-      onQueryChange({ ...query, q: search, page: 1 }, true)
-    }, SEARCH_DEBOUNCE_MS)
-    return () => clearTimeout(t)
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [search])
-
-  /**
-   * One loader for both routes. Text runs the collection-reach `/search`
-   * (D30), which ranks and explains itself with snippets; without text the
-   * plain list route answers, because a filter-only search returns the same
-   * set in a shape the table does not need.
-   *
-   * Responses are ticketed rather than cancelled: typing fires several, and
-   * they can land out of order — the last one *asked for* must win, not the
-   * last one to arrive.
-   */
-  const seq = useRef(0)
-  const load = (): Promise<void> => {
-    const ticket = ++seq.current
-    const fresh = () => seq.current === ticket
-    setLoading(true)
-
-    if (parsed.error) {
-      // A filter that cannot be read is refused, not dropped: showing every
-      // entry under a URL that claims to be filtered is the one failure
-      // direction that misleads instead of interrupting.
-      setEntries([])
-      setSnippets({})
-      setTotal(0)
-      setError(parsed.error)
-      setLoading(false)
-      return Promise.resolve()
-    }
-
-    const request = searching
-      ? api
-          .search(
-            url,
-            apiKey,
-            { kind: 'collection', scope, collection: collection.name },
-            { q: query.q.trim(), filter: parsed.filter, sort: sortParam, limit: PAGE_SIZE, offset },
-          )
-          .then((r) => {
-            if (!fresh()) return
-            setEntries(r.items.map((h) => h.entry))
-            setSnippets(Object.fromEntries(r.items.map((h) => [h.entry.id, h.snippets])))
-            setTotal(r.total)
-            setTruncated(r.truncated)
-            setEngine(r.engine)
-          })
-      : api
-          .listEntries(url, apiKey, scope, collection.name, {
-            limit: PAGE_SIZE,
-            offset,
-            sort: (desc ? '-' : '') + sort,
-            filter: parsed.filter ?? undefined,
-          })
-          .then((r) => {
-            if (!fresh()) return
-            setEntries(r.items)
-            setSnippets({})
-            setTotal(r.total)
-            setTruncated(false)
-            setEngine(null)
-          })
-
-    return request
-      .then(() => fresh() && setError(''))
-      .catch((e: unknown) => {
-        if (!fresh()) return
-        setEntries([])
-        setSnippets({})
-        setTotal(0)
-        setError(e instanceof Error ? e.message : 'Could not load entries')
-      })
-      .then(() => {
-        if (fresh()) setLoading(false)
-      })
-  }
-
-  // Depends on the scope's *values*, not the prop's identity: `scope` is built
-  // fresh by the parent on every render, so depending on the object reloads
-  // the whole page — a second search per render — every time anything above
-  // this view changes state.
-  useEffect(() => {
-    load()
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [
+  const { entries, snippets, total, truncated, engine, error, loading, reload } = useEntriesData({
     url,
     apiKey,
-    scope.project,
-    scope.env,
-    collection.name,
+    scope,
+    collection: collection.name,
     offset,
-    sort,
+    limit: PAGE_SIZE,
+    explicitSort: query.sort,
     desc,
-    query.q,
-    query.filter,
-    query.sort,
-  ])
+    q: query.q,
+    filter: parsed.filter,
+    filterError: parsed.error,
+  })
+
+  // Resolves `x-silo-type: media` references in whatever extra columns are on
+  // screen into filenames and thumbnails (handoff 1e) — CellValue must never
+  // show the stored `silo://media/<ulid>` itself. Bounded to unique ids not
+  // already known, so paging or re-searching only fetches what changed.
+  useEffect(() => {
+    const ids = new Set<string>()
+    for (const e of entries) {
+      for (const name of extra) {
+        const id = MediaRef.canonicalId(e.data?.[name])
+        if (id && !mediaById[id]) ids.add(id)
+      }
+    }
+    if (ids.size === 0) return
+    let alive = true
+    Promise.all(
+      [...ids].map((id) => api.getMediaAsset(url, apiKey, id).then((a) => [id, a] as const).catch(() => null)),
+    ).then((resolved) => {
+      if (!alive) return
+      const next: Record<string, MediaAsset> = {}
+      for (const r of resolved) if (r) next[r[0]] = r[1]
+      if (Object.keys(next).length > 0) setMediaById((prev) => ({ ...prev, ...next }))
+    })
+    return () => {
+      alive = false
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [entries, extra.join(',')])
 
   /** Takes a path (D29), so the URL and the API speak the same language. */
   const toggleSort = (path: string) => {
@@ -255,8 +182,25 @@ export function EntriesView({
 
   const applyFilter = (next: FilterDraft) => {
     setShowFilter(false)
+    setFocusRow(undefined)
     onQueryChange({ ...query, filter: UrlFilter.stringify(FilterModel.toFilter(next)), page: 1 })
   }
+
+  const openFilterBuilder = () => {
+    setFocusRow(undefined)
+    setShowFilter(true)
+  }
+  const editFilterRow = (i: number) => {
+    setFocusRow(i)
+    setShowFilter(true)
+  }
+  const removeFilterRow = (i: number) => {
+    if (!draft) return
+    applyFilter({ ...draft, rows: draft.rows.filter((_, at) => at !== i) })
+  }
+
+  const toggleColumn = (next: string[]) =>
+    onQueryChange({ ...query, cols: Columns.stringify(next, collection.schema, excludeFromColumns) })
 
   const goToPage = (page: number) => onQueryChange({ ...query, page })
 
@@ -265,7 +209,7 @@ export function EntriesView({
     try {
       await api.deleteEntry(url, apiKey, scope, collection.name, toDelete.id, toDelete.rev)
       setToDelete(null)
-      await load()
+      await reload()
       onChanged()
     } catch (e: any) {
       alert(e.message || 'Delete failed')
@@ -274,32 +218,47 @@ export function EntriesView({
 
   const pageCount = Math.max(1, Math.ceil(total / PAGE_SIZE))
   const currentPage = query.page
-  const clearSearch = () => {
-    setSearch('')
-    synced.current = ''
-    onQueryChange({ ...query, q: '', page: 1 }, true)
-  }
   const label = (e: Entry) => (primary ? String(e.data?.[primary] ?? Formatters.shortId(e.id)) : Formatters.shortId(e.id))
   const conditions = draft ? draft.rows.filter(FilterModel.isComplete).length : 0
+  const filterSummary = draft === null ? 'advanced filter' : conditions === 0 ? 'no filters' : `${conditions} filter${conditions === 1 ? '' : 's'}`
+
+  // Real, not guessed: on the untouched first page (no search, no filter, no
+  // chosen sort) row zero of the default newest-first order *is* the
+  // collection's most recently updated entry. Any other view state has no
+  // honest single answer, so the line is simply omitted rather than shown
+  // from a page that cannot back it.
+  const lastUpdated =
+    !searching && !parsed.filter && !query.sort && query.page === 1 && entries.length > 0
+      ? Formatters.relativeTime(entries[0].updated_at)
+      : null
 
   return (
     <>
-      <TopBar crumbs={[{ label: 'Collections' }, { label: collection.name }]} session={session}>
-        <div className={styles.filterField}>
-          <Search size={15} />
-          <input
-            value={search}
-            placeholder={`Search ${collection.name}…`}
-            onChange={(e) => setSearch(e.target.value)}
+      <TopBar
+        search={
+          <SmartSearch
+            serverId={serverId}
+            scope={scope}
+            collection={collection.name}
+            collections={collections}
+            listQuery={{ q: query.q, engine, onQueryChange: (q) => onQueryChange({ ...query, q, page: 1 }, true) }}
+            onNavigateToCollection={onNavigateToCollection}
+            onOpenPalette={onOpenPalette}
           />
-        </div>
-      </TopBar>
+        }
+        session={session}
+      />
 
       <div className="content">
+        <Breadcrumb crumbs={[{ label: 'Collections', to: Routes.collections(serverId, scope.project, scope.env) }, { label: collection.name }]} />
+
         <div className="page-head">
           <div className="page-title-group">
             <div className="page-title-row">
               <h2 className="page-title">{collection.name}</h2>
+              {/* Icon, not `dot`: the design canvas draws a globe/lock glyph
+                  here, and a shape distinguishes the two states for a reader
+                  who cannot tell the two tints apart. Both at once is noise. */}
               {isPrivate ? (
                 <Pill tone="warn"><Lock size={12} /> auth required</Pill>
               ) : (
@@ -308,6 +267,7 @@ export function EntriesView({
             </div>
             <span className="page-sub">
               {total} {total === 1 ? 'entry' : 'entries'} · {cols.length} {cols.length === 1 ? 'field' : 'fields'}
+              {lastUpdated && <> · updated {lastUpdated}</>}
             </span>
           </div>
           <div className="head-actions">
@@ -364,45 +324,38 @@ export function EntriesView({
           <>
             <div className={styles.toolbar}>
               <div className={styles.filterAnchor}>
-                <Button
-                  variant="secondary"
-                  size="sm"
-                  onClick={() => setShowFilter(!showFilter)}
-                  className={parsed.filter ? styles.filterActive : undefined}
-                >
-                  <SlidersHorizontal size={14} /> Filter
-                  {conditions > 0 && <span className={styles.filterCount}>{conditions}</span>}
-                </Button>
+                {draft !== null ? (
+                  <FilterChips
+                    schema={collection.schema}
+                    draft={draft}
+                    onEditRow={editFilterRow}
+                    onRemoveRow={removeFilterRow}
+                    onAddFilter={openFilterBuilder}
+                    onClearAll={() => applyFilter(FilterModel.Empty)}
+                  />
+                ) : (
+                  <button className={styles.filterPill} onClick={() => setShowFilter(true)}>
+                    <span className={styles.filterKey}>filter</span>
+                    <span className={styles.filterOperator}>advanced</span>
+                  </button>
+                )}
                 {showFilter && (
                   <FilterBuilder
                     schema={collection.schema}
                     draft={draft ?? FilterModel.Empty}
                     advanced={draft === null ? query.filter : null}
+                    focusRow={focusRow}
                     onApply={applyFilter}
-                    onClose={() => setShowFilter(false)}
+                    onClose={() => {
+                      setShowFilter(false)
+                      setFocusRow(undefined)
+                    }}
                   />
                 )}
               </div>
 
-              {searching && (
-                <span className={styles.filterPill}>
-                  <span className={styles.filterKey}>search</span>
-                  <span className={styles.filterValue}>{query.q.trim()}</span>
-                  <button className={styles.clearFilter} onClick={clearSearch} aria-label="Clear search">
-                    ✕
-                  </button>
-                </span>
-              )}
-              {draft === null && (
-                <span className={styles.filterPill}>
-                  <span className={styles.filterKey}>filter</span>
-                  <span className={styles.filterOperator}>advanced</span>
-                </span>
-              )}
+              <div className={styles.toolbarDivider} />
 
-              <div className={styles.toolbarSpacer} />
-
-              {engine && <span className={styles.engineTag} title="Which engine answered (D30)">{engine}</span>}
               {query.sort ? (
                 <Button
                   variant="secondary"
@@ -415,7 +368,41 @@ export function EntriesView({
               ) : (
                 <span className={styles.sortNote}>{searching ? 'Sorted by relevance' : 'Newest first'}</span>
               )}
+
+              <div className={styles.filterAnchor}>
+                <Button variant="secondary" size="sm" onClick={() => setShowColumns(!showColumns)}>
+                  Columns {extra.length + 2}/{eligibleColumns.length + 2}
+                </Button>
+                {showColumns && (
+                  <ColumnsMenu
+                    fields={eligibleColumns}
+                    selected={extra}
+                    onChange={toggleColumn}
+                    onClose={() => setShowColumns(false)}
+                  />
+                )}
+              </div>
+
+              <div className={styles.toolbarSpacer} />
+
+              {/* The engine tag lives in the search bar (handoff 1b) — stating
+                  it twice on one screen just asks the reader which one to
+                  believe. */}
+              <span className={styles.resultSummary}>
+                {total === 0 ? 'No entries' : `Showing ${offset + 1}–${Math.min(offset + PAGE_SIZE, total)} of ${total}`} · {filterSummary}
+              </span>
             </div>
+
+            {searching && (
+              <div className={styles.searchStatus}>
+                {total} {total === 1 ? 'result' : 'results'} · {query.sort ? `sorted by ${PathLabel.of(query.sort)}` : 'ranked by relevance'}
+                {!query.sort && (
+                  <button className={styles.searchStatusAction} onClick={() => onQueryChange({ ...query, sort: JsonPath.UpdatedAt, page: 1 })}>
+                    Sort by newest instead
+                  </button>
+                )}
+              </div>
+            )}
 
             {truncated && (
               <div className={styles.truncatedNote}>
@@ -424,79 +411,31 @@ export function EntriesView({
               </div>
             )}
 
-            <div className="card">
-              <div className={`${table.header} ${table.table}`} style={{ ['--cols' as any]: gridCols }}>
-                <span className={table.sortable} onClick={() => primary && toggleSort(JsonPath.dataField(primary))}>
-                  {primary || 'ID'} {primary && sortIcon(JsonPath.dataField(primary))}
-                </span>
-                {extra.map((c) => (
-                  <span key={c} className={table.sortable} onClick={() => toggleSort(JsonPath.dataField(c))}>
-                    {c} {sortIcon(JsonPath.dataField(c))}
-                  </span>
-                ))}
-                <span className={table.sortable} onClick={() => toggleSort(JsonPath.UpdatedAt)}>
-                  Updated {sortIcon(JsonPath.UpdatedAt)}
-                </span>
-                <span />
-              </div>
-
-              {entries.map((e) => (
-                <div
-                  key={e.id}
-                  className={`${table.row} ${table.clickable}`}
-                  onClick={() => onEditEntry(e)}
-                  style={{ ['--cols' as any]: gridCols }}
-                >
-                  <div className={table.cell}>
-                    <div className={table.primary}>
-                      <span className={table.title}>{label(e)}</span>
-                      <span className={table.subtitle}>{sub ? String(e.data?.[sub] ?? '') : Formatters.shortId(e.id)}</span>
-                      <Snippets snippets={snippets[e.id]} />
-                    </div>
-                  </div>
-                  {extra.map((c) => (
-                    <div key={c} className={table.cell}>
-                      <CellValue schema={collection.schema} name={c} value={e.data?.[c]} />
-                    </div>
-                  ))}
-                  <div className={`${table.cell} ${styles.relativeTime}`}>
-                    {Formatters.relativeTime(e.updated_at)}
-                  </div>
-                  <div className={`${table.actions} ${styles.menuCell}`} onClick={(evt) => evt.stopPropagation()}>
-                    <button
-                      className={styles.menuButton}
-                      onClick={(evt) => {
-                        evt.stopPropagation()
-                        setMenuId(menuId === e.id ? null : e.id)
-                      }}
-                    >
-                      <MoreHorizontal size={15} />
-                    </button>
-                    {menuId === e.id && (
-                      <RowMenu
-                        canEdit={canEdit}
-                        canDelete={canDelete}
-                        onClose={() => setMenuId(null)}
-                        onEdit={() => {
-                          setMenuId(null)
-                          onEditEntry(e)
-                        }}
-                        onDelete={() => {
-                          setMenuId(null)
-                          setToDelete(e)
-                        }}
-                      />
-                    )}
-                  </div>
-                </div>
-              ))}
-
-              {!loading && !error && entries.length === 0 && (
-                <div className={`${table.cell} ${styles.noResults}`}>
-                  {searching ? `Nothing in ${collection.name} matches “${query.q.trim()}”.` : 'No entries match this filter.'}
-                </div>
-              )}
-            </div>
+            <EntriesTable
+              schema={collection.schema}
+              entries={entries}
+              primary={primary}
+              sub={sub}
+              extra={extra}
+              gridCols={gridCols}
+              mediaById={mediaById}
+              snippets={snippets}
+              sortIcon={sortIcon}
+              onToggleSort={toggleSort}
+              onEditEntry={onEditEntry}
+              menuId={menuId}
+              onMenuToggle={setMenuId}
+              canEdit={canEdit}
+              canDelete={canDelete}
+              onDeleteRow={setToDelete}
+              emptyMessage={
+                loading || error
+                  ? null
+                  : searching
+                    ? `Nothing in ${collection.name} matches “${query.q.trim()}”.`
+                    : 'No entries match this filter.'
+              }
+            />
 
             <div className={styles.pager}>
               <span className={styles.pagerInfo}>
@@ -526,38 +465,14 @@ export function EntriesView({
       </div>
 
       {toDelete && (
-        <Modal onClose={() => setToDelete(null)}>
-          <ModalHeader>
-            <ModalIcon tone="bad">
-              <Trash2 size={20} />
-            </ModalIcon>
-            <ModalCopy>
-              <h3>Delete this entry?</h3>
-              <ModalBody>
-                You're about to delete <b>“{label(toDelete)}”</b> from <b>{collection.name}</b>. The row is removed
-                immediately and can't be recovered.
-              </ModalBody>
-            </ModalCopy>
-          </ModalHeader>
-          <ModalSubject
-            mark={collection.name.charAt(0).toUpperCase()}
-            title={label(toDelete)}
-            subtitle={
-              <>
-                {sub && toDelete.data?.[sub] ? String(toDelete.data[sub]) + ' · ' : ''}
-                {Formatters.shortId(toDelete.id)}
-              </>
-            }
-          />
-          <ModalActions>
-            <Button variant="secondary" onClick={() => setToDelete(null)}>
-              Cancel
-            </Button>
-            <Button variant="danger" onClick={doDelete}>
-              Delete entry
-            </Button>
-          </ModalActions>
-        </Modal>
+        <DeleteEntryModal
+          entry={toDelete}
+          collectionName={collection.name}
+          label={label(toDelete)}
+          sub={sub}
+          onCancel={() => setToDelete(null)}
+          onConfirm={doDelete}
+        />
       )}
     </>
   )

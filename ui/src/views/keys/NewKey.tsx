@@ -7,7 +7,10 @@ import { api } from '../../api/api-client'
 import type { CreatedKey } from '../../api/types/created-key'
 import type { ScopeRef } from '../../api/types/scope-ref'
 import { Button } from '../../components/Button'
+import { Breadcrumb } from '../../components/Breadcrumb'
 import { TopBar } from '../shell/TopBar'
+import { SmartSearch } from '../search/SmartSearch'
+import type { PaletteSeed } from '../search/palette-seed'
 import type { SessionBadge } from '../shell/session-badge'
 import type { KeyReach } from './key-reach'
 import { NewKeyCapabilities } from './NewKeyCapabilities'
@@ -38,24 +41,32 @@ const MEDIA_CLAIMS: Claim[] = [Claims.MediaRead, Claims.MediaCreate, Claims.Medi
  * layer is allowed to stay small.
  */
 export function NewKeyView({
+  serverId,
   url,
   apiKey,
   scope,
+  smartCollections,
   ownClaims,
   projects,
   session,
   keysUrl,
+  onOpenPalette,
+  onNavigateToCollection,
   onCancel,
   onDone,
 }: {
+  serverId: string
   url: string
   apiKey: string
   /** The settings scope, used only as the *default* reach — never as a hidden one. */
   scope: ScopeRef | null
+  smartCollections: readonly { name: string; count: number | null; schema?: any }[]
   ownClaims: string[]
   projects: string[]
   session: SessionBadge
   keysUrl: string
+  onOpenPalette: (seed: PaletteSeed) => void
+  onNavigateToCollection: (name: string, q: string) => void
   onCancel: () => void
   onDone: () => void
 }) {
@@ -244,11 +255,23 @@ export function NewKeyView({
     }
   }
 
+  const search = (
+    <SmartSearch
+      serverId={serverId}
+      scope={scope}
+      collection={null}
+      collections={smartCollections}
+      onNavigateToCollection={onNavigateToCollection}
+      onOpenPalette={onOpenPalette}
+    />
+  )
+
   if (created) {
     return (
       <>
-        <TopBar crumbs={[{ label: 'API keys', to: keysUrl }, { label: 'Key created' }]} session={session} />
+        <TopBar search={search} session={session} />
         <div className="content">
+          <Breadcrumb crumbs={[{ label: 'API keys', to: keysUrl }, { label: 'Key created' }]} />
           <div className={styles.wrap}>
             <NewKeySecret created={created} onDone={onDone} />
           </div>
@@ -259,12 +282,13 @@ export function NewKeyView({
 
   return (
     <>
-      <TopBar crumbs={[{ label: 'API keys', to: keysUrl }, { label: 'Create key' }]} session={session}>
+      <TopBar search={search} session={session}>
         <Button variant="secondary" onClick={onCancel}>Cancel</Button>
         <Button variant="primary" onClick={submit} disabled={busy}>{busy ? 'Creating…' : 'Create key'}</Button>
       </TopBar>
 
       <div className="content">
+        <Breadcrumb crumbs={[{ label: 'API keys', to: keysUrl }, { label: 'Create key' }]} />
         <div className="page-head">
           <div className="page-title-group">
             <div className="page-title-row">

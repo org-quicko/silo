@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { AlertTriangle, ExternalLink, Layers, Trash2 } from 'lucide-react'
 import { Claims } from '@silo/shared/claims'
 import { Button } from '../../../components/Button'
+import { Breadcrumb } from '../../../components/Breadcrumb'
 import { DangerConfirm } from '../../../components/DangerConfirm'
 import { Pill } from '../../../components/Pill'
 import { api } from '../../../api/api-client'
@@ -10,6 +11,8 @@ import type { ScopeRef } from '../../../api/types/scope-ref'
 import { router } from '../../../router/router'
 import { Routes } from '../../../router/routes'
 import { TopBar } from '../../shell/TopBar'
+import { SmartSearch } from '../../search/SmartSearch'
+import type { PaletteSeed } from '../../search/palette-seed'
 import type { Server } from '../../servers/server'
 import styles from '../SettingsView.module.css'
 import type { SessionBadge } from '../../shell/session-badge'
@@ -25,6 +28,9 @@ export function EnvGeneralPage({
   collections,
   claims,
   session,
+  smartCollections,
+  onOpenPalette,
+  onNavigateToCollection,
   onDeleted,
 }: {
   server: Server
@@ -32,6 +38,9 @@ export function EnvGeneralPage({
   collections: Collection[]
   claims: string[]
   session: SessionBadge
+  smartCollections: readonly { name: string; count: number | null; schema?: any }[]
+  onOpenPalette: (seed: PaletteSeed) => void
+  onNavigateToCollection: (name: string, q: string) => void
   onDeleted: () => void
 }) {
   const [confirming, setConfirming] = useState(false)
@@ -61,11 +70,16 @@ export function EnvGeneralPage({
   return (
     <>
       <TopBar
-        crumbs={[
-          { label: scope.project, to: Routes.projectSettings(server.id, scope.project, 'general') },
-          { label: scope.env, to: Routes.projectSettings(server.id, scope.project, 'environments') },
-          { label: 'General' },
-        ]}
+        search={
+          <SmartSearch
+            serverId={server.id}
+            scope={scope}
+            collection={null}
+            collections={smartCollections}
+            onNavigateToCollection={onNavigateToCollection}
+            onOpenPalette={onOpenPalette}
+          />
+        }
         session={session}
       >
         <Button
@@ -78,6 +92,13 @@ export function EnvGeneralPage({
       </TopBar>
 
       <div className="content">
+        <Breadcrumb
+          crumbs={[
+            { label: scope.project, to: Routes.projectSettings(server.id, scope.project, 'general') },
+            { label: scope.env, to: Routes.projectSettings(server.id, scope.project, 'environments') },
+            { label: 'General' },
+          ]}
+        />
         <div className="page-head">
           <div className="page-title-group">
             <h2 className="page-title">{scope.env}</h2>

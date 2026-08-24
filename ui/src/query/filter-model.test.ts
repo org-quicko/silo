@@ -81,6 +81,29 @@ describe('FilterModel.toFilter', () => {
     // Recursive descent is outside the D29 subset; the server would 400.
     expect(FilterModel.toFilter(draft([{ path: '$..title', op: 'eq', value: 'x', type: 'string' }]))).toBeNull()
   })
+
+  test('`between` is not an op the AST has — it compiles to `gte` and `lte`', () => {
+    expect(
+      FilterModel.toFilter(
+        draft([{ path: '$.data.published_at', op: 'between', value: '2026-01-01, 2026-02-01', type: 'date-time' }]),
+      ),
+    ).toEqual({
+      op: 'and',
+      args: [
+        { op: 'gte', path: '$.data.published_at', value: '2026-01-01' },
+        { op: 'lte', path: '$.data.published_at', value: '2026-02-01' },
+      ],
+    })
+  })
+
+  test('`between` missing either half is unfinished', () => {
+    expect(
+      FilterModel.toFilter(draft([{ path: '$.data.published_at', op: 'between', value: '2026-01-01', type: 'date-time' }])),
+    ).toBeNull()
+    expect(
+      FilterModel.toFilter(draft([{ path: '$.data.published_at', op: 'between', value: '', type: 'date-time' }])),
+    ).toBeNull()
+  })
 })
 
 describe('FilterModel.fromFilter', () => {
@@ -102,6 +125,26 @@ describe('FilterModel.fromFilter', () => {
 
   test('no filter is an empty builder, not an unreadable one', () => {
     expect(FilterModel.fromFilter(null)).toEqual(FilterModel.Empty)
+  })
+
+  test('a compiled `between` reads back as its two leaves, not as one row', () => {
+    // `between` only exists client-side (there is no range op in the AST), so
+    // a URL holding its compiled form reopens as two ordinary rows — before
+    // and after — rather than reconstituting the single control it was
+    // entered with. Both are correct and both are editable; only the shape
+    // of the builder differs.
+    const filter = FilterModel.toFilter(
+      draft([{ path: '$.data.published_at', op: 'between', value: '2026-01-01, 2026-02-01', type: 'date-time' }]),
+    )
+    expect(FilterModel.fromFilter(filter)).toEqual(
+      draft(
+        [
+          { path: '$.data.published_at', op: 'gte', value: '2026-01-01', type: 'string' },
+          { path: '$.data.published_at', op: 'lte', value: '2026-02-01', type: 'string' },
+        ],
+        'and',
+      ),
+    )
   })
 
   test.each([

@@ -142,9 +142,17 @@
 .groupHead {
   display: flex;
   align-items: center;
-  justify-content: space-between;
+  gap: 6px;
   padding: 12px 8px 8px;
 }
+
+.groupCount {
+  color: var(--text-3);
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+}
+
+.groupSpacer { flex: 1; }
 
 .searchWrap {
   display: flex;
@@ -221,23 +229,32 @@
   padding: 0 8px 8px;
 }
 
-.add {
+/* Both header buttons — the new filter toggle and the existing "new
+   collection" link — share one look, matching the handoff's "both buttons
+   20×20…" rule for the group head. */
+.groupIcon {
   display: flex;
   width: 20px;
   height: 20px;
+  flex: none;
   align-items: center;
   justify-content: center;
   border: 1px solid var(--line);
   border-radius: 5px;
   background: transparent;
   color: var(--text-2);
-  text-decoration: none;
   cursor: pointer;
+  text-decoration: none;
 }
 
-.add:hover {
+.groupIcon:hover {
   background: var(--panel-2);
   color: var(--text);
+}
+
+.groupIconActive {
+  border-color: color-mix(in oklab, var(--accent) 45%, var(--line));
+  color: var(--accent);
 }
 
 .list {
@@ -373,26 +390,3 @@
   font-family: var(--font-mono);
   font-size: 10.5px;
 }
-
-/*
- * The instance-wide search (⌘K). It sits above the collection list and the
- * box that filters it, because they answer different questions: this one finds
- * an entry anywhere the key can read, that one hides rows already on screen.
- */
-.commandTrigger {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  margin: 10px 16px 0;
-  padding: 7px 10px;
-  border: 1px solid var(--line);
-  border-radius: var(--radius-sm);
-  background: var(--bg);
-  color: var(--text-3);
-  cursor: pointer;
-  font-family: var(--font-ui);
-}
-
-.commandTrigger:hover { border-color: var(--line-2); color: var(--text-2); }
-.commandLabel { flex: 1; font-size: 12.5px; text-align: left; }
-.commandKey { padding: 1px 5px; border: 1px solid var(--line); border-radius: 4px; font-family: var(--font-mono); font-size: 10px; }
