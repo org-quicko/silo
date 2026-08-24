@@ -1,0 +1,14 @@
+{
+  "name": "crasher",
+  "version": "1.0.0",
+  "type": "module",
+  "main": "index.ts",
+  "silo": {
+    "silo": "*",
+    "kind": "extension",
+    "hooks": [
+      "entry.beforeWrite"
+    ],
+    "claims": []
+  }
+}

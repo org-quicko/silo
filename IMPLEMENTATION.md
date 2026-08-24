@@ -50,11 +50,14 @@ Where Pocketbase optimizes for features (auth, realtime, hooks), silo optimizes 
 
 | D29 | Query addressing is RFC 9535 JSONPath | Filter and sort fields become **paths**, not a private dot-grammar: `Filter.field` is renamed `Filter.path` and carries `$.data.author.name`, `$.id`, `$.data.tags[*]`. The subset is named and closed — root, name selector, array index (negative included), child wildcard `[*]`/`.*` — and the parser **refuses** recursive descent, slices, index unions, filter selectors, functions and script expressions rather than ignoring them. The query root is a **virtual entry document** — `{ id, rev, created_at, updated_at, data }` — whose envelope half is exactly the envelope fields `EntryUtils.toApiResponse` returns, with user fields addressed under `$.data` rather than flattened as the wire response does. `project`/`env`/`collection`/`seq` are absent from it because the API hides them, so they are unaddressable by derivation rather than by a second allow-list. Cardinality is part of the contract: a leaf op is true when **any** selected node satisfies it, and **ANY over zero nodes is false for every op, `neq` included**. `contains` narrows to string substring only; array membership is `eq` over `[*]`. `exists` and `not` join the op set. Parser and AST live in `shared/src/query/path/` (UI, validator, both engines); only the SQL compiler is adapter-local. No compatibility shim and no detection of the old syntax — this is an API-breaking release. | Two forces meet here. D3 chose full JSON Schema over a proprietary DSL for interop; the query surface was still a private grammar (`author.name`, `$id`) that every client had to learn and every adapter had to re-derive. RFC 9535 is a real standard, so adopting it buys the same interop D3 bought, and it retires the `$`-prefix hack whose collision with JSONPath's root made the two unmixable. Deriving the root from the API response shape, rather than listing permitted fields, means a future envelope field stays unqueryable until someone deliberately exposes it — one source of truth instead of two that drift. The subset is closed rather than "a subset of RFC 9535" because an unnamed subset is not a contract: recursive descent alone would force `json_tree()` (a full-subtree walk) into the compiler and invite the rest back in, while `json_each()` covers the child wildcard at a fraction of the cost. The ANY-over-empty rule is stated because it silently changes shipped behaviour — `neq` on a missing field returns *true* today and *false* after — and no test using present fields would catch it; the old reading is still expressible as `or(not(exists(p)), neq(p, v))`. Narrowing `contains` gives one operator one meaning and deletes the `json_type(...) = 'array'` branch from the SQL compiler and the array branch from the scan evaluator; `[*]` is a better spelling for what those branches did. `not` compiles to `NOT COALESCE(<cond>, 0)`, never a bare `NOT`: SQL three-valued logic drops NULL rows, so a bare `NOT` diverges from the in-memory evaluator on exactly the missing fields a negation is usually asked about (measured: 0 rows vs 2). The shim was considered and rejected — D13 puts the server and the embedded UI in one binary so there is no skew, D18 already broke the on-disk layout outright on the stated pre-1.0 principle that breaks are expected rather than shimmed, and two live grammars would double the query test matrix and still need a breaking release to remove. |
 | D30 | Search behind an optional `Searcher` port, FTS5 where available | Search is a **new port**, not a new Query AST op: `Searcher.search(req, access)` / `reindex(target?)` / `capabilities()`, with two implementations — `ScanSearcher` (core, works on every adapter, O(N)) and `SqliteSearcher` (FTS5, external-content, `bm25(fts, 10.0, 1.0)`). Three reaches, addressed by path exactly like every other scoped resource and **`GET` only**: `/api/projects/{p}/envs/{e}/collections/{name}/search`, `/api/projects/{p}/envs/{e}/search`, and `/api/search`. The indexed text is **derived by the caller** — `SearchText.extract(data, schema)`, driven by an `x-silo-search` schema keyword (`label`/`include`/`exclude` paths, D29 grammar); adapters read no schema. It is **carried on the port** (`Storage.put(e, { usages, search })`) only once an engine stores it: `ScanSearcher` extracts at query time, so the port change lands with `SqliteSearcher` rather than ahead of it — a required argument every caller computes and every adapter ignores is the speculative interface D7 rejects. Claims are compiled by the service into a `SearchAccess` plan of concrete targets (public collections expanded into it) and applied **before** rank, count and paging; adapters parse no claim strings. An anonymous caller reaches a collection only when it **has a schema** that does not set `x-silo-auth`: a collection with no schema at all (§6.1) has had nothing declared about it, so inferring public from an absent declaration would publish content by accident. SQLite keeps `entry_search_documents` (explicit `docid INTEGER PRIMARY KEY`) plus `entry_search_fts` external-content, maintained by triggers inside the transactions that already exist in `put`/`delete`/`deleteProject`/`deleteEnvironment`. Index state is versioned on four inputs — engine, FTS schema, tokenizer config (global) and extractor version + per-collection `x-silo-search` hash — so a global change rebuilds everything before the bind and a schema change rebuilds one collection. `silo search reindex [--check]` runs **two** integrity checks. A search hit discloses `project`/`env`/`collection` on the hit wrapper, never on the entry. Media stays out of the entry index. No numeric relevance score is exposed. `format_version` does not change. Snippets come from the **shared** builder on both engines rather than FTS5's `snippet()`: only two concatenated columns are indexed, so `snippet()` could say that a body matched but never *which field* did, and re-extracting over one page removes an engine difference instead of adding one. A snippet is `{ path, before, match, after }` — three strings, never one with `[...]` markers in it. Opening with search disabled clears the stamp and drops nothing, because opening is not a destructive act — every CLI subcommand opens the store. | §12.6 already named this shape; the reason it is a port and not a `search` op is §5.3's own rule that every op is permanent for every adapter — an FTS op would force Turso, S3 and a future Postgres adapter to reproduce BM25 ranking forever, whereas a port lets each answer with what it has and lets `ScanSearcher` cover the rest. That is also why the portable engine ships **first**: search then works everywhere on day one, and FTS5 makes it fast rather than possible — which matters because the shipped SQLite build sets `OMIT_LOAD_EXTENSION`, so a build without `ENABLE_FTS5` cannot be repaired at runtime and must fall back, not fail. Caller-derived index text is the D23 move exactly: the extractor needs the schema (to weight a title above a 40 KB body, and to keep an internal note out of the index), the adapter must not, and an omitted argument has no safe reading — so it is required, not optional, and system data passes `search: null` while `SqliteStore` independently refuses to index `Scope.System`, because one forgotten argument must not make a `_keys` label findable by text. The index lives *inside* `SqliteStore` for the same reason usages do: `deleteProject`/`deleteEnvironment` are bulk SQL deletes that no decorator above the port can be atomic with, so entries would vanish while their index rows survived. `docid` is explicit because `VACUUM` renumbers the implicit rowid of a table without an `INTEGER PRIMARY KEY` — `entries` has a composite PK, so indexing `entries.rowid` would silently point the index at the wrong rows after a vacuum. External content requires the *old* text on update and delete, so the triggers use FTS5's documented `'delete'` command reading `old.*`, and the built-in `integrity-check` validates only index-vs-content — content-vs-`entries` drift needs a second, hand-written anti-join. Versioning on one input was insufficient: an `x-silo-search` edit changes the corpus without changing the tokenizer. Claims are compiled into a plan rather than passed as strings because the claim grammar is a shared-package concern and an adapter that parses it becomes a second enforcement point; targets are also the only shape that can carry the anonymous public-collection case, which no claim-derived target can express. Routing by path rather than `?project=&env=` follows D19 and fixes a failure direction: a missing query parameter would *widen* a search to the instance, bounded only by the key. A companion `POST .../search` for large filters was specified and then **rejected before implementation**: the list route already carries `?filter=<url-encoded JSON>` under the same `MaxFilterNodes`/`MaxFilterDepth` caps, and those caps are the ceiling — a worst-case filter at them measures 7,777 URL-encoded bytes, so the payload is bounded by design rather than open-ended. The two stated motives both failed inspection: URL length is already accepted on the shipped list route, and `LoggingMiddleware` logs `c.req.path` only, so search terms never reach the request log (and if they did, `?filter=` would leak identically — a logging decision, not a method one). Against those non-reasons stood real costs: a second method doubles the registrations, the request-parsing paths and the `entries:read` wiring sites at every reach, re-creating the duplicate surface that dropping `q=` from the list route had just removed; a POST-for-read is a classic place to attach a write claim by mistake; and a POST search is not linkable, which the UI depends on (filter/sort/page live in the URL so a filtered view can be shared). POST existed mainly for `populate`, which is deferred to its own decision, so adding it now would be the speculative interface D7 rejects. If the caps are ever raised past what a URL carries, the failure is loud (`414`/`431`) and that is the signal to add it then. The hit wrapper discloses scope as a deliberate exception to §5.1 — a client cannot link to a result whose location it cannot see — and the access plan already bounds it to readable targets. Media stays separate because it is instance-global with its own `media:*` claims (D23/D24); folding it into the entry index would put two authorization models in one query; the admin UI merges the two result sets into adjacent groups, which is a presentation decision and is made only there. The inline `[...]` snippet marker was specified and then **replaced before the UI consumed it**: it survives only while content contains no brackets, and a CMS body is exactly where markdown links live — the first real fixture, `See [our docs](https://silo.dev) — the new pricing page`, would have highlighted `our docs` for a search for `pricing`. Splitting the run out of the text makes the wrong answer unrepresentable rather than unlikely, and the window the server cuts stays a server concern while how much of it fits on a line stays the reader's. Rank parity between a JavaScript tokenizer and FTS5 `unicode61` is not achievable by construction (different Unicode tables), so the conformance contract is *match parity on fixtures*, stable order only for an explicit field sort, and no exposed score — measured behaviour that fixtures must pin: `foo_bar` splits on the underscore, a ULID stays one token, a URL splits into seven, diacritics fold, and CJK is **not segmented at all**, which makes `trigram` the only working tokenizer for those deployments rather than a preference. |
+| D31 | Plugins: a closed contract, loaded from config, isolated by default | Two plugin kinds ship, and no more. **Providers** implement an existing port (`Storage` or `BlobStorage` — **not** `Searcher`, see §13.7) and run **inline**; **extension** plugins register **hooks** and run in a **`Worker`**. A plugin is a directory under `<data dir>/plugins/` named by an ordered `[[plugins]]` array in `silo.toml`; there is **no installer** — `silo plugin list\|info\|doctor` are read-only diagnostics and `add`/`remove` are later work. Static metadata lives in `package.json#silo` and must be readable **without executing the plugin**: the `SiloVersion` range it supports (`"silo": "^1"`, checked at startup — there is no separate plugin API version), the claims it requests, and a JSON Schema for its config. The module's default export is a descriptor of functions; importing it has no side effects and nothing self-registers. Plugins import the host through a **virtual module**, `silo:api`, registered via `Bun.plugin()`/`build.module()` before any plugin loads — a plugin therefore has *zero* runtime dependencies. Five hooks, each carrying `op` rather than doubling the set: `entry.beforeValidate` (**mutating**, may replace `data`), `entry.beforeWrite` (**veto-only**), `entry.afterWrite` (**observe**), `entry.beforeDelete` (veto), `entry.afterDelete` (observe). **Mutating hooks run before validation; post-validation hooks may only observe or reject** — data is already canonicalised before validation so the schema judges exactly what is stored (§5.1). **Plugins shape `data`; the envelope belongs to core** — no hook sets `id`, `rev`, `seq` or timestamps, and the dispatch `origin` (`api`\|`import`\|`plugin:<name>`) is context only, never persisted. Every dispatch is bounded by a per-plugin `timeout_ms`; a `ValidationError` or `ForbiddenError` from a hook is a **deliberate rejection** (400/403), any other throw is a **plugin fault** governed by `on_error` (`fail` default \| `skip`); reentrancy is bounded by a depth counter on the context. A plugin acts only through a claim-checked `ctx` facade, never `Storage` or `Service`, and its grants are ordinary claim strings evaluated by the existing `Claims`/`ParsedClaim` machinery — **zero new claim strings**. Built-in adapters are registered through the same registry under reserved names (`sqlite`, `fs`, `s3`) that no plugin may shadow, so `[storage] driver` becomes a registry lookup. `/api/plugins/` is **reserved but unused**. A plugin that fails to load refuses the start. `format_version` does not change, and `silo import` never installs a plugin. | The constraint that decides everything is D26: a release is one `bun build --compile` file installed to `/usr/bin`, so Strapi's model — `npm install` into a project directory the user owns — is not merely undesirable but unavailable. Four things were therefore **measured against a compiled binary** rather than assumed. A compiled binary *can* `await import()` an external `.ts` file by non-literal specifier (the transpiler ships inside it, so plugins need no build step) and resolves the plugin's own `node_modules`; it *can* inject a virtual module into that plugin's import graph **with shared object identity**; it *can* run the plugin in a `Worker`, where a `while(true){}` plugin left the host responsive and terminable instead of wedging the process; and hook dispatch costs ~1 µs inline against ~15–19 µs across a `Worker` for payloads up to 2 KB. Two of those results changed the design rather than permitting it. The virtual module means a plugin declares no dependency on silo at all, which deletes the cross-realm identity problem *before* it is created — `SiloServer.onError` already uses `ValidationError.is` rather than `instanceof` precisely because prototype identity is unsafe across the `@silo/shared` boundary, and every plugin would have multiplied that. And 19 µs against a SQLite write, an `ajv` pass and an HTTP round trip is noise, which removes the usual reason extensions run in-process; structured clone then *forces* payloads to be plain data, making the serializable discipline mechanical rather than a documented rule, and keeping a future WASM or subprocess boundary reachable without changing plugin source. Isolation is settled by asymmetry, not preference: worker→inline is a relaxation every plugin survives, inline→worker breaks every plugin written against live objects, so with 1.0 freezing the surface the reversible direction is the only defensible default. Providers are the exception because isolating something already trusted with every byte protects nothing, and `Storage` is a large chatty stateful port that would pay clone cost per page. **Hooks are domain lifecycle events and not HTTP middleware** because HTTP is not the only way data reaches the store, so an HTTP-only plugin would silently not run on paths that write in bulk. Implementation then made the boundary sharper than the principle: hooks sit in `Service`, which covers the CRUD routes and a plugin's own `ctx` writes, while `Importer` and `ScopeCopier` write through `Storage.put` directly and **do not dispatch**. That is left standing rather than papered over, because an import is meant to *reproduce an archive faithfully*: a mutating hook running during one would make export→import non-idempotent and break the very property D5 exists for — that an fs-backed instance is a live export, so `cp` and `rsync` are backup and replication. It also matches what import already does about schema checks, which are opt-in behind `--validate` rather than unconditional. Reaching the transfer paths needs an opt-in of its own and a decision about which of the five hooks may run there; that is additive, is §12.8, and costs no payload change because `HookOrigin` already carries `"import"`. Registering built-ins through the registry under reserved names is the trick D12 used for `_keys` and D18 for `Scope.System`: one code path rather than two, the mechanism proven by its most demanding consumers before any third party sees it, and default installs unchanged and offline. A separate `plugin_api` integer was **rejected**: D13 already settled that external consumers pin the binary version, and D28 removed the version number's four homes precisely because a stale copy is invisible — a second number bumped in step with the first reintroduces that failure silently, so breaking a hook payload is simply a breaking change to silo. The 0.x churn that would otherwise cost (semver reads every 0.x minor as breaking) is resolved by timing: plugins are the last change before 1.0, so the first plugin ever written targets `^1`. That timing also sets the scope, and is the reason this decision is smaller than the surface it could have covered. 1.0 freezes the plugin contract on a surface that has never had an external consumer to shake it out, and every break silo has taken so far — the on-disk layout (D18), the query grammar with no shim (D29) — was taken on a pre-1.0 budget that expires here. In 1.x, *adding* a hook point, a contribution kind, a manifest field or an installer is free; *changing* a payload shape or a hook's position is not. So the four open items were each resolved toward the smaller surface. **No installer**: shipping a package manager — registry resolution, integrity pinning, a lockfile, signature policy — is the largest and riskiest thing in the proposal and none of it touches the contract, so 1.0 ships "a plugin is a directory you place and list", and the resolution rule (`name` under `<data dir>/plugins/`, directory or `node_modules` layout) is frozen now so the later installer needs no config change. Plugins live in the data directory rather than beside the binary because a packaged binary is root-owned and read-only, and because D5's thesis is that an instance is a directory you can `cp` — so an instance travels with its extensions. **No `seq` cursor for plugins**: exposing one would make the change feed a 1.0 dependency and freeze a cursor contract before the sync design that owns it exists (§12.1) — the speculative interface D7 rejects — so `afterWrite` is in-process, at-most-once and documented as such rather than quietly implying delivery it cannot make. **No `ui` field in the manifest**: `config` is carried because config validation needs it regardless, which means the admin settings form can be rendered through RJSF in 1.x with no manifest change at all, whereas the custom-panel case is the genuinely uncertain one (the SPA is content-hashed and embedded at build time, D26) and freezing an untested iframe contract is the exact failure this scoping exists to avoid. **No plugin provenance in the export archive**: it buys a warning message and costs a `format_version` decision (D14) under freeze pressure, and if it is ever wanted it is a format decision then. Signing defers with the installer, because at 1.0 the operator placed the directory there and the operator *is* the trust decision. That is the honest limit of the whole model and is stated rather than implied: a `Worker` bounds **faults** — crashes, spins, memory — and not **malice**, since worker code holds full Bun privileges and can read the database and open a socket. The trust boundary is the act of installing, as it is for npm, VS Code and Strapi; the claim check expresses intent and catches mistakes, and real containment would be WASM or a subprocess. Both were considered and rejected for now — WASM because TypeScript is the ecosystem's language and TS→WASM is poor, out-of-process RPC (the Terraform model) because a `Worker` gets most of the fault isolation far cheaper and providers, which most want a separate process, are also the chattiest and would pay the most for one. A compile-time registry was rejected outright: installing by rebuilding is not a plugin system, it is a fork. Reserving `/api/plugins/` while shipping no routes costs nothing now and is unavailable later — without it, 1.x cannot add plugin routes without risking collision with a path 1.0 allowed. And format plugins are deliberately absent so that the archive layout and `format_version` stay solely core's: when they arrive they will register a *named* format (`--format csv`) that is explicitly not the portability format, and importer plugins will produce the in-memory `ScopedImport` shape so D22's single merge/replace implementation applies it — the one thing silo exists for must not fragment across an ecosystem. |
 
 
 ## 3. v1 scope
 
 **In:** collections (JSON Schema), entry CRUD with validation, query/filter/sort/pagination, minimal admin UI with generated forms, export/import (dir or tarball), SQLite + filesystem storage adapters, Shlink-style API-key auth with capability claims, single-binary releases.
+
+Plugins (D31/§13) join this list last, immediately before 1.0: provider and hook plugins only, loaded from config, with no installer.
 
 **Out (roadmap, §12):** sync engine, cache adapters, media/file uploads, drafts/publish workflow, webhooks/events, enforced relations, full-text search, auth providers, GraphQL.
 
@@ -95,8 +98,11 @@ silo/
     adapters/
       storage/sqlite/          # SqliteStore, SqliteCompiler
       storage/fs/               # FsStore, FsFilter, FsManifest
-      blob/                    # FsBlobStorage, S3BlobStorage, BlobStorageFactory
+      blob/                    # FsBlobStorage, S3BlobStorage (selected by ProviderRegistry, D31)
       http/                    # HttpSiloClient (direct-copy source client)
+    plugins/                   # D31: PluginManifest, PluginRegistry, PluginLoader,
+                               #   PluginHost port + WorkerHost,
+                               #   PluginContext, HookBus, PluginClaims, SiloApi
     http/
       server.ts                # SiloServer — builds the Hono app
       middleware/               # LoggingMiddleware, AuthMiddleware
@@ -778,6 +784,12 @@ requests    = true          # one line per HTTP request
 max_size_mb = 10            # rotate past this size; 0 never rotates
 max_files   = 5             # rotated files kept as silo.log.1 … silo.log.<n>
 # file = "/var/log/silo.log"  # unset = the console
+
+# Plugins (D31/§13). An *ordered* array — the order is hook dispatch order.
+# Absent by default; `init` writes none. See §13.8 for the full stanza.
+# [[plugins]]
+# name   = "@acme/silo-plugin-slugs"   # resolved under <storage.path>/plugins/
+# claims = ["collections:*/*/*:entries:read"]
 ```
 
 Settings derived from other settings are resolved *after* the whole hierarchy
@@ -794,7 +806,7 @@ chose. Only `serve --detach` derives one — `<storage.path>/silo.log`, followin
 the data dir like media does — and hands it to the child as an explicit
 `--log-file`, so the derived value never masquerades as a configured one.
 
-Subcommands: `silo init`, `silo serve`, `silo stop`, `silo status`, `silo logs`, `silo export`, `silo import`, `silo keys create|list|revoke`, `silo media reconcile`, `silo search reindex [--check]`, `silo version`. CLI commands operate directly on the data dir — no running server required (this is also the lockout-recovery path). `stop`, `status` and `logs` are the exception in the other direction: they read `silo.run.json` and never open storage at all, for the same reason `init` does not — asking whether a server is running must not create a data directory or take a handle on a database another process owns. `serve --detach` is routed the same way, so the parent leaves the directory entirely to the child it spawns. `init` is the exception that touches neither: it writes a `silo.toml` holding the defaults above, rendered from `ConfigLoader.defaultConfig()` so the scaffold cannot drift from the built-in defaults, with alternatives and the s3 keys commented beside them. Settings with no default — the s3 credentials, the fs media path, and `[log] file` — are written commented out, because a literal value there is indistinguishable from a chosen one and would defeat the derivation above. `keys create` accepts explicit `--claims` or `--preset root|manage|write|read` with optional `--collections`. Presets are defined once in `@silo/shared` (`Claims.presetPermissions`/`presetMedia`) and read by both the CLI and the admin UI's key form, so `--preset manage` and the UI's Manage role grant the same set. First boot creates the data dir, generates `instance_id` (ULID), initializes storage, and — if no keys exist — generates and prints a root key exactly once.
+Subcommands: `silo init`, `silo serve`, `silo stop`, `silo status`, `silo logs`, `silo export`, `silo import`, `silo keys create|list|revoke`, `silo media reconcile`, `silo search reindex [--check]`, `silo plugin list|info|doctor` (D31/§13.8 — read-only, no network; there is no installer in 1.0), `silo version`. CLI commands operate directly on the data dir — no running server required (this is also the lockout-recovery path). `stop`, `status` and `logs` are the exception in the other direction: they read `silo.run.json` and never open storage at all, for the same reason `init` does not — asking whether a server is running must not create a data directory or take a handle on a database another process owns. `serve --detach` is routed the same way, so the parent leaves the directory entirely to the child it spawns. `init` is the exception that touches neither: it writes a `silo.toml` holding the defaults above, rendered from `ConfigLoader.defaultConfig()` so the scaffold cannot drift from the built-in defaults, with alternatives and the s3 keys commented beside them. Settings with no default — the s3 credentials, the fs media path, and `[log] file` — are written commented out, because a literal value there is indistinguishable from a chosen one and would defeat the derivation above. `keys create` accepts explicit `--claims` or `--preset root|manage|write|read` with optional `--collections`. Presets are defined once in `@silo/shared` (`Claims.presetPermissions`/`presetMedia`) and read by both the CLI and the admin UI's key form, so `--preset manage` and the UI's Manage role grant the same set. First boot creates the data dir, generates `instance_id` (ULID), initializes storage, and — if no keys exist — generates and prints a root key exactly once.
 
 ## 11. Milestones
 
@@ -803,7 +815,9 @@ Subcommands: `silo init`, `silo serve`, `silo stop`, `silo status`, `silo logs`,
 - **M3 — Admin UI:** React app — server manager, nav shell, six views (§9) — embedded assets, single-binary build. *Done when: key→schema→form→entry→export works without curl.*
 - **M4 — Release:** cross-compilation via `bun build --compile` (linux/darwin × x64/arm64), signed checksums and a Homebrew tap (D26), Dockerfile, README, format_version stamped and documented.
 
-Testing spine: adapter conformance suite (one test file, run against every `Storage` implementation), export/import round-trip properties, validation golden tests.
+- **M5 — Plugins (D31/§13):** the registry and static manifest, built-in adapters re-registered under reserved names with no user-visible change, the `silo:api` virtual module, the `Worker` host, the five entry hooks, and the claim-checked context. *Done when: a third-party extension plugin loaded from `<data>/plugins/` rewrites an entry through `entry.beforeValidate`, is refused a claim it did not request, and cannot stall the server when it hangs.* **Done:** 13 tests in `server/test/plugins/` over eight fixture plugins. Everything else plugin-shaped is §12.8 and lands after 1.0.
+
+Testing spine: adapter conformance suite (one test file, run against every `Storage` implementation), export/import round-trip properties, validation golden tests. M5 adds a hostile-plugin suite of its own, because it pins behaviour prose cannot: a hook that spins forever is timed out, faulted and torn down while the server keeps serving, and it is **not** restarted into the same wall on the next write. The companion it was first specified with — a test that a hook fires for `silo import` — was dropped when implementation showed the transfer paths write beneath `Service` and so do not dispatch (see D31); a test asserting otherwise would have pinned a behaviour silo does not have.
 
 ## 12. Roadmap (designed-for, not built)
 
@@ -814,4 +828,297 @@ Testing spine: adapter conformance suite (one test file, run against every `Stor
 4. **Auth growth** — per-collection public-read rules (unauthenticated reads for chosen collections), key expiry, `last_used_at` tracking (needs a write-cheap path first), finer-grained per-key permissions. Real user accounts only if keys ever prove insufficient.
 5. **Relations** — `x-silo-ref` gains optional integrity enforcement + UI pickers.
 6. **Search (Completed)** — D30/§5.5: a `Searcher` port with a portable `ScanSearcher` on every adapter and `SqliteSearcher` (FTS5) where the build has it. Addressing is D29 JSONPath, shared with filters and sort, and the admin UI reads it through collection search, a `⌘K` palette, and a filter builder (§9).
-7. **Drafts/publish, webhooks** — after real user demand, not before.
+7. **Drafts/publish, webhooks** — after real user demand, not before. Partly answered by D31/§13: `entry.afterWrite` is where a webhook plugin attaches, but it is in-process and at-most-once, so *durable* delivery still waits on the change feed in §12.1 above — which is the strongest reason to build it.
+8. **Plugin growth beyond D31/§13** — all additive, none of it in 1.0: the `silo plugin add` installer with a lockfile, integrity pinning and a signature policy; `@silo/conformance` published so third-party `Storage` implementations are testable rather than folklore; further hook points; HTTP interceptors and plugin routes under the reserved `/api/plugins/` prefix; plugin CLI subcommands; named import/export format plugins; and admin-UI contributions — declarative settings forms first (the manifest already carries the config schema, so this needs no manifest change), custom panels only once an iframe message contract is designed.
+
+## 13. Plugins (D31)
+
+Numbered after the roadmap because §12's numbering is referenced from D18, D25,
+§5.1 and §7.5; this is a shipping section, not roadmap.
+
+### 13.1 What ships, and what does not
+
+Two kinds:
+
+| Kind | Contract | Runs |
+| :--- | :--- | :--- |
+| **Provider** | Implements `Storage` or `BlobStorage` (§6.1, D16) | Inline |
+| **Extension** | Registers hooks (§13.5) | In a `Worker` |
+
+Deliberately **not** in 1.0, all additive and listed in §12.8: an installer,
+HTTP interceptors, plugin routes, plugin CLI subcommands, import/export format
+plugins, and admin-UI contributions. `/api/plugins/` is reserved and returns
+404; reserving it costs nothing now and cannot be done later.
+
+### 13.2 The manifest is static
+
+Static metadata lives in `package.json#silo` and **must be readable without
+executing the plugin** — `silo plugin info` has to show an operator what a
+package wants before any of its code runs.
+
+```jsonc
+{
+  "name": "@acme/silo-plugin-slugs",
+  "silo": {
+    "silo": "^1",                    // SiloVersion range; checked at startup
+    "kind": "extension",             // "extension" | "provider"
+    "hooks": ["entry.beforeValidate"],
+    "claims": ["collections:*/*/*:entries:read"],
+    "config": { "type": "object", "properties": { "field": { "type": "string" } } }
+  }
+}
+```
+
+- `silo` is a range against `SiloVersion` (D28). **There is no separate plugin
+  API version** — see D31's rationale and D13, which makes this one comparison
+  the whole compatibility gate. Ranges are ordinary npm ranges, evaluated by the
+  `semver` package; `VersionRange` adds exactly one rule of silo's own —
+  **the prerelease suffix is dropped before comparing.** Every non-release build
+  carries `-dev`, and semver admits a prerelease to no range that does not name
+  one, so the strict reading would let no plugin load outside a tagged release.
+  It is deliberately narrower than `includePrerelease`, which would also admit a
+  `2.0.0-rc.1` to a plugin pinned `^1`.
+- `config` is a JSON Schema (D3), validated at startup; invalid config
+  **refuses the start**, as an invalid default project id does (D20). It is
+  carried at 1.0 even though nothing renders it, so the admin settings form can
+  be added in 1.x through RJSF with no manifest change.
+- There is no `ui` field. Adding one later is additive.
+
+The module's **default export is a descriptor of functions**. Importing it has
+no side effects and nothing self-registers, which is what keeps §4's "no
+`init()` registration magic — explicit construction only".
+
+### 13.3 Loading, and the `silo:api` virtual module
+
+Resolution: `<data dir>/plugins/<name>/`, or `<data dir>/plugins/node_modules/<name>/`.
+Both are accepted so the 1.x installer needs no config change. Plugins live in
+the data directory because a packaged binary is root-owned and read-only, and
+because D5 makes an instance a directory you can `cp` — so an instance travels
+with its extensions.
+
+Plugins reach the host through a **virtual module** registered with
+`Bun.plugin()` / `build.module()` before any plugin is imported:
+
+```ts
+import { defineSiloPlugin } from "silo:api";
+
+export default defineSiloPlugin({
+  async "entry.beforeValidate"(ev, ctx) {
+    if (ev.collection !== "posts") return;
+    return { data: { ...ev.data, slug: ctx.config.field } };
+  },
+});
+```
+
+A plugin therefore declares **zero runtime dependencies**. `@silo/plugin-types`
+exists for editor support only and must contribute nothing at runtime. This is
+what prevents the cross-realm identity problem rather than working around it:
+`SiloServer.onError` already uses `ValidationError.is` instead of `instanceof`
+because prototype identity is unsafe across the `@silo/shared` boundary, and
+every plugin carrying its own copy would have multiplied that.
+
+A plugin that fails to load, or whose `silo` range excludes `SiloVersion`,
+**refuses the start**. `silo plugin doctor` loads everything, reports what
+fails, and exits without starting a server.
+
+### 13.4 Isolation
+
+Extension plugins run in a `Worker`, one per plugin. This is settled by
+asymmetry rather than preference: worker→inline is a relaxation every plugin
+survives, inline→worker breaks every plugin written against live objects,
+because structured clone admits only plain data. Since 1.0 freezes the surface,
+the reversible direction is the only defensible default.
+
+Providers are the exception. Isolating something already trusted with every
+byte in the instance protects nothing, and `Storage` is a large, chatty,
+stateful port that would pay clone cost per page.
+
+**A `Worker` bounds faults, not malice.** It contains crashes, infinite loops
+and memory blowups — a `while(true){}` plugin leaves the host responsive and
+terminable. It does not stop plugin code reading the database or opening a
+socket: worker code holds full Bun privileges. The trust boundary is the act of
+installing, as with npm, VS Code and Strapi. Documented as such, never as a
+sandbox.
+
+### 13.5 Hooks
+
+Five, each carrying `op` rather than doubling the set:
+
+| Hook | Kind | May |
+| :--- | :--- | :--- |
+| `entry.beforeValidate` | **mutating** | replace `data`, reject |
+| `entry.beforeWrite` | **veto-only** | reject |
+| `entry.afterWrite` | observe | nothing |
+| `entry.beforeDelete` | veto-only | reject |
+| `entry.afterDelete` | observe | nothing |
+
+Placement in `Service.createEntry` / `updateEntry`:
+
+```
+requireUserCollection(scope, collection)
+  -> entry.beforeValidate      MUTATING
+MediaRefs.canonicalize(data)
+schemas.validateEntry(...)
+usages = MediaRefs.extract(data)
+build envelope { id, rev, seq, timestamps }
+  -> entry.beforeWrite         VETO-ONLY
+acquire writeMu
+    assertMediaReferencable(usages)
+    store.put(e, derived)
+release
+  -> entry.afterWrite          OBSERVE, off the critical path
+```
+
+Three rules, each inherited from an existing invariant:
+
+- **Mutating hooks run before validation; post-validation hooks may only
+  observe or reject.** Data is canonicalised before validation so the schema
+  judges exactly the value that will be stored (§5.1, D23); a hook rewriting
+  data afterwards would store something the schema never saw.
+- **Plugins shape `data`; the envelope belongs to core.** No hook sets `id`,
+  `rev`, `seq` or timestamps — D2 and the change-feed cursor are load-bearing
+  for replication and unreachable from a third party.
+- **Nothing plugin-shaped is persisted.** Dispatch carries an `origin`
+  (`api` | `import` | `plugin:<name>`) so a plugin can ignore its own events,
+  but it is context only; writing it into the entry would change the on-disk
+  layout and force a `format_version` bump (D14) for a debugging convenience.
+
+Hooks are domain lifecycle events and **not** HTTP middleware because HTTP is
+not where the data enters. `silo import`, `ScopeCopier` (D22) and every CLI
+write path would bypass an HTTP-only plugin, so a validation or enrichment
+plugin would silently not run on exactly the paths that write the most at once.
+
+**Which write paths dispatch.** Every write through `Service` — the HTTP CRUD
+routes, and a plugin's own `ctx.entries.*` calls. The transfer paths
+(`Importer`, `ScopeCopier`) deliberately do **not**; see D31's rationale for why,
+and `Hooks` in `server/core/hooks/` for the same note where a reader of the code
+will meet it.
+
+**`entry.afterWrite` is in-process and at-most-once.** It fires outside
+`writeMu`, best-effort, and a failure is logged and dropped. Durable
+at-least-once delivery needs the change feed (§12.1); no `seq` cursor is
+exposed to plugins, because doing so would freeze a cursor contract before the
+sync design that owns it exists (D7).
+
+Order is the order of the `[[plugins]]` array — config-owned, deterministic,
+and debuggable.
+
+### 13.6 The plugin context, and capabilities
+
+A plugin acts only through `ctx`, never `Storage` or `Service`. Every call is
+checked against the claims the manifest requested and the operator granted,
+using the existing `Claims`/`ParsedClaim` machinery including scoped wildcards
+(D8, D19). A plugin cannot widen its own reach, and its actions are auditable
+in the same vocabulary as a key's — **a plugin is an API key with code
+attached.**
+
+**D31 adds no new claim strings.** There is no install API at 1.0, so there is
+nothing for a `plugins:manage` claim to guard; the config file is the
+management surface. `http:intercept` and `http:route` arrive with the features
+that need them, and adding a claim is additive because grants are
+deny-by-default.
+
+### 13.7 Providers, and the built-ins
+
+`SqliteStore`, `FsStore`, `FsBlobStorage` and `S3BlobStorage` register through
+the same registry under **reserved names** (`sqlite`, `fs`, `s3`) that no plugin
+may shadow, while staying compiled into the binary. `[storage] driver` and
+`[blob_storage] driver` become registry lookups.
+
+**`Searcher` is a port but not a provider kind**, though D30 makes it one of the
+three. Two reasons, and the second is the real one. Nothing selects a searcher
+by name — `[search]` has no `driver` key, and `Cli` derives the engine from the
+store's own type — so the value would name a capability with no path behind it,
+which is the speculative interface D7 rejects. And an external engine could not
+stay correct if it were selected: D30 keeps the FTS index *inside*
+`SqliteStore`, maintained by triggers in the same transactions as
+`put`/`delete`/`deleteProject`, for exactly the reason D23 gives about media
+usages — nothing above the port can be atomic with a bulk delete. A plugin is
+outside that transaction by construction, so it could only be fed by
+`entry.afterWrite`, which is best-effort and at-most-once (§13.5). An index that
+drifts silently makes content unfindable and reports nothing, so the honest
+prerequisite is the change feed (§12.1) rather than a config key. Until then a
+third-party search backend is §12.8 work, and the enum stays two values — adding
+one back is additive, removing one after 1.0 freezes the manifest would not be.
+
+This is the trick D12 used for `_keys` and D18 for `Scope.System`: one code
+path rather than two. Default installs are unchanged and need no network, and
+the mechanism ships already carrying its most demanding consumers — which is
+the D7 test, met before any third party sees it.
+
+A third-party `Storage` is credible only if it is testable. The contract is
+`server/test/conformance/storage-conformance.ts`, which pins invariants the
+types cannot carry — `derived` landing inside the write transaction (D23, D30),
+instance-global monotonic `seq`, D20's two-halves existence rule,
+`listEntryCollections` differing from `listSchemas` on purpose. Publishing it as
+`@silo/conformance` is §12.8 work; the ports freeze at 1.0 either way.
+
+### 13.8 Configuration and CLI
+
+```toml
+[[plugins]]
+name       = "@acme/silo-plugin-slugs"
+claims     = ["collections:*/*/*:entries:read"]
+timeout_ms = 5000            # per dispatch
+on_error   = "fail"          # "fail" (default) | "skip"
+
+  [plugins.config]
+  field = "title"
+```
+
+```
+silo plugin list                 configured plugins and their state
+silo plugin info <name>          manifest, requested claims, config schema
+silo plugin doctor               load everything, report failures, exit
+```
+
+All three are read-only and need no network. `add`/`remove` are §12.8 work:
+shipping a package manager — registry resolution, integrity pinning, a
+lockfile, a signature policy — is the largest and riskiest piece of this design
+and none of it touches the contract, so 1.0 ships "a plugin is a directory you
+place and list". Whatever installer arrives must never execute a lifecycle
+script and must reuse `EntryUtils.assertSafeSegment` when extracting.
+
+**`silo import` never installs a plugin.** Archives carry data, not code. The
+archive does not record plugin provenance either — it buys a warning message
+and costs a `format_version` decision (D14).
+
+### 13.9 Failure, timeouts, reentrancy
+
+- A `ValidationError` or `ForbiddenError` from a hook is a **deliberate
+  rejection** and propagates as 400/403; `SiloServer.onError` already maps both.
+- Any other throw is a **plugin fault**, governed by `on_error` — `fail`
+  (default, matching silo's fail-loud instinct) or `skip`, logged either way.
+- Every dispatch is bounded by `timeout_ms`. This matters because `Service`
+  serialises writes on a process-local `AsyncMutex`, which is exactly what makes
+  optimistic concurrency sound without CAS in the adapters (D25, §6.1) — a hook
+  blocking there blocks *all* writes instance-wide. Hooks run outside the mutex
+  wherever possible, and the `Worker` is what makes the timeout enforceable at
+  all — nothing preempts JavaScript in-process, so a synchronous spin would
+  simply ignore a budget. That is why there is exactly **one** extension host: a
+  second one where `timeout_ms` was advisory would be a trap wearing the same
+  interface, so the inline host written during M5 was removed rather than left
+  unselected (D7).
+- Reentrancy is bounded by a depth counter on the context. A `ctx` write from
+  inside a hook increments it; past the limit the call is refused rather than
+  recursing.
+
+### 13.10 Measured, not assumed
+
+Every load-bearing mechanism was verified against a `bun build --compile`
+binary — the only case that matters, since `bun run` is not how silo ships.
+Bun 1.3.14, win32 x64:
+
+| | |
+| :--- | :--- |
+| `await import()` of an external `.ts`, non-literal specifier | Works — the transpiler ships inside the binary, so plugins need no build step |
+| Plugin resolving its own `node_modules` | Works |
+| Host injecting a virtual module into the plugin's graph | Works, **with shared object identity** |
+| External plugin inside a `Worker` | Works, ~20 ms cold start per worker |
+| `while(true){}` plugin in a `Worker` | Host stayed responsive, timed out, terminated |
+| Hook dispatch, inline | ~1 µs |
+| Hook dispatch, `Worker` round trip | ~15 µs small, ~19 µs with a 2 KB document |
+| `import.meta.dir` in a compiled binary | Points at the read-only embedded VFS — every plugin path comes from config, never from `import.meta.dir` (cf. `UiAssets`) |
+
+19 µs against a SQLite write, an `ajv` pass and an HTTP round trip is noise.
+That is why isolation is the default rather than an expensive opt-in.

@@ -2,6 +2,7 @@ import fs from "fs/promises";
 import path from "path";
 import { TOML } from "bun";
 import type { Config } from "./config";
+import type { PluginConfig } from "./plugin-config";
 
 export class ConfigLoader {
   static defaultConfig(): Config {
@@ -45,11 +46,60 @@ export class ConfigLoader {
         max_size_mb: 10,
         max_files: 5,
       },
+      // No plugins unless the file names some (D31). `init` writes none, and
+      // there is deliberately no SILO_PLUGINS: which code an instance runs is
+      // not something an environment variable should be able to change.
+      plugins: [],
     };
+  }
+
+  /** Default per-dispatch budget. Generous enough for a hook that calls out to
+   *  something, short enough that a hung plugin is noticed rather than endured
+   *  — and it is a ceiling on a path that can hold the write mutex (§13.9). */
+  static readonly DefaultPluginTimeoutMs = 5000;
+
+  /**
+   * The ordered `[[plugins]]` array (D31/§13.8).
+   *
+   * Strict, unlike the settings above: an unreadable `[[plugins]]` entry throws
+   * rather than falling back to a default. Every other setting has a sane
+   * default that merely differs from what was asked for, whereas a mistyped
+   * plugin entry means code the operator expects to be running is not — the
+   * same reason `PluginLoader` refuses rather than skips.
+   */
+  private static plugins(raw: unknown): PluginConfig[] {
+    if (raw === undefined) return [];
+    if (!Array.isArray(raw)) throw new Error(`config: [[plugins]] must be an array of tables`);
+
+    return raw.map((entry: any, i: number) => {
+      const at = `[[plugins]] #${i + 1}`;
+      if (!entry || typeof entry !== "object") throw new Error(`config: ${at} is not a table`);
+      if (typeof entry.name !== "string" || entry.name.length === 0) {
+        throw new Error(`config: ${at} needs a "name"`);
+      }
+      if (entry.claims !== undefined && !Array.isArray(entry.claims)) {
+        throw new Error(`config: ${at} "claims" must be an array of strings`);
+      }
+      if (entry.on_error !== undefined && entry.on_error !== "fail" && entry.on_error !== "skip") {
+        throw new Error(`config: ${at} "on_error" must be "fail" or "skip"`);
+      }
+      const timeout = entry.timeout_ms ?? ConfigLoader.DefaultPluginTimeoutMs;
+      if (typeof timeout !== "number" || !Number.isFinite(timeout) || timeout <= 0) {
+        throw new Error(`config: ${at} "timeout_ms" must be a positive number`);
+      }
+      return {
+        name: entry.name,
+        claims: (entry.claims ?? []).map(String),
+        timeout_ms: timeout,
+        on_error: entry.on_error ?? "fail",
+        config: entry.config && typeof entry.config === "object" ? entry.config : {},
+      };
+    });
   }
 
   static async loadConfig(configPath: string = "silo.toml", explicit: boolean = false): Promise<Config> {
     const cfg = this.defaultConfig();
+    let parsedFile: any = null;
 
     try {
       const stat = await fs.stat(configPath);
@@ -144,6 +194,10 @@ export class ConfigLoader {
               cfg.log.max_files = parsed.log.max_files;
             }
           }
+          // Kept for after the catch: a malformed [[plugins]] entry must throw
+          // whether or not --config was explicit, and this catch exists to
+          // tolerate a *missing* default file, not a broken one.
+          parsedFile = parsed;
         }
       }
     } catch (err: any) {
@@ -151,6 +205,8 @@ export class ConfigLoader {
         throw new Error(`config ${configPath}: ${err.message}`);
       }
     }
+
+    cfg.plugins = ConfigLoader.plugins(parsedFile?.plugins);
 
     // Environment overrides
     if (process.env.SILO_LISTEN) {
@@ -242,7 +298,7 @@ export class ConfigLoader {
    * value from an explicit one.
    */
   static resolveDerivedDefaults(cfg: Config): Config {
-    // Normalised the way BlobStorageFactory reads it, so a driver spelled "FS"
+    // Normalised the way ProviderRegistry reads it, so a driver spelled "FS"
     // cannot get past this and fall back to a path under the wrong directory.
     const blobDriver = (cfg.blob_storage.driver || "fs").toLowerCase();
     if (blobDriver === "fs" && !cfg.blob_storage.path) {

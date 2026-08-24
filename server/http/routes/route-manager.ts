@@ -8,6 +8,7 @@ import { MediaRoutes } from "./media-routes";
 import { CopyRoutes } from "./copy-routes";
 import { SessionRoutes } from "./session-routes";
 import { SearchRoutes } from "./search-routes";
+import { PluginRoutes } from "./plugin-routes";
 
 /**
  * Composes all route modules onto the app. Ordering matters for Hono's
@@ -21,6 +22,9 @@ import { SearchRoutes } from "./search-routes";
 export class RouteManager {
   static registerRoutes(app: any, svc: Service) {
     SessionRoutes.register(app);
+    // Reserved namespace (D31/§13.1), registered before the scoped param routes
+    // for the same ordering reason the rest of this list exists.
+    PluginRoutes.register(app);
     KeysRoutes.register(app, svc);
     TransferRoutes.register(app, svc);
     CopyRoutes.register(app, svc);

@@ -12,6 +12,10 @@ import type { SearchTarget } from "../search/search-target";
 import type { SearchIntegrity } from "../search/search-integrity";
 import { ScanSearcher } from "../search/scan-searcher";
 import { SearchText } from "../search/search-text";
+import type { Hooks } from "../hooks/hooks";
+import { NoOpHooks } from "../hooks/no-op-hooks";
+import { WriteContexts } from "../hooks/write-contexts";
+import type { WriteContext } from "../hooks/write-context";
 import type { DerivedIndex } from "../ports/derived-index";
 import { FsBlobStorage } from "../../adapters/blob/fs-blob-storage";
 import { MimeUtils } from "../media/mime-utils";
@@ -72,6 +76,12 @@ export class Service {
 
   private readonly searcher: Searcher;
 
+  /**
+   * Plugin hooks (D31/§13.5). A null object until `useHooks` replaces it, so
+   * every dispatch site reads the same whether or not plugins exist.
+   */
+  private hooks: Hooks = new NoOpHooks();
+
   constructor(
     store: Storage,
     schemaOpts: SchemaValidatorOptions & {
@@ -96,6 +106,19 @@ export class Service {
     }
   }
 
+
+  /**
+   * Attach the plugin hook bus (D31).
+   *
+   * Deliberately a second step rather than a constructor argument: a plugin's
+   * context calls back into this same `Service`, so the two cannot both be
+   * built first. Making the cycle explicit here is better than hiding it behind
+   * a lazy getter — the wiring order is visible at the one site that does it
+   * (`Cli`), which is what §4 asks of every dependency.
+   */
+  useHooks(hooks: Hooks): void {
+    this.hooks = hooks;
+  }
 
   static newKeyView(e: Entry): KeyView {
     const info = e.data as KeyInfo;
@@ -435,8 +458,26 @@ export class Service {
     await this.store.getSchema(scope, collection);
   }
 
-  async createEntry(scope: Scope, collection: string, data: any): Promise<Entry> {
+  async createEntry(
+    scope: Scope,
+    collection: string,
+    data: any,
+    wc: WriteContext = WriteContexts.Api
+  ): Promise<Entry> {
     await this.requireUserCollection(scope, collection);
+
+    // The one mutating hook, and it runs here for a reason: everything below
+    // depends on the value being final. Placing it after validation would let a
+    // plugin store what the schema never judged (D31/§13.5).
+    data = await this.hooks.beforeValidate({
+      op: "create",
+      origin: wc.origin,
+      depth: wc.depth,
+      scope: { project: scope.project, env: scope.env },
+      collection,
+      data,
+    });
+
     // Canonicalised **before** validation, so the schema judges exactly the
     // value that will be stored. Reads resolve media fields into absolute
     // URLs, so a client that PUTs back what it fetched would otherwise store
@@ -460,6 +501,14 @@ export class Service {
       data,
     };
 
+    // Outside the write mutex, not inside it: a veto hook may call out to
+    // something slow, and `writeMu` serialises every write in the instance —
+    // holding it across a plugin would make one slow plugin a global stall
+    // (D25, §13.9). The cost is that the entry it vetoes may have been written
+    // by a concurrent request first, which is the same race any pre-write check
+    // has and is bounded by the `rev` check below.
+    await this.hooks.beforeWrite(this.writeEvent("create", wc, e));
+
     const release = await this.writeMu.acquire();
     try {
       // Under the lock, not before it: `deleteMedia` counts usages while
@@ -468,10 +517,42 @@ export class Service {
       // already gone.
       await this.assertMediaReferencable(usages);
       await this.store.put(e, await this.derived(scope, collection, data, usages));
-      return e;
     } finally {
       release();
     }
+
+    await this.hooks.afterWrite(this.writtenEvent("create", wc, e));
+    return e;
+  }
+
+  /** The envelope a veto hook sees. Partial by design — a hook shapes `data`,
+   *  never `seq` or the timestamps (D31/§13.5). */
+  private writeEvent(op: "create" | "update", wc: WriteContext, e: Entry) {
+    return {
+      op,
+      origin: wc.origin,
+      depth: wc.depth,
+      scope: { project: e.project, env: e.env },
+      collection: e.collection,
+      id: e.id,
+      rev: e.rev,
+      data: e.data,
+    };
+  }
+
+  private writtenEvent(op: "create" | "update", wc: WriteContext, e: Entry) {
+    return {
+      ...this.writeEvent(op, wc, e),
+      created_at: Service.isoDate(e.created_at),
+      updated_at: Service.isoDate(e.updated_at),
+    };
+  }
+
+  /** Adapters hand back either a `Date` or the string they stored. A hook
+   *  payload is plain JSON (it may cross a worker boundary), so it is always
+   *  the string. */
+  private static isoDate(value: Date | string): string {
+    return typeof value === "string" ? value : value.toISOString();
   }
 
   async getEntry(scope: Scope, collection: string, id: string): Promise<Entry> {
@@ -648,14 +729,36 @@ export class Service {
     collection: string,
     id: string,
     data: any,
-    expectedRev: number
+    expectedRev: number,
+    wc: WriteContext = WriteContexts.Api
   ): Promise<Entry> {
     await this.requireUserCollection(scope, collection);
+
+    data = await this.hooks.beforeValidate({
+      op: "update",
+      origin: wc.origin,
+      depth: wc.depth,
+      scope: { project: scope.project, env: scope.env },
+      collection,
+      id,
+      data,
+    });
+
     data = MediaRefs.canonicalize(data);
     await this.schemas.validateEntry(scope, collection, data);
 
     const usages = MediaRefs.extract(data);
 
+    // Built before the veto hook so the hook sees the rev it would produce, and
+    // dispatched outside `writeMu` for the reason `createEntry` gives. The
+    // authoritative rev check stays under the lock below, so a hook cannot make
+    // a lost update possible.
+    const preview = await this.store.get(scope, collection, id);
+    await this.hooks.beforeWrite(
+      this.writeEvent("update", wc, { ...preview, rev: preview.rev + 1, data })
+    );
+
+    let written: Entry;
     const release = await this.writeMu.acquire();
     try {
       await this.assertMediaReferencable(usages);
@@ -666,30 +769,49 @@ export class Service {
         );
       }
 
-      const e: Entry = {
+      written = {
         ...cur,
         rev: cur.rev + 1,
         updated_at: EntryUtils.now(),
         data,
       };
 
-      await this.store.put(e, await this.derived(scope, collection, data, usages));
-      return e;
+      await this.store.put(written, await this.derived(scope, collection, data, usages));
     } finally {
       release();
     }
+
+    await this.hooks.afterWrite(this.writtenEvent("update", wc, written));
+    return written;
   }
 
   async deleteEntry(
     scope: Scope,
     collection: string,
     id: string,
-    expectedRev: number
+    expectedRev: number,
+    wc: WriteContext = WriteContexts.Api
   ): Promise<void> {
     if (EntryUtils.isSystemCollection(collection)) {
       throw new NotFoundError(`collection "${scope.key()}/${collection}" not found`);
     }
 
+    // Read before the lock purely to give the veto hook the entry it is being
+    // asked about — a hook that can only see an id cannot decide anything. The
+    // authoritative read and rev check happen under the lock.
+    const doomed = await this.store.get(scope, collection, id);
+    await this.hooks.beforeDelete({
+      op: "delete",
+      origin: wc.origin,
+      depth: wc.depth,
+      scope: { project: scope.project, env: scope.env },
+      collection,
+      id,
+      rev: doomed.rev,
+      data: doomed.data,
+    });
+
+    let rev: number;
     const release = await this.writeMu.acquire();
     try {
       const cur = await this.store.get(scope, collection, id);
@@ -698,10 +820,21 @@ export class Service {
           `rev mismatch: expected ${expectedRev}, current is ${cur.rev}`
         );
       }
+      rev = cur.rev;
       await this.store.delete(scope, collection, id);
     } finally {
       release();
     }
+
+    await this.hooks.afterDelete({
+      op: "delete",
+      origin: wc.origin,
+      depth: wc.depth,
+      scope: { project: scope.project, env: scope.env },
+      collection,
+      id,
+      rev,
+    });
   }
 
   // ---- Keys ----

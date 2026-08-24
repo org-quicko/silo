@@ -77,7 +77,7 @@ describe("ConfigLoader blob path resolution", () => {
   });
 
   test("the fs driver is recognised however it is spelled", async () => {
-    // BlobStorageFactory lowercases the driver before it switches on it; if the
+    // ProviderRegistry lowercases the driver before it looks it up; if the
     // derivation is stricter than that, "FS" quietly lands in the fallback path.
     const file = await writeConfig(`[blob_storage]\ndriver = "FS"\n`);
     const dataDir = path.join(tempDir, "data");

@@ -4,7 +4,7 @@ import path from "path";
 import os from "os";
 import { FsBlobStorage } from "../../adapters/blob/fs-blob-storage";
 import { S3BlobStorage } from "../../adapters/blob/s3-blob-storage";
-import { BlobStorageFactory } from "../../adapters/blob/blob-storage-factory";
+import { ProviderRegistry } from "../../plugins";
 
 describe("FsBlobStorage", () => {
   let tempDir: string;
@@ -145,30 +145,33 @@ describe("S3BlobStorage (Mock Client)", () => {
   });
 });
 
-describe("BlobStorageFactory", () => {
-  test("creates FsBlobStorage by default or with driver 'fs'", () => {
-    const store = BlobStorageFactory.create({ driver: "fs", path: "/tmp/silo-test-blobs" });
-    expect(store instanceof FsBlobStorage).toBe(true);
+describe("blob drivers through the provider registry (D31/§13.7)", () => {
+  // The registry replaced BlobStorageFactory outright rather than wrapping it:
+  // two places that both know how to build an S3 client is the second source of
+  // truth D18 rejected for scopes and D28 for the version number.
+  const registry = ProviderRegistry.withBuiltins();
+
+  test("driver 'fs' builds FsBlobStorage", () => {
+    expect(registry.openBlob({ driver: "fs", path: "/tmp/silo-test-blobs" }) instanceof FsBlobStorage).toBe(true);
   });
 
-  test("creates S3BlobStorage with driver 's3'", () => {
-    const store = BlobStorageFactory.create({
-      driver: "s3",
-      bucket: "my-bucket",
-      region: "us-east-1",
-    });
+  test("driver 's3' builds S3BlobStorage", () => {
+    const store = registry.openBlob({ driver: "s3", bucket: "my-bucket", region: "us-east-1" });
     expect(store instanceof S3BlobStorage).toBe(true);
   });
 
-  test("throws when s3 bucket is missing", () => {
-    expect(() => BlobStorageFactory.create({ driver: "s3" })).toThrow(
-      "S3 blob storage requires 'bucket' configuration"
-    );
+  test("an s3 driver with no bucket is refused", () => {
+    expect(() => registry.openBlob({ driver: "s3" })).toThrow(/requires .bucket./);
   });
 
-  test("throws on unsupported driver", () => {
-    expect(() => BlobStorageFactory.create({ driver: "gcs" })).toThrow(
-      'Unsupported blob storage driver "gcs"'
-    );
+  test("an unknown driver names the ones that exist", () => {
+    expect(() => registry.openBlob({ driver: "gcs" })).toThrow(/unknown blob storage driver "gcs".*fs, s3/s);
+  });
+
+  test("the built-in names are reserved and a plugin cannot take them", () => {
+    // Shadowing "s3" would let an installed package silently become the store
+    // an instance already has data in — a data-loss shape, not a naming clash.
+    expect(() => registry.registerBlob("s3", () => ({}) as any, "evil-plugin")).toThrow(/reserved/);
+    expect(() => registry.registerStorage("sqlite", (async () => ({})) as any, "evil-plugin")).toThrow(/reserved/);
   });
 });

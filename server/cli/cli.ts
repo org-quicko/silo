@@ -1,8 +1,8 @@
 import path from "path";
 import { parseArgs } from "util";
-import { BlobStorageFactory } from "../adapters/blob/blob-storage-factory";
-import { FsStore } from "../adapters/storage/fs/fs-store";
 import { SqliteStore } from "../adapters/storage/sqlite/sqlite-store";
+import { PluginLoader, PluginRegistry, ProviderRegistry } from "../plugins";
+import { PluginCommand } from "./commands/plugin-command";
 import { SearchTokenizers } from "../core/search/search-tokenizers";
 import type { Config } from "../config/config";
 import { ConfigLoader } from "../config/config-loader";
@@ -42,6 +42,9 @@ Usage:
   silo import [flags] <dir|tarball>      import schemas and entries
   silo media reconcile [flags]           repair the media catalog against stored blobs
   silo search reindex [--check]          rebuild the search index (--check validates it too)
+  silo plugin list                       configured plugins and what they attach to
+  silo plugin info <name>                a plugin's manifest, claims and config schema
+  silo plugin doctor                     load every plugin, report failures, exit
   silo version
   silo help
 
@@ -244,22 +247,24 @@ Subcommands operate directly on the data dir — no running server needed.
       process.exit(1);
     }
 
-    // Initialize service
+    // Storage, through the provider registry (D31/§13.7). The built-ins are
+    // registered under reserved names rather than branched on here, so a
+    // third-party adapter reaches the same lookup the shipped ones do — and a
+    // default install still resolves "sqlite" to SqliteStore with no plugin,
+    // no network and no configuration.
+    const providers = ProviderRegistry.withBuiltins();
     let store: any;
+    let blobStore: any;
     const tokenizer = SearchTokenizers.sqlite(cfg.search.tokenizer);
-    if (cfg.storage.driver === "sqlite") {
-      store = await SqliteStore.open(path.join(cfg.storage.path, "silo.db"), {
-        enabled: cfg.search.enabled,
-        tokenizer,
-      });
-    } else if (cfg.storage.driver === "fs") {
-      store = await FsStore.open(cfg.storage.path);
-    } else {
-      console.error(`unknown storage driver "${cfg.storage.driver}"`);
+    try {
+      // Before storage is opened, because a provider plugin *is* the storage.
+      await PluginLoader.loadProviders(PluginRegistry.directory(cfg), cfg.plugins, providers);
+      store = await providers.openStorage(cfg);
+      blobStore = providers.openBlob(cfg.blob_storage);
+    } catch (err: any) {
+      console.error(`silo: ${err.message}`);
       process.exit(1);
     }
-
-    const blobStore = BlobStorageFactory.create(cfg.blob_storage);
 
     // The native engine when this build has FTS5 and search is on, the
     // portable one otherwise (D30). `createSearcher` returns null rather than
@@ -294,10 +299,33 @@ Subcommands operate directly on the data dir — no running server needed.
     // file would take the answer away from whoever asked for it.
     const logger = cmd === "serve" ? Logger.create(cfg.log) : Logger.silent();
 
+    // Extension plugins load only for `serve` (D31). Every other subcommand is
+    // a one-shot against the data dir, and spinning a worker per plugin to run
+    // an export would pay the cold start for hooks that will never fire —
+    // `doctor` is the exception, because loading them *is* what it reports on.
+    let plugins = PluginRegistry.empty(logger);
+    try {
+      if (cmd === "serve") {
+        plugins = await PluginRegistry.load(cfg, svc, logger);
+        svc.useHooks(plugins.hooks());
+      }
+    } catch (err: any) {
+      // Refuse the start rather than serve without a plugin the operator
+      // configured: an instance that looks healthy and has quietly stopped
+      // enforcing something is the worse outcome (§13.3).
+      console.error(`silo: ${err.message}`);
+      await store.close().catch(() => {});
+      process.exit(1);
+    }
+
     try {
       switch (cmd) {
         case "serve":
           await ServeCommand.run(svc, cfg, Cli.version, store, logger);
+          await plugins.stop();
+          break;
+        case "plugin":
+          await PluginCommand.run(cfg, svc, positionals);
           break;
         case "keys":
           await KeysCommand.run(svc, store, positionals, values);

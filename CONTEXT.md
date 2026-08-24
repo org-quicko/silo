@@ -13,7 +13,84 @@ A minimal, self-hostable headless CMS. Users define collections with JSON Schema
 
 ## Where things stand
 
-*Last updated: 2026-08-22*
+*Last updated: 2026-08-24*
+
+- **A D7 sweep over the plugin code (2026-08-24).** D7 says "no speculative
+  interfaces with zero implementations", and the first pass shipped four things
+  that failed it. Removed: the **inline plugin host** and the `isolation`
+  parameter threaded through `PluginRegistry.load`/`ExtensionLoadOptions` to
+  reach it — nothing ever passed `"inline"`, and both of its stated consumers
+  disclaim it in their own comments (`PluginLoader.loadProviders` says providers
+  never go through `PluginHost`, and `plugin-hooks.test.ts` says an inline load
+  would pass a plugin whose worker cannot start); `WriteContexts.Import` and
+  `.Cli`, neither of which anything raised; and `"cli"` from `HookOrigin`, which
+  had no producer and no reservation argument, and which the frozen `silo:api`
+  types were advertising to plugin authors as a branch worth checking.
+  `HookOrigin`'s `"import"` **stays** — it is reserved exactly as
+  `/api/plugins/` is, so §12.8 can reach the transfer paths without changing a
+  payload shape 1.0 froze. `PluginHost` also stays a port on one adapter: what
+  is worth naming is the contract that spans a clone boundary, not the count of
+  things implementing it. The same pass folded `ProviderRegistry`'s local
+  `StorageFactory`/`BlobFactory` declarations back onto the dedicated files they
+  had been shadowing — the second-source-of-truth shape that got
+  `BlobStorageFactory` deleted a change earlier.
+
+- **Plugins are in (2026-08-24, D31/§13).** Two kinds and no more:
+  **providers** implement `Storage` or `BlobStorage` and run inline;
+  **extension** plugins register hooks and run in a `Worker`. A plugin is a
+  directory under `<data dir>/plugins/` named in an ordered `[[plugins]]` array
+  in `silo.toml` — there is no installer, and `silo plugin list|info|doctor` are
+  read-only and offline. Everything else plugin-shaped (an installer, HTTP
+  interceptors, plugin routes, format plugins, UI contributions) is §12.8 and
+  additive; `/api/plugins/*` is **reserved and returns 404** so 1.x can mount
+  there without a collision.
+  - **`server/plugins/` is four submodules, one artifact per file:** `manifest/`
+    reads and validates `package.json#silo` *without running anything* (so
+    `silo plugin info` can show what a package wants before its code loads),
+    `host/` executes plugin code behind the `PluginHost` port, `runtime/` is
+    what a running plugin can see and do, and `registry/` is the single explicit
+    wiring site `Cli` goes through. Import from `server/plugins` (the index),
+    not from a file inside.
+  - **Plugins import the host through a virtual module, `silo:api`**, and
+    therefore declare **no runtime dependency on silo at all**. `SiloApi`
+    registers it in the host realm and `WorkerSource` registers a matching one
+    inside each worker; `silo-api-types.d.ts` is the types-only half (named so
+    rather than `silo-api.d.ts` because TypeScript ignores a `.d.ts` shadowed by
+    a same-named `.ts`). This is what stops every plugin carrying its own copy
+    of the shared package and re-creating, once per plugin, the cross-realm
+    identity problem `ValidationError.is` already exists to work around.
+  - **Five hooks in `server/core/hooks/`, dispatched by `Service`:**
+    `entry.beforeValidate` (the only mutating one — it runs *before* validation
+    so the schema still judges exactly what gets stored), `entry.beforeWrite`
+    and `entry.beforeDelete` (veto-only), `entry.afterWrite` and
+    `entry.afterDelete` (observe, best-effort, at-most-once). `Hooks` is a port
+    with `NoOpHooks` as the null object, so `Service` has one dispatch path
+    rather than five null checks. `Service.useHooks()` is a deliberate second
+    wiring step: a plugin's context calls back into the same `Service`, so the
+    two cannot both be constructed first.
+  - **The transfer paths do not dispatch, on purpose.** `Importer` and
+    `ScopeCopier` write through `Storage.put` directly. Left that way because an
+    import must reproduce an archive faithfully — a mutating hook would make
+    export→import non-idempotent and break the property D5 exists for — and
+    because import already treats schema validation as opt-in (`--validate`).
+    `HookOrigin` carries `"import"` already, so wiring it later changes no
+    payload shape.
+  - **A plugin is an API key with code attached.** It never receives `Storage`
+    or `Service`; it calls `ctx.entries.*`, and every call is checked against
+    the operator's granted claims with the ordinary `Claims`/`ParsedClaim`
+    machinery. D31 adds **no new claim strings**. A manifest requesting a claim
+    the config does not grant refuses the start, naming the claim — rather than
+    surfacing later as a 403 from inside a hook on someone else's request.
+  - **The `Worker` bounds faults, not malice** — it contains crashes, spins and
+    memory, not a plugin reading the database. A runaway plugin is timed out,
+    faulted and torn down, and is **not** restarted into the same wall on the
+    next write; `server/test/plugins/hostile-plugin.test.ts` pins both halves.
+    The trust boundary is installing the plugin, as with npm and VS Code.
+  - **Testing note that cost an afternoon:** `await expect(p).rejects` in
+    `bun:test` starves the `Worker` message callback, so a dispatch that really
+    answers in ~20 ms instead sits until its timeout and the assertion sees a
+    `PluginTimeoutError` rather than what the plugin threw. Worker-crossing
+    rejections go through the local `rejection()` helper instead.
 
 - **The Entries page — and the search model around it — is redesigned
   (2026-08-22):** one smart search bar replaces the three fields that all said
@@ -1777,7 +1854,7 @@ A minimal, self-hostable headless CMS. Users define collections with JSON Schema
   - **Blob Storage Adapters:**
     - **Filesystem Adapter (`FsBlobStorage`):** Stores media files locally in a directory that follows the data dir (`<data>/media`) unless one is named explicitly. Default behavior.
     - **S3 Adapter (`S3BlobStorage`):** Uses `@aws-sdk/client-s3` to support AWS S3 and S3-compatible providers (MinIO, Cloudflare R2, DigitalOcean Spaces, etc.).
-    - **Factory (`BlobStorageFactory`):** Configured via `[blob_storage]` in `silo.toml` or `SILO_BLOB_*` environment variables.
+    - **Driver selection (`ProviderRegistry`, D31):** Configured via `[blob_storage]` in `silo.toml` or `SILO_BLOB_*` environment variables.
   - **Export/Import Media Portability:** `Exporter` and `Importer` use `BlobStorage` to seamlessly export and import media files across any backend.
 - **Direct server copy is available:**
   - A key with `transfer:copy` can pull a complete export from another running silo through `POST /api/copy` or the admin UI's **Data transfer** view.
@@ -1819,18 +1896,20 @@ A minimal, self-hostable headless CMS. Users define collections with JSON Schema
 
 | Path | What it is |
 |------|------------|
-| `IMPLEMENTATION.md` | Design spec + decisions log (D1–D30) |
+| `IMPLEMENTATION.md` | Design spec + decisions log (D1–D31) |
 | `CONTEXT.md` | This file — current state of the project |
 | `CLAUDE.md` | Standing instructions for AI assistants |
-| `package.json` | Project metadata, TypeScript 7 setup, Bun/Hono dependencies, and AWS S3 SDK; declares the `shared` and `ui` Bun workspaces, and is the one install root and one lockfile for all three packages. `build` delegates to `scripts/build.ts` rather than inlining the compile, because the signing step is platform-conditional |
+| `package.json` | Project metadata, TypeScript 7 setup, Bun/Hono dependencies, AWS S3 SDK, and `semver` (D31 — the plugin compatibility gate; taken deliberately over hand-rolled range matching); declares the `shared` and `ui` Bun workspaces, and is the one install root and one lockfile for all three packages. `build` delegates to `scripts/build.ts` rather than inlining the compile, because the signing step is platform-conditional |
 | `tsconfig.json` | TypeScript configuration for the Bun server, shared package, and build scripts (`include: ["server/**/*", "shared/**/*", "scripts/**/*"]`) |
 | `shared/` | Local `@silo/shared` package (a Bun workspace of the root) for runtime-neutral client/server rules. `src/claims/` is the single source of truth for claim constants, the `Claim`/`FixedClaim`/`CollectionClaim`/`CollectionPermission`/`ClaimPreset` types, `ParsedClaim`, validation, matching, delegation, and presets; `src/errors/` holds `ValidationError` and the `ValidationDetail` wire shape; `src/schema/` holds `SiloRef` (the `silo://collections/` `$ref` scheme), `SchemaAccess` (`x-silo-auth`), and `MediaField` (`x-silo-type: "media"`); `src/keys/` holds `KeyFormat` (secret prefix and display truncation); `src/media/` holds `MediaRef` (the `silo://media/<ulid>` scheme, its pre-D23 `/media/<key>` dual-read, and the canonical form the write path stores). Tests under `shared/test/`. Each artifact is its own file and its own `exports` subpath. `src/query/path/` holds `JsonPath` and `PathSelector` — the RFC 9535 subset parser (D29), placed here because the filter builder, the query validator, the SQL compiler and the in-memory evaluator must agree on what a path means; `src/query/filter.ts` and `filter-ops.ts` hold the `Filter` node and the closed operator list for the same reason, so the UI's filter menu and the server's validator cannot disagree about what an op is. `src/schema/search-fields.ts` reads and validates the `x-silo-search` keyword (D30), beside `schema-access.ts` and `media-field.ts` for the same reason those live here |
 | `server/main.ts` | Thin CLI entrypoint — imports `Cli` and runs it |
 | `server/version.ts` | `SiloVersion` (what this build calls itself) and `PackageVersion` (what the manifest declares), both derived from the root `package.json` — the single place the version is written (D28). A release build overrides `SiloVersion` through `--define SILO_VERSION`; every other build carries a `-dev` suffix |
 | `server/cli/` | `cli.ts` (argv parsing, subcommand routing, dependency wiring), `bootstrap-banner.ts` (the first-boot root key announcement), and `commands/` (one command class per subcommand: `serve-command.ts`, `keys-command.ts`, `export-command.ts`, `import-command.ts`, `init-command.ts` — `silo init`, the config scaffold rendered from `ConfigLoader.defaultConfig()` so it cannot drift from the built-in defaults, `media-command.ts` — `silo media reconcile`, the catalog repair that runs against the data dir with no server, reporting what it adopted, pruned, finished and returned to active, and the four process-lifecycle commands: `serve-detached-command.ts` — `silo serve --detach`, which spawns the child and waits for *its* run file before reporting success, `stop-command.ts`, `status-command.ts`, `logs-command.ts`). `Cli` routes `serve --detach`, `stop`, `status` and `logs` before storage is opened, like `init`: none of them is the server, so none may create a data dir or take a handle on another process's database |
-| `server/config/` | `Config` type and its sub-shapes (`storage-config.ts`, `blob-storage-config.ts`, `auth-config.ts`, `schema-config.ts`, `search-config.ts`, `log-config.ts`) plus `ConfigLoader` (`config-loader.ts`) — `loadConfig` walks file then env, and `resolveDerivedDefaults` fills in the paths derived from others (the fs blob dir) once flags have been applied |
+| `server/config/` | `Config` type and its sub-shapes (`storage-config.ts`, `blob-storage-config.ts`, `auth-config.ts`, `schema-config.ts`, `search-config.ts`, `log-config.ts`, `plugin-config.ts` — one entry of the ordered `[[plugins]]` array, whose order *is* hook dispatch order) plus `ConfigLoader` (`config-loader.ts`) — `loadConfig` walks file then env, and `resolveDerivedDefaults` fills in the paths derived from others (the fs blob dir) once flags have been applied |
 | `server/logging/` | The server's log (D25): `Logger` (level threshold, `text`/`json` formatting, `raw` for the bootstrap banner, `silent()` for tests), `LogLevel` + `LogLevels`, the `LogSink` port with `ConsoleSink` and a size-rotating `FileSink`, `LogLocation` (where a detached run writes, and where `silo logs` reads) and `LogTail` (the last n lines, and follow across a rotation) |
 | `server/runtime/` | Process lifecycle (D25): `RunState` and `RunFile` (`<data dir>/silo.run.json` — written after the bind, removed on clean shutdown, and the guard that refuses a second server over a live one), `Daemon` (detached spawn, health polling, SIGTERM-then-SIGKILL), `ListenAddress` (the `[host]:port` grammar, shared by `serve` and the health probe), `ProcessTitle` (what a running server calls itself in the OS process list — the real thing on Linux/macOS, where it replaces argv; the console title only on Windows, where an image name is fixed by the executable) |
+| `server/plugins/` | The plugin system (D31/§13), four submodules with an index each. `manifest/`: `PluginManifest` + `ResolvedPlugin` + `ProviderPort` (two values, `storage` and `blob` — `Searcher` is a port but **not** a provider kind: nothing selects one by name, and D30 keeps the FTS index inside `SqliteStore`'s own transactions, so an external engine could only be fed by best-effort `afterWrite` and would drift silently. Waits on the change feed, §12.1), `ManifestReader` (finds a plugin under `<data>/plugins/` as a plain directory *or* `node_modules/<name>`, and validates `package.json#silo` without executing it), `VersionRange` (the range a manifest declares against `SiloVersion` — no separate plugin API version, so this one comparison is the whole compatibility gate. Ranges are ordinary npm ranges evaluated by the `semver` package; what silo adds is dropping the prerelease suffix first, because every non-release build carries `-dev` (D28) and semver would otherwise let no plugin load outside a tagged release. That is a *narrower* rule than `includePrerelease`, which would also admit a `2.0.0-rc.1` to a plugin pinned `^1`. Hand-rolled first and replaced by the dependency deliberately: the closed subset it enforced was not worth 149 lines of comparison logic, which had already shipped one bug — an unanchored parse that read `1.x` as `1` and made it mean *any* version), `PluginConfigValidator` (Ajv over the manifest's `config` schema; invalid config refuses the start). `host/`: the `PluginHost` port with `WorkerHost` (one worker per plugin, `data:` URL bootstrap, the **only** host — an inline one was written during M5 and removed, because nothing selected it and a host whose `timeout_ms` is advisory next to one where it is enforced is a trap, not an option; providers never reach this port at all, being constructed rather than dispatched), `PluginRpc`, `PluginHostOptions`, `PluginTimeoutError`, `WireError` + `PluginError` (errors rebuilt across the clone boundary **by name**, and only `ValidationError`/`ForbiddenError`/`NotFoundError`/`ConflictError` — anything else stays a plain `Error` so a crash cannot masquerade as a deliberate rejection), `SiloApi` and `WorkerSource`. `runtime/`: `PluginContext` (the claim-checked facade, and the depth counter that refuses a runaway write loop), `PluginRuntime` (one loaded plugin; serialises its own dispatches, which is what makes the context's single `depth` field sound), `HookBus` (dispatch in `[[plugins]]` order, with the rejection-vs-fault-vs-terminal error policy). `registry/`: `ProviderRegistry` (driver name → adapter, built-ins registered under the **reserved** names `sqlite`/`fs`/`s3` that no plugin may shadow), `PluginLoader`, `PluginRegistry`, and the `StorageFactory`/`BlobFactory` types (declared once, in their own files — `ProviderRegistry` shadowed them with local copies until the D7 sweep) |
+| `server/core/hooks/` | The hook port and its vocabulary (D31/§13.5): `Hooks` (and the note on which write paths dispatch and which deliberately do not), `NoOpHooks`, `HookName` + `HookNames`, `HookOp`, `HookOrigin`, `HookScope`, `WriteContext` + `WriteContexts`, and `events/` — one file per event shape, all plain JSON because every payload may cross a structured-clone boundary |
 | `server/core/domain/` | `Entry`, `Meta`, `EntryUtils`, `Collection`, `Scope` |
 | `server/core/ports/` | `Storage` and `BlobStorage` port interfaces, and `DerivedIndex` — the media usages and search text a write carries into the adapter's own transaction (D23, D30) |
 | `server/core/search/` | Search (D30, §5.5): the `Searcher` port and its value types, `SearchText` (the `x-silo-search`-driven extractor), `SearchTokens` (the tokenizer both engines answer to), `SearchSnippets`, and `ScanSearcher` — the portable engine that speaks only through `Storage`, so it works on every adapter |
@@ -1843,12 +1922,13 @@ A minimal, self-hostable headless CMS. Users define collections with JSON Schema
 | `server/core/service/` | `Service` (orchestration, and since D30 the compiler of a key's claims into a `SearchAccess` plan), `KeyView`, `AsyncMutex`, `CollectionEraser` |
 | `server/adapters/storage/sqlite/` | `SqliteStore`, `SearchIndex` (FTS5 tables, capability probe, version stamp) and `SqliteSearcher` (D30), plus `SqliteCompiler` — which compiles a parsed `JsonPath` to `json_extract` for a singular path and to a nested `EXISTS`/`json_each` chain for a wildcard, translating RFC 9535's `[-1]` into SQLite's `[#-1]` (D29) |
 | `server/adapters/storage/fs/` | `FsStore` + `FsFilter` + `FsManifest` |
-| `server/adapters/blob/` | `FsBlobStorage`, `S3BlobStorage`, `BlobStorageFactory` (imported directly — no barrel) |
+| `server/adapters/blob/` | `FsBlobStorage`, `S3BlobStorage` (imported directly — no barrel). `BlobStorageFactory` is **gone** as of D31: `ProviderRegistry` builds both by driver name, and keeping a second place that knew how to construct an S3 client would be the duplicate source of truth D18 rejected for scopes and D28 for the version number |
 | `server/adapters/http/` | `HttpSiloClient` (+ `Fetcher` type) — the authenticated HTTP source client for direct copy |
 | `server/http/server.ts` | `SiloServer` class — builds the Hono app (middleware, routes, and one handler for the admin UI and its SPA fallback, sourced through `UiAssets`). Takes `SiloServerOptions` (`version`, `authDisabled`, `logger`, `logRequests`) rather than positional arguments; request logging is registered only when asked for, so a server with it off pays nothing per request |
 | `server/http/ui-assets.ts` | `UiAssets` — where the admin UI comes from. A release build registers an embedded route→path map through `useEmbedded` (generated by `scripts/build.ts`); everything else reads `./ui/dist`, the documented dev flow. The disk branch normalises before joining, so a request path cannot climb out of the UI root |
 | `server/http/middleware/` | `LoggingMiddleware`, `AuthMiddleware` |
 | `server/http/auth/` | `RouteAuth` — claim-checking helpers for route handlers |
+| `server/http/routes/plugin-routes.ts` | `/api/plugins/*` — **reserved and 404** (D31/§13.1). Registered rather than left to fall through, because reserving a namespace costs nothing now and is unavailable later: without it a 1.x could not tell a plugin route from a client-router path someone had already deep-linked |
 | `server/http/routes/` | `RouteManager` plus one routes class per resource (`projects-routes.ts`, `collections-routes.ts`, `entries-routes.ts` + `request-utils.ts`, `keys-routes.ts`, `media-routes.ts`, `transfer-routes.ts`, `copy-routes.ts` + `copy-request.ts` + `scope-copy-request.ts`, `session-routes.ts`). `CopyRoutes` serves both the whole-instance `/api/copy` and the scoped `/api/projects/:p/environments/:e/copy` |
 | `server/test/` | Test suites running via `bun test`: `conformance/` (storage conformance suite), `adapters/`, `core/`, `cli/` (bootstrap banner rendering, `silo init`'s scaffold round-tripping back to the defaults), `config/` (config layering, the derived fs blob path, and the `[log]` block), `version.test.ts` (every manifest agrees, the runtime version derives from the root one, a non-release build is marked `-dev`, and no source file has reacquired a hard-coded version), `logging/` (level thresholds, both formats, rotation, tailing and following across a rotation), `runtime/` (run-file staleness and the one-server-per-data-dir refusal, the process title leading with the name and never throwing, the argv a detached child inherits, a real detached start/stop/status round trip that pins the lost-the-port regression, and the same round trip against a freshly compiled binary — the only place the virtual-entry-path bug exists), `http/` (claims enforcement/delegation, entries API, export/import, direct server copy, scope-to-scope copy, media catalog/folders/search/reference integrity, schema `$ref`, projects API tests). The conformance suite pins media usages on both adapters — the one D23 invariant they answer by completely different means |
 | `ui/` | React + TS + Vite SPA (Slate design), organized into feature dirs (`api/`, `schema/`, `components/`, `forms/`, `query/` — the Query AST's round trip through the URL and the builder's flat model, `router/`, `utils/` with `Formatters`, `ThemeManager` & `ScopeMemory`, `views/*`) with colocated CSS Modules and a small global foundation under `styles/`. Every collection/entry call is scoped through `ApiClient.collectionsPath`; the active `(project, env)` is part of the URL, switched from the `/servers` gate in the workspace and from the settings nav's scope switchers. Shared protocol rules come from `@silo/shared`; `ui/dist` contains the compiled SPA served at the web root. `src/**/*.test.ts` are `bun test` suites in their own TS project (`tsconfig.test.json`) and run from the repo root alongside the server's |
