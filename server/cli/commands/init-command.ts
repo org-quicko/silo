@@ -94,6 +94,13 @@ requests    = ${cfg.log.requests}     # one line per HTTP request; its own switc
 max_size_mb = ${cfg.log.max_size_mb}       # rotate past this size; 0 never rotates
 max_files   = ${cfg.log.max_files}        # rotated files kept as silo.log.1 … silo.log.<n>
 # file = "/var/log/silo.log"  # unset = the console. "serve --detach" uses <storage.path>/silo.log unless this names one.
+
+# Plugins. An *ordered* array — the order is hook dispatch order. None by
+# default: a plugin is a directory under <storage.path>/plugins/ that this
+# file names. See the "Plugins" section of the README.
+# [[plugins]]
+# name   = "silo-plugin-slug"
+# claims = ["collections:*/*/*:entries:read"]
 `;
   }
 }

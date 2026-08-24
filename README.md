@@ -26,6 +26,7 @@ can already read.
 - [CLI](#cli)
 - [HTTP API](#http-api)
 - [Authentication and claims](#authentication-and-claims)
+- [Plugins](#plugins)
 - [Portability](#portability)
 - [Deployment](#deployment)
 - [Development](#development)
@@ -265,6 +266,12 @@ requests    = true            # a line per HTTP request
 max_size_mb = 10              # rotate past this size; 0 never rotates
 max_files   = 5               # kept as silo.log.1 … silo.log.5
 # file = "/var/log/silo.log"  # unset means the console
+
+# Plugins. An *ordered* array — the order is hook dispatch order.
+# Absent by default; `init` writes none. See "Plugins" below.
+# [[plugins]]
+# name   = "silo-plugin-slug"           # a directory under <data dir>/plugins/
+# claims = ["collections:*/*/*:entries:read"]
 ```
 
 | Environment variable | Overrides |
@@ -405,6 +412,9 @@ bun run server/main.ts export [flags]                export schemas, entries, an
 bun run server/main.ts import [flags] <dir|tarball>  import an export
 bun run server/main.ts media reconcile               repair the media catalog against stored blobs
 bun run server/main.ts search reindex [--check]      rebuild the search index, and verify it
+bun run server/main.ts plugin list                   configured plugins and what they attach to
+bun run server/main.ts plugin info <name>            one plugin's manifest, claims and config
+bun run server/main.ts plugin doctor                 load every plugin, report failures, exit
 bun run server/main.ts version                       print the version
 ```
 
@@ -620,6 +630,187 @@ Presets (`root`, `write`, `read`) are conveniences over the same claim set, in
 the CLI through `--preset` and in the admin UI's key form. Stored keys must
 carry a `claims` array; legacy role or collection-allowlist records are rejected
 rather than translated.
+
+## Plugins
+
+A plugin is a directory under `<data dir>/plugins/` that silo loads because
+`silo.toml` names it. There is no installer and no registry: you place the
+directory, you list it, it runs. Plugins live in the data directory rather than
+beside the binary because a packaged binary is root-owned and read-only, and
+because an instance is a directory you can copy — so an instance travels with
+its extensions.
+
+Two kinds, and no more:
+
+| Kind | What it does | Runs |
+|------|--------------|------|
+| **Extension** | Registers hooks on the entry lifecycle | In a `Worker`, one per plugin |
+| **Provider** | Implements the storage or blob-storage port, adding a driver name | In-process |
+
+The built-in adapters are registered through the same registry, under the
+reserved names `sqlite`, `fs` and `s3` that no plugin may take. `[storage]
+driver` is a lookup in that registry, so a third-party store is selected exactly
+the way a built-in one is.
+
+### Writing one
+
+A plugin needs no build step — silo transpiles TypeScript itself — and **no
+dependencies at all**, including on silo.
+
+`<data dir>/plugins/silo-plugin-slug/package.json`
+
+```json
+{
+  "name": "silo-plugin-slug",
+  "type": "module",
+  "main": "index.ts",
+  "silo": {
+    "silo": "^1",
+    "kind": "extension",
+    "hooks": ["entry.beforeValidate"],
+    "claims": [],
+    "config": {
+      "type": "object",
+      "properties": { "field": { "type": "string" } },
+      "required": ["field"],
+      "additionalProperties": false
+    }
+  }
+}
+```
+
+The `silo` block is the **manifest**, and it is static on purpose: `silo plugin
+info` has to show an operator what a package wants *before* any of its code
+runs.
+
+| Key | Meaning |
+|-----|---------|
+| `silo` | The version range of silo this plugin supports, checked at startup. There is no separate plugin API version — a breaking change to a hook payload is a major version of silo. |
+| `kind` | `extension` or `provider`. |
+| `hooks` | Which hooks to dispatch. A hook the module exports but does not declare here is never called. |
+| `claims` | What the plugin asks for. The operator grants in `silo.toml`; a plugin requesting more than it was granted refuses the start. |
+| `config` | A JSON Schema for `[plugins.config]`, validated at startup. |
+
+`<data dir>/plugins/silo-plugin-slug/index.ts`
+
+```ts
+import { defineSiloPlugin, ValidationError } from "silo:api";
+
+export default defineSiloPlugin({
+  "entry.beforeValidate"(event, ctx) {
+    if (event.collection !== "posts") return;
+
+    const title = event.data[ctx.config.field];
+    if (typeof title !== "string") throw new ValidationError("a post needs a title");
+
+    return { data: { ...event.data, slug: title.toLowerCase().replace(/[^a-z0-9]+/g, "-") } };
+  },
+});
+```
+
+`silo:api` is a **virtual module**. It has no file on disk and is not on npm --
+silo injects it into the plugin's import graph before the plugin loads. That is
+why a plugin declares no dependencies, and why there is only ever one copy of
+`ValidationError` in play instead of one per plugin. For editor support, copy
+`server/plugins/host/silo-api-types.d.ts` next to your plugin; it is types only
+and contributes nothing at runtime.
+
+### Enabling one
+
+```toml
+[[plugins]]
+name       = "silo-plugin-slug"   # the directory under <data dir>/plugins/
+claims     = []                   # what this plugin is allowed to do
+timeout_ms = 5000                 # per dispatch
+on_error   = "fail"               # "fail" (default) | "skip"
+
+  [plugins.config]
+  field = "title"
+```
+
+The array is **ordered, and that order is hook dispatch order** — top to
+bottom, with no priority number to compete over and no load-order surprise.
+
+`name` resolves under `<data dir>/plugins/` as either a plain directory or a
+`node_modules/<name>` layout. There is deliberately no `SILO_PLUGINS`
+environment variable: which code an instance runs is not something the
+environment should be able to change.
+
+### Hooks
+
+Five, each carrying `op` so `create` and `update` share one function:
+
+| Hook | May | Notes |
+|------|-----|-------|
+| `entry.beforeValidate` | replace `data`, reject | The only mutating hook |
+| `entry.beforeWrite` | reject | The data is already validated |
+| `entry.afterWrite` | observe | Best-effort, at-most-once |
+| `entry.beforeDelete` | reject | Carries the entry, not just its id |
+| `entry.afterDelete` | observe | Best-effort, at-most-once |
+
+Mutation happens **before** validation, so the schema judges exactly what gets
+stored. After validation a hook may reject but not rewrite — otherwise it would
+store a value the schema never saw.
+
+Plugins shape `data`. The envelope — `id`, `rev`, `seq`, timestamps — belongs
+to silo, and no hook can set it.
+
+**Hooks are lifecycle events, not HTTP middleware.** They fire for the CRUD API
+and for a plugin's own writes. They deliberately do *not* fire for `silo import`
+or a scope copy: an import reproduces an archive faithfully, and a hook
+rewriting data mid-import would make export then import non-idempotent — which
+is the single property [Portability](#portability) rests on.
+
+### What a plugin is allowed to do
+
+A plugin never receives the database or the service. It calls `ctx.entries.*`,
+and every call is checked against the claims the operator granted, using the
+same machinery an API key goes through — **a plugin is an API key with code
+attached.** Plugins introduce no new claim strings; the grammar is the one in
+[Authentication and claims](#authentication-and-claims).
+
+```toml
+claims = ["collections:blog/prod/posts:entries:read"]
+```
+
+Throwing `ValidationError` or `ForbiddenError` from a hook is a **deliberate
+rejection** and surfaces as a 400 or 403. Any other throw is a **plugin fault**,
+governed by `on_error`: `fail` refuses the write, `skip` logs it and carries on.
+Either way it is logged. `afterWrite` and `afterDelete` never fail a request --
+the write has already committed, and a 500 there would invite a retry that
+writes twice.
+
+### The trust boundary
+
+Extension plugins run in a `Worker`. **That bounds faults, not malice.** A
+plugin that crashes, spins forever, or eats memory is timed out, torn down and
+reported while the server keeps serving, and it is not restarted into the same
+wall on the next write. It does *not* stop plugin code reading the database or
+opening a socket: worker code holds full privileges.
+
+The trust boundary is the act of installing, exactly as it is for an npm
+package, a VS Code extension, or a Strapi plugin. The claim check expresses
+intent and catches mistakes; it is not a sandbox. Read a plugin before you place
+its directory.
+
+### Inspecting
+
+```
+silo plugin list             configured plugins, what they attach to, their claims
+silo plugin info <name>      one plugin's manifest, requested vs granted claims, config
+silo plugin doctor           load everything the way serve would, report failures, exit
+```
+
+All three are read-only and need no network. `list` and `info` read the manifest
+without executing anything, so they still work on a plugin that would fail to
+load. `doctor` answers "would `serve` start?" without starting a server, and
+exits non-zero when the answer is no.
+
+A plugin that fails to load — a missing directory, a version range that
+excludes this binary, invalid config, a claim that was not granted, a declared
+hook the module does not export — **refuses the start**. It is never skipped
+with a warning: an instance that runs, looks healthy, and has quietly stopped
+doing what a plugin was installed to do is the worst outcome available.
 
 ## Portability
 
@@ -889,11 +1080,18 @@ and static helpers rather than loose top-level functions.
   and MCP-aware editors can browse collections, query entries, and write content
   through the same claims a REST key carries, with no bespoke integration per
   tool.
-- **Custom adapters.** Storage and blob storage are already interfaces that the
-  core never reaches around. The work left is a documented, versioned extension
-  surface plus a published conformance suite, so a third-party adapter, for
-  example Postgres, a git remote, or another object store, can be dropped in and
-  proven to behave exactly like the built-in drivers.
+- **A published conformance suite.** [Plugins](#plugins) shipped the extension
+  surface itself: a third-party storage or blob adapter registers a driver name
+  through the same registry the built-in ones use, and `[storage] driver`
+  selects it exactly the way it selects `sqlite`. What is missing is proof. The
+  suite that pins what an adapter must actually do runs inside this repo;
+  publishing it is what turns "behaves like the built-in drivers" from folklore
+  into something a Postgres, git-remote or object-store adapter can run in its
+  own CI.
+- **A plugin installer.** Today a plugin is a directory you place and list.
+  `silo plugin add`, with a lockfile, integrity pinning and a signature policy,
+  is deliberately not in 1.0: none of it changes what a plugin can do, and all
+  of it can arrive later without touching the contract.
 - **More backup options.** Scheduled and incremental exports, retention
   policies, and pushing an archive straight to a remote target such as an
   S3-compatible bucket, a git repository, or another running silo, instead of

@@ -910,8 +910,10 @@ export default defineSiloPlugin({
 });
 ```
 
-A plugin therefore declares **zero runtime dependencies**. `@silo/plugin-types`
-exists for editor support only and must contribute nothing at runtime. This is
+A plugin therefore declares **zero runtime dependencies**. Editor support is
+`server/plugins/host/silo-api-types.d.ts`, which a plugin author copies next to
+their plugin; publishing it as `@silo/plugin-types` is §12.8 work, and whatever
+carries it must contribute nothing at runtime. This is
 what prevents the cross-realm identity problem rather than working around it:
 `SiloServer.onError` already uses `ValidationError.is` instead of `instanceof`
 because prototype identity is unsafe across the `@silo/shared` boundary, and

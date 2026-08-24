@@ -15,6 +15,24 @@ A minimal, self-hostable headless CMS. Users define collections with JSON Schema
 
 *Last updated: 2026-08-24*
 
+- **Plugins are documented in the README (2026-08-24).** M5 built the feature;
+  this is what ships it. Until now `README.md` did not contain the word
+  "plugin" once, which at 1.0 makes the feature unusable by anyone outside this
+  repo — D31 ships **no installer**, so the entire user story is "hand-write a
+  directory and list it in `silo.toml`", and that story only exists if it is
+  written down. Added a `## Plugins` section (between claims and portability,
+  because granting a plugin claims presumes the claim grammar), the three
+  `silo plugin` subcommands in the CLI table, and a commented `[[plugins]]`
+  stanza in the config reference — which `InitCommand` now writes too, matching
+  §10's canonical TOML, so the array is discoverable from a fresh
+  `silo init` rather than only from the spec. The Roadmap bullet that promised
+  "a documented, versioned extension surface plus a published conformance
+  suite" as future work was half-true after D31 and is now split: the surface
+  shipped, `@silo/conformance` and the installer are what is left.
+  §13.3 also claimed `@silo/plugin-types` "exists" — it does not; the types are
+  `server/plugins/host/silo-api-types.d.ts`, copied by hand, and publishing the
+  package is §12.8.
+
 - **A D7 sweep over the plugin code (2026-08-24).** D7 says "no speculative
   interfaces with zero implementations", and the first pass shipped four things
   that failed it. Removed: the **inline plugin host** and the `isolation`
