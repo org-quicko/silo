@@ -3,7 +3,8 @@ import fs from "fs/promises";
 import path from "path";
 import os from "os";
 import { FsBlobStorage } from "../../adapters/blob/fs-blob-storage";
-import { S3BlobStorage } from "../../adapters/blob/s3-blob-storage";
+import { S3BlobStorage, type S3BlobStorageOptions } from "../../adapters/blob/s3-blob-storage";
+import { S3MockServer } from "./s3-mock-server";
 import { ProviderRegistry } from "../../plugins";
 
 describe("FsBlobStorage", () => {
@@ -65,83 +66,109 @@ describe("FsBlobStorage", () => {
 
 });
 
-describe("S3BlobStorage (Mock Client)", () => {
-  test("delegates put, get, delete, list, exists to s3 client", async () => {
-    const mockStorage = new Map<string, { data: Uint8Array; contentType?: string }>();
+describe("S3BlobStorage (against a mock S3 server)", () => {
+  let s3: S3MockServer;
 
-    const mockS3Client: any = {
-      send: async (command: any) => {
-        const cmdName = command.constructor.name;
-        if (cmdName === "PutObjectCommand") {
-          mockStorage.set(command.input.Key, {
-            data: command.input.Body,
-            contentType: command.input.ContentType,
-          });
-          return {};
-        }
-        if (cmdName === "GetObjectCommand") {
-          const item = mockStorage.get(command.input.Key);
-          if (!item) {
-            const err: any = new Error("NoSuchKey");
-            err.name = "NoSuchKey";
-            throw err;
-          }
-          return {
-            Body: {
-              transformToByteArray: async () => item.data,
-            },
-            ContentType: item.contentType,
-            ContentLength: item.data.length,
-          };
-        }
-        if (cmdName === "DeleteObjectCommand") {
-          mockStorage.delete(command.input.Key);
-          return {};
-        }
-        if (cmdName === "ListObjectsV2Command") {
-          const contents = Array.from(mockStorage.entries())
-            .filter(([k]) => !command.input.Prefix || k.startsWith(command.input.Prefix))
-            .map(([k, v]) => ({
-              Key: k,
-              Size: v.data.length,
-              LastModified: new Date(),
-            }));
-          return { Contents: contents };
-        }
-        if (cmdName === "HeadObjectCommand") {
-          if (!mockStorage.has(command.input.Key)) {
-            const err: any = new Error("NotFound");
-            err.name = "NotFound";
-            throw err;
-          }
-          return {};
-        }
-        throw new Error(`Unhandled mock command ${cmdName}`);
-      },
-      destroy: () => {},
-    };
-
-    const s3Store = new S3BlobStorage({
-      bucket: "test-bucket",
-      s3Client: mockS3Client,
+  const openStore = (overrides: Partial<S3BlobStorageOptions> = {}) =>
+    new S3BlobStorage({
+      bucket: S3MockServer.Bucket,
+      endpoint: s3.endpoint,
+      accessKeyId: "test",
+      secretAccessKey: "test",
+      forcePathStyle: true,
+      ...overrides,
     });
 
+  beforeEach(() => {
+    s3 = S3MockServer.start();
+  });
+
+  afterEach(() => {
+    s3.stop();
+  });
+
+  test("put, get, delete, list and exists round trip", async () => {
+    const store = openStore();
     const data = new TextEncoder().encode("s3 content");
-    await s3Store.put("file1.txt", data, { contentType: "text/plain" });
+    await store.put("file1.txt", data, { contentType: "text/plain" });
 
-    expect(await s3Store.exists("file1.txt")).toBe(true);
+    expect(await store.exists("file1.txt")).toBe(true);
 
-    const fetched = await s3Store.get("file1.txt");
+    const fetched = await store.get("file1.txt");
     expect(fetched).not.toBeNull();
-    expect(fetched!.contentType).toBe("text/plain");
     expect(new TextDecoder().decode(fetched!.data)).toBe("s3 content");
+    expect(fetched!.size).toBe(data.length);
 
-    const list = await s3Store.list();
+    const list = await store.list();
     expect(list.length).toBe(1);
-    expect(list[0].key).toBe("file1.txt");
+    expect(list[0]!.key).toBe("file1.txt");
+    expect(list[0]!.size).toBe(data.length);
+    expect(list[0]!.lastModified).toBeInstanceOf(Date);
 
-    await s3Store.delete("file1.txt");
-    expect(await s3Store.exists("file1.txt")).toBe(false);
+    await store.delete("file1.txt");
+    expect(await store.exists("file1.txt")).toBe(false);
+  });
+
+  test("put sends the content type through to the object", async () => {
+    const store = openStore();
+    await store.put("photo.png", new Uint8Array([1, 2, 3]), { contentType: "image/png" });
+    expect(s3.objects.get("photo.png")!.contentType).toBe("image/png");
+  });
+
+  test("get reports the content type its key implies, matching FsBlobStorage", async () => {
+    const store = openStore();
+    await store.put("01ARZ3.png", new Uint8Array([1]), { contentType: "image/png" });
+    expect((await store.get("01ARZ3.png"))!.contentType).toBe("image/png");
+  });
+
+  test("get of a missing key is null, not a throw", async () => {
+    expect(await openStore().get("absent.txt")).toBeNull();
+  });
+
+  test("delete of a missing key is not an error", async () => {
+    expect(await openStore().delete("absent.txt")).toBeUndefined();
+  });
+
+  test("list filters by prefix", async () => {
+    const store = openStore();
+    await store.put("images/a.png", new Uint8Array([1]));
+    await store.put("images/b.png", new Uint8Array([2]));
+    await store.put("docs/readme.md", new Uint8Array([3]));
+
+    expect((await store.list()).length).toBe(3);
+    expect((await store.list("images/")).map((i) => i.key).sort()).toEqual(["images/a.png", "images/b.png"]);
+  });
+
+  // The adapter this replaced issued exactly one ListObjectsV2 and returned
+  // whatever came back, so a bucket holding more than a page of media exported
+  // a silently truncated library — `Exporter.exportDir` walks `list()` to
+  // decide which bytes go into the archive.
+  test("list follows continuation tokens past a single page", async () => {
+    const store = openStore();
+    s3.maxKeysPerPage = 3;
+    for (let i = 0; i < 10; i++) {
+      await store.put(`media/${String(i).padStart(2, "0")}.png`, new Uint8Array([i]));
+    }
+
+    const listed = await store.list("media/");
+    expect(listed.length).toBe(10);
+    expect(listed.map((i) => i.key)).toEqual(
+      Array.from({ length: 10 }, (_, i) => `media/${String(i).padStart(2, "0")}.png`)
+    );
+    expect(s3.requests.filter((r) => r.includes("list-type=2")).length).toBe(4);
+  });
+
+  // Bun names the addressing mode as the positive of the one the AWS SDK names
+  // and defaults it the other way, so an unmapped option would repoint every
+  // existing deployment. These two pin the mapping in both directions.
+  test("no force_path_style addresses the bucket virtual-hosted, as the AWS SDK did", async () => {
+    await openStore({ forcePathStyle: undefined }).put("a.png", new Uint8Array([1]));
+    expect(s3.requests[0]).toBe("PUT /a.png");
+  });
+
+  test("force_path_style puts the bucket in the path", async () => {
+    await openStore({ forcePathStyle: true }).put("a.png", new Uint8Array([1]));
+    expect(s3.requests[0]).toBe(`PUT /${S3MockServer.Bucket}/a.png`);
   });
 });
 

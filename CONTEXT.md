@@ -15,6 +15,54 @@ A minimal, self-hostable headless CMS. Users define collections with JSON Schema
 
 *Last updated: 2026-08-24*
 
+- **`S3BlobStorage` runs on Bun's built-in `S3Client` (2026-08-24).**
+  `@aws-sdk/client-s3` is gone from `package.json`, taking 24 transitive
+  `@aws-sdk`/`@smithy` packages with it. The minified server bundle drops from
+  **937 KB to 450 KB**, which is the whole argument: the `BlobStorage` port is
+  six methods over a five-verb subset of S3, and the SDK charged half the
+  binary for it on a runtime that already has a signed S3 client compiled in.
+  Nothing about the port, the config keys, the archive format, or the driver
+  names changed — `[blob_storage] driver = "s3"` resolves exactly as before.
+  - **`force_path_style` is inverted, not renamed.** Bun states addressing as
+    `virtualHostedStyle` — the positive of the AWS SDK's option — and defaults
+    it to path-style, the opposite of the SDK. An unmapped option would
+    therefore have repointed every existing AWS deployment at path-style URLs,
+    and Bun accepts a stray `forcePathStyle` key without complaint, so the
+    mistake would have been silent. The adapter maps it explicitly
+    (`virtualHostedStyle: !(forcePathStyle ?? false)`) and two tests pin the
+    resulting request path in both directions.
+  - **`list()` now follows continuation tokens, fixing a silent truncation.**
+    `ListObjectsV2` caps a response at 1000 keys and the previous adapter
+    issued exactly one, so an instance with more media than that exported a
+    truncated library — `Exporter.exportDir` walks `list()` to decide which
+    bytes go into the archive. This was a pre-existing bug, not a migration
+    artifact; the rewrite is just where it became visible.
+  - **`get()` reports the content type its key implies, matching
+    `FsBlobStorage`.** Bun exposes the stored `Content-Type` only through
+    `stat()`, which is a second round trip per read *and* a HEAD that a bucket
+    policy granting `s3:GetObject` alone will refuse — so reading it would turn
+    reads that work today into failures. Blob keys carry an extension
+    (`<ulid><ext>`, D23), the fs adapter has always answered this way, and
+    every caller in `Service` reads the catalog's `content_type` first and
+    falls back to exactly this lookup. `close()` is now a no-op: Bun's client
+    holds no pool to destroy.
+  - **The SDK double is replaced by a mock S3 server.** `S3Client` has no
+    `send(command)` seam, so `server/test/adapters/s3-mock-server.ts` serves
+    the real protocol over a real socket instead. That is an upgrade rather
+    than a workaround — the old double could only prove the adapter *called*
+    the SDK as expected, while the mock exercises signing, addressing, XML
+    parsing and pagination, which are precisely the parts the adapter no longer
+    owns and can no longer be trusted to have got right by inspection.
+  - **Only this dependency was worth removing.** `tar`, `semver`, `ulidx`,
+    `ajv`/`ajv-formats` and `hono` were all assessed against Bun 1.4 and kept:
+    `Bun.semver` has no `validRange` and treats an unparseable range as a
+    *match*, which inverts the invariant `VersionRange` exists to hold;
+    `randomUUIDv7` is not a ULID and D2 is a format commitment, not a library
+    choice; Bun has no JSON Schema validator; and `hono` costs 18 KB. `tar`
+    could move to a devDependency once `Importer` uses `Bun.Archive` — the
+    blocker is `scripts/build.ts`, where `Bun.Archive.write` cannot set an
+    executable bit and would ship a non-runnable `silo` in the release tarball.
+
 - **`create-silo-plugin` ships (2026-08-24).** `npm create silo-plugin` (or
   `bunx create-silo-plugin`) scaffolds a plugin: the `package.json#silo`
   manifest, a runnable stub per hook the author picks, the `silo:api` type
@@ -1958,7 +2006,7 @@ A minimal, self-hostable headless CMS. Users define collections with JSON Schema
   - Media/file storage is fully abstracted behind a pluggable `BlobStorage` interface (`server/core/ports/blob-storage.ts`).
   - **Blob Storage Adapters:**
     - **Filesystem Adapter (`FsBlobStorage`):** Stores media files locally in a directory that follows the data dir (`<data>/media`) unless one is named explicitly. Default behavior.
-    - **S3 Adapter (`S3BlobStorage`):** Uses `@aws-sdk/client-s3` to support AWS S3 and S3-compatible providers (MinIO, Cloudflare R2, DigitalOcean Spaces, etc.).
+    - **S3 Adapter (`S3BlobStorage`):** Uses Bun's built-in `S3Client` to support AWS S3 and S3-compatible providers (MinIO, Cloudflare R2, DigitalOcean Spaces, etc.). Path-style addressing is opt-in via `force_path_style`; `list()` follows continuation tokens.
     - **Driver selection (`ProviderRegistry`, D31):** Configured via `[blob_storage]` in `silo.toml` or `SILO_BLOB_*` environment variables.
   - **Export/Import Media Portability:** `Exporter` and `Importer` use `BlobStorage` to seamlessly export and import media files across any backend.
 - **Direct server copy is available:**
