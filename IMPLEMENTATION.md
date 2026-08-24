@@ -912,8 +912,10 @@ export default defineSiloPlugin({
 
 A plugin therefore declares **zero runtime dependencies**. Editor support is
 `server/plugins/host/silo-api-types.d.ts`, which a plugin author copies next to
-their plugin; publishing it as `@silo/plugin-types` is §12.8 work, and whatever
-carries it must contribute nothing at runtime. This is
+their plugin — `create-silo-plugin` (§13.8) does that copy for them, and a
+drift test holds the two byte-identical. That is automation of the hand-copy,
+not a substitute for it: publishing the file as `@silo/plugin-types` is §12.8
+work, and whatever carries it must contribute nothing at runtime. This is
 what prevents the cross-realm identity problem rather than working around it:
 `SiloServer.onError` already uses `ValidationError.is` instead of `instanceof`
 because prototype identity is unsafe across the `@silo/shared` boundary, and
@@ -1080,6 +1082,28 @@ lockfile, a signature policy — is the largest and riskiest piece of this desig
 and none of it touches the contract, so 1.0 ships "a plugin is a directory you
 place and list". Whatever installer arrives must never execute a lifecycle
 script and must reuse `EntryUtils.assertSafeSegment` when extracting.
+
+**Authoring is a separate tool, and deliberately not a subcommand.**
+`create-silo-plugin` — `npm create silo-plugin` — writes the manifest, a
+runnable stub per hook, and the `silo:api` declarations. It is a standalone npm
+package in `create-silo-plugin/`, not `silo plugin new`, because the person
+scaffolding a plugin is a developer who may not have a silo binary installed at
+all, while the binary is a root-owned file on a server; making authorship depend
+on the runtime would be exactly backwards. It also adds nothing to what 1.0
+freezes — it emits files, reads no config and touches no contract — which is
+what keeps it outside the scope this section is protecting.
+
+Two properties are load-bearing. It has **no runtime dependencies**, the same
+property it gives the plugins it emits, so `npx` runs it against a silo it was
+never installed beside. And every fact it copies from silo — the five hooks, the
+reserved driver names, the two provider ports, the port method lists, the
+`silo:api` `.d.ts` — is asserted against the original in silo's own suite
+(`server/test/plugins/create-silo-plugin-drift.test.ts`), so a sixth hook fails
+the change that adds it rather than a stranger's scaffold months later. The
+`"silo"` range it writes is derived from its own version, which `set-version`
+moves with silo's: `^0.2` today, `^1` at 1.0, with nothing to remember. A
+hard-coded `"^1"` would be right about the spec and wrong about every build
+before it, and this gate does not degrade — it refuses the start.
 
 **`silo import` never installs a plugin.** Archives carry data, not code. The
 archive does not record plugin provenance either — it buys a warning message

@@ -657,6 +657,17 @@ the way a built-in one is.
 A plugin needs no build step — silo transpiles TypeScript itself — and **no
 dependencies at all**, including on silo.
 
+To start from a working one:
+
+```sh
+npm create silo-plugin          # or: bun create silo-plugin
+```
+
+[`create-silo-plugin`](create-silo-plugin/) asks what the plugin is for and
+writes the manifest, a runnable stub per hook you pick, the `silo:api` type
+declarations, and the `[[plugins]]` block to paste into `silo.toml`. Everything
+below is what it produces, and what to change once you have it.
+
 `<data dir>/plugins/silo-plugin-slug/package.json`
 
 ```json
@@ -711,9 +722,10 @@ export default defineSiloPlugin({
 `silo:api` is a **virtual module**. It has no file on disk and is not on npm --
 silo injects it into the plugin's import graph before the plugin loads. That is
 why a plugin declares no dependencies, and why there is only ever one copy of
-`ValidationError` in play instead of one per plugin. For editor support, copy
+`ValidationError` in play instead of one per plugin. For editor support, keep
 `server/plugins/host/silo-api-types.d.ts` next to your plugin; it is types only
-and contributes nothing at runtime.
+and contributes nothing at runtime. `create-silo-plugin` copies it for you, and
+a test in this repo keeps the two byte-identical.
 
 ### Enabling one
 
@@ -1046,7 +1058,10 @@ one command moves the lot:
 bun run set-version 0.2.0
 ```
 
-It rewrites every workspace manifest and commits nothing. A build that is not a
+It rewrites every workspace manifest and commits nothing. `create-silo-plugin`
+moves with them for a reason the others do not have: it derives the `"silo"`
+range it writes into every scaffolded manifest from its own version, and that
+range is the whole plugin compatibility gate. A build that is not a
 release reports the version with a `-dev` suffix, so a local `silo version` is
 never mistaken for the published artifact of the same number; pushing a `v0.2.0`
 tag is what publishes it, and the release refuses a tag that disagrees with the
@@ -1057,6 +1072,7 @@ manifest.
 | `server/` | Bun and Hono backend: `core/` (domain, ports, schema, transfer, service), `adapters/` (storage, blob, http client), `http/` (server, routes, auth, middleware), `cli/`, `config/` |
 | `shared/` | `@silo/shared`, a Bun workspace holding runtime-neutral rules both the server and UI depend on: claims, validation errors, schema keywords, key format |
 | `ui/` | React and Vite admin UI, built to `ui/dist` |
+| `create-silo-plugin/` | The plugin scaffolder published to npm as `create-silo-plugin` — a workspace of this repo, with no runtime dependencies of its own. Lives here so its copies of the plugin contract are checked against the originals by silo's own suite |
 | `server/test/`, `shared/test/` | `bun test` suites |
 | `scripts/` | Build, packaging, and versioning tooling invoked through `bun run`, outside the server's source tree |
 | `packaging/` | The Homebrew formula and the dnf package: systemd unit, scriptlets, and repository metadata |

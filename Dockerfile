@@ -12,13 +12,16 @@ ARG BUN_VERSION=1.3.14
 # ---- Stage 1: build the admin UI ----
 # `ui` is a member of the root Bun workspace, so the install has to run from the
 # workspace root with every member's manifest present -- Bun aborts with
-# "Workspace not found" if one is missing from the context. `--filter silo-ui`
+# "Workspace not found" if one is missing from the context. That is why
+# `create-silo-plugin/package.json` is copied here too: adding a workspace to the
+# root manifest and not to this list breaks the image build, not the tests. `--filter silo-ui`
 # then installs only the UI's tree, leaving the server's dependencies out.
 FROM oven/bun:${BUN_VERSION}-alpine AS ui
 WORKDIR /app
 COPY package.json bun.lock ./
 COPY shared/package.json ./shared/
 COPY ui/package.json ./ui/
+COPY create-silo-plugin/package.json ./create-silo-plugin/
 RUN bun install --frozen-lockfile --filter silo-ui
 COPY shared/src/ ./shared/src/
 COPY ui/ ./ui/
@@ -29,14 +32,17 @@ FROM oven/bun:${BUN_VERSION}-alpine AS runtime
 WORKDIR /app
 
 # Install exactly the production dependencies captured in the text lockfile.
-# `ui/package.json` is copied only to satisfy the workspace declaration in the
-# root manifest; `--filter '!silo-ui'` keeps the UI's own dependency tree (React,
-# Vite, CodeMirror -- roughly 70 MB) out of the runtime image, which needs
-# nothing from `ui/` but the prebuilt `dist` copied in below.
+# `ui/package.json` and `create-silo-plugin/package.json` are copied only to
+# satisfy the workspace declaration in the root manifest -- neither ships in the
+# image. `--filter '!silo-ui'` keeps the UI's own dependency tree (React, Vite,
+# CodeMirror -- roughly 70 MB) out of the runtime image, which needs nothing from
+# `ui/` but the prebuilt `dist` copied in below; the scaffolder declares no
+# runtime dependencies at all, so it costs nothing here.
 COPY package.json bun.lock ./
 COPY shared/package.json ./shared/
 COPY shared/src/ ./shared/src/
 COPY ui/package.json ./ui/
+COPY create-silo-plugin/package.json ./create-silo-plugin/
 RUN bun install --frozen-lockfile --production --filter '!silo-ui'
 
 # Copy source and built UI

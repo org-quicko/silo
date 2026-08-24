@@ -18,8 +18,22 @@ import fs from "fs/promises";
  * once the change looks right.
  */
 export class SetVersion {
-  /** The root first: it is the one anything reads. */
-  private static readonly manifests = ["package.json", "shared/package.json", "ui/package.json"];
+  /**
+   * The root first: it is the one anything reads.
+   *
+   * `create-silo-plugin` is here for a reason the other two are not. `shared`
+   * and `ui` are private and their versions are inert; the scaffolder's is
+   * *load-bearing*, because `SiloRange` derives the `"silo"` range it writes
+   * into every scaffolded manifest from it (`0.2.0` → `^0.2`). Leave it behind
+   * on a release and every plugin created afterwards declares a range one
+   * version too narrow — which does not degrade, it refuses the start.
+   */
+  private static readonly manifests = [
+    "package.json",
+    "shared/package.json",
+    "ui/package.json",
+    "create-silo-plugin/package.json",
+  ];
 
   /** Semver proper, since the release workflow rejects anything else and it is
    *  better to hear that here than after pushing a tag. */

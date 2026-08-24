@@ -4,7 +4,7 @@
   "description": "A minimal, self-hostable headless CMS in TypeScript on Bun and Hono",
   "main": "server/main.ts",
   "type": "module",
-  "workspaces": ["shared", "ui"],
+  "workspaces": ["shared", "ui", "create-silo-plugin"],
   "scripts": {
     "start": "bun run server/main.ts serve",
     "test": "bun test",

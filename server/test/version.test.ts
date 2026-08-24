@@ -10,7 +10,15 @@ import { SiloVersion, PackageVersion } from "../version";
  * the reason it rewrites every manifest rather than only the root one.
  */
 describe("version", () => {
-  const manifests = ["package.json", "shared/package.json", "ui/package.json"];
+  // `create-silo-plugin` is not merely tidy here: `SiloRange` derives the
+  // version range every scaffolded plugin declares from that manifest, so a
+  // stale copy hands new plugin authors a range that refuses the start.
+  const manifests = [
+    "package.json",
+    "shared/package.json",
+    "ui/package.json",
+    "create-silo-plugin/package.json",
+  ];
 
   test("every workspace manifest agrees with the root", async () => {
     const versions: Record<string, string> = {};

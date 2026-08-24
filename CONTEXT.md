@@ -15,6 +15,74 @@ A minimal, self-hostable headless CMS. Users define collections with JSON Schema
 
 *Last updated: 2026-08-24*
 
+- **`create-silo-plugin` ships (2026-08-24).** `npm create silo-plugin` (or
+  `bunx create-silo-plugin`) scaffolds a plugin: the `package.json#silo`
+  manifest, a runnable stub per hook the author picks, the `silo:api` type
+  declarations, a tsconfig for editor support, and a README carrying the `cp`
+  line and the `[[plugins]]` block to paste. It is a **standalone npm package**
+  in `create-silo-plugin/` — a fourth workspace of the root — and deliberately
+  **not** a `silo plugin new` subcommand: the person authoring a plugin is a
+  developer who may have no silo binary at all, and the binary is a root-owned
+  file on a server, so making authorship depend on the runtime is backwards. It
+  changes nothing D31 froze; it emits files, reads no config and touches no
+  port, which is why it needed no new decision.
+  - **The value is the three things that refuse the start.** A plugin has no
+    installer and no dependencies, which is a good deal that leaves exactly
+    three first-time mistakes, none of which degrade: a manifest silo rejects,
+    a missing `silo-api.d.ts` (the README's instruction was literally "copy this
+    file by hand"), and a hook written the wrong way round — mutating after
+    validation. The scaffolder removes all three by construction.
+  - **Zero runtime dependencies, and Node-targeted.** `bun build --target=node`
+    produces `dist/cli.js` behind a `#!/usr/bin/env node` shebang, because
+    `npm create` / `npx` is Node and only Node is guaranteed to be there — so
+    nothing under `src/` may reach for a `Bun.*` global. `@types/node` and
+    `typescript` are devDependencies; the published package declares no
+    dependencies at all, the same property it gives the plugins it emits.
+  - **Every copied fact is drift-tested against the original.** The five hooks,
+    the reserved driver names (`sqlite`/`fs`/`s3`), the two provider ports, the
+    `Storage`/`BlobStorage` method lists and the `silo:api` `.d.ts` are all
+    copies — the price of zero dependencies — and
+    `server/test/plugins/create-silo-plugin-drift.test.ts` asserts each against
+    the file silo actually enforces. A sixth hook fails the change that adds it,
+    not a stranger's scaffold months later. The test lives in silo's suite, not
+    the scaffolder's, because what it protects is silo's contract.
+  - **The `"silo"` range is derived, not hard-coded.** Every example in §13.2
+    and the README says `"^1"`, and every one is right *about 1.0*; a plugin
+    scaffolded today against a 0.2 build and pinned `^1` fails
+    `silo plugin doctor` on its first run. So `SiloRange` derives it from the
+    scaffolder's own version — `0.2.0` → `^0.2`, `1.4.2` → `^1` — and
+    `scripts/set-version.ts` now rewrites `create-silo-plugin/package.json`
+    along with the others. That entry is load-bearing where `shared`/`ui` are
+    inert: leave it behind on a release and every plugin created afterwards
+    declares a range one version too narrow, and this gate refuses the start
+    rather than degrading. `server/test/version.test.ts` pins it.
+  - **The generated `config` schema is extension-only.** It is one key,
+    `collection`, because every hook stub opens by asking "is this the
+    collection I care about?". A provider has no such question — its config is a
+    bucket, an endpoint, a token — so `--config` against `--kind provider` is an
+    *error* rather than a silent no-op, and the provider template says where a
+    schema of the author's own goes instead.
+  - **A provider scaffold is a checklist that compiles.** `Storage` has ~20
+    methods and none of the domain types is published (§12.8), so every
+    parameter is typed `any`, every method throws `not implemented`, and
+    `ProviderPorts` carries the one sentence per method the signature cannot —
+    `derived` landing in the write transaction, `listEntryCollections`
+    deliberately differing from `listSchemas`. Better than a scaffold that
+    returns empty lists and reads as an empty instance.
+  - **It never edits anyone's `silo.toml`.** The config file is the whole
+    management surface at 1.0, so the `[[plugins]]` block is *printed* and put
+    in the generated README, not appended to a file the tool did not create and
+    cannot safely reformat.
+  - **The end-to-end test is split out on purpose.**
+    `create-silo-plugin.test.ts` reads the scaffold through `ManifestReader` and
+    imports the module into the host realm; `create-silo-plugin-worker.test.ts`
+    loads it through `PluginRegistry` into a real `Worker`, which is what
+    `serve` does. The split is because `WorkerHost` boots from a `data:` URL and
+    **Bun 1.3.13 on macOS rejects one of that size with `NameTooLong`** — the
+    pre-existing `plugin-hooks.test.ts` fails there for the same reason. The
+    Dockerfile and the release workflow pin **1.3.14**, which is also what
+    §13.10's measurements used; develop on that.
+
 - **Plugins are documented in the README (2026-08-24).** M5 built the feature;
   this is what ships it. Until now `README.md` did not contain the word
   "plugin" once, which at 1.0 makes the feature unusable by anyone outside this
@@ -1917,7 +1985,7 @@ A minimal, self-hostable headless CMS. Users define collections with JSON Schema
 | `IMPLEMENTATION.md` | Design spec + decisions log (D1–D31) |
 | `CONTEXT.md` | This file — current state of the project |
 | `CLAUDE.md` | Standing instructions for AI assistants |
-| `package.json` | Project metadata, TypeScript 7 setup, Bun/Hono dependencies, AWS S3 SDK, and `semver` (D31 — the plugin compatibility gate; taken deliberately over hand-rolled range matching); declares the `shared` and `ui` Bun workspaces, and is the one install root and one lockfile for all three packages. `build` delegates to `scripts/build.ts` rather than inlining the compile, because the signing step is platform-conditional |
+| `package.json` | Project metadata, TypeScript 7 setup, Bun/Hono dependencies, AWS S3 SDK, and `semver` (D31 — the plugin compatibility gate; taken deliberately over hand-rolled range matching); declares the `shared`, `ui` and `create-silo-plugin` Bun workspaces, and is the one install root and one lockfile for all four packages. `build` delegates to `scripts/build.ts` rather than inlining the compile, because the signing step is platform-conditional |
 | `tsconfig.json` | TypeScript configuration for the Bun server, shared package, and build scripts (`include: ["server/**/*", "shared/**/*", "scripts/**/*"]`) |
 | `shared/` | Local `@silo/shared` package (a Bun workspace of the root) for runtime-neutral client/server rules. `src/claims/` is the single source of truth for claim constants, the `Claim`/`FixedClaim`/`CollectionClaim`/`CollectionPermission`/`ClaimPreset` types, `ParsedClaim`, validation, matching, delegation, and presets; `src/errors/` holds `ValidationError` and the `ValidationDetail` wire shape; `src/schema/` holds `SiloRef` (the `silo://collections/` `$ref` scheme), `SchemaAccess` (`x-silo-auth`), and `MediaField` (`x-silo-type: "media"`); `src/keys/` holds `KeyFormat` (secret prefix and display truncation); `src/media/` holds `MediaRef` (the `silo://media/<ulid>` scheme, its pre-D23 `/media/<key>` dual-read, and the canonical form the write path stores). Tests under `shared/test/`. Each artifact is its own file and its own `exports` subpath. `src/query/path/` holds `JsonPath` and `PathSelector` — the RFC 9535 subset parser (D29), placed here because the filter builder, the query validator, the SQL compiler and the in-memory evaluator must agree on what a path means; `src/query/filter.ts` and `filter-ops.ts` hold the `Filter` node and the closed operator list for the same reason, so the UI's filter menu and the server's validator cannot disagree about what an op is. `src/schema/search-fields.ts` reads and validates the `x-silo-search` keyword (D30), beside `schema-access.ts` and `media-field.ts` for the same reason those live here |
 | `server/main.ts` | Thin CLI entrypoint — imports `Cli` and runs it |
@@ -1948,9 +2016,10 @@ A minimal, self-hostable headless CMS. Users define collections with JSON Schema
 | `server/http/auth/` | `RouteAuth` — claim-checking helpers for route handlers |
 | `server/http/routes/plugin-routes.ts` | `/api/plugins/*` — **reserved and 404** (D31/§13.1). Registered rather than left to fall through, because reserving a namespace costs nothing now and is unavailable later: without it a 1.x could not tell a plugin route from a client-router path someone had already deep-linked |
 | `server/http/routes/` | `RouteManager` plus one routes class per resource (`projects-routes.ts`, `collections-routes.ts`, `entries-routes.ts` + `request-utils.ts`, `keys-routes.ts`, `media-routes.ts`, `transfer-routes.ts`, `copy-routes.ts` + `copy-request.ts` + `scope-copy-request.ts`, `session-routes.ts`). `CopyRoutes` serves both the whole-instance `/api/copy` and the scoped `/api/projects/:p/environments/:e/copy` |
-| `server/test/` | Test suites running via `bun test`: `conformance/` (storage conformance suite), `adapters/`, `core/`, `cli/` (bootstrap banner rendering, `silo init`'s scaffold round-tripping back to the defaults), `config/` (config layering, the derived fs blob path, and the `[log]` block), `version.test.ts` (every manifest agrees, the runtime version derives from the root one, a non-release build is marked `-dev`, and no source file has reacquired a hard-coded version), `logging/` (level thresholds, both formats, rotation, tailing and following across a rotation), `runtime/` (run-file staleness and the one-server-per-data-dir refusal, the process title leading with the name and never throwing, the argv a detached child inherits, a real detached start/stop/status round trip that pins the lost-the-port regression, and the same round trip against a freshly compiled binary — the only place the virtual-entry-path bug exists), `http/` (claims enforcement/delegation, entries API, export/import, direct server copy, scope-to-scope copy, media catalog/folders/search/reference integrity, schema `$ref`, projects API tests). The conformance suite pins media usages on both adapters — the one D23 invariant they answer by completely different means |
+| `server/test/` | Test suites running via `bun test`: `conformance/` (storage conformance suite), `adapters/`, `core/`, `cli/` (bootstrap banner rendering, `silo init`'s scaffold round-tripping back to the defaults), `config/` (config layering, the derived fs blob path, and the `[log]` block), `version.test.ts` (every manifest agrees, the runtime version derives from the root one, a non-release build is marked `-dev`, and no source file has reacquired a hard-coded version), `logging/` (level thresholds, both formats, rotation, tailing and following across a rotation), `runtime/` (run-file staleness and the one-server-per-data-dir refusal, the process title leading with the name and never throwing, the argv a detached child inherits, a real detached start/stop/status round trip that pins the lost-the-port regression, and the same round trip against a freshly compiled binary — the only place the virtual-entry-path bug exists), `http/` (claims enforcement/delegation, entries API, export/import, direct server copy, scope-to-scope copy, media catalog/folders/search/reference integrity, schema `$ref`, projects API tests), `plugins/` (the hook path end to end over eight fixture plugins, the hostile-plugin bounds, `VersionRange`, and the two `create-silo-plugin` suites — `-drift` asserting every fact the scaffolder copies against the file silo enforces, and `-worker` loading a scaffolded plugin through `PluginRegistry` into a real `Worker`, kept separate because that one needs a Bun whose `data:` URL workers start). The conformance suite pins media usages on both adapters — the one D23 invariant they answer by completely different means |
+| `create-silo-plugin/` | The plugin scaffolder, published to npm as `create-silo-plugin` (`npm create silo-plugin`). A workspace of the root, but a standalone publishable package with **no runtime dependencies**: `src/` holds `Cli`, `Arguments` + `ArgumentValues`, `OptionsResolver` (a flag skips its question; a non-TTY stdin is treated as `--yes` rather than hanging), `Prompter` (numbered lists read back as digits — an arrow-key selector is unusable through a pipe, in Git Bash and in CI), `Help`, `Style`, `Scaffold`, `Assets`, `PluginContract` + `ProviderPorts` (the copied vocabulary the drift test guards), `PluginName`, `SiloRange`, `ScaffoldOptions`, and `render/` (`Manifest`, `ExtensionModule`, `ProviderModule`, `PluginReadme`, `TomlSnippet`). `assets/` holds what is copied verbatim: `silo-api.d.ts` (byte-identical to `server/plugins/host/silo-api-types.d.ts`), the generated plugin's `tsconfig.json`, and `gitignore` — dotless because npm excludes `.gitignore` from published tarballs, and renamed on write. `bun run build` bundles `src/main.ts` to `dist/cli.js` with `--target=node`, since `npx` is Node |
 | `ui/` | React + TS + Vite SPA (Slate design), organized into feature dirs (`api/`, `schema/`, `components/`, `forms/`, `query/` — the Query AST's round trip through the URL and the builder's flat model, `router/`, `utils/` with `Formatters`, `ThemeManager` & `ScopeMemory`, `views/*`) with colocated CSS Modules and a small global foundation under `styles/`. Every collection/entry call is scoped through `ApiClient.collectionsPath`; the active `(project, env)` is part of the URL, switched from the `/servers` gate in the workspace and from the settings nav's scope switchers. Shared protocol rules come from `@silo/shared`; `ui/dist` contains the compiled SPA served at the web root. `src/**/*.test.ts` are `bun test` suites in their own TS project (`tsconfig.test.json`) and run from the repo root alongside the server's |
-| `scripts/` | Tooling run through `bun run`, kept out of the server's source tree. `build.ts` (`BuildBinary`) is the single build path for every artifact, local or released: it builds the admin UI, generates `.build/entry.ts` (the embedded-asset imports plus `Cli.run()`), compiles that for `--target`, stamps `--version` through `--define SILO_VERSION`, ad-hoc signs Darwin output on macOS, and with `--archive` writes `dist/silo-<version>-<os>-<arch>.tar.gz`. `build-rpm.ts` (`BuildRpm`) wraps an already-compiled Linux binary as an RPM via nfpm — it stages the binary where the config can find it, maps a silo target onto nfpm's architecture name, and turns an absent signing key into an unsigned package while a mistyped one stays a hard error. `set-version.ts` (`SetVersion`) rewrites the version across every workspace manifest in place, and commits nothing. `render-formula.ts` (`RenderFormula`) fills `packaging/homebrew/silo.rb.tmpl` from a `SHA256SUMS` file, keyed by artifact filename and failing loudly on a missing target rather than shipping a formula with a blank checksum . `seed.ts` (`Main`) fills a running instance with a large generated corpus over the HTTP API — the one file in the repo that deliberately holds many classes, because a seeder split across a directory stops being copyable at another instance |
+| `scripts/` | Tooling run through `bun run`, kept out of the server's source tree. `build.ts` (`BuildBinary`) is the single build path for every artifact, local or released: it builds the admin UI, generates `.build/entry.ts` (the embedded-asset imports plus `Cli.run()`), compiles that for `--target`, stamps `--version` through `--define SILO_VERSION`, ad-hoc signs Darwin output on macOS, and with `--archive` writes `dist/silo-<version>-<os>-<arch>.tar.gz`. `build-rpm.ts` (`BuildRpm`) wraps an already-compiled Linux binary as an RPM via nfpm — it stages the binary where the config can find it, maps a silo target onto nfpm's architecture name, and turns an absent signing key into an unsigned package while a mistyped one stays a hard error. `set-version.ts` (`SetVersion`) rewrites the version across every workspace manifest in place — including `create-silo-plugin/package.json`, whose number is *load-bearing* where `shared`/`ui` are inert, since `SiloRange` derives the `"silo"` range every scaffolded plugin declares from it — and commits nothing. `render-formula.ts` (`RenderFormula`) fills `packaging/homebrew/silo.rb.tmpl` from a `SHA256SUMS` file, keyed by artifact filename and failing loudly on a missing target rather than shipping a formula with a blank checksum . `seed.ts` (`Main`) fills a running instance with a large generated corpus over the HTTP API — the one file in the repo that deliberately holds many classes, because a seeder split across a directory stops being copyable at another instance |
 | `.github/workflows/release.yml` | The release: tests, four targets (Darwin arm64/x64 on `macos-15`, Linux x64/arm64 on `ubuntu-24.04`), `SHA256SUMS`, a Sigstore keyless signature and a GPG one over it, build-provenance attestations, the GitHub release, and the formula push to the tap. then the RPMs (built, signed, and `dnf install`-tested on `amazonlinux:2023`), and finally the dnf repository index published to GitHub Pages. `workflow_dispatch` runs the build and publishes nothing |
 | `packaging/rpm/` | The dnf package: `nfpm.yaml` (contents, scriptlet wiring, `shadow-utils` dependency, RPM signing), `silo.service` (systemd unit — foreground, hardened, `MemoryDenyWriteExecute=false` because Bun JITs), `silo.toml` (the packaged config: only the keys the layout requires, so there is little to drift), `scripts/` (the four rpm scriptlets — user creation, `systemctl preset`, and a removal that deliberately leaves `/var/lib/silo` behind), `silo.repo` (what users drop in `/etc/yum.repos.d/`), and `index.html` (the GitHub Pages landing page) |
 | `packaging/` | `homebrew/silo.rb.tmpl` is the Homebrew formula, and the source of truth for it — the tap's copy is generated and overwritten every release. `SIGNING_KEY.asc` is the public half of the release GPG key, committed so a verifier needs no keyserver. The release runbook (tap creation, secrets, what each signature layer proves) is a Notion doc, not a file here — it names accounts and setup steps that don't need to be in the source tree or reviewed as a diff |
@@ -2063,4 +2132,5 @@ Notable implementation facts:
   - `server/core/`: Domain models (`domain/`), port interfaces (`ports/`), query AST (`query/`), error classes (`errors/`), schema validation (`schema/`), server-only key persistence/secret logic (`keys/`), media helpers (`media/`), export/import engine (`transfer/`), and the `Service` orchestration layer (`service/`).
   - `server/adapters/`: Database / storage drivers (`storage/sqlite/`, `storage/fs/`) and their private helper classes (compilers, filters), blob storage drivers (`blob/`), and the outbound HTTP client (`http/`).
   - `server/http/`: HTTP web server definition (`server.ts`), routing handlers (`routes/`), claim-auth helpers (`auth/`), and web-specific middleware (`middleware/`).
+  - `create-silo-plugin/src/`: the plugin scaffolder, published on its own. Nothing here may import from `server/`, `shared/` or `ui/`, and nothing may use a `Bun.*` global — it is a published npm package that runs under Node, and the facts it needs from silo are copied and drift-tested rather than imported. `render/` holds one class per generated file.
   - `ui/src/`: `api/` (typed client, `EntryMapper`, and DTOs under `api/types/`), `schema/` (silo `$ref` resolution), `components/` (shared visual primitives), `forms/` (the RJSF theme: `templates/`, `widgets/`, `fields/`), `query/` (`FilterModel` — the builder's flat model ↔ the Query AST, `UrlFilter` — the AST's round trip through the address bar, `PathLabel`), `router/`, `styles/` (the intentionally global CSS foundation), `utils/` (`Formatters`, `ThemeManager`, `ScopeMemory`), and `views/` grouped by feature (`shell/`, `servers/`, `entries/`, `search/` — the `⌘K` palette and the snippet helpers both it and the entries table read, `schema/`, `keys/`, `media/`, `transfer/`, `settings/` — whose shell, nav and scope switchers sit at its root and whose one-per-section pages sit under `pages/`).
