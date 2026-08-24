@@ -1,6 +1,8 @@
 .labelCell { display: flex; align-items: center; }
 .avatar { display: inline-flex; width: 20px; height: 20px; flex: none; align-items: center; justify-content: center; border: 1px solid var(--line); border-radius: 6px; background: var(--panel-2); color: var(--text-2); }
-.label { margin-left: 9px; font-weight: 500; }
+/* .cell clips an overlong label, but its ellipsis belongs to the block box
+   and not to a flex item inside it, so the label truncates itself. */
+.label { min-width: 0; margin-left: 9px; overflow: hidden; font-weight: 500; text-overflow: ellipsis; }
 .prefix { font-family: var(--font-mono); font-size: 12px; }
 .date { font-size: 12.5px; }
 .actions { display: flex; justify-content: flex-end; }

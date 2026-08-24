@@ -2,10 +2,14 @@ import React, { useState } from 'react'
 import { AlertTriangle, ChevronRight, FolderGit2, Plus } from 'lucide-react'
 import { Claims } from '@silo/shared/claims'
 import { Button } from '../../../components/Button'
+import { Breadcrumb } from '../../../components/Breadcrumb'
 import { api } from '../../../api/api-client'
 import { Link } from '../../../router/Link'
 import { Routes } from '../../../router/routes'
 import { TopBar } from '../../shell/TopBar'
+import { SmartSearch } from '../../search/SmartSearch'
+import type { PaletteSeed } from '../../search/palette-seed'
+import type { ScopeRef } from '../../../api/types/scope-ref'
 import type { Server } from '../../servers/server'
 import styles from '../SettingsView.module.css'
 import type { SessionBadge } from '../../shell/session-badge'
@@ -21,17 +25,25 @@ import type { SessionBadge } from '../../shell/session-badge'
  */
 export function ProjectsPage({
   server,
+  scope,
+  smartCollections,
   projects,
   loading,
   claims,
   session,
+  onOpenPalette,
+  onNavigateToCollection,
   onChanged,
 }: {
   server: Server
+  scope: ScopeRef | null
+  smartCollections: readonly { name: string; count: number | null; schema?: any }[]
   projects: string[]
   loading: boolean
   claims: string[]
   session: SessionBadge
+  onOpenPalette: (seed: PaletteSeed) => void
+  onNavigateToCollection: (name: string, q: string) => void
   onChanged: () => void
 }) {
   const [isAdding, setIsAdding] = useState(false)
@@ -65,7 +77,19 @@ export function ProjectsPage({
 
   return (
     <>
-      <TopBar crumbs={[{ label: 'Projects' }]} session={session}>
+      <TopBar
+        search={
+          <SmartSearch
+            serverId={server.id}
+            scope={scope}
+            collection={null}
+            collections={smartCollections}
+            onNavigateToCollection={onNavigateToCollection}
+            onOpenPalette={onOpenPalette}
+          />
+        }
+        session={session}
+      >
         {canCreate && !isAdding && (
           <Button variant="primary" onClick={() => setIsAdding(true)}>
             <Plus size={14} />
@@ -75,6 +99,7 @@ export function ProjectsPage({
       </TopBar>
 
       <div className="content">
+        <Breadcrumb crumbs={[{ label: 'Projects' }]} />
         <div className="page-head">
           <div className="page-title-group">
             <h2 className="page-title">Projects</h2>

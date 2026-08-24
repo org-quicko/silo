@@ -2,6 +2,7 @@ import { Database } from "bun:sqlite";
 import fs from "fs/promises";
 import path from "path";
 import type { Storage } from "../../../core/ports/storage";
+import type { DerivedIndex } from "../../../core/ports/derived-index";
 import { EntryUtils } from "../../../core/domain/entry-utils";
 import type { Entry } from "../../../core/domain/entry";
 import type { Meta } from "../../../core/domain/meta";
@@ -11,6 +12,8 @@ import type { MediaUsage } from "../../../core/media/media-usage";
 import { NotFoundError } from "../../../core/errors/not-found-error";
 import { FormatVersion } from "../../../core/transfer/format-version";
 import { SqliteCompiler } from "./sqlite-compiler";
+import { SearchIndex, type SearchIndexOptions } from "./search-index";
+import { SqliteSearcher } from "./sqlite-searcher";
 
 const DDL = `
 CREATE TABLE IF NOT EXISTS meta (
@@ -64,12 +67,25 @@ CREATE INDEX IF NOT EXISTS idx_environments_project ON environments(project);
 
 export class SqliteStore implements Storage {
   private db: Database;
+  /**
+   * False when search is switched off *or* this SQLite build has no FTS5. The
+   * store then keeps no index and `createSearcher()` returns null, so the
+   * caller falls back to the portable engine (D30).
+   */
+  private readonly indexing: boolean;
+  /** Set when the index has to be refilled before it can answer anything. */
+  private rebuildDue = false;
 
-  private constructor(db: Database) {
+  private constructor(db: Database, indexing: boolean, rebuildDue: boolean) {
     this.db = db;
+    this.indexing = indexing;
+    this.rebuildDue = rebuildDue;
   }
 
-  static async open(filePath: string): Promise<SqliteStore> {
+  static async open(
+    filePath: string,
+    search: SearchIndexOptions = { enabled: true, tokenizer: "unicode61 remove_diacritics 2" }
+  ): Promise<SqliteStore> {
     const dir = path.dirname(filePath);
     if (dir !== ".") {
       await fs.mkdir(dir, { recursive: true });
@@ -93,11 +109,49 @@ export class SqliteStore implements Storage {
         `INSERT OR IGNORE INTO meta (key, value) VALUES ('instance_id', ?), ('last_seq', '0'), ('format_version', '${FormatVersion}')`
       ).run(EntryUtils.newID());
 
-      return new SqliteStore(db);
+      const indexing = search.enabled && SearchIndex.available(db);
+      let rebuildDue = false;
+      if (indexing) {
+        rebuildDue = SearchIndex.install(db, search.tokenizer);
+        if (!rebuildDue) rebuildDue = SearchIndex.isEmptyWithContent(db);
+      } else {
+        // Switched off, or a build without FTS5. Invalidate the stamp so a
+        // later enabled start rebuilds rather than trusting rows that went
+        // stale while nothing maintained them — but do not drop anything:
+        // opening a store must not destroy the index a differently-configured
+        // process is keeping on the same data dir.
+        SearchIndex.disable(db);
+      }
+
+      return new SqliteStore(db, indexing, rebuildDue);
     } catch (err) {
       db.close();
       throw err;
     }
+  }
+
+  /** True when the index exists but has not been filled yet. */
+  needsSearchRebuild(): boolean {
+    return this.indexing && this.rebuildDue;
+  }
+
+  searchIndexed(): boolean {
+    return this.indexing;
+  }
+
+  /**
+   * The native engine, or `null` when this build has no FTS5 or search is off
+   * — the caller then uses the portable `ScanSearcher`, which is why a missing
+   * FTS5 degrades rather than fails (D30). Constructed here rather than
+   * outside so the `Database` stays private to the adapter.
+   */
+  createSearcher(tokenizer: string): SqliteSearcher | null {
+    return this.indexing ? new SqliteSearcher(this.db, this, tokenizer) : null;
+  }
+
+  /** Marks the index filled; called once a rebuild has run. */
+  searchRebuilt(): void {
+    this.rebuildDue = false;
   }
 
   // A pre-D18 data dir has `schemas`/`entries` tables without project/env
@@ -189,6 +243,9 @@ export class SqliteStore implements Storage {
       // would vanish while their references survived, and a media file would
       // stay blocked by referrers that no longer exist.
       this.db.prepare(`DELETE FROM media_references WHERE project = ?`).run(project);
+      if (this.indexing) {
+        this.db.prepare(`DELETE FROM ${SearchIndex.Documents} WHERE project = ?`).run(project);
+      }
       this.db.prepare(`DELETE FROM schemas WHERE project = ?`).run(project);
       this.db.prepare(`DELETE FROM environments WHERE project = ?`).run(project);
       this.db.prepare(`DELETE FROM projects WHERE id = ?`).run(project);
@@ -231,6 +288,9 @@ export class SqliteStore implements Storage {
     const tx = this.db.transaction(() => {
       this.db.prepare(`DELETE FROM entries WHERE project = ? AND env = ?`).run(project, env);
       this.db.prepare(`DELETE FROM media_references WHERE project = ? AND env = ?`).run(project, env);
+      if (this.indexing) {
+        this.db.prepare(`DELETE FROM ${SearchIndex.Documents} WHERE project = ? AND env = ?`).run(project, env);
+      }
       this.db.prepare(`DELETE FROM schemas WHERE project = ? AND env = ?`).run(project, env);
       this.db.prepare(`DELETE FROM environments WHERE project = ? AND id = ?`).run(project, env);
     });
@@ -283,7 +343,8 @@ export class SqliteStore implements Storage {
   // storage.ts), so an import archive can't plant a malformed id that
   // behaves differently depending on which adapter is running.
 
-  async put(e: Entry, usages: string[]): Promise<void> {
+  async put(e: Entry, derived: DerivedIndex): Promise<void> {
+    const usages = derived.usages;
     EntryUtils.assertSafeSegment(e.project, "project");
     EntryUtils.assertSafeSegment(e.env, "env");
     EntryUtils.assertSafeSegment(e.collection, "collection");
@@ -339,9 +400,50 @@ export class SqliteStore implements Storage {
           insert.run(mediaId, e.project, e.env, e.collection, e.id);
         }
       }
+
+      this.writeSearchDocument(e.project, e.env, e.collection, e.id, derived.search);
     });
 
     tx();
+  }
+
+  /**
+   * Inserts or replaces one index document, or removes it when the caller
+   * passed `search: null`. Always called from inside a caller's transaction,
+   * never on its own — an entry and its index row land together or not at all.
+   *
+   * `ON CONFLICT DO UPDATE` rather than delete-then-insert, so `docid` survives
+   * an update: `VACUUM` renumbers an implicit rowid, and re-inserting would
+   * renumber it on every write, which is exactly the drift the explicit
+   * `INTEGER PRIMARY KEY` exists to prevent.
+   */
+  private writeSearchDocument(
+    project: string,
+    env: string,
+    collection: string,
+    entryId: string,
+    text: { label: string; body: string } | null
+  ): void {
+    if (!this.indexing) return;
+
+    // Belt and braces on a security boundary: the caller passes `null` for
+    // system data, and the adapter refuses it independently. One forgotten
+    // argument must not make a `_keys` label findable by text (D30).
+    if (text === null || project === Scope.System.project || EntryUtils.isSystemCollection(collection)) {
+      this.db.prepare(`
+        DELETE FROM ${SearchIndex.Documents}
+        WHERE project = ? AND env = ? AND collection = ? AND entry_id = ?
+      `).run(project, env, collection, entryId);
+      return;
+    }
+
+    this.db.prepare(`
+      INSERT INTO ${SearchIndex.Documents} (project, env, collection, entry_id, label, body)
+      VALUES (?, ?, ?, ?, ?, ?)
+      ON CONFLICT (project, env, collection, entry_id) DO UPDATE SET
+        label = excluded.label,
+        body  = excluded.body
+    `).run(project, env, collection, entryId, text.label, text.body);
   }
 
   async get(scope: Scope, collection: string, id: string): Promise<Entry> {
@@ -375,6 +477,12 @@ export class SqliteStore implements Storage {
         this.db.prepare(`
           DELETE FROM media_references WHERE project = ? AND env = ? AND collection = ? AND entry_id = ?
         `).run(scope.project, scope.env, collection, id);
+        if (this.indexing) {
+          this.db.prepare(`
+            DELETE FROM ${SearchIndex.Documents}
+            WHERE project = ? AND env = ? AND collection = ? AND entry_id = ?
+          `).run(scope.project, scope.env, collection, id);
+        }
       }
     });
     tx();

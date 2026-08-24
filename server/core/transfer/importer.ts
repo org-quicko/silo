@@ -11,6 +11,7 @@ import type { Meta } from "../domain/meta";
 import { ValidationError } from "@silo/shared/validation-error";
 import { NotFoundError } from "../errors/not-found-error";
 import { MediaRefs } from "../media/media-refs";
+import { SearchText } from "../search/search-text";
 import { ForbiddenError } from "../errors/forbidden-error";
 import { SchemaValidator } from "../schema/schema-validator";
 import { FormatVersion } from "./format-version";
@@ -158,6 +159,23 @@ export class Importer {
     // Import entries
     for (const [colName, remoteEntries] of entries.entries()) {
       const colValidator = EntryUtils.isSystemCollection(colName) ? undefined : validator;
+      // Schemas for this scope are already written above, so the collection's
+      // own schema is what `x-silo-search` should be read from — fetched once
+      // per collection rather than once per entry. System collections index
+      // nothing at all (D30).
+      const isSystem = EntryUtils.isSystemCollection(colName);
+      let colSchema: any;
+      if (!isSystem) {
+        try {
+          colSchema = await st.getSchema(scope, colName);
+        } catch (err) {
+          if (!(err instanceof NotFoundError)) throw err;
+        }
+      }
+      const derived = (data: any) => ({
+        usages: MediaRefs.extract(data),
+        search: isSystem ? null : SearchText.extract(data, colSchema),
+      });
       for (const remote of remoteEntries) {
         if (mode === "replace") {
           res.added++;
@@ -165,7 +183,7 @@ export class Importer {
             if (colValidator) {
               await colValidator.validateEntry(scope, colName, remote.data);
             }
-            await st.put(remote, MediaRefs.extract(remote.data));
+            await st.put(remote, derived(remote.data));
           }
           continue;
         }
@@ -202,7 +220,7 @@ export class Importer {
               if (colValidator) {
                 await colValidator.validateEntry(scope, colName, remote.data);
               }
-              await st.put(remote, MediaRefs.extract(remote.data));
+              await st.put(remote, derived(remote.data));
             }
           } else {
             res.skipped++;
@@ -214,7 +232,7 @@ export class Importer {
               if (colValidator) {
                 await colValidator.validateEntry(scope, colName, remote.data);
               }
-              await st.put(remote, MediaRefs.extract(remote.data));
+              await st.put(remote, derived(remote.data));
             }
           } else {
             throw err;

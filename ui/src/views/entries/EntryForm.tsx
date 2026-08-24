@@ -1,4 +1,5 @@
 import { Button } from '../../components/Button'
+import { Breadcrumb } from '../../components/Breadcrumb'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import Form from '@rjsf/core'
 import validator from '@rjsf/validator-ajv8'
@@ -22,6 +23,8 @@ import { slateTemplates, slateWidgets, slateFields } from '../../forms/theme'
 import { buildUiSchema } from '../../forms/build-ui-schema'
 import { SiloRefs } from '../../schema/silo-refs'
 import { TopBar } from '../shell/TopBar'
+import { SmartSearch } from '../search/SmartSearch'
+import type { PaletteSeed } from '../search/palette-seed'
 import styles from './EntryForm.module.css'
 import type { SessionBadge } from '../shell/session-badge'
 
@@ -46,6 +49,7 @@ function toExtraErrors(details?: ValidationDetail[]): any {
 }
 
 interface Props {
+  serverId: string
   collection: Collection
   collections: Collection[]
   url: string
@@ -59,9 +63,27 @@ interface Props {
   onSaved: () => void
   onCancel: () => void
   onDeleted: () => void
+  onOpenPalette: (seed: PaletteSeed) => void
+  onNavigateToCollection: (name: string, q: string) => void
 }
 
-export function EntryForm({ collection, collections, url, entry, apiKey, scope, claims, session, backTo, onSaved, onCancel, onDeleted }: Props) {
+export function EntryForm({
+  serverId,
+  collection,
+  collections,
+  url,
+  entry,
+  apiKey,
+  scope,
+  claims,
+  session,
+  backTo,
+  onSaved,
+  onCancel,
+  onDeleted,
+  onOpenPalette,
+  onNavigateToCollection,
+}: Props) {
   // SiloRefs inlines silo://collections/* refs as internal pointers (RJSF and
   // its ajv8 validator only follow #/... pointers) and strips $schema, which
   // the draft-07 ajv8 meta-schema would trip over. The server remains the
@@ -136,11 +158,16 @@ export function EntryForm({ collection, collections, url, entry, apiKey, scope, 
   return (
     <>
       <TopBar
-        crumbs={[
-          { label: 'Collections', to: backTo },
-          { label: collection.name, to: backTo },
-          { label: entry ? 'Edit entry' : 'New entry' },
-        ]}
+        search={
+          <SmartSearch
+            serverId={serverId}
+            scope={scope}
+            collection={collection.name}
+            collections={collections.map((c) => ({ name: c.name, count: null, schema: c.schema }))}
+            onNavigateToCollection={onNavigateToCollection}
+            onOpenPalette={onOpenPalette}
+          />
+        }
         session={session}
       >
         {dirty && (
@@ -159,6 +186,13 @@ export function EntryForm({ collection, collections, url, entry, apiKey, scope, 
       </TopBar>
 
       <div className={`content ${styles.content}`}>
+        <Breadcrumb
+          crumbs={[
+            { label: 'Collections', to: backTo },
+            { label: collection.name, to: backTo },
+            { label: entry ? 'Edit entry' : 'New entry' },
+          ]}
+        />
         <div className={styles.shell}>
           <div className={styles.main}>
             {formError && (

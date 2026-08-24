@@ -3,45 +3,25 @@
   height: 56px;
   flex: none;
   align-items: center;
-  justify-content: space-between;
+  gap: 16px;
   padding: 0 20px;
   border-bottom: 1px solid var(--line);
   background: var(--panel);
 }
 
-.breadcrumb {
+.searchSlot {
   display: flex;
-  align-items: center;
-  gap: 8px;
-  font-size: 13px;
+  min-width: 0;
+  max-width: 560px;
+  flex: 1;
 }
-
-.crumb {
-  padding: 0;
-  border: 0;
-  background: none;
-  color: var(--text-3);
-  font-family: var(--font-ui);
-  font-size: 13px;
-  text-decoration: none;
-  cursor: pointer;
-}
-
-.link:hover { color: var(--text-2); }
-
-.current {
-  color: var(--text);
-  font-weight: 500;
-  cursor: default;
-}
-
-.crumbPart { display: contents; }
-.separator { color: var(--text-3); }
 
 .right {
   display: flex;
+  flex: none;
   align-items: center;
   gap: 12px;
+  margin-left: auto;
 }
 
 /*

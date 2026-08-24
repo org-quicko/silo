@@ -28,7 +28,11 @@
 .row:hover { background: color-mix(in oklab, var(--panel-2) 45%, transparent); }
 .clickable { cursor: pointer; }
 
-.cell { min-width: 0; padding: 12px 16px; color: var(--text-2); font-size: 13px; }
+/* A cell is a single line that ends in an ellipsis. Without this, a long
+   string paints over the next grid column: .cell can shrink (min-width: 0)
+   but nothing clipped what overflowed it, and the nowrap the inner spans
+   set could not clip itself — overflow does not apply to an inline box. */
+.cell { min-width: 0; padding: 12px 16px; overflow: hidden; color: var(--text-2); font-size: 13px; text-overflow: ellipsis; white-space: nowrap; }
 .primary { display: flex; flex-direction: column; gap: 3px; }
 
 .title,

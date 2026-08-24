@@ -48,6 +48,9 @@ Where Pocketbase optimizes for features (auth, realtime, hooks), silo optimizes 
 | D27 | dnf packaging: a signed repository, not a downloadable RPM | A `rpm` job builds one signed RPM per architecture with **nfpm** from `packaging/rpm/nfpm.yaml`, driven by `scripts/build-rpm.ts`; a `dnf-repo` job indexes the last `DNF_REPO_RELEASES` releases with `createrepo_c`, signs each `repomd.xml`, and publishes to **GitHub Pages**, where the site is a derived index rebuilt from release assets rather than a store of its own. The package is a service package: a `silo` system user, `/etc/silo/silo.toml` as `config|noreplace`, `/var/lib/silo` at `silo:silo 0750`, and a systemd unit whose `%post` runs `systemctl preset` rather than `enable`. One package per architecture, not per distribution. | The machines silo is deployed on are EC2 instances, and a tarball is not how anything gets onto one — a repository is, because it is the only form that supports `dnf update`. Signing both the packages and the index is the point rather than a formality: `gpgcheck` proves each package's origin, and without `repo_gpgcheck` whoever serves the index still chooses which signed packages a host is offered, including a superseded one. This is the apt/rpm use the RSA-4096 release key was chosen for in D26. Pages carries no state because the alternative is an unwritten retention policy: at roughly 60 MB of RPMs per release against a 1 GB soft limit, something has to be dropped eventually, and deriving the index from the last few releases makes that explicit and reproducible instead of silent. One package spans the family because the compiled binary needs no symbol newer than `GLIBC_2.17` and links no libstdc++, measured against the released artifact rather than assumed — Amazon Linux 2023 ships glibc 2.34. `preset` rather than `enable` because a package manager must not open a network port on a host nobody has configured; the install prints the one command that does, and where the one-time root key will be. |
 | D28 | One version, in `package.json` | The root manifest's `version` is the only place the number is written. `server/version.ts` exports `SiloVersion` — the manifest's value, imported rather than duplicated so `--compile` bundles it, with a `-dev` suffix unless a release build overrode it via `--define SILO_VERSION`. `Cli`, `Exporter` and `scripts/build.ts` read that constant instead of holding literals. `bun run set-version <v>` rewrites every workspace manifest in place, committing and tagging nothing, and the release workflow refuses a tag that disagrees with the manifest (a warning rather than an error for a `workflow_dispatch` rehearsal). `server/test/version.test.ts` pins all of it. | The number had four homes — two manifests, the CLI, the exporter — and a stale one is invisible: a binary reporting last release's version looks exactly like one reporting this release's, and the mistake surfaces in a bug report filed against the wrong artifact. Importing the manifest rather than restating it is what removes the copies outright instead of adding a rule about keeping them in step; bundling means it costs nothing at runtime and needs no build flag to be correct. The `-dev` suffix is kept because collapsing every build onto one number would lose the distinction that actually matters day to day — whether a binary is the published artifact or something someone built on a laptop — so a release marks itself by passing the tag and everything else marks itself by not. Validating the tag against the manifest closes the last gap the constant cannot: a tag is a request to publish what the tree already says, and when the two disagree the artifacts would be named for one version and built from a tree that believes in another. The private workspace manifests move too, not because anything reads them, but because a reader cannot tell an inert version from a stale one. |
 
+| D29 | Query addressing is RFC 9535 JSONPath | Filter and sort fields become **paths**, not a private dot-grammar: `Filter.field` is renamed `Filter.path` and carries `$.data.author.name`, `$.id`, `$.data.tags[*]`. The subset is named and closed — root, name selector, array index (negative included), child wildcard `[*]`/`.*` — and the parser **refuses** recursive descent, slices, index unions, filter selectors, functions and script expressions rather than ignoring them. The query root is a **virtual entry document** — `{ id, rev, created_at, updated_at, data }` — whose envelope half is exactly the envelope fields `EntryUtils.toApiResponse` returns, with user fields addressed under `$.data` rather than flattened as the wire response does. `project`/`env`/`collection`/`seq` are absent from it because the API hides them, so they are unaddressable by derivation rather than by a second allow-list. Cardinality is part of the contract: a leaf op is true when **any** selected node satisfies it, and **ANY over zero nodes is false for every op, `neq` included**. `contains` narrows to string substring only; array membership is `eq` over `[*]`. `exists` and `not` join the op set. Parser and AST live in `shared/src/query/path/` (UI, validator, both engines); only the SQL compiler is adapter-local. No compatibility shim and no detection of the old syntax — this is an API-breaking release. | Two forces meet here. D3 chose full JSON Schema over a proprietary DSL for interop; the query surface was still a private grammar (`author.name`, `$id`) that every client had to learn and every adapter had to re-derive. RFC 9535 is a real standard, so adopting it buys the same interop D3 bought, and it retires the `$`-prefix hack whose collision with JSONPath's root made the two unmixable. Deriving the root from the API response shape, rather than listing permitted fields, means a future envelope field stays unqueryable until someone deliberately exposes it — one source of truth instead of two that drift. The subset is closed rather than "a subset of RFC 9535" because an unnamed subset is not a contract: recursive descent alone would force `json_tree()` (a full-subtree walk) into the compiler and invite the rest back in, while `json_each()` covers the child wildcard at a fraction of the cost. The ANY-over-empty rule is stated because it silently changes shipped behaviour — `neq` on a missing field returns *true* today and *false* after — and no test using present fields would catch it; the old reading is still expressible as `or(not(exists(p)), neq(p, v))`. Narrowing `contains` gives one operator one meaning and deletes the `json_type(...) = 'array'` branch from the SQL compiler and the array branch from the scan evaluator; `[*]` is a better spelling for what those branches did. `not` compiles to `NOT COALESCE(<cond>, 0)`, never a bare `NOT`: SQL three-valued logic drops NULL rows, so a bare `NOT` diverges from the in-memory evaluator on exactly the missing fields a negation is usually asked about (measured: 0 rows vs 2). The shim was considered and rejected — D13 puts the server and the embedded UI in one binary so there is no skew, D18 already broke the on-disk layout outright on the stated pre-1.0 principle that breaks are expected rather than shimmed, and two live grammars would double the query test matrix and still need a breaking release to remove. |
+| D30 | Search behind an optional `Searcher` port, FTS5 where available | Search is a **new port**, not a new Query AST op: `Searcher.search(req, access)` / `reindex(target?)` / `capabilities()`, with two implementations — `ScanSearcher` (core, works on every adapter, O(N)) and `SqliteSearcher` (FTS5, external-content, `bm25(fts, 10.0, 1.0)`). Three reaches, addressed by path exactly like every other scoped resource and **`GET` only**: `/api/projects/{p}/envs/{e}/collections/{name}/search`, `/api/projects/{p}/envs/{e}/search`, and `/api/search`. The indexed text is **derived by the caller** — `SearchText.extract(data, schema)`, driven by an `x-silo-search` schema keyword (`label`/`include`/`exclude` paths, D29 grammar); adapters read no schema. It is **carried on the port** (`Storage.put(e, { usages, search })`) only once an engine stores it: `ScanSearcher` extracts at query time, so the port change lands with `SqliteSearcher` rather than ahead of it — a required argument every caller computes and every adapter ignores is the speculative interface D7 rejects. Claims are compiled by the service into a `SearchAccess` plan of concrete targets (public collections expanded into it) and applied **before** rank, count and paging; adapters parse no claim strings. An anonymous caller reaches a collection only when it **has a schema** that does not set `x-silo-auth`: a collection with no schema at all (§6.1) has had nothing declared about it, so inferring public from an absent declaration would publish content by accident. SQLite keeps `entry_search_documents` (explicit `docid INTEGER PRIMARY KEY`) plus `entry_search_fts` external-content, maintained by triggers inside the transactions that already exist in `put`/`delete`/`deleteProject`/`deleteEnvironment`. Index state is versioned on four inputs — engine, FTS schema, tokenizer config (global) and extractor version + per-collection `x-silo-search` hash — so a global change rebuilds everything before the bind and a schema change rebuilds one collection. `silo search reindex [--check]` runs **two** integrity checks. A search hit discloses `project`/`env`/`collection` on the hit wrapper, never on the entry. Media stays out of the entry index. No numeric relevance score is exposed. `format_version` does not change. Snippets come from the **shared** builder on both engines rather than FTS5's `snippet()`: only two concatenated columns are indexed, so `snippet()` could say that a body matched but never *which field* did, and re-extracting over one page removes an engine difference instead of adding one. A snippet is `{ path, before, match, after }` — three strings, never one with `[...]` markers in it. Opening with search disabled clears the stamp and drops nothing, because opening is not a destructive act — every CLI subcommand opens the store. | §12.6 already named this shape; the reason it is a port and not a `search` op is §5.3's own rule that every op is permanent for every adapter — an FTS op would force Turso, S3 and a future Postgres adapter to reproduce BM25 ranking forever, whereas a port lets each answer with what it has and lets `ScanSearcher` cover the rest. That is also why the portable engine ships **first**: search then works everywhere on day one, and FTS5 makes it fast rather than possible — which matters because the shipped SQLite build sets `OMIT_LOAD_EXTENSION`, so a build without `ENABLE_FTS5` cannot be repaired at runtime and must fall back, not fail. Caller-derived index text is the D23 move exactly: the extractor needs the schema (to weight a title above a 40 KB body, and to keep an internal note out of the index), the adapter must not, and an omitted argument has no safe reading — so it is required, not optional, and system data passes `search: null` while `SqliteStore` independently refuses to index `Scope.System`, because one forgotten argument must not make a `_keys` label findable by text. The index lives *inside* `SqliteStore` for the same reason usages do: `deleteProject`/`deleteEnvironment` are bulk SQL deletes that no decorator above the port can be atomic with, so entries would vanish while their index rows survived. `docid` is explicit because `VACUUM` renumbers the implicit rowid of a table without an `INTEGER PRIMARY KEY` — `entries` has a composite PK, so indexing `entries.rowid` would silently point the index at the wrong rows after a vacuum. External content requires the *old* text on update and delete, so the triggers use FTS5's documented `'delete'` command reading `old.*`, and the built-in `integrity-check` validates only index-vs-content — content-vs-`entries` drift needs a second, hand-written anti-join. Versioning on one input was insufficient: an `x-silo-search` edit changes the corpus without changing the tokenizer. Claims are compiled into a plan rather than passed as strings because the claim grammar is a shared-package concern and an adapter that parses it becomes a second enforcement point; targets are also the only shape that can carry the anonymous public-collection case, which no claim-derived target can express. Routing by path rather than `?project=&env=` follows D19 and fixes a failure direction: a missing query parameter would *widen* a search to the instance, bounded only by the key. A companion `POST .../search` for large filters was specified and then **rejected before implementation**: the list route already carries `?filter=<url-encoded JSON>` under the same `MaxFilterNodes`/`MaxFilterDepth` caps, and those caps are the ceiling — a worst-case filter at them measures 7,777 URL-encoded bytes, so the payload is bounded by design rather than open-ended. The two stated motives both failed inspection: URL length is already accepted on the shipped list route, and `LoggingMiddleware` logs `c.req.path` only, so search terms never reach the request log (and if they did, `?filter=` would leak identically — a logging decision, not a method one). Against those non-reasons stood real costs: a second method doubles the registrations, the request-parsing paths and the `entries:read` wiring sites at every reach, re-creating the duplicate surface that dropping `q=` from the list route had just removed; a POST-for-read is a classic place to attach a write claim by mistake; and a POST search is not linkable, which the UI depends on (filter/sort/page live in the URL so a filtered view can be shared). POST existed mainly for `populate`, which is deferred to its own decision, so adding it now would be the speculative interface D7 rejects. If the caps are ever raised past what a URL carries, the failure is loud (`414`/`431`) and that is the signal to add it then. The hit wrapper discloses scope as a deliberate exception to §5.1 — a client cannot link to a result whose location it cannot see — and the access plan already bounds it to readable targets. Media stays separate because it is instance-global with its own `media:*` claims (D23/D24); folding it into the entry index would put two authorization models in one query; the admin UI merges the two result sets into adjacent groups, which is a presentation decision and is made only there. The inline `[...]` snippet marker was specified and then **replaced before the UI consumed it**: it survives only while content contains no brackets, and a CMS body is exactly where markdown links live — the first real fixture, `See [our docs](https://silo.dev) — the new pricing page`, would have highlighted `our docs` for a search for `pricing`. Splitting the run out of the text makes the wrong answer unrepresentable rather than unlikely, and the window the server cuts stays a server concern while how much of it fits on a line stays the reader's. Rank parity between a JavaScript tokenizer and FTS5 `unicode61` is not achievable by construction (different Unicode tables), so the conformance contract is *match parity on fixtures*, stable order only for an explicit field sort, and no exposed score — measured behaviour that fixtures must pin: `foo_bar` splits on the underscore, a ULID stays one token, a URL splits into seven, diacritics fold, and CJK is **not segmented at all**, which makes `trigram` the only working tokenizer for those deployments rather than a preference. |
+
 
 ## 3. v1 scope
 
@@ -168,27 +171,105 @@ A collection = a name + a JSON Schema draft 2020-12 document. Schemas are stored
 
 `x-silo-*` extension keywords are reserved for silo (UI hints like field ordering/widgets, future relation semantics). Unknown `x-silo-*` keys are preserved, never stripped.
 
-### 5.3 Query AST
+### 5.3 Query AST and paths (D29)
 
-Queries are a small structure, not a string language. Every op added must be implemented by every adapter forever, so the set is deliberately minimal:
+Queries are a small structure, not a string language. Every op added must be implemented by every adapter forever, so the set is deliberately minimal. Since D29 the *addressing* half is not silo's own invention either: fields are **RFC 9535 JSONPath** expressions.
 
-```go
-type Filter struct {
-    Op    string   // "eq","neq","gt","gte","lt","lte","in","contains","and","or"
-    Field string   // dot path into data, e.g. "author.name" (leaf ops only)
-    Value any      // leaf ops
-    Args  []Filter // and/or
-}
+```json
+{ "op": "and", "args": [
+    { "op": "eq",     "path": "$.data.tags[*]",   "value": "cms" },
+    { "op": "gte",    "path": "$.updated_at",     "value": "2026-01-01" },
+    { "op": "not",    "args": [ { "op": "exists", "path": "$.data.archived_at" } ] }
+] }
+```
 
-type Query struct {
-    Filter *Filter
-    Sort   []SortKey // field + direction; envelope fields addressable as $id, $created_at, $updated_at
-    Limit  int       // default 50, max 500
-    Offset int
+A query is that filter plus `sort` (paths with an optional `-` prefix for descending), `limit` (default 50, max 500) and `offset`.
+
+**Operators.** `eq`, `neq`, `gt`, `gte`, `lt`, `lte`, `in`, `contains` (leaf); `exists` (leaf, no value); `not` (exactly one arg); `and`, `or`. `contains` is **string substring only** — array membership is `eq` over a `[*]` path, which is why no operator needs an array branch.
+
+**The path subset is closed.** Root `$`, name selector, array index (negative included), child wildcard `[*]` and `.*`. Recursive descent, slices, index unions, filter selectors, function extensions and script expressions are **refused** by the parser, not ignored. Excluding recursive descent is what keeps `json_tree()` — a full-subtree walk — out of the SQL compiler; `json_each()` covers the child wildcard far more cheaply.
+
+**The root is a virtual entry document.** Paths address `{ id, rev, created_at, updated_at, data }`:
+
+| Path | Addresses |
+|---|---|
+| `$.id`, `$.rev`, `$.created_at`, `$.updated_at` | the envelope fields the API returns |
+| `$.data.author.name`, `$.data.items[0]`, `$.data.items[-1]` | singular paths into user data |
+| `$.data.tags[*]`, `$.data.meta.*` | wildcard paths, zero or more nodes |
+
+The envelope half is exactly what `EntryUtils.toApiResponse` exposes; user fields sit under `$.data` rather than flattened as the wire response has them, so a user field named `id` can never shadow the envelope's. `project`, `env`, `collection` and `seq` are unaddressable because the API hides them (§5.1) — derived from one rule, not restated as a second allow-list. An envelope field is a scalar and takes no further selectors: `$.id[0]` is a parse error, not an empty result. The pre-D29 spellings (`author.name`, `$id`) are gone, with no shim and no detection.
+
+**Cardinality is part of the contract.** A singular path selects zero or one node; a wildcard path selects zero or more. A leaf op is true when **any** selected node satisfies it. **ANY over zero nodes is false — for every op, `neq` included.** `exists` is true when the path selects at least one node. `not` negates the completed child predicate. Sort accepts singular paths only, since a wildcard has no deterministic order.
+
+Two consequences worth stating outright, because both look like the other:
+
+| Written | Means |
+|---|---|
+| `neq($.data.tags[*], "x")` | at least one tag is not `"x"` |
+| `not(eq($.data.tags[*], "x"))` | no tag is `"x"` |
+
+and "absent, or not equal" is now explicit: `or(not(exists(p)), neq(p, v))`. Pre-D29, `neq` on a missing field returned true; it returns false now.
+
+**One parser, three consumers.** The path AST and parser live in `shared/src/query/path/` because the admin UI (filter builder), the query validator and both engines must agree on what a path means. The `Filter` node and the closed operator list (`shared/src/query/filter.ts`, `filter-ops.ts`) live there for the same reason and are read by the same three: an op the UI offers but the validator refuses would be a `400` the reader cannot act on, and the only way that cannot happen is for the menu and the validator to read one list. Only the SQL compiler is adapter-local. SQLite compiles a singular path to `json_extract(data, '$.a.b')` and a wildcard to `EXISTS (SELECT 1 FROM json_each(data, '$.items') WHERE …)`; the fs adapter walks the same AST in memory. `exists` on a singular path is `json_type(data, '$.p') IS NOT NULL`, which distinguishes JSON `null` (exists) from absent. `not` compiles to `NOT COALESCE(<cond>, 0)` and never to a bare `NOT`: SQL three-valued logic drops NULL rows, so a bare `NOT` disagrees with the in-memory evaluator on exactly the missing fields a negation is usually asked about.
+
+### 5.5 Search (D30)
+
+Search is a separate port, not an operator. §5.3's "every op is forever" rule is the reason: an FTS operator would oblige every future adapter to reproduce relevance ranking, whereas a port lets each answer with what it has.
+
+```
+Searcher.search(request, access)   ->  { data: hit[], total, limit, offset, truncated, engine }
+Searcher.reindex(target?)          ->  report
+Searcher.capabilities()            ->  { engine: "fts5" | "scan", snippets }
+```
+
+Two implementations. **`ScanSearcher`** works on every adapter by reading entries and matching in memory — O(N), the character §6.3 already commits the fs adapter to. **`SqliteSearcher`** uses FTS5. The portable one ships first, so search exists everywhere and FTS5 makes it fast rather than possible. It stops at a visit cap **and** a time budget, reporting `truncated` — a count cap alone is not enough, because one collection of very large documents exhausts a request's patience well before its entry count. Both are checked per entry rather than per page, or a single page could overrun the cap by its whole size. FTS5 is probed at open inside a savepoint; a build without it falls back to the scan engine and logs once, because the shipped SQLite sets `OMIT_LOAD_EXTENSION` and no runtime repair is possible.
+
+**What gets indexed** is derived by the caller — the extractor needs the schema, the adapter must not have it. It reaches an adapter through the port (`Storage.put(e, { usages, search })`), exactly as media usages do (D23), from the point an engine actually stores it; `ScanSearcher` extracts at query time and needs no stored text. An `x-silo-search` keyword at the schema root selects the text with D29 paths:
+
+```json
+"x-silo-search": {
+  "label":   ["$.data.title"],
+  "include": ["$.data.blocks[*].text"],
+  "exclude": ["$.data.internal_notes"]
 }
 ```
 
-SQLite compiles this to SQL over `json_extract`; the fs adapter scans and filters in memory. `contains` = substring on strings, membership on arrays.
+`label` is the high-weight bucket (`bm25(fts, 10.0, 1.0)`); `include`, when present, becomes an allow-list that replaces the default; `exclude` subtracts. With the keyword absent the default is every string leaf under `$.data` and an empty `label`. Paths are validated when the schema is saved, so a typo is a `400` rather than a field that quietly leaves the index. `exclude` is **not** an access control — it keeps text out of the index, and a read of the entry still returns the field.
+
+**Authorization is a plan, not a claim string.** The service compiles the key's `entries:read` claims — plus public collections, whose public-ness lives in the schema and which no claim-derived target can express — into a `SearchAccess` list of concrete targets. The engine applies it **before** rank, count and paging, so `total` and paging are correct rather than post-filtered. Adapters parse no claims.
+
+**Routes** follow D19: the reach is in the path, never in a query parameter.
+
+| Reach | Route |
+|---|---|
+| collection | `GET /api/projects/{p}/envs/{e}/collections/{name}/search` |
+| scope | `GET /api/projects/{p}/envs/{e}/search` |
+| instance | `GET /api/search` |
+
+Each carries `q`, `filter`, `sort`, `limit`, `offset` and maps to `entries:read`. `GET` is the only method: `filter` is the same url-encoded JSON the list route already accepts, bounded by the same `MaxFilterNodes`/`MaxFilterDepth` caps (worst case 7,777 encoded bytes), so a request body buys nothing and would cost a duplicate surface, a second claim-wiring site, and a search that cannot be linked to. Both scoped routes register under `/envs/` and `/environments/`, and all of them register **before** the entry routes — Hono matches in registration order, so `/collections/{name}/search` would otherwise be captured as an entry whose id is `"search"`. A given `sort` wins and relevance is ignored; no `sort` with a non-empty `q` gives relevance order; neither gives `-$.updated_at`. `q` is optional, so at the collection reach a filter-only `/search` returns the same set as the list route in a different shape — a documented overlap, since the wider reaches need filter-only queries and a special rule at one reach would be arbitrary.
+
+A hit discloses its location on the wrapper, never on the entry:
+
+```json
+{ "project": "acme", "env": "prod", "collection": "posts",
+  "entry":    { "id": "01J8…", "rev": 2, "title": "Pricing" },
+  "snippets": [ { "path": "$.data.body",
+                  "before": "…our ", "match": "pricing", "after": " page…" } ] }
+```
+
+This is a deliberate exception to §5.1: a client cannot link to a result whose location it cannot see, and the access plan already bounds the disclosure to readable targets. No numeric relevance score is exposed, because two engines rank the same matches differently.
+
+A snippet is **three strings, not one with markers in it** — the fragment is `before + match + after`. Marking the matched run up inline (`"…our [pricing] page…"`) reads well in a terminal and is ambiguous everywhere else: a body holding a bracket of its own, which any markdown link does, gives a highlighter two candidate pairs and no way to choose. Escaping would make every consumer learn an escape rule; offsets would make them agree on what a character is. Three strings need neither.
+
+**Media stays out of the entry index.** It is instance-global with its own `media:*` claims (D23/D24), and folding it in would put two authorization models in one query. The admin UI merges the two result groups; the server does not.
+
+**Engines report themselves.** Every search response carries `engine`, so a client can tell an indexed answer from a scanned one, and `silo search reindex` says plainly when there is no index to rebuild rather than reporting a silent success.
+
+**Index state** (SQLite) is `entry_search_documents` — an explicit `docid INTEGER PRIMARY KEY`, never `entries.rowid`, because `VACUUM` renumbers the implicit rowid of a table whose primary key is composite — plus an external-content `entry_search_fts`. Triggers maintain it inside the transactions that already exist in `put`, `delete`, `deleteProject` and `deleteEnvironment`, and the update and delete triggers use FTS5's documented `'delete'` command reading `old.*`, since external content needs the *old* text to remove its terms. Versioning covers four inputs: engine, FTS schema and tokenizer configuration globally, extractor version and the per-collection `x-silo-search` hash locally. A global change rebuilds everything before the bind; a schema change rebuilds one collection. `silo search reindex [--check]` runs **two** integrity checks — FTS5's built-in one validates the index against the document table only, so content-versus-`entries` drift needs a second anti-join, in both directions (a document with no entry, and an entry with no document). `POST /api/search/reindex` is the same operation over HTTP and asks for the instance-wide read authority an export does: rebuilding reads every entry in the instance, so a narrow key must not become a way to make all of it searchable.
+
+**Parity is by fixture, not by construction.** SQLite's Unicode tables and the JavaScript engine's are different, so the conformance contract is that the same fixtures match in both engines, that stable order is required only for an explicit field sort, and that relevance order and snippet text are engine-specific. Measured under `unicode61 remove_diacritics 2`: `foo_bar` splits on the underscore, a ULID stays one token, `https://silo.dev/a/b?x=1` splits into seven, `Café` folds to `cafe` — and `日本語のテキスト` is **one token**, because unicode61 does not segment CJK. Those deployments must select the `trigram` tokenizer; it is not a preference.
+
+`format_version` does not change. The index is derived, lives only in SQLite, and never enters an export, so the frozen fs layout (D5) is untouched.
 
 ### 5.4 System collections
 
@@ -301,12 +382,29 @@ CREATE TABLE media_references (          -- D23; derived, rebuilt by `silo media
     PRIMARY KEY (media_id, project, env, collection, entry_id)
 );
 CREATE INDEX idx_media_refs_entry ON media_references(project, env, collection, entry_id);
+CREATE TABLE entry_search_documents (   -- D30; derived, rebuilt by `silo search reindex`
+    docid      INTEGER PRIMARY KEY,     -- explicit: VACUUM renumbers an implicit rowid
+    project    TEXT NOT NULL,
+    env        TEXT NOT NULL,
+    collection TEXT NOT NULL,
+    entry_id   TEXT NOT NULL,
+    label      TEXT NOT NULL,           -- weighted text (x-silo-search.label)
+    body       TEXT NOT NULL,
+    UNIQUE (project, env, collection, entry_id)
+);
+CREATE INDEX idx_entry_search_scope ON entry_search_documents(project, env, collection);
+CREATE VIRTUAL TABLE entry_search_fts USING fts5(  -- external content; 3 sync triggers
+    label, body, content = 'entry_search_documents', content_rowid = 'docid',
+    tokenize = '<[search] tokenizer>'
+);
 ```
 
-`media_references` rows are written inside `put`'s existing transaction — the
-one that already allocates `seq` — so an entry and its references land together
+`media_references` and `entry_search_documents` rows are written inside `put`'s existing transaction — the
+one that already allocates `seq` — so an entry, its references and its index row land together
 or not at all. `delete`, `deleteProject` and `deleteEnvironment` drop matching
 rows in their own transactions for the same reason.
+
+The search tables exist only when `[search] enabled` is true **and** the SQLite build has FTS5, which is probed at open rather than assumed. `docid` is an explicit `INTEGER PRIMARY KEY` because `VACUUM` renumbers the implicit rowid of a table whose primary key is composite, which would silently point the index at the wrong rows; the upsert uses `ON CONFLICT DO UPDATE` so it survives a rewrite. Opening with search **disabled** clears the version stamp but drops nothing — every CLI subcommand opens the store, so a `silo keys list` from a build without FTS5 would otherwise delete the index a running server is maintaining on the same data dir, and a cleared stamp already forces the rebuild that correctness needs.
 
 WAL mode, `busy_timeout` set, one write connection + a read pool. `seq` allocated by incrementing `meta.last_seq` inside the write transaction, still instance-global rather than per-scope. Filters compile to `json_extract(data, '$.path')` expressions; no per-field indexes in v1 (roadmap: expression indexes for declared hot fields). Scope values (`project`, `env`) always reach SQL as bound parameters, never interpolated, same as every other query value. `SqliteStore.open` refuses to open a data dir stamped with a different `format_version` before running DDL — `CREATE TABLE IF NOT EXISTS` would otherwise silently leave a pre-D18 schema/entries table without these columns in place, so unscoped queries would crash on "no such column" instead of failing with an actionable message. The `meta.format_version` row is checked first, but isn't trusted alone: a pre-D18 db could in principle have old-shaped tables without a `format_version` row to contradict, so the guard also inspects `schemas`/`entries` directly via `PRAGMA table_info` and refuses to open if either exists without a `project` column.
 
@@ -422,6 +520,10 @@ Hono web framework on Bun. JSON everywhere. Admin UI served at `/`; API under `/
 | GET / PUT / DELETE | `/api/projects/{project}/envs/{env}/collections/{name}/schema` | schema fetch / update / delete |
 | GET / POST | `/api/projects/{project}/envs/{env}/collections/{name}` | list (query below) / create |
 | GET / PUT / DELETE | `/api/projects/{project}/envs/{env}/collections/{name}/{id}` | PUT is full replace |
+| GET | `/api/projects/{project}/envs/{env}/collections/{name}/search` | search one collection (§5.5) |
+| GET | `/api/projects/{project}/envs/{env}/search` | search one scope |
+| GET | `/api/search` | search the instance |
+| POST | `/api/search/reindex` | rebuild the index; export-level read claims |
 | GET | `/api/export` | streams tar.gz (`transfer:export` + `media:read`; `keys:export` when including keys) |
 | POST | `/api/import?mode=` | accepts tar.gz (`transfer:import` + `media:create`, plus `media:delete` in replace mode; archives containing keys also require `keys:import`) |
 | POST | `/api/copy` | pulls and imports another silo (`{source_url, source_api_key, mode, with_keys, dry_run, validate, prefer}`; `transfer:copy`) |
@@ -435,7 +537,7 @@ Hono web framework on Bun. JSON everywhere. Admin UI served at `/`; API under `/
 | POST | `/api/media/reconcile` | backfill and repair the catalog (`media:create` + `media:delete`) |
 | GET | `/media/{id}` | public asset streaming (pre-D23 `/media/{blobKey}` still resolves) |
 
-**List query encoding:** `?filter=<url-encoded JSON Filter>&sort=-$updated_at,title&limit=50&offset=0` (envelope fields carry the `$` prefix in sort exactly as in filters). Response: `{"data": [...], "total": n, "limit": ..., "offset": ...}`.
+**List query encoding:** `?filter=<url-encoded JSON Filter>&sort=-$.updated_at,$.data.title&limit=50&offset=0`. Since D29 both `filter` paths and `sort` keys are RFC 9535 JSONPath over the API response shape (§5.3); the pre-D29 `author.name` / `$id` spellings are rejected. Response: `{"data": [...], "total": n, "limit": ..., "offset": ...}`. The search routes (§5.5) take the same `filter`, `sort`, `limit` and `offset`, plus `q`.
 
 **Optimistic concurrency:** PUT/DELETE require the expected rev (`If-Match: "3"` or `?rev=3`); mismatch → `409` with the current entry. Prevents lost updates from two admin tabs — cheap now, painful to retrofit.
 
@@ -562,20 +664,21 @@ React + TypeScript + Vite + RJSF (`@rjsf/core` + `@rjsf/validator-ajv8` for 2020
 
 **Layout:** a server manager, then a two-pane shell, with settings as a second two-pane shell of its own:
 
-- **Sidebar (nav):** the visible collections with in-memory search and user-resizable width (persisted in `localStorage`); selecting one shows its entries. Pinned at the bottom when authorized: *Keys*, *Media*, and *Data transfer*. Navigation and page actions adapt to the session's claims.
+- **Sidebar (nav):** a `⌘K` search trigger, then the visible collections with an in-memory box that *filters what is already listed* — a different question from the palette's, so the two are worded apart — and user-resizable width (persisted in `localStorage`); selecting one shows its entries. Pinned at the bottom when authorized: *Keys*, *Media*, and *Data transfer*. Navigation and page actions adapt to the session's claims.
 - **Top bar (slim):** breadcrumbs for the current page, its actions, and a session pill stating what the active key can do **in the scope on screen** (full access / read & write / read-only / none), derived from its claims by `Claims.accessLevel`. The key's own label and prefix are the pill's tooltip; the instance name and the lock live in the sidebar's scope switcher, so the top bar does not repeat them.
 - **Main pane:** whatever the nav selected.
 
 **Views:**
 
 1. **Server manager** — the welcome screen: pick a saved silo instance or add one (name, URL, API key), with the URL and key verified against `GET /api/session` before the server is saved. Shown on first visit and after any `401`.
-2. **Entries list** (default main view) — table per collection, columns derived from top-level schema properties, filter/sort/paginate via the list API, *New entry* button.
-3. **Entry form** — RJSF-generated from the schema; per-subtree raw-JSON fallback for unrenderable constructs (D3); server validation errors mapped back onto fields.
-4. **Schema editor** — create/edit a collection's JSON Schema in a JSON editor (CodeMirror) with live validation of the schema document itself.
-5. **Media** — a searchable library: a folder rail, a name/type filter bound to the `_media` query, and per-asset rename, move, and delete. An asset in use shows its reference count and refuses deletion, naming the entries the current key may read (§8.1).
-6. **Keys** — list (label, claims, prefix, created), revoke, and a dedicated creation page. The creation page is one guided sentence: a label, a **reach** naming the project and env segments of the key's collection claims independently (one env · a whole project · one env across every project · the whole instance), and a **role** (`read` · `write` · `manage` · `root`). One Advanced disclosure adds what the sentence cannot say — narrowing to named collections, the instance capabilities (media, key management, transfer), and a raw claim editor that takes over from the guided controls when even those are not enough. Choosing a transfer capability composes in the instance-wide collection permissions D21 requires alongside it, rather than naming them in help text. Options the current key cannot delegate are disabled with the reason. The secret is shown once.
-7. **Data transfer** — two pages at two blast radii. Under *Server*: claim-aware whole-instance export/import panels and direct copy from another running silo (merge/replace, data-only/data-plus-keys). Under *Environment*: copy from another environment of this instance (D22), preview-then-apply, gated on the scoped claims the copy exercises.
-8. **Settings** — a nav column grouped by the scope each page configures; see below.
+2. **Entries list** (default main view) — table per collection, columns derived from top-level schema properties, sort/paginate via the list API, *New entry* button. Text runs the collection-reach `/search` (D30) rather than a `contains` on one column: results carry snippets naming the field each match came from, and the engine that answered is stated. A **filter builder** writes the Query AST (D29) over the schema's own fields, offering only the ops `@silo/shared` declares and only paths `JsonPath` can build; the AST travels in the URL as raw JSON, so a filtered view is linkable, and one it cannot draw — nesting, `not`, a hand-written filter — is shown read-only and still applied rather than quietly simplified. Everything on screen lives in the URL. **An absent `sort` means nobody chose one**, which is what lets a search rank by relevance and a listing fall back to newest-first; writing the default out would pin the view to a date order no search could override.
+3. **Command palette** (`⌘K`) — instance-wide search from anywhere in the shell. It asks for the whole instance rather than the scope on screen because the key already bounds it (`searchAccess`), groups hits by collection in the order the ranking gave, names the `project/env` only for results outside the current scope, and merges media in as its own group — the one place the two result sets meet.
+4. **Entry form** — RJSF-generated from the schema; per-subtree raw-JSON fallback for unrenderable constructs (D3); server validation errors mapped back onto fields.
+5. **Schema editor** — create/edit a collection's JSON Schema in a JSON editor (CodeMirror) with live validation of the schema document itself.
+6. **Media** — a searchable library: a folder rail, a name/type filter bound to the `_media` query, and per-asset rename, move, and delete. An asset in use shows its reference count and refuses deletion, naming the entries the current key may read (§8.1).
+7. **Keys** — list (label, claims, prefix, created), revoke, and a dedicated creation page. The creation page is one guided sentence: a label, a **reach** naming the project and env segments of the key's collection claims independently (one env · a whole project · one env across every project · the whole instance), and a **role** (`read` · `write` · `manage` · `root`). One Advanced disclosure adds what the sentence cannot say — narrowing to named collections, the instance capabilities (media, key management, transfer), and a raw claim editor that takes over from the guided controls when even those are not enough. Choosing a transfer capability composes in the instance-wide collection permissions D21 requires alongside it, rather than naming them in help text. Options the current key cannot delegate are disabled with the reason. The secret is shown once.
+8. **Data transfer** — two pages at two blast radii. Under *Server*: claim-aware whole-instance export/import panels and direct copy from another running silo (merge/replace, data-only/data-plus-keys). Under *Environment*: copy from another environment of this instance (D22), preview-then-apply, gated on the scoped claims the copy exercises.
+9. **Settings** — a nav column grouped by the scope each page configures; see below.
 
 **Settings** is divided by the scope each page configures, because a collection is
 identified by `(project, env, collection)` (D18–D20) and most of what settings
@@ -661,6 +764,13 @@ disabled = false            # dev-only bypass; if true, disables all auth checks
 [schema]
 allow_remote_refs = false
 
+[search]
+enabled             = true         # false keeps no index; search falls back to a full scan
+tokenizer           = "unicode61"  # or "trigram" (substrings; required for CJK)
+max_entry_bytes     = 65536        # per-entry cap on indexed text
+scan_limit          = 20000        # entries one un-indexed scan may visit before truncating
+scan_time_budget_ms = 3000         # ...and how long, whichever comes first
+
 [log]
 level       = "info"        # "debug" | "info" | "warn" | "error" | "silent"
 format      = "text"        # "text" | "json"
@@ -684,7 +794,7 @@ chose. Only `serve --detach` derives one — `<storage.path>/silo.log`, followin
 the data dir like media does — and hands it to the child as an explicit
 `--log-file`, so the derived value never masquerades as a configured one.
 
-Subcommands: `silo init`, `silo serve`, `silo stop`, `silo status`, `silo logs`, `silo export`, `silo import`, `silo keys create|list|revoke`, `silo media reconcile`, `silo version`. CLI commands operate directly on the data dir — no running server required (this is also the lockout-recovery path). `stop`, `status` and `logs` are the exception in the other direction: they read `silo.run.json` and never open storage at all, for the same reason `init` does not — asking whether a server is running must not create a data directory or take a handle on a database another process owns. `serve --detach` is routed the same way, so the parent leaves the directory entirely to the child it spawns. `init` is the exception that touches neither: it writes a `silo.toml` holding the defaults above, rendered from `ConfigLoader.defaultConfig()` so the scaffold cannot drift from the built-in defaults, with alternatives and the s3 keys commented beside them. Settings with no default — the s3 credentials, the fs media path, and `[log] file` — are written commented out, because a literal value there is indistinguishable from a chosen one and would defeat the derivation above. `keys create` accepts explicit `--claims` or `--preset root|manage|write|read` with optional `--collections`. Presets are defined once in `@silo/shared` (`Claims.presetPermissions`/`presetMedia`) and read by both the CLI and the admin UI's key form, so `--preset manage` and the UI's Manage role grant the same set. First boot creates the data dir, generates `instance_id` (ULID), initializes storage, and — if no keys exist — generates and prints a root key exactly once.
+Subcommands: `silo init`, `silo serve`, `silo stop`, `silo status`, `silo logs`, `silo export`, `silo import`, `silo keys create|list|revoke`, `silo media reconcile`, `silo search reindex [--check]`, `silo version`. CLI commands operate directly on the data dir — no running server required (this is also the lockout-recovery path). `stop`, `status` and `logs` are the exception in the other direction: they read `silo.run.json` and never open storage at all, for the same reason `init` does not — asking whether a server is running must not create a data directory or take a handle on a database another process owns. `serve --detach` is routed the same way, so the parent leaves the directory entirely to the child it spawns. `init` is the exception that touches neither: it writes a `silo.toml` holding the defaults above, rendered from `ConfigLoader.defaultConfig()` so the scaffold cannot drift from the built-in defaults, with alternatives and the s3 keys commented beside them. Settings with no default — the s3 credentials, the fs media path, and `[log] file` — are written commented out, because a literal value there is indistinguishable from a chosen one and would defeat the derivation above. `keys create` accepts explicit `--claims` or `--preset root|manage|write|read` with optional `--collections`. Presets are defined once in `@silo/shared` (`Claims.presetPermissions`/`presetMedia`) and read by both the CLI and the admin UI's key form, so `--preset manage` and the UI's Manage role grant the same set. First boot creates the data dir, generates `instance_id` (ULID), initializes storage, and — if no keys exist — generates and prints a root key exactly once.
 
 ## 11. Milestones
 
@@ -703,5 +813,5 @@ Testing spine: adapter conformance suite (one test file, run against every `Stor
 
 4. **Auth growth** — per-collection public-read rules (unauthenticated reads for chosen collections), key expiry, `last_used_at` tracking (needs a write-cheap path first), finer-grained per-key permissions. Real user accounts only if keys ever prove insufficient.
 5. **Relations** — `x-silo-ref` gains optional integrity enforcement + UI pickers.
-6. **Search** — SQLite FTS5 behind an optional `Searcher` interface.
+6. **Search (Completed)** — D30/§5.5: a `Searcher` port with a portable `ScanSearcher` on every adapter and `SqliteSearcher` (FTS5) where the build has it. Addressing is D29 JSONPath, shared with filters and sort, and the admin UI reads it through collection search, a `⌘K` palette, and a filter builder (§9).
 7. **Drafts/publish, webhooks** — after real user demand, not before.

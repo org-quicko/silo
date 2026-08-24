@@ -1,6 +1,5 @@
 import type { ReactNode } from 'react'
 import type { AccessLevel } from '@silo/shared/access-level'
-import { Link } from '../../router/Link'
 import type { SessionBadge } from './session-badge'
 import styles from './TopBar.module.css'
 
@@ -15,44 +14,24 @@ const ACCESS_TEXT: Record<AccessLevel, string> = {
   none: 'No access',
 }
 
-export interface Crumb {
-  label: string
-  /** Renders the crumb as a link; the last crumb is normally left plain. */
-  to?: string
-  onClick?: () => void
-}
-
+/**
+ * The top chrome: the smart search bar (handoff 1b), any page-specific
+ * actions, and the session pill. Breadcrumbs used to live here too; they now
+ * render in the page body (see `Breadcrumb`), which is what makes room for a
+ * bar wide enough to type a real query into.
+ */
 export function TopBar({
-  crumbs,
+  search,
   session,
   children,
 }: {
-  crumbs: Crumb[]
+  search: ReactNode
   session: SessionBadge
   children?: ReactNode
 }) {
   return (
     <div className={styles.topbar}>
-      <div className={styles.breadcrumb}>
-        {crumbs.map((c, i) => {
-          const current = i === crumbs.length - 1
-          const className = `${styles.crumb} ${current ? styles.current : c.to || c.onClick ? styles.link : ''}`
-          return (
-            <span key={i} className={styles.crumbPart}>
-              {i > 0 && <span className={styles.separator}>/</span>}
-              {c.to && !current ? (
-                <Link to={c.to} className={className}>
-                  {c.label}
-                </Link>
-              ) : (
-                <button className={className} onClick={c.onClick} disabled={!c.onClick || current}>
-                  {c.label}
-                </button>
-              )}
-            </span>
-          )
-        })}
-      </div>
+      <div className={styles.searchSlot}>{search}</div>
       <div className={styles.right}>
         {children}
         <div

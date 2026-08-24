@@ -1,8 +1,22 @@
+import { JsonPath } from '@silo/shared/json-path'
 import { DEFAULT_LIST_QUERY, type ListQuery } from './list-query'
 import type { EnvSettingsSection, ProjectSettingsSection, Route, ServerSettingsSection } from './route'
 import type { ScopeRef } from '../api/types/scope-ref'
 
-const DEFAULT_SORT = '-$updated_at'
+/**
+ * Sort keys became paths in D29, and this one lives in the URL — so a link
+ * bookmarked or shared before the change carries `$updated_at`, which the API
+ * now rejects. The server breaks cleanly and offers no compatibility parsing;
+ * mapping the old spelling here costs nothing, touches no contract, and keeps
+ * those links working.
+ */
+function adoptLegacySort(sort: string): string {
+  const desc = sort.startsWith('-')
+  const key = desc ? sort.slice(1) : sort
+  if (key.startsWith('$.')) return sort
+  const path = key.startsWith('$') ? `$.${key.slice(1)}` : JsonPath.dataField(key)
+  return (desc ? '-' : '') + path
+}
 
 /**
  * URL grammar. Settings pages nest under the resource they configure, using
@@ -71,8 +85,14 @@ export class Routes {
       : `${Routes.workspace(serverId, project, env)}/schema/new`
   }
 
-  static media(serverId: string, project: string, env: string): string {
-    return `${Routes.workspace(serverId, project, env)}/media`
+  /**
+   * `q` carries a search into the library. The catalog has no per-asset URL,
+   * so an asset found somewhere else (the command palette) is linked to by the
+   * search that found it rather than by a page of everything.
+   */
+  static media(serverId: string, project: string, env: string, q?: string): string {
+    const base = `${Routes.workspace(serverId, project, env)}/media`
+    return q ? `${base}?q=${encodeURIComponent(q)}` : base
   }
 
   // ---- parsing ----
@@ -183,7 +203,7 @@ export class Routes {
     }
 
     if (rest.length === 1 && rest[0] === 'media') {
-      return { view: 'media', serverId, project, env }
+      return { view: 'media', serverId, project, env, q: new URLSearchParams(search).get('q') || '' }
     }
 
     if (rest[0] === 'schema') {
@@ -210,27 +230,35 @@ export class Routes {
     return `${Routes.collections(serverId, project, env)}/${encodeURIComponent(name)}`
   }
 
-  /** Only non-default params are written, so the common URL stays clean. */
+  /**
+   * Only non-default params are written, so the common URL stays clean. An
+   * absent `sort` is the default *by absence* — writing one out would pin the
+   * view to a date order that a search could never override.
+   */
   private static encodeQuery(query: ListQuery): string {
     const params = new URLSearchParams()
     if (query.q) params.set('q', query.q)
-    const sort = (query.desc ? '-' : '') + query.sort
-    if (sort !== DEFAULT_SORT) params.set('sort', sort)
+    if (query.sort) params.set('sort', (query.desc ? '-' : '') + query.sort)
+    if (query.filter) params.set('filter', query.filter)
     if (query.page > 1) params.set('page', String(query.page))
+    if (query.cols) params.set('cols', query.cols)
     const encoded = params.toString()
     return encoded ? `?${encoded}` : ''
   }
 
   private static decodeQuery(search: string): ListQuery {
     const params = new URLSearchParams(search)
-    const sort = params.get('sort') || DEFAULT_SORT
-    const desc = sort.startsWith('-')
+    const raw = params.get('sort')
+    const sort = raw ? adoptLegacySort(raw) : null
+    const desc = sort ? sort.startsWith('-') : DEFAULT_LIST_QUERY.desc
     const page = Number.parseInt(params.get('page') || '1', 10)
     return {
       q: params.get('q') || '',
-      sort: desc ? sort.slice(1) : sort,
+      sort: sort ? (desc ? sort.slice(1) : sort) : null,
       desc,
       page: Number.isFinite(page) && page > 0 ? page : 1,
+      filter: params.get('filter'),
+      cols: params.get('cols'),
     }
   }
 }

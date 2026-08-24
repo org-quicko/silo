@@ -155,7 +155,7 @@ describe("media catalog (D23)", () => {
     // Stage the asset the way a crashed delete would leave it.
     await svc.updateMediaAsset(asset.id, {});
     const staged = await store.get(Scope.System, "_media", asset.id);
-    await store.put({ ...staged, rev: staged.rev + 1, data: { ...staged.data, state: "deleting" } }, []);
+    await store.put({ ...staged, rev: staged.rev + 1, data: { ...staged.data, state: "deleting" } }, { usages: [], search: null });
 
     await expect(
       svc.createEntry(Scope.Default, "posts", { cover: MediaRef.url(asset.id) })
@@ -348,7 +348,7 @@ describe("media catalog (D23)", () => {
     const staged = await store.get(Scope.System, "_media", asset.id);
     await store.put(
       { ...staged, rev: staged.rev + 1, data: { ...staged.data, state: "deleting" } },
-      []
+      { usages: [], search: null }
     );
     expect(await svc.blobStore.exists(asset.blob_key)).toBe(true);
 

@@ -3,7 +3,9 @@ import type { Storage } from "../../core/ports/storage";
 import { EntryUtils } from "../../core/domain/entry-utils";
 import type { Entry } from "../../core/domain/entry";
 import { Scope } from "../../core/domain/scope";
+import { ScanSearcher } from "../../core/search/scan-searcher";
 import { MediaRefs } from "../../core/media/media-refs";
+import { SearchText } from "../../core/search/search-text";
 import { MediaRef } from "@silo/shared/media-ref";
 
 export function runStorageTestSuite(
@@ -41,7 +43,7 @@ export function runStorageTestSuite(
         updated_at: ts,
         data,
       };
-      await st.put(e, MediaRefs.extract(e.data));
+      await st.put(e, { usages: MediaRefs.extract(e.data), search: SearchText.extract(e.data) });
       return e;
     };
 
@@ -55,11 +57,16 @@ export function runStorageTestSuite(
         views: 10,
         tags: ["go", "cms"],
         author: { name: "nina" },
+        // Only alpha carries a subtitle, so the presence operators have
+        // something to separate; only alpha is nested twice, so the wildcard
+        // chain has something to recurse through.
+        subtitle: "first",
+        matrix: [[1, 2], [3]],
       });
       const beta = await putEntry(st, scope, "posts", 2, {
         title: "beta",
         views: 25,
-        tags: ["go"],
+        tags: ["go", "db"],
         author: { name: "omar" },
       });
       const gamma = await putEntry(st, scope, "posts", 3, {
@@ -67,6 +74,7 @@ export function runStorageTestSuite(
         views: 3,
         tags: [],
         author: { name: "nina" },
+        blocks: [{ kind: "para" }, { kind: "quote" }],
       });
       return { alpha, beta, gamma };
     };
@@ -113,7 +121,7 @@ export function runStorageTestSuite(
       const upd = { ...got };
       upd.rev = 2;
       upd.data = { title: "alpha2" };
-      await st.put(upd, MediaRefs.extract(upd.data));
+      await st.put(upd, { usages: MediaRefs.extract(upd.data), search: SearchText.extract(upd.data) });
       expect(upd.seq).toBeGreaterThan(e.seq);
 
       const got2 = await st.get(scope, "posts", e.id);
@@ -161,37 +169,44 @@ export function runStorageTestSuite(
       const cases = [
         {
           name: "eq nested",
-          filter: { op: "eq", field: "author.name", value: "nina" },
+          filter: { op: "eq", path: "$.data.author.name", value: "nina" },
           want: ["alpha", "gamma"],
         },
         {
           name: "neq",
-          filter: { op: "neq", field: "author.name", value: "nina" },
+          filter: { op: "neq", path: "$.data.author.name", value: "nina" },
           want: ["beta"],
         },
         {
           name: "gt",
-          filter: { op: "gt", field: "views", value: 5 },
+          filter: { op: "gt", path: "$.data.views", value: 5 },
           want: ["alpha", "beta"],
         },
         {
           name: "lte",
-          filter: { op: "lte", field: "views", value: 10 },
+          filter: { op: "lte", path: "$.data.views", value: 10 },
           want: ["alpha", "gamma"],
         },
         {
           name: "in",
-          filter: { op: "in", field: "title", value: ["alpha", "gamma"] },
+          filter: { op: "in", path: "$.data.title", value: ["alpha", "gamma"] },
           want: ["alpha", "gamma"],
         },
         {
-          name: "contains array",
-          filter: { op: "contains", field: "tags", value: "go" },
+          // Array membership is a wildcard path since D29, not `contains`.
+          name: "membership via wildcard",
+          filter: { op: "eq", path: "$.data.tags[*]", value: "go" },
           want: ["alpha", "beta"],
         },
         {
+          // ...and `contains` no longer reaches into an array at all.
+          name: "contains does not match an array",
+          filter: { op: "contains", path: "$.data.tags", value: "go" },
+          want: [],
+        },
+        {
           name: "contains substring",
-          filter: { op: "contains", field: "title", value: "amm" },
+          filter: { op: "contains", path: "$.data.title", value: "amm" },
           want: ["gamma"],
         },
         {
@@ -199,8 +214,8 @@ export function runStorageTestSuite(
           filter: {
             op: "and",
             args: [
-              { op: "eq", field: "author.name", value: "nina" },
-              { op: "gt", field: "views", value: 5 },
+              { op: "eq", path: "$.data.author.name", value: "nina" },
+              { op: "gt", path: "$.data.views", value: 5 },
             ],
           },
           want: ["alpha"],
@@ -210,28 +225,86 @@ export function runStorageTestSuite(
           filter: {
             op: "or",
             args: [
-              { op: "eq", field: "title", value: "beta" },
-              { op: "eq", field: "title", value: "gamma" },
+              { op: "eq", path: "$.data.title", value: "beta" },
+              { op: "eq", path: "$.data.title", value: "gamma" },
             ],
           },
           want: ["beta", "gamma"],
         },
         {
           name: "envelope id",
-          filter: { op: "eq", field: "$id", value: alpha.id },
+          filter: { op: "eq", path: "$.id", value: alpha.id },
           want: ["alpha"],
         },
         {
-          name: "envelope seq",
-          filter: { op: "gt", field: "$seq", value: alpha.seq },
+          name: "exists",
+          filter: { op: "exists", path: "$.data.subtitle" },
+          want: ["alpha"],
+        },
+        {
+          name: "not exists",
+          filter: { op: "not", args: [{ op: "exists", path: "$.data.subtitle" }] },
           want: ["beta", "gamma"],
+        },
+        {
+          // The rule that changed: ANY over zero nodes is false, so `neq`
+          // alone no longer matches an entry that lacks the field.
+          name: "neq does not match a missing field",
+          filter: { op: "neq", path: "$.data.subtitle", value: "first" },
+          want: [],
+        },
+        {
+          // ANY over zero nodes is false, so `neq` alone does not match a
+          // missing field. This is the pre-D29 behaviour that changed, and the
+          // spelling below is what replaces it.
+          name: "absent or not equal",
+          filter: {
+            op: "or",
+            args: [
+              { op: "not", args: [{ op: "exists", path: "$.data.subtitle" }] },
+              { op: "neq", path: "$.data.subtitle", value: "first" },
+            ],
+          },
+          want: ["beta", "gamma"],
+        },
+        {
+          name: "not over a comparison keeps rows whose field is missing",
+          filter: { op: "not", args: [{ op: "gt", path: "$.data.missing", value: 5 }] },
+          want: ["alpha", "beta", "gamma"],
+        },
+        {
+          name: "wildcard into objects in an array",
+          filter: { op: "eq", path: "$.data.blocks[*].kind", value: "quote" },
+          want: ["gamma"],
+        },
+        {
+          name: "index selector",
+          filter: { op: "eq", path: "$.data.tags[0]", value: "go" },
+          want: ["alpha", "beta"],
+        },
+        {
+          name: "two wildcards nest",
+          filter: { op: "eq", path: "$.data.matrix[*][*]", value: 3 },
+          want: ["alpha"],
+        },
+        {
+          name: "negative index selector",
+          filter: { op: "eq", path: "$.data.tags[-1]", value: "db" },
+          want: ["beta"],
+        },
+        {
+          // A wildcard selects children of a container, never a scalar, so a
+          // string `tags` must not match `$.data.tags[*]`.
+          name: "wildcard does not select a scalar",
+          filter: { op: "eq", path: "$.data.title[*]", value: "alpha" },
+          want: [],
         },
       ];
 
       for (const tc of cases) {
         const { items, total } = await st.list(Scope.Default, "posts", {
           filter: tc.filter,
-          sort: [{ field: "title", desc: false }],
+          sort: [{ path: "$.data.title", desc: false }],
           limit: 50,
           offset: 0,
         });
@@ -248,20 +321,20 @@ export function runStorageTestSuite(
       const cases = [
         {
           name: "data field desc",
-          sort: [{ field: "views", desc: true }],
+          sort: [{ path: "$.data.views", desc: true }],
           want: ["beta", "alpha", "gamma"],
         },
         {
           name: "two keys",
           sort: [
-            { field: "author.name", desc: false },
-            { field: "views", desc: true },
+            { path: "$.data.author.name", desc: false },
+            { path: "$.data.views", desc: true },
           ],
           want: ["alpha", "gamma", "beta"],
         },
         {
           name: "envelope desc",
-          sort: [{ field: "$created_at", desc: true }],
+          sort: [{ path: "$.created_at", desc: true }],
           want: ["gamma", "beta", "alpha"],
         },
       ];
@@ -277,6 +350,58 @@ export function runStorageTestSuite(
       }
     });
 
+    // ScanSearcher is the portable engine (D30): it speaks only through the
+    // `Storage` port, so proving it here proves it on every adapter at once —
+    // which is the entire reason it ships before FTS5.
+    test("Search (portable engine)", async () => {
+      const st = await getFreshStore();
+      await seed(st);
+      const searcher = new ScanSearcher(st);
+      const all = { targets: [{ project: "*", env: "*", collection: "*" }] };
+      const run = (req: any) =>
+        searcher.search({ limit: 50, offset: 0, ...req }, all);
+      const titles = async (req: any) =>
+        (await run(req)).items.map((h) => h.entry.data.title).sort();
+
+      expect(await titles({ q: "alpha" })).toEqual(["alpha"]);
+      // Text in a nested array of objects is indexed, not just top-level.
+      expect(await titles({ q: "quote" })).toEqual(["gamma"]);
+      // Every term must match; the last one matches as a prefix.
+      expect(await titles({ q: "alpha nina" })).toEqual(["alpha"]);
+      expect(await titles({ q: "alpha omar" })).toEqual([]);
+      expect(await titles({ q: "nin" })).toEqual(["alpha", "gamma"]);
+      // Field names never become terms.
+      expect(await titles({ q: "subtitle" })).toEqual([]);
+
+      // A filter composes with the text query, and a filter-only search works.
+      expect(
+        await titles({ q: "nina", filter: { op: "gt", path: "$.data.views", value: 5 } })
+      ).toEqual(["alpha"]);
+      expect(await titles({ filter: { op: "exists", path: "$.data.subtitle" } })).toEqual([
+        "alpha",
+      ]);
+
+      const scoped = await searcher.search(
+        { q: "nina", limit: 50, offset: 0 },
+        { targets: [{ project: "nope", env: "*", collection: "*" }] }
+      );
+      expect(scoped.items).toEqual([]);
+      expect(scoped.total).toBe(0);
+
+      const hit = (await run({ q: "alpha" })).items[0];
+      expect(hit.project).toBe(Scope.Default.project);
+      expect(hit.env).toBe(Scope.Default.env);
+      expect(hit.collection).toBe("posts");
+      expect(hit.snippets.some((sn) => sn.match === "alpha")).toBe(true);
+
+      // A visit cap reports itself rather than silently returning less.
+      const capped = await new ScanSearcher(st, { visitLimit: 1 }).search(
+        { q: "nina", limit: 50, offset: 0 },
+        all
+      );
+      expect(capped.truncated).toBe(true);
+    });
+
     test("Paging", async () => {
       const st = await getFreshStore();
       const scope = Scope.Default;
@@ -285,7 +410,7 @@ export function runStorageTestSuite(
       }
 
       const p1 = await st.list(scope, "posts", {
-        sort: [{ field: "n", desc: false }],
+        sort: [{ path: "$.data.n", desc: false }],
         limit: 2,
         offset: 0,
       });
@@ -293,7 +418,7 @@ export function runStorageTestSuite(
       expect(getTitles(p1.items)).toEqual(["p0", "p1"]);
 
       const p2 = await st.list(scope, "posts", {
-        sort: [{ field: "n", desc: false }],
+        sort: [{ path: "$.data.n", desc: false }],
         limit: 2,
         offset: 4,
       });
@@ -396,7 +521,7 @@ export function runStorageTestSuite(
       expect(getTitles(listed.items).sort()).toEqual(["alpha", "beta"]);
 
       const filtered = await st.list(scope, qualified, {
-        filter: { op: "gt", field: "views", value: 10 },
+        filter: { op: "gt", path: "$.data.views", value: 10 },
         limit: 50,
         offset: 0,
       });
@@ -712,8 +837,8 @@ export function runStorageTestSuite(
         id: sharedId, project: scopeB.project, env: scopeB.env, collection: "posts",
         rev: 1, seq: 0, created_at: ts, updated_at: ts, data: { title: "b" },
       };
-      await st.put(a, []);
-      await st.put(b, []);
+      await st.put(a, { usages: [], search: null });
+      await st.put(b, { usages: [], search: null });
 
       // The identical id in two scopes must resolve to two independent
       // entries — this would still pass if a storage engine's primary key
@@ -771,8 +896,8 @@ export function runStorageTestSuite(
       });
 
       for (const bad of unsafe) {
-        await expect(st.put(entryWith({ id: bad }), [])).rejects.toThrow();
-        await expect(st.put(entryWith({ collection: bad }), [])).rejects.toThrow();
+        await expect(st.put(entryWith({ id: bad }), { usages: [], search: null })).rejects.toThrow();
+        await expect(st.put(entryWith({ collection: bad }), { usages: [], search: null })).rejects.toThrow();
         await expect(st.get(scope, bad, "someid")).rejects.toThrow();
         await expect(st.delete(scope, bad, "someid")).rejects.toThrow();
         await expect(st.list(scope, bad, { limit: 50, offset: 0 })).rejects.toThrow();
@@ -780,8 +905,8 @@ export function runStorageTestSuite(
         await expect(st.delete(scope, "posts", bad)).rejects.toThrow();
       }
 
-      await expect(st.put(entryWith({ project: "../evil" }), [])).rejects.toThrow();
-      await expect(st.put(entryWith({ env: "../evil" }), [])).rejects.toThrow();
+      await expect(st.put(entryWith({ project: "../evil" }), { usages: [], search: null })).rejects.toThrow();
+      await expect(st.put(entryWith({ env: "../evil" }), { usages: [], search: null })).rejects.toThrow();
 
       // The store must still work normally after rejecting malformed input.
       const ok = await putEntry(st, scope, "posts", 2, { title: "fine" });
@@ -825,7 +950,7 @@ export function runStorageTestSuite(
             gallery: refs.slice(1).map((r) => MediaRef.url(r)),
           },
         };
-        await st.put(e, MediaRefs.extract(e.data));
+        await st.put(e, { usages: MediaRefs.extract(e.data), search: SearchText.extract(e.data) });
         return e;
       };
 
@@ -856,7 +981,7 @@ export function runStorageTestSuite(
         const e = await putWithRefs(st, Scope.Default, "posts", [REF_A]);
 
         const moved: Entry = { ...e, rev: 2, data: { cover: MediaRef.url(REF_B) } };
-        await st.put(moved, MediaRefs.extract(moved.data));
+        await st.put(moved, { usages: MediaRefs.extract(moved.data), search: SearchText.extract(moved.data) });
 
         // The old reference must be gone, not merely joined by the new one —
         // an accumulating index would keep REF_A blocked forever.

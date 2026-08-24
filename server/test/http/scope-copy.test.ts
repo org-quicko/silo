@@ -90,7 +90,7 @@ describe("Scope copy API", () => {
       project: staging.project,
       env: staging.env,
       data: { title: "destination wins" },
-    }, []);
+    }, { usages: [], search: null });
 
     const local = await copy(staging, { from: { project: "acme", env: "prod" }, prefer: "local" });
     expect(await local.json()).toMatchObject({ skipped: 1, updated: 0 });

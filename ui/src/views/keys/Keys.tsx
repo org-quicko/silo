@@ -1,5 +1,6 @@
 import { Button } from '../../components/Button'
 import { Pill } from '../../components/Pill'
+import { Breadcrumb } from '../../components/Breadcrumb'
 import { useEffect, useState } from 'react'
 import { KeyRound, Plus, Trash2 } from 'lucide-react'
 import { Claims } from '@silo/shared/claims'
@@ -14,6 +15,8 @@ import { ModalCopy } from '../../components/ModalCopy'
 import { ModalHeader } from '../../components/ModalHeader'
 import { ModalIcon } from '../../components/ModalIcon'
 import { TopBar } from '../shell/TopBar'
+import { SmartSearch } from '../search/SmartSearch'
+import type { PaletteSeed } from '../search/palette-seed'
 import table from '../../components/DataTable.module.css'
 import styles from './Keys.module.css'
 
@@ -31,18 +34,26 @@ class KeyClaimSummary {
 }
 
 export function KeysView({
+  serverId,
   url,
   apiKey,
-  scope: _scope,
+  scope,
+  smartCollections,
   claims,
   session,
+  onOpenPalette,
+  onNavigateToCollection,
   onCreate,
 }: {
+  serverId: string
   url: string
   apiKey: string
-  scope?: ScopeRef
+  scope: ScopeRef | null
+  smartCollections: readonly { name: string; count: number | null; schema?: any }[]
   claims: string[]
   session: SessionBadge
+  onOpenPalette: (seed: PaletteSeed) => void
+  onNavigateToCollection: (name: string, q: string) => void
   onCreate: () => void
 }) {
   const [keys, setKeys] = useState<KeyView[]>([])
@@ -80,10 +91,23 @@ export function KeysView({
 
   return (
     <>
-      <TopBar crumbs={[{ label: 'Admin' }, { label: 'API keys' }]} session={session}>
+      <TopBar
+        search={
+          <SmartSearch
+            serverId={serverId}
+            scope={scope}
+            collection={null}
+            collections={smartCollections}
+            onNavigateToCollection={onNavigateToCollection}
+            onOpenPalette={onOpenPalette}
+          />
+        }
+        session={session}
+      >
         {canCreate && <Button variant="primary" onClick={onCreate}><Plus size={14} /> Create key</Button>}
       </TopBar>
       <div className="content">
+        <Breadcrumb crumbs={[{ label: 'Admin' }, { label: 'API keys' }]} />
         <div className="page-head">
           <div className="page-title-group">
             <h2 className="page-title">API keys</h2>

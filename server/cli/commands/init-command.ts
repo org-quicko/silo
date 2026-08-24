@@ -79,6 +79,14 @@ disabled = ${cfg.auth.disabled}   # dev only: true treats every request as root,
 [schema]
 allow_remote_refs = ${cfg.schema.allow_remote_refs}  # true fetches http(s) $refs during validation (non-deterministic writes)
 
+[search]
+enabled             = ${cfg.search.enabled}     # false keeps no index; search falls back to a full scan
+tokenizer           = ${s(cfg.search.tokenizer)}  # "unicode61" (words) | "trigram" (substrings; required for CJK)
+max_entry_bytes     = ${cfg.search.max_entry_bytes}    # per-entry cap on indexed text
+scan_limit          = ${cfg.search.scan_limit}    # entries one un-indexed scan may visit before truncating
+scan_time_budget_ms = ${cfg.search.scan_time_budget_ms}     # ...and how long, whichever comes first
+# Changing the tokenizer rebuilds the index on the next start.
+
 [log]
 level       = ${s(cfg.log.level)}   # "debug" | "info" | "warn" | "error" | "silent"
 format      = ${s(cfg.log.format)}   # "text" (human) | "json" (one object per line, for a log shipper)

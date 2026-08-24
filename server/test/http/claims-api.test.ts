@@ -132,7 +132,7 @@ describe("claims API authorization", () => {
       created_at: now,
       updated_at: now,
       data: { label: "obsolete", role: "admin", hash: "unused", prefix: "silo_old…" },
-    }, []);
+    }, { usages: [], search: null });
 
     const response = await app.request("/api/keys", {
       headers: { Authorization: `Bearer ${rootKey}` },
@@ -156,7 +156,7 @@ describe("claims API authorization", () => {
       created_at: now,
       updated_at: now,
       data: { label: "obsolete", role: "admin", hash: "unused", prefix: "silo_old…" },
-    }, []);
+    }, { usages: [], search: null });
 
     const secret = await service.bootstrap();
     expect(secret.startsWith("silo_")).toBe(true);

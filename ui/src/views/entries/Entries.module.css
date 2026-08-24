@@ -1,19 +1,3 @@
-.filterField {
-  display: flex;
-  width: 230px;
-  align-items: center;
-  gap: 8px;
-  padding: 7px 10px;
-  border: 1px solid var(--line);
-  border-radius: var(--radius-sm);
-  background: var(--bg);
-  color: var(--text-3);
-}
-
-.filterField input { min-width: 0; flex: 1; border: 0; outline: 0; background: none; color: var(--text); font-family: var(--font-ui); font-size: 12.5px; }
-.filterField input::placeholder { color: var(--text-3); }
-
-.keycap { padding: 1px 5px; border: 1px solid var(--line); border-radius: 4px; color: var(--text-3); font-family: var(--font-mono); font-size: 10px; }
 .emptyCard { box-shadow: var(--shadow-panel); }
 
 .empty { display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 76px 24px 84px; text-align: center; }
@@ -23,22 +7,26 @@
 .emptyActions { display: flex; align-items: center; gap: 10px; margin-top: 22px; }
 
 .apiHint { margin-top: 20px; padding: 5px 10px; border: 1px solid var(--line); border-radius: 6px; color: var(--text-3); font-family: var(--font-mono); font-size: 11px; }
-.toolbar { display: flex; align-items: center; gap: 10px; margin-bottom: 14px; }
+/* Wraps: the filter chips are the first item and there can be several. */
+.toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin-bottom: 14px; }
 .toolbarSpacer { flex: 1; }
-.filterPill { display: inline-flex; align-items: center; gap: 7px; padding: 5px 10px; border-radius: var(--radius-sm); background: var(--accent-soft); font-family: var(--font-mono); font-size: 12px; }
+.toolbarDivider { width: 1px; height: 20px; flex: none; background: var(--line); }
+.resultSummary { color: var(--text-3); font-size: 12px; }
+
+/* The read-only stand-in for a filter the builder will not redraw. A button,
+   not a span — clicking it opens the panel that explains why. */
+.filterPill { display: inline-flex; align-items: center; gap: 7px; padding: 5px 10px; border: 0; border-radius: var(--radius-sm); background: var(--accent-soft); cursor: pointer; font-family: var(--font-mono); font-size: 12px; }
 .filterKey { color: var(--accent); }
 .filterOperator { color: var(--text-3); }
-.filterValue { color: var(--text); }
 
-.clearFilter,
-.menuButton { display: inline-flex; align-items: center; justify-content: center; padding: 0; border: 0; background: transparent; color: var(--text-3); cursor: pointer; }
-
-.clearFilter:hover { color: var(--bad); }
-.menuCell { position: relative; }
-.menuButton { width: 26px; height: 26px; border-radius: 5px; }
+.menuButton { display: inline-flex; width: 26px; height: 26px; align-items: center; justify-content: center; padding: 0; border: 0; border-radius: 5px; background: transparent; color: var(--text-3); cursor: pointer; }
 .menuButton:hover { background: var(--panel-2); color: var(--text-2); }
+.menuCell { position: relative; }
 .relativeTime { font-size: 12.5px; }
-.noResults { padding: 40px 16px; color: var(--text-3); text-align: center; }
+.numericHead { justify-content: flex-end; }
+/* The empty-state message borrows .cell for its padding but is a paragraph,
+   not a column: it opts back out of the single-line clipping. */
+.noResults { padding: 40px 16px; color: var(--text-3); text-align: center; white-space: normal; }
 
 .pager { display: flex; align-items: center; justify-content: space-between; margin-top: 14px; }
 .pagerInfo { color: var(--text-3); font-size: 12.5px; }
@@ -48,3 +36,37 @@
 .pagerButton:disabled { color: var(--text-3); cursor: not-allowed; opacity: 0.6; }
 .active { border-color: transparent; background: var(--accent); color: var(--accent-ink); font-weight: 600; }
 .rowsTag { margin-left: 8px; padding: 5px 9px; border: 1px solid var(--line); border-radius: 6px; color: var(--text-3); font-family: var(--font-mono); font-size: 11.5px; }
+
+/* ---- search and filter (P3) ---- */
+
+.filterAnchor { position: relative; }
+.sortNote { color: var(--text-3); font-size: 12px; }
+
+/* What a text query did to the list: how many matched, and in what order.
+   Above the rows rather than in the toolbar, because it describes the result
+   rather than the controls. */
+.searchStatus { display: flex; align-items: center; gap: 10px; margin-bottom: 12px; color: var(--text-3); font-size: 12.5px; }
+
+.searchStatusAction {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--accent);
+  cursor: pointer;
+  font-family: var(--font-ui);
+  font-size: 12.5px;
+}
+
+.searchStatusAction:hover { text-decoration: underline; }
+
+.truncatedNote { margin-bottom: 12px; padding: 9px 12px; border: 1px solid color-mix(in oklab, var(--warn) 34%, transparent); border-radius: var(--radius-sm); background: color-mix(in oklab, var(--warn) 10%, transparent); color: var(--text-2); font-size: 12.5px; line-height: 1.55; }
+
+.errorBanner { display: flex; align-items: center; gap: 8px; margin-bottom: 14px; padding: 9px 12px; border: 1px solid color-mix(in oklab, var(--bad) 34%, transparent); border-radius: var(--radius-sm); background: color-mix(in oklab, var(--bad) 10%, transparent); color: var(--text-2); font-size: 12.5px; }
+.bannerAction { margin-left: auto; padding: 0; border: 0; background: none; color: var(--accent); cursor: pointer; font-family: var(--font-ui); font-size: 12.5px; }
+.bannerAction:hover { text-decoration: underline; }
+
+.snippets { display: flex; flex-direction: column; gap: 3px; margin-top: 5px; }
+.snippet { display: flex; min-width: 0; align-items: baseline; gap: 7px; }
+.snippetPath { flex: none; color: var(--text-3); font-family: var(--font-mono); font-size: 10.5px; }
+.snippetText { overflow: hidden; color: var(--text-2); font-size: 11.5px; line-height: 1.5; text-overflow: ellipsis; white-space: nowrap; }
+.snippetMatch { border-radius: 3px; background: var(--accent-soft); color: var(--text); font-weight: 600; }

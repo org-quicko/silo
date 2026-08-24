@@ -1,0 +1,158 @@
+.panel {
+  position: absolute;
+  z-index: 30;
+  top: calc(100% + 8px);
+  left: 0;
+  width: 560px;
+  max-width: calc(100vw - 48px);
+  padding: 14px;
+  border: 1px solid var(--line-2);
+  border-radius: var(--radius);
+  background: var(--panel);
+  box-shadow: var(--shadow-modal);
+}
+
+.matchHead {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 12px;
+  color: var(--text-2);
+  font-size: 12.5px;
+}
+
+.rowGroup {
+  margin-bottom: 8px;
+  padding: 4px;
+  border-radius: 6px;
+  transition: background-color 0.6s ease;
+}
+
+/* Marks the row a `FilterChips` click named, so re-opening the panel from a
+   chip lands the eye on the right line instead of the top of the list. */
+.rowFocused { background: var(--accent-soft); }
+
+.row {
+  display: grid;
+  align-items: center;
+  gap: 7px;
+  grid-template-columns: 54px 1.2fr 1fr 1.2fr 24px;
+}
+
+.pathHint {
+  padding-left: 43px;
+  color: var(--text-3);
+  font-family: var(--font-mono);
+  font-size: 10px;
+}
+
+.joinCell { display: flex; justify-content: flex-end; }
+.joinLead { color: var(--text-3); font-size: 12px; }
+
+.join,
+.field,
+.op,
+.value {
+  width: 100%;
+  min-width: 0;
+  height: 30px;
+  padding: 0 8px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--font-ui);
+  font-size: 12.5px;
+}
+
+.join { width: auto; padding: 0 4px; color: var(--text-2); }
+
+.fieldCell {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 5px;
+}
+
+.typeGlyph {
+  display: flex;
+  width: 15px;
+  height: 15px;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--line-2);
+  border-radius: 3px;
+  background: var(--panel-2);
+  color: var(--text-3);
+  font-family: var(--font-mono);
+  font-size: 8.5px;
+}
+
+.field { min-width: 0; font-family: var(--font-mono); font-size: 11.5px; }
+.value::placeholder { color: var(--text-3); }
+.noValue { color: var(--text-3); text-align: center; }
+
+.rangeValue { display: flex; gap: 5px; }
+.rangeValue .value { min-width: 0; }
+
+/* `is one of` over an enum is a real multi-select, which at the row's 30px
+   shows one option and no hint that it scrolls. It is the one control allowed
+   to outgrow the row. */
+.multiValue { height: auto; min-height: 30px; max-height: 96px; padding: 4px; }
+
+.remove {
+  display: inline-flex;
+  width: 24px;
+  height: 24px;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--text-3);
+  cursor: pointer;
+}
+
+.remove:hover { background: var(--panel-2); color: var(--bad); }
+
+.add {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 8px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--accent);
+  cursor: pointer;
+  font-family: var(--font-ui);
+  font-size: 12.5px;
+}
+
+.add:hover { background: var(--accent-soft); }
+
+.actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid var(--line);
+}
+
+.advancedHead { color: var(--text); font-size: 13px; font-weight: 600; }
+.advancedCopy { margin: 7px 0 0; color: var(--text-3); font-size: 12.5px; line-height: 1.6; }
+
+.advancedJson {
+  overflow-x: auto;
+  margin: 12px 0 0;
+  padding: 9px 11px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: var(--bg);
+  color: var(--text-2);
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+}

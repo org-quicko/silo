@@ -1,4 +1,5 @@
 import { Button } from '../../components/Button'
+import { Breadcrumb } from '../../components/Breadcrumb'
 import { useMemo, useState } from 'react'
 import CodeMirror from '@uiw/react-codemirror'
 import { json as jsonLang } from '@codemirror/lang-json'
@@ -14,6 +15,8 @@ import { Toggle } from '../../components/Toggle'
 import { Segmented } from '../../components/Segmented'
 import { DangerConfirm } from '../../components/DangerConfirm'
 import { TopBar } from '../shell/TopBar'
+import { SmartSearch } from '../search/SmartSearch'
+import type { PaletteSeed } from '../search/palette-seed'
 import { RefTarget } from './RefTarget'
 import { EnumValues } from './EnumValues'
 import styles from './SchemaEditor.module.css'
@@ -157,6 +160,7 @@ function buildSchema(base: any, fields: Field[], auth: boolean): string {
 }
 
 interface Props {
+  serverId: string
   collection: Collection | null
   collections: Collection[]
   url: string
@@ -170,9 +174,27 @@ interface Props {
   onSaved: (name: string) => void
   onCancel: () => void
   onDeleted: () => void
+  onOpenPalette: (seed: PaletteSeed) => void
+  onNavigateToCollection: (name: string, q: string) => void
 }
 
-export function SchemaEditorView({ collection, collections, url, apiKey, scope, claims, session, backTo, entryCount, onSaved, onCancel, onDeleted }: Props) {
+export function SchemaEditorView({
+  serverId,
+  collection,
+  collections,
+  url,
+  apiKey,
+  scope,
+  claims,
+  session,
+  backTo,
+  entryCount,
+  onSaved,
+  onCancel,
+  onDeleted,
+  onOpenPalette,
+  onNavigateToCollection,
+}: Props) {
   const initial = useMemo(() => {
     const text = collection ? JSON.stringify(collection.schema, null, 2) : JSON.stringify(DEFAULT_SCHEMA, null, 2)
     return { text, ...parseSchema(text) }
@@ -298,9 +320,16 @@ export function SchemaEditorView({ collection, collections, url, apiKey, scope, 
   return (
     <>
       <TopBar
-        crumbs={collection
-          ? [{ label: 'Collections', to: backTo }, { label: collection.name, to: backTo }, { label: 'Edit collection' }]
-          : [{ label: 'Collections', to: backTo }, { label: 'New collection' }]}
+        search={
+          <SmartSearch
+            serverId={serverId}
+            scope={scope}
+            collection={collection?.name ?? null}
+            collections={collections.map((c) => ({ name: c.name, count: null, schema: c.schema }))}
+            onNavigateToCollection={onNavigateToCollection}
+            onOpenPalette={onOpenPalette}
+          />
+        }
         session={session}
       >
         <Button variant="secondary" onClick={onCancel}>
@@ -311,6 +340,13 @@ export function SchemaEditorView({ collection, collections, url, apiKey, scope, 
         </Button>
       </TopBar>
       <div className={`content ${styles.content}`}>
+        <Breadcrumb
+          crumbs={
+            collection
+              ? [{ label: 'Collections', to: backTo }, { label: collection.name, to: backTo }, { label: 'Edit collection' }]
+              : [{ label: 'Collections', to: backTo }, { label: 'New collection' }]
+          }
+        />
         <div className={styles.shell}>
           <div className={`${styles.main} ${collection ? '' : styles.mainSolo}`}>
             <div className={styles.layout}>

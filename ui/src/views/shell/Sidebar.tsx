@@ -1,5 +1,5 @@
 import { useState, useMemo, useCallback, useRef, useEffect } from 'react'
-import { Plus, Image, ChevronsUpDown, Settings, Search, X } from 'lucide-react'
+import { Plus, Image, ChevronsUpDown, Settings, Search, SlidersHorizontal, X } from 'lucide-react'
 import { Claims } from '@silo/shared/claims'
 import { SiloMark } from '../../components/SiloMark'
 import { Link } from '../../router/Link'
@@ -56,6 +56,34 @@ export function Sidebar({
   const [isResizing, setIsResizing] = useState(false)
   const isResizingRef = useRef(false)
   const [search, setSearch] = useState('')
+  const [filterOpen, setFilterOpen] = useState(false)
+  const filterInput = useRef<HTMLInputElement>(null)
+
+  // The header icon toggles the filter field (handoff 1b); ⌥F opens it too and
+  // autofocuses, from anywhere in the sidebar's page.
+  //
+  // Matched on `code`, not `key`: Option is a compose modifier on macOS, so
+  // ⌥F arrives with `key === "ƒ"` and a `key`-based check never fires there —
+  // which is every machine this is developed on.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.altKey && e.code === 'KeyF') {
+        e.preventDefault()
+        setFilterOpen(true)
+      }
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [])
+
+  useEffect(() => {
+    if (filterOpen) filterInput.current?.focus()
+  }, [filterOpen])
+
+  const closeFilter = () => {
+    setFilterOpen(false)
+    setSearch('')
+  }
 
   const startResizing = useCallback((e: React.MouseEvent) => {
     e.preventDefault()
@@ -149,10 +177,27 @@ export function Sidebar({
       <div className={styles.scroll}>
         <div className={styles.groupHead}>
           <span className={styles.groupLabel}>COLLECTIONS</span>
+          <span className={styles.groupCount}>{collections.length}</span>
+          <span className={styles.groupSpacer} />
+          {collections.length > 0 && (
+            <button
+              type="button"
+              className={`${styles.groupIcon} ${filterOpen ? styles.groupIconActive : ''}`}
+              // The field collapses on blur when empty, and blur lands before
+              // click — without this, clicking the icon to close an empty
+              // filter would close it and then immediately reopen it.
+              onMouseDown={(e) => e.preventDefault()}
+              onClick={() => (filterOpen ? closeFilter() : setFilterOpen(true))}
+              title="Filter collections (⌥F)"
+              aria-label="Filter collections"
+            >
+              <SlidersHorizontal size={12} />
+            </button>
+          )}
           {canCreateCollection && (
             <Link
               to={Routes.schema(serverId, scope.project, scope.env, null)}
-              className={styles.add}
+              className={styles.groupIcon}
               title="New collection"
             >
               <Plus size={13} />
@@ -160,27 +205,33 @@ export function Sidebar({
           )}
         </div>
 
-        {collections.length > 0 && (
+        {filterOpen && (
           <div className={styles.searchWrap}>
             <Search size={13} className={styles.searchIcon} />
             <input
+              ref={filterInput}
               type="text"
               className={styles.searchInput}
-              placeholder="Search collections…"
+              placeholder="Filter collections…"
               value={search}
               onChange={(e) => setSearch(e.target.value)}
               onKeyDown={(e) => {
-                if (e.key === 'Escape') setSearch('')
+                if (e.key === 'Escape') closeFilter()
               }}
-              aria-label="Search collections"
+              onBlur={() => {
+                // Collapses on blur only when empty — a filter someone is
+                // still reading should not vanish out from under them.
+                if (!search) setFilterOpen(false)
+              }}
+              aria-label="Filter collections"
             />
             {search && (
               <button
                 type="button"
                 className={styles.searchClear}
                 onClick={() => setSearch('')}
-                title="Clear search"
-                aria-label="Clear search"
+                title="Clear filter"
+                aria-label="Clear filter"
               >
                 <X size={11} />
               </button>

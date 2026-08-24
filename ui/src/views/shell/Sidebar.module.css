@@ -142,9 +142,17 @@
 .groupHead {
   display: flex;
   align-items: center;
-  justify-content: space-between;
+  gap: 6px;
   padding: 12px 8px 8px;
 }
+
+.groupCount {
+  color: var(--text-3);
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+}
+
+.groupSpacer { flex: 1; }
 
 .searchWrap {
   display: flex;
@@ -221,23 +229,32 @@
   padding: 0 8px 8px;
 }
 
-.add {
+/* Both header buttons — the new filter toggle and the existing "new
+   collection" link — share one look, matching the handoff's "both buttons
+   20×20…" rule for the group head. */
+.groupIcon {
   display: flex;
   width: 20px;
   height: 20px;
+  flex: none;
   align-items: center;
   justify-content: center;
   border: 1px solid var(--line);
   border-radius: 5px;
   background: transparent;
   color: var(--text-2);
-  text-decoration: none;
   cursor: pointer;
+  text-decoration: none;
 }
 
-.add:hover {
+.groupIcon:hover {
   background: var(--panel-2);
   color: var(--text);
+}
+
+.groupIconActive {
+  border-color: color-mix(in oklab, var(--accent) 45%, var(--line));
+  color: var(--accent);
 }
 
 .list {

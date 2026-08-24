@@ -17,7 +17,11 @@ import { ModalCopy } from '../../../components/ModalCopy'
 import { ModalHeader } from '../../../components/ModalHeader'
 import { ModalIcon } from '../../../components/ModalIcon'
 import { Pill } from '../../../components/Pill'
+import { Breadcrumb } from '../../../components/Breadcrumb'
 import { TopBar } from '../../shell/TopBar'
+import { SmartSearch } from '../../search/SmartSearch'
+import type { PaletteSeed } from '../../search/palette-seed'
+import type { ScopeRef } from '../../../api/types/scope-ref'
 import { api } from '../../../api/api-client'
 import type { Server } from '../../servers/server'
 import passwordStyles from '../../../components/PasswordInput.module.css'
@@ -31,6 +35,10 @@ interface ConnectionPageProps {
   sessionLabel: string
   keyPrefix: string
   version: string
+  scope: ScopeRef | null
+  smartCollections: readonly { name: string; count: number | null; schema?: any }[]
+  onOpenPalette: (seed: PaletteSeed) => void
+  onNavigateToCollection: (name: string, q: string) => void
   onUpdateServer: (patch: Partial<Server>) => void
   onDeleteServer: () => void
 }
@@ -42,6 +50,10 @@ export function ConnectionPage({
   sessionLabel: initialSessionLabel,
   keyPrefix: initialKeyPrefix,
   version: initialVersion,
+  scope,
+  smartCollections,
+  onOpenPalette,
+  onNavigateToCollection,
   onUpdateServer,
   onDeleteServer,
 }: ConnectionPageProps) {
@@ -137,9 +149,22 @@ export function ConnectionPage({
 
   return (
     <>
-      <TopBar crumbs={[{ label: server.name }, { label: 'Connection' }]} session={session} />
+      <TopBar
+        search={
+          <SmartSearch
+            serverId={server.id}
+            scope={scope}
+            collection={null}
+            collections={smartCollections}
+            onNavigateToCollection={onNavigateToCollection}
+            onOpenPalette={onOpenPalette}
+          />
+        }
+        session={session}
+      />
 
       <div className="content">
+        <Breadcrumb crumbs={[{ label: server.name }, { label: 'Connection' }]} />
         <div className="page-head">
           <div className="page-title-group">
             <h2 className="page-title">Connection</h2>

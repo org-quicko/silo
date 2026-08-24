@@ -35,7 +35,7 @@ describe("Export / Import Tests", () => {
 
       const time1 = new Date(Date.UTC(2026, 0, 1, 10, 0, 0));
       const e1 = newEntry(Scope.Default, "posts", time1, { title: "hello" });
-      await st1.put(e1, []);
+      await st1.put(e1, { usages: [], search: null });
 
       // Export to tarball file
       const tarPath = path.join(tempDir, "export1.tar.gz");
@@ -107,7 +107,7 @@ describe("Export / Import Tests", () => {
 
       const time1 = new Date(Date.UTC(2026, 0, 1, 10, 0, 0));
       const e1 = newEntry(Scope.Default, "posts", time1, { title: "hello" });
-      await st1.put(e1, []);
+      await st1.put(e1, { usages: [], search: null });
 
       // Export to directory
       const expDir = path.join(tempDir, "export_dir");
@@ -162,8 +162,8 @@ describe("Export / Import Tests", () => {
       const time1 = new Date(Date.UTC(2026, 0, 1, 10, 0, 0));
       const entryA = newEntry(scopeA, "posts", time1, { title: "dev post" });
       const entryB = newEntry(scopeB, "posts", time1, { title: "prod post" });
-      await st1.put(entryA, []);
-      await st1.put(entryB, []);
+      await st1.put(entryA, { usages: [], search: null });
+      await st1.put(entryB, { usages: [], search: null });
 
       const expDir = path.join(tempDir, "export_dir");
       await Exporter.exportDir(st1, expDir, {});
@@ -218,8 +218,8 @@ describe("Export / Import Tests", () => {
       const time1 = new Date(Date.UTC(2026, 0, 1, 10, 0, 0));
       const entryA = newEntry(scopeA, "posts", time1, { title: "dev post" });
       const entryB = newEntry(scopeB, "posts", time1, { title: "prod post" });
-      await st1.put(entryA, []);
-      await st1.put(entryB, []);
+      await st1.put(entryA, { usages: [], search: null });
+      await st1.put(entryB, { usages: [], search: null });
 
       const expDir = path.join(tempDir, "export_dir");
       await Exporter.exportDir(st1, expDir, {});
@@ -345,7 +345,7 @@ describe("Export / Import Tests", () => {
       // Seed local entry
       const localEntry = newEntry(Scope.Default, "posts", timeBase, { title: "local v1" });
       localEntry.id = entryId;
-      await stLocal.put(localEntry, []);
+      await stLocal.put(localEntry, { usages: [], search: null });
 
       // Helper to import a remote entry using directory modification
       const importWithRemote = async (remote: Entry, instId: string, opts: any) => {
@@ -353,7 +353,7 @@ describe("Export / Import Tests", () => {
 
         const stRemote = await SqliteStore.open(remoteDb);
         await stRemote.putSchema(Scope.Default, "posts", { type: "object" });
-        await stRemote.put(remote, []);
+        await stRemote.put(remote, { usages: [], search: null });
 
         const expDir = path.join(tempDir, "remote_exp");
         await fs.rm(expDir, { recursive: true, force: true });
@@ -388,7 +388,7 @@ describe("Export / Import Tests", () => {
       localEntryNewer.id = entryId;
       localEntryNewer.rev = 2;
       localEntryNewer.updated_at = new Date(timeBase.getTime() + 7200000); // +2 hours
-      await stLocal.put(localEntryNewer, []);
+      await stLocal.put(localEntryNewer, { usages: [], search: null });
 
       const remoteEntryOlder = newEntry(Scope.Default, "posts", timeBase, { title: "remote older" });
       remoteEntryOlder.id = entryId;
@@ -402,7 +402,7 @@ describe("Export / Import Tests", () => {
       const localEntryEqualTime = newEntry(Scope.Default, "posts", timeBase, { title: "local equal" });
       localEntryEqualTime.id = entryId;
       localEntryEqualTime.rev = 10;
-      await stLocal.put(localEntryEqualTime, []);
+      await stLocal.put(localEntryEqualTime, { usages: [], search: null });
 
       const remoteEntryHigherRev = newEntry(Scope.Default, "posts", timeBase, { title: "remote higher rev" });
       remoteEntryHigherRev.id = entryId;

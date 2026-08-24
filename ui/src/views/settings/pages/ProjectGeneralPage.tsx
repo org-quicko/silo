@@ -2,10 +2,13 @@ import { useState } from 'react'
 import { AlertTriangle, FolderGit2, Layers, Trash2 } from 'lucide-react'
 import { Claims } from '@silo/shared/claims'
 import { Button } from '../../../components/Button'
+import { Breadcrumb } from '../../../components/Breadcrumb'
 import { DangerConfirm } from '../../../components/DangerConfirm'
 import { api } from '../../../api/api-client'
 import { Routes } from '../../../router/routes'
 import { TopBar } from '../../shell/TopBar'
+import { SmartSearch } from '../../search/SmartSearch'
+import type { PaletteSeed } from '../../search/palette-seed'
 import type { Server } from '../../servers/server'
 import styles from '../SettingsView.module.css'
 import type { SessionBadge } from '../../shell/session-badge'
@@ -22,6 +25,9 @@ export function ProjectGeneralPage({
   environments,
   claims,
   session,
+  smartCollections,
+  onOpenPalette,
+  onNavigateToCollection,
   onDeleted,
 }: {
   server: Server
@@ -29,6 +35,9 @@ export function ProjectGeneralPage({
   environments: string[]
   claims: string[]
   session: SessionBadge
+  smartCollections: readonly { name: string; count: number | null; schema?: any }[]
+  onOpenPalette: (seed: PaletteSeed) => void
+  onNavigateToCollection: (name: string, q: string) => void
   onDeleted: () => void
 }) {
   const [confirming, setConfirming] = useState(false)
@@ -53,15 +62,27 @@ export function ProjectGeneralPage({
   return (
     <>
       <TopBar
-        crumbs={[
-          { label: 'Projects', to: Routes.serverSettings(server.id, 'projects') },
-          { label: project },
-          { label: 'General' },
-        ]}
+        search={
+          <SmartSearch
+            serverId={server.id}
+            scope={null}
+            collection={null}
+            collections={smartCollections}
+            onNavigateToCollection={onNavigateToCollection}
+            onOpenPalette={onOpenPalette}
+          />
+        }
         session={session}
       />
 
       <div className="content">
+        <Breadcrumb
+          crumbs={[
+            { label: 'Projects', to: Routes.serverSettings(server.id, 'projects') },
+            { label: project },
+            { label: 'General' },
+          ]}
+        />
         <div className="page-head">
           <div className="page-title-group">
             <h2 className="page-title">{project}</h2>

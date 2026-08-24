@@ -1,0 +1,83 @@
+.wrap {
+  position: relative;
+  display: flex;
+  width: 100%;
+  max-width: 560px;
+  height: 36px;
+  flex: 1;
+  align-items: center;
+  gap: 9px;
+  padding: 0 11px 0 12px;
+  border: 1px solid var(--line-2);
+  border-radius: 999px;
+  background: var(--panel-2);
+  transition: background 0.12s, border-color 0.12s, box-shadow 0.12s;
+}
+
+.focused {
+  border-color: var(--accent);
+  background: var(--panel);
+  box-shadow: 0 0 0 3px rgba(124, 134, 255, 0.12);
+}
+
+.icon { flex: none; color: var(--text-3); stroke-width: 2; }
+
+.chip {
+  display: inline-flex;
+  /* Shrinks rather than pushing the input out of the bar: a collection name has
+     no length limit worth trusting. */
+  min-width: 0;
+  max-width: 40%;
+  flex: 0 1 auto;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 5px 3px 8px;
+  border: 1px solid rgba(124, 134, 255, 0.35);
+  border-radius: 999px;
+  background: var(--accent-soft);
+  color: #c2c7ff;
+  font-family: var(--font-mono);
+  font-size: 11px;
+}
+
+.chipName { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+.chipRemove { padding: 0; border: 0; background: none; color: inherit; cursor: pointer; font-size: 11px; opacity: 0.7; }
+.chipRemove:hover { opacity: 1; }
+
+.wrap input {
+  min-width: 0;
+  flex: 1;
+  border: 0;
+  outline: 0;
+  background: none;
+  color: var(--text);
+  font-family: var(--font-ui);
+  font-size: 13px;
+}
+
+.wrap input::placeholder { color: var(--text-3); }
+
+.keycap,
+.engineTag {
+  flex: none;
+  border: 1px solid var(--line);
+  color: var(--text-3);
+  font-family: var(--font-mono);
+}
+
+.keycap { padding: 1px 5px; border-radius: 4px; font-size: 10px; }
+.engineTag { padding: 3px 7px; border-radius: 5px; font-size: 10.5px; }
+
+.clear {
+  flex: none;
+  padding: 0 2px;
+  border: 0;
+  background: none;
+  color: var(--text-3);
+  cursor: pointer;
+  font-size: 14px;
+  line-height: 1;
+}
+
+.clear:hover { color: var(--bad); }

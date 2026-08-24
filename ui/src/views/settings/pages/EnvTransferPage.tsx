@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { AlertTriangle, ArrowRight, Check, Copy, RefreshCw } from 'lucide-react'
 import { Claims } from '@silo/shared/claims'
 import { Button } from '../../../components/Button'
+import { Breadcrumb } from '../../../components/Breadcrumb'
 import { StatRow } from '../../../components/StatRow'
 import { StatTile } from '../../../components/StatTile'
 import { api } from '../../../api/api-client'
@@ -9,6 +10,8 @@ import { Routes } from '../../../router/routes'
 import type { ImportResult } from '../../../api/types/import-result'
 import type { ScopeRef } from '../../../api/types/scope-ref'
 import { TopBar } from '../../shell/TopBar'
+import { SmartSearch } from '../../search/SmartSearch'
+import type { PaletteSeed } from '../../search/palette-seed'
 import type { Server } from '../../servers/server'
 import settings from '../SettingsView.module.css'
 import styles from './EnvTransferPage.module.css'
@@ -31,6 +34,9 @@ export function EnvTransferPage({
   projects,
   claims,
   session,
+  smartCollections,
+  onOpenPalette,
+  onNavigateToCollection,
 }: {
   server: Server
   /** The destination — the environment whose settings these are. */
@@ -38,6 +44,9 @@ export function EnvTransferPage({
   projects: string[]
   claims: string[]
   session: SessionBadge
+  smartCollections: readonly { name: string; count: number | null; schema?: any }[]
+  onOpenPalette: (seed: PaletteSeed) => void
+  onNavigateToCollection: (name: string, q: string) => void
 }) {
   const [sourceProject, setSourceProject] = useState(scope.project)
   const [sourceEnvs, setSourceEnvs] = useState<string[]>([])
@@ -108,15 +117,27 @@ export function EnvTransferPage({
   return (
     <>
       <TopBar
-        crumbs={[
-          { label: scope.project, to: Routes.projectSettings(server.id, scope.project, 'general') },
-          { label: scope.env, to: Routes.envSettings(server.id, scope.project, scope.env, 'general') },
-          { label: 'Data Transfer' },
-        ]}
+        search={
+          <SmartSearch
+            serverId={server.id}
+            scope={scope}
+            collection={null}
+            collections={smartCollections}
+            onNavigateToCollection={onNavigateToCollection}
+            onOpenPalette={onOpenPalette}
+          />
+        }
         session={session}
       />
 
       <div className="content">
+        <Breadcrumb
+          crumbs={[
+            { label: scope.project, to: Routes.projectSettings(server.id, scope.project, 'general') },
+            { label: scope.env, to: Routes.envSettings(server.id, scope.project, scope.env, 'general') },
+            { label: 'Data Transfer' },
+          ]}
+        />
         <div className="page-head">
           <div className="page-title-group">
             <h2 className="page-title">Data Transfer</h2>

@@ -1,6 +1,27 @@
-.tags { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+/* Chips wrap in isolation (a `flex` row measures its own content), but the
+   row that hosts this cell clips with `white-space: nowrap` — `flex-wrap`
+   here would fight that and grow the row to fit every tag, which is exactly
+   what pins every row in the table to its tallest cell. */
+.tags { display: inline-flex; align-items: center; gap: 6px; }
 .chip { display: inline-flex; align-items: center; gap: 6px; max-width: 24ch; padding: 2px 8px; overflow: hidden; border: 1px solid var(--line); border-radius: 6px; background: var(--panel-2); color: var(--text-2); font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }
 .more { color: var(--text-3); font-size: 11px; }
-.boolean { font-family: var(--font-mono); font-size: 12px; }
 .object { font-family: var(--font-mono); font-size: 11px; }
 .text { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.longText { color: var(--text-3); }
+
+.countPill { padding: 2px 8px; border: 1px solid var(--line); border-radius: 999px; color: var(--text-3); font-family: var(--font-mono); font-size: 11px; }
+
+.uri { display: inline-flex; align-items: center; gap: 5px; color: var(--text-2); font-family: var(--font-mono); font-size: 12px; }
+.uri svg { flex: none; color: var(--text-3); }
+
+.date { color: var(--text-2); font-family: var(--font-mono); font-size: 12px; font-variant-numeric: tabular-nums; }
+
+.number { display: block; color: var(--text-2); font-family: var(--font-mono); font-size: 13px; font-variant-numeric: tabular-nums; text-align: right; }
+
+.boolTrue { flex: none; color: var(--ok); }
+.boolFalse { display: inline-block; width: 11px; height: 2px; border-radius: 1px; background: var(--line-2); }
+
+.media { display: inline-flex; min-width: 0; align-items: center; gap: 7px; }
+.mediaThumb { width: 26px; height: 26px; flex: none; border: 1px solid var(--line); border-radius: 5px; object-fit: cover; }
+.mediaFallback { display: flex; width: 26px; height: 26px; flex: none; align-items: center; justify-content: center; border: 1px solid var(--line); border-radius: 5px; background: var(--panel-2); color: var(--text-3); }
+.media .text { color: var(--text-2); font-size: 12.5px; }

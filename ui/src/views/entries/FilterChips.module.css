@@ -1,0 +1,71 @@
+.chips { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+
+.chip {
+  display: inline-flex;
+  height: 30px;
+  align-items: center;
+  gap: 7px;
+  padding: 0 4px 0 10px;
+  border: 1px solid rgba(124, 134, 255, 0.35);
+  border-radius: 999px;
+  background: var(--accent-soft);
+  font-size: 12px;
+}
+
+.chipBody {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0;
+  border: 0;
+  background: none;
+  cursor: pointer;
+  font-family: var(--font-ui);
+}
+
+.chipField { color: var(--text-2); font-family: var(--font-mono); font-size: 11px; }
+.chipOp { color: var(--text-3); }
+.chipValue { max-width: 22ch; overflow: hidden; color: var(--text); font-weight: 500; text-overflow: ellipsis; white-space: nowrap; }
+
+.chipRemove {
+  display: inline-flex;
+  width: 20px;
+  height: 20px;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: 0;
+  border-radius: 99px;
+  background: transparent;
+  color: #c2c7ff;
+  cursor: pointer;
+}
+
+.chipRemove:hover { background: rgba(124, 134, 255, 0.22); }
+
+.addChip {
+  height: 30px;
+  padding: 0 12px;
+  border: 1px dashed var(--line-2);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--text-3);
+  cursor: pointer;
+  font-family: var(--font-ui);
+  font-size: 12px;
+}
+
+.addChip:hover { border-color: var(--accent); color: var(--text-2); }
+
+.clearAll {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--text-3);
+  cursor: pointer;
+  font-family: var(--font-ui);
+  font-size: 12px;
+}
+
+.clearAll:hover { color: var(--bad); text-decoration: underline; }
