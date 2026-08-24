@@ -1133,7 +1133,7 @@ and costs a `format_version` decision (D14).
 
 Every load-bearing mechanism was verified against a `bun build --compile`
 binary — the only case that matters, since `bun run` is not how silo ships.
-Bun 1.3.14, win32 x64:
+Measured on Bun 1.3.14, win32 x64:
 
 | | |
 | :--- | :--- |
@@ -1148,3 +1148,21 @@ Bun 1.3.14, win32 x64:
 
 19 µs against a SQLite write, an `ajv` pass and an HTTP round trip is noise.
 That is why isolation is the default rather than an expensive opt-in.
+
+**Re-verified on Bun 1.4.0 (2026-08-24), which is what the Dockerfile and the
+release workflow now pin.** The mechanisms, not the numbers: `server/test/plugins/`
+passes end to end, which exercises the external `.ts` import, the virtual
+module's shared identity, the worker round trip and the `while(true)`
+timeout-and-terminate — and, against a `bun build --compile` binary rather than
+`bun run`, a plugin scaffolded by `create-silo-plugin` and placed under a data
+dir loads through `silo plugin doctor`. The timings stand as first measured and
+were not re-taken.
+
+One platform dependency is worth recording, because surfacing exactly this kind
+of thing is what this section is for. `WorkerHost` boots from a `data:` URL of
+roughly 4 KB, and **Bun 1.3.13 on macOS rejected any `data:` worker source over
+about 1 KB with `NameTooLong`** — a 30-byte worker started, so the failure was
+the *size*, and every extension plugin refused to load while providers were
+unaffected. 1.4.0 accepts it. The lesson is not the bug: it is that the
+bootstrap's size is load-bearing, so a host that grows one is a host to
+re-measure.

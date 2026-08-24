@@ -7,7 +7,7 @@
 #
 # The admin key is printed to the container logs on first run.
 
-ARG BUN_VERSION=1.3.14
+ARG BUN_VERSION=1.4.0
 
 # ---- Stage 1: build the admin UI ----
 # `ui` is a member of the root Bun workspace, so the install has to run from the

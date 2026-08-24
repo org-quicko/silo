@@ -31,7 +31,7 @@ permissions:
 env:
   # Keep in step with the Dockerfile's BUN_VERSION: the binary users install and
   # the image they deploy should not be built by different runtimes.
-  BUN_VERSION: "1.3.14"
+  BUN_VERSION: "1.4.0"
   NFPM_VERSION: "2.47.0"
   # How many past releases stay installable from the dnf repo. GitHub Pages has
   # a 1 GB soft limit and each release is ~60 MB of RPMs, so this cannot be

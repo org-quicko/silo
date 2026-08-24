@@ -77,11 +77,29 @@ A minimal, self-hostable headless CMS. Users define collections with JSON Schema
     `create-silo-plugin.test.ts` reads the scaffold through `ManifestReader` and
     imports the module into the host realm; `create-silo-plugin-worker.test.ts`
     loads it through `PluginRegistry` into a real `Worker`, which is what
-    `serve` does. The split is because `WorkerHost` boots from a `data:` URL and
-    **Bun 1.3.13 on macOS rejects one of that size with `NameTooLong`** — the
-    pre-existing `plugin-hooks.test.ts` fails there for the same reason. The
-    Dockerfile and the release workflow pin **1.3.14**, which is also what
-    §13.10's measurements used; develop on that.
+    `serve` does. The split earned itself immediately: it was written against
+    Bun 1.3.13, where `WorkerHost`'s `data:` bootstrap fails outright (see the
+    Bun 1.4.0 entry below), so the worker file was red for a reason none of the
+    generated code was responsible for.
+
+- **Bun 1.4.0 across the board (2026-08-24).** `ARG BUN_VERSION` in the
+  Dockerfile, `BUN_VERSION` in the release workflow, and `@types/bun` in both the
+  root and `ui/` manifests — the four places the runtime is named — moved from
+  1.3.14 together. The paired comments in the first two exist to prevent exactly
+  the drift of bumping one: the binary users install and the image they deploy
+  must not be built by different runtimes.
+  - **It unblocked the plugin suite.** On 1.3.13 every worker-hosted plugin test
+    failed. `WorkerHost` boots from a ~4 KB `data:` URL, and that Bun rejected
+    any `data:` worker source over roughly 1 KB with `NameTooLong` — a 30-byte
+    one started, so the failure was the *size*. Extension plugins therefore did
+    not load at all on macOS; providers, which never reach the worker host, were
+    unaffected. 1.4.0 accepts it, and `bun test` is **543 pass, 0 fail**: the 7
+    pre-existing `plugins/` failures and the 3 new `create-silo-plugin-worker`
+    ones all cleared on the upgrade, with no code change.
+  - §13.10's timings were **not** re-taken and still read "Bun 1.3.14, win32
+    x64". What was re-verified on 1.4.0 is the mechanisms, which the suite
+    covers, and the section now records the `data:`-size coupling — a bootstrap
+    that grows is a bootstrap to re-measure.
 
 - **Plugins are documented in the README (2026-08-24).** M5 built the feature;
   this is what ships it. Until now `README.md` did not contain the word
@@ -1902,8 +1920,9 @@ A minimal, self-hostable headless CMS. Users define collections with JSON Schema
     claims; before this typing they satisfied a `string` parameter and turned
     into a silent permanent deny. Scope them with `Claims.collection(name, perm)`.
 
-- **Production container refreshed (2026-08-14):** the Docker build now uses
-  Bun 1.3.14, installs from the committed root `bun.lock` with
+- **Production container refreshed (2026-08-14):** the Docker build pins its
+  Bun version alongside the release workflow's (one number, two files, and a
+  comment in each saying so), installs from the committed root `bun.lock` with
   `--frozen-lockfile`, and runs as the unprivileged `bun` user. The
   default filesystem blob path is `/data/media`, so an explicit runtime mount
   at `/data` persists both SQLite data and media (including Railway Volumes;

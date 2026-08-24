@@ -25,13 +25,13 @@ import type { ScaffoldOptions } from "../../../create-silo-plugin/src/scaffold-o
  * one that crosses the structured-clone boundary every payload really crosses,
  * and an inline load would pass a plugin whose worker cannot start.
  *
- * Separated into its own file because the worker host is the part with an
- * environment dependency: `WorkerHost` boots from a `data:` URL, and Bun 1.3.13
- * on macOS rejects one of that size with `NameTooLong` — the same failure the
- * pre-existing `plugin-hooks.test.ts` shows there. §13.10's measurements, and
- * the version the Dockerfile and the release workflow pin, are Bun 1.3.14. Keep
- * these assertions here so a Bun that cannot start a worker takes down the
- * end-to-end test and not the ones about generated code.
+ * Separated into its own file because the worker host is the part carrying a
+ * runtime dependency the rest of the scaffolder does not. `WorkerHost` boots
+ * from a `data:` URL of roughly 4 KB, and Bun 1.3.13 on macOS rejected one that
+ * size outright (§13.10) — every plugin test in this directory failed, for a
+ * reason that had nothing to do with any of them. The pin is 1.4.0, where they
+ * pass; the split is kept so that if the floor ever moves again, it takes down
+ * the end-to-end test and not the assertions about generated code.
  */
 describe("a scaffolded plugin, loaded the way serve loads one", () => {
   let tempDir: string;
