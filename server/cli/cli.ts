@@ -2,6 +2,7 @@ import path from "path";
 import { parseArgs } from "util";
 import { SqliteStore } from "../adapters/storage/sqlite/sqlite-store";
 import { PluginLoader, PluginRegistry, ProviderRegistry } from "../plugins";
+import { AddCommand } from "./commands/add-command";
 import { PluginCommand } from "./commands/plugin-command";
 import { SearchTokenizers } from "../core/search/search-tokenizers";
 import type { Config } from "../config/config";
@@ -42,6 +43,7 @@ Usage:
   silo import [flags] <dir|tarball>      import schemas and entries
   silo media reconcile [flags]           repair the media catalog against stored blobs
   silo search reindex [--check]          rebuild the search index (--check validates it too)
+  silo add [flags] <name|path|url>       install a plugin and list it in silo.toml
   silo plugin list                       configured plugins and what they attach to
   silo plugin info <name>                a plugin's manifest, claims and config schema
   silo plugin doctor                     load every plugin, report failures, exit
@@ -91,6 +93,30 @@ import:
   --validate           strictly validate entries against schema (default false)
   --dry-run            verify import structure without writing (default false)
   --prefer s           local | remote (override conflict resolution)
+
+add: installs into <data>/plugins/ and appends a [[plugins]] block to the config.
+  <spec> is a package name ("silo-plugin-slug", "@acme/x@^1"), a directory or
+  .tgz path, a git URL, or an https tarball URL.
+  --claims a,b     grant these instead of what the manifest requests
+  -y, --yes        do not ask before granting the claims it requests
+  --force          replace an already-installed plugin of the same name
+  --ref name       git branch or tag
+  --integrity sri  check the bytes against "sha512-..." before unpacking. Applies
+                   to a .tgz path, an npm spec (on top of the registry's own
+                   digest, so both must agree) and an https URL; a directory or
+                   git source has nothing to hash and refuses the flag
+  --registry url   npm registry (default https://registry.npmjs.org)
+  --timeout-ms n   per-dispatch budget written into the block (default 5000)
+  --on-error s     fail | skip, written into the block (default fail)
+  --no-register    install the files, print the block, leave silo.toml alone
+
+Installing a plugin runs none of its code and no lifecycle script. What it
+downloads is checked against the registry's own digest; a plain URL is checked
+only against --integrity, and a git checkout is pinned by commit. What was
+installed, and what it was verified as, is recorded in
+<data>/plugins/silo-plugins.lock.json — a record, not a resolver: serve still
+loads exactly what silo.toml names. Plugins are read at startup, so a running
+server picks up an added plugin on its next restart.
 
 Environment overrides: SILO_LISTEN, SILO_DEFAULT_PROJECT, SILO_DEFAULT_ENV,
 SILO_STORAGE_DRIVER, SILO_STORAGE_PATH, SILO_BLOB_DRIVER, SILO_BLOB_PATH,
@@ -177,6 +203,13 @@ Subcommands operate directly on the data dir — no running server needed.
         lines: { type: "string", short: "n" },
         timeout: { type: "string" },
         check: { type: "boolean" },
+        yes: { type: "boolean", short: "y" },
+        ref: { type: "string" },
+        integrity: { type: "string" },
+        registry: { type: "string" },
+        "timeout-ms": { type: "string" },
+        "on-error": { type: "string" },
+        "no-register": { type: "boolean" },
         help: { type: "boolean", short: "h" },
       } as const,
       strict: false,
@@ -240,6 +273,19 @@ Subcommands operate directly on the data dir — no running server needed.
       }
       if (cmd === "logs") {
         await LogsCommand.run(cfg, Cli.count(values.lines, 50), !!values.follow);
+        process.exit(0);
+      }
+      // `add` belongs here for the same reason (D32): it writes a directory
+      // under the data dir and appends to the config file, and opens neither
+      // storage nor a plugin. Installing against a data dir a live server owns
+      // is therefore safe — the server picks the plugin up on its next start,
+      // since §13 loads plugins once at startup and nothing reloads them.
+      //
+      // `silo plugin add` is accepted as well as `silo add`, because §12.8
+      // named it that way for years before it existed and an operator who
+      // remembers the roadmap should not get "unknown command".
+      if (cmd === "add" || (cmd === "plugin" && positionals[1] === "add")) {
+        await AddCommand.run(cfg, configPath, positionals[cmd === "add" ? 1 : 2], values as any);
         process.exit(0);
       }
     } catch (err: any) {

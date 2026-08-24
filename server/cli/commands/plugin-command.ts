@@ -7,11 +7,16 @@ import { SiloVersion } from "../../version";
 /**
  * `silo plugin list | info | doctor` (D31/§13.8).
  *
- * All three are **read-only and offline**. There is no `add` or `remove` in
- * 1.0: shipping a package manager — registry resolution, integrity pinning, a
- * lockfile, a signature policy — is the largest and riskiest part of the plugin
- * design and none of it touches the contract, so it is §12.8 work. A plugin is
- * a directory you place under `<data dir>/plugins/` and name in `silo.toml`.
+ * All three are **read-only and offline**, and they stay that way now that an
+ * installer exists: `silo add` (D32) is the one command that reaches the
+ * network and the one that writes, and it is routed in `Cli` rather than here
+ * so that "the plugin diagnostics" and "the thing that changes what runs" are
+ * not the same object. `silo plugin add` is accepted as a spelling of `silo
+ * add` and dispatches there.
+ *
+ * A plugin remains a directory under `<data dir>/plugins/` named in
+ * `silo.toml`; `add` writes exactly that and nothing downstream can tell the
+ * two apart, which is what let an installer land without touching §13.
  *
  * `doctor` is the one that loads code, which is exactly what it is for: it
  * answers "would `serve` start?" without starting a server, in the same spirit
@@ -29,7 +34,7 @@ export class PluginCommand {
       case "doctor":
         return await PluginCommand.doctor(cfg, svc);
       default:
-        console.error(`usage: silo plugin list | info <name> | doctor`);
+        console.error(`usage: silo plugin list | info <name> | doctor | add <spec>`);
         process.exit(1);
     }
   }

@@ -634,11 +634,11 @@ rather than translated.
 ## Plugins
 
 A plugin is a directory under `<data dir>/plugins/` that silo loads because
-`silo.toml` names it. There is no installer and no registry: you place the
-directory, you list it, it runs. Plugins live in the data directory rather than
-beside the binary because a packaged binary is root-owned and read-only, and
-because an instance is a directory you can copy — so an instance travels with
-its extensions.
+`silo.toml` names it. `silo add` will put one there and list it for you, but it
+is not doing anything you could not: place the directory, list it, it runs.
+Plugins live in the data directory rather than beside the binary because a
+packaged binary is root-owned and read-only, and because an instance is a
+directory you can copy — so an instance travels with its extensions.
 
 Two kinds, and no more:
 
@@ -804,6 +804,68 @@ The trust boundary is the act of installing, exactly as it is for an npm
 package, a VS Code extension, or a Strapi plugin. The claim check expresses
 intent and catches mistakes; it is not a sandbox. Read a plugin before you place
 its directory.
+
+### Installing
+
+```sh
+silo add ./my-plugin                     # a directory you have
+silo add ./silo-plugin-slug-1.2.0.tgz    # a package file
+silo add silo-plugin-slug@^1             # from npm
+silo add https://example.com/p.tgz --integrity sha512-...
+silo add https://github.com/acme/silo-plugin-slug --ref v1.2.0
+```
+
+`silo add` unpacks the package into `<data dir>/plugins/<name>/` and appends a
+`[[plugins]]` block to your `silo.toml`. You can still do both by hand — the
+directory it writes is the one you would have placed yourself, and nothing
+downstream can tell the difference.
+
+It **runs none of the package's code**, and no lifecycle script, ever. The
+manifest is validated, the `silo` range is checked against your binary, and a
+provider is refused a reserved driver name — all before anything is imported.
+Archives are refused if they contain absolute paths, `..`, symlinks, hard links,
+device nodes, or setuid/setgid/sticky mode bits, and are checked in full before a
+single file is written, so a bad package leaves nothing behind. An ordinary
+executable at `0755` is fine — the mode check is about privilege, not the
+executable bit.
+
+What can be verified depends on where it came from, and `add` tells you which
+you got:
+
+| Source | Checked against |
+|--------|-----------------|
+| npm | the registry's own `sha512` digest — and `--integrity` too if you pass one, in which case both must agree |
+| https URL | `--integrity` if you pass one — otherwise TLS alone, and it says so |
+| local `.tgz` | `--integrity` if you pass one; a digest is computed either way, so the *next* install is checked |
+| directory | nothing is transferred, so `--integrity` is refused rather than ignored |
+| git | nothing — pinned by resolved commit; `--integrity` is refused |
+
+Passing `--integrity` to npm is worth it when you know the digest independently:
+the registry supplies both the tarball and the digest it is checked against, so
+pinning is what a compromised registry cannot satisfy.
+
+A plugin's claims are shown before they are granted, and you are asked. That
+distinction is the point: a manifest *requests* claims, you *grant* them.
+
+```
+--claims a,b     grant these instead of what the manifest requests
+-y, --yes        do not ask (a non-interactive shell without this is a no)
+--force          replace an already-installed plugin of the same name
+--no-register    install the files, print the block, leave silo.toml alone
+```
+
+`<data dir>/plugins/silo-plugins.lock.json` records what was installed, where it
+came from, and what it was verified as. It is a **record, not a resolver**:
+`serve` still loads exactly what `silo.toml` names, and deleting the lockfile
+breaks nothing.
+
+silo installs no dependencies. A plugin needs none — that is what `silo:api`
+buys — and a package that declares some is installed with a warning rather than
+a dependency tree. There is no `remove`: delete the `[[plugins]]` block to stop
+loading a plugin, and the directory to be rid of it.
+
+Plugins are read at startup, so a running server picks up an added plugin on its
+next restart.
 
 ### Inspecting
 
