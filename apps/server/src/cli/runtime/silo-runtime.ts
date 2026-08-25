@@ -38,12 +38,17 @@ export class SiloRuntime {
    * and the exit code.
    */
   static async open(config: Config, command: string): Promise<SiloRuntime> {
-    const { store, service, rebuildNotice } = await SiloRuntime.openStorage(config);
-
     // Only `serve` logs: every other subcommand writes *program output* to
     // stdout — data the caller pipes somewhere — and routing that into a log
     // file would take the answer away from whoever asked for it.
+    //
+    // Built before the store, not after, because `SiloService` needs it: an
+    // audit append that fails has to be reported somewhere (D38), and a service
+    // holding a silent logger would drop that on the floor exactly when it
+    // matters.
     const logger = command === "serve" ? Logger.create(config.log) : Logger.silent();
+    const { store, service, rebuildNotice } = await SiloRuntime.openStorage(config, logger);
+
     if (rebuildNotice && command === "serve") console.error(rebuildNotice);
 
     // Extension plugins load only for `serve` (D31). Every other subcommand is
@@ -79,7 +84,7 @@ export class SiloRuntime {
    * default install still resolves "sqlite" to `SqliteStore` with no plugin, no
    * network and no configuration.
    */
-  private static async openStorage(config: Config): Promise<{
+  private static async openStorage(config: Config, logger: Logger): Promise<{
     store: Storage;
     service: SiloService;
     rebuildNotice: string | null;
@@ -101,6 +106,7 @@ export class SiloRuntime {
 
     const service = new SiloService(store, {
       allowRemoteRefs: config.schema.allow_remote_refs,
+      logger,
       blobStorage,
       searcher,
       scan: {

@@ -50,4 +50,20 @@ export interface PluginGrant {
    *  change came from the CLI against the data directory, which has no key. */
   granted_by: string | null;
   granted_at?: string;
+
+  /**
+   * Whether this plugin loads at all (D38).
+   *
+   * Absent means enabled, so nothing needs backfilling and the default stays
+   * "a plugin listed in `silo.toml` runs". Disabling is the escape hatch for a
+   * plugin misbehaving on an instance whose config file is not conveniently
+   * editable — a container image, a config map — and it is deliberately
+   * **orthogonal to the grant**: withdrawing authority and refusing to load are
+   * different remedies, and collapsing them would mean re-approving a plugin
+   * you only ever wanted to pause.
+   *
+   * Until phase 4's supervisor it takes effect at the next start, and every
+   * surface that sets it says so.
+   */
+  enabled?: boolean;
 }

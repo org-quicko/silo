@@ -62,10 +62,32 @@ describe("reserved API namespaces", () => {
     }
   });
 
-  test("/api/plugins/* is still reserved", async () => {
+  /**
+   * `/api/plugins/` stopped being a reservation in D38 — it is the management
+   * API now. What must still hold is that an unmatched path under it does not
+   * reach the SPA: a management verb that does not exist has to say so, or a
+   * client calling `POST /api/plugins/acme/restart` before phase 4 ships would
+   * get `index.html` and a 200.
+   */
+  test("an unknown /api/plugins/ verb answers 404, not the SPA", async () => {
+    for (const url of [
+      "http://local/api/plugins/acme/restart",
+      "http://local/api/plugins/acme/grant/extra",
+    ]) {
+      const response = await app.fetch(new Request(url, { method: "POST" }));
+      expect(response.status).toBe(404);
+      expect((await response.json() as any).error.code).toBe("not_found");
+    }
+  });
+
+  /** And a plugin nobody has installed is a 404 from the management API
+   *  itself, which says why rather than just refusing. */
+  test("an unknown plugin is a 404 that explains itself", async () => {
     const response = await app.fetch(new Request("http://local/api/plugins/acme"));
     expect(response.status).toBe(404);
-    expect((await response.json() as any).error.code).toBe("not_found");
+    const body: any = await response.json();
+    expect(body.error.code).toBe("not_found");
+    expect(body.error.message).toContain("silo.toml");
   });
 
   /** The reservation must not shadow anything real: both live beside the

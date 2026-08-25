@@ -26,7 +26,19 @@ keys with claims (D12/D21), export/import and scope-to-scope copy, the admin
 UI, single-binary releases with Homebrew and RPM, and plugins with an installer
 (D31/D32/D33).
 
-**The most recent change is the route-authority audit (D37, 2026-08-25),** the
+**The most recent change gives plugin management an API and authority changes a
+trail (D38, phase 2, 2026-08-25).** `/api/plugins/` stops being a reserved 404:
+list, read, grant, revoke, enable and disable, all against the `_plugins` record
+and never the filesystem, with `If-Match` required on every mutation — because a
+grant means approving *what you read*. A fourth system collection, `_audit`,
+records who changed what, written by the services so the offline CLI is in it
+too and read through `GET /api/audit` behind a new `audit:read` claim. Keys now
+carry `parent_id` and revoking one revokes its descendants, closing D37's fourth
+finding. `enabled` is orthogonal to the grant and takes effect at the next start
+until phase 4, which every surface says out loud. See §13.14 in
+[docs/design/plugins.md](docs/design/plugins.md).
+
+**Before that came the route-authority audit (D37, 2026-08-25),** the
 gate D35 put on phase 3 — and it changed the shipped API rather than only
 describing it. `?force=true` on a collection, environment or project delete now
 also requires `entries:delete` at the reach it erases; `DELETE /api/keys/{id}`
@@ -63,11 +75,10 @@ mutex is gone. Nothing about the plugin-facing payload changed. See
 [the changelog](docs/context/changelog.md) and §13.5/§13.9 in
 [docs/design/plugins.md](docs/design/plugins.md).
 
-**The rest of D34–D36 is decided but not built:** the management API and audit
-log (phase 2), `ctx` as the in-process HTTP API (phase 3, whose gate is now
-cleared), a supervisor for live enable/disable/revoke (phase 4), the admin UI
-(phase 5), and plugin routes under `/api/ext/{name}/*` (phase 6). §13.11 has the
-shape and the phases.
+**The rest of D34–D36 is decided but not built:** `ctx` as the in-process HTTP
+API (phase 3, whose gate is now cleared), a supervisor for live
+enable/disable/revoke (phase 4), the admin UI (phase 5), and plugin routes under
+`/api/ext/{name}/*` (phase 6). §13.11 has the shape and the phases.
 
 **The change before that was a repository restructure (2026-08-25).** The tree
 moved to a workspace layout — `apps/server`, `apps/admin`, `packages/shared`,
@@ -88,7 +99,7 @@ unchanged and the full suite passes throughout. See
 | [docs/context/repo-map.md](docs/context/repo-map.md) | Where everything lives |
 | [docs/context/code-design.md](docs/context/code-design.md) | How code here is expected to be shaped |
 | [docs/context/changelog.md](docs/context/changelog.md) | Every change that altered behaviour, architecture or layout, newest first |
-| [IMPLEMENTATION.md](IMPLEMENTATION.md) | The vision, the D1–D37 decisions log, and the index into `docs/design/` |
+| [IMPLEMENTATION.md](IMPLEMENTATION.md) | The vision, the D1–D38 decisions log, and the index into `docs/design/` |
 | [README.md](README.md) | How to run, configure and use silo |
 
 ## Working in this repo

@@ -74,12 +74,19 @@ export class ClaimGroups {
     [Claims.TransferExport]: 'export the instance',
     [Claims.TransferImport]: 'import into the instance',
     [Claims.TransferCopy]: 'copy from another server',
+    [Claims.PluginsRead]: 'list plugins and their grants',
+    [Claims.PluginsConfigure]: 'configure plugins',
+    [Claims.PluginsGrant]: 'approve what a plugin may do',
+    [Claims.PluginsEnable]: 'turn plugins on and off',
+    [Claims.AuditRead]: 'read the authority trail',
   }
 
   private static readonly fixedGroups: { title: string; prefix: string }[] = [
     { title: 'Media', prefix: 'media:' },
     { title: 'API keys', prefix: 'keys:' },
     { title: 'Data transfer', prefix: 'transfer:' },
+    { title: 'Plugins', prefix: 'plugins:' },
+    { title: 'Audit', prefix: 'audit:' },
   ]
 
   private static segment(value: string, plural: string): string {
@@ -133,6 +140,37 @@ export class ClaimGroups {
       })
     }
 
+    const unnamed = ClaimGroups.unrecognised(claims, catalogue)
+    if (unnamed.length > 0) groups.push({ title: 'Also', lines: unnamed, warn: true })
+
     return groups
+  }
+
+  /**
+   * Fixed claims this file has no words for, shown raw rather than dropped.
+   *
+   * The summary exists so someone can catch a mistake before minting a
+   * credential, which makes silently omitting a claim the one failure it cannot
+   * afford — and it was doing exactly that: `plugins:grant` renders "approve what
+   * a plugin may do" now, but between D34 and D38 a key that could hand running
+   * code an authority set summarised as nothing at all. Naming the claims fixes
+   * today; this fixes the *next* claim, which will otherwise be added to
+   * `ClaimVocabulary` and forgotten here.
+   *
+   * Flagged as a warning because an unrecognised authority is precisely the one
+   * a reader should look twice at.
+   */
+  private static unrecognised(claims: readonly string[], catalogue: string[]): string[] {
+    const known = new Set(catalogue)
+    return claims
+      .filter((claim) => {
+        if (known.has(claim)) return false
+        try {
+          return Claims.parse(claim).kind === 'fixed'
+        } catch {
+          return false
+        }
+      })
+      .sort()
   }
 }

@@ -1,4 +1,5 @@
 import { Claims } from "@silo/shared/claims";
+import { AuditUtils } from "../../core/audit/audit-utils";
 import type { Config } from "../../config/config";
 import type { SiloService } from "../../core/services/silo-service";
 import { PluginGrantUtils } from "../../core/plugins/plugin-grant-utils";
@@ -37,7 +38,9 @@ export class PluginGrantCommand {
     // operator running this by hand almost always wants; narrowing is the
     // deliberate act and so it is the one that takes an argument.
     const granting = claims ?? requested;
-    const grant = await service.plugins.grant(pluginConfig.name, granting, {});
+    const grant = await service.plugins.grant(pluginConfig.name, granting, {
+      actor: AuditUtils.cli(),
+    });
 
     console.log(`granted ${grant.granted.length} claim(s) to "${grant.name}":`);
     for (const claim of grant.granted) console.log(`  ${claim}`);
@@ -74,7 +77,7 @@ export class PluginGrantCommand {
     name: string | undefined
   ): Promise<void> {
     const pluginConfig = PluginGrantCommand.require(config, name);
-    const grant = await service.plugins.revoke(pluginConfig.name, {});
+    const grant = await service.plugins.revoke(pluginConfig.name, { actor: AuditUtils.cli() });
 
     console.log(`revoked the stored grant for "${grant.name}".`);
 

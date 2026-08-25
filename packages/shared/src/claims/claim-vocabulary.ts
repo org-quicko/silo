@@ -43,6 +43,11 @@ export class ClaimVocabulary {
   static readonly PluginsGrant = "plugins:grant";
   static readonly PluginsEnable = "plugins:enable";
 
+  // The trail of authority changes (D38). Read-only by construction: nothing
+  // updates or deletes an audit event, so there is no `audit:write` for a claim
+  // to guard and inventing one would imply a capability that does not exist.
+  static readonly AuditRead = "audit:read";
+
   // These lookup tables are `Record<Union, true>` rather than sets so the
   // compiler enforces that they stay *complete*: adding a member to one of the
   // unions without listing it here is an error, instead of a claim that
@@ -77,6 +82,7 @@ export class ClaimVocabulary {
     [ClaimVocabulary.PluginsConfigure]: true,
     [ClaimVocabulary.PluginsGrant]: true,
     [ClaimVocabulary.PluginsEnable]: true,
+    [ClaimVocabulary.AuditRead]: true,
   };
 
   /**

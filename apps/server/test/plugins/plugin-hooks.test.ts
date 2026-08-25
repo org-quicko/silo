@@ -11,6 +11,7 @@ import { Claims } from "@silo/shared/claims";
 import { PluginRegistry } from "../../src/plugins";
 import type { PluginConfig } from "../../src/config/plugin-config";
 import { ConfigLoader } from "../../src/config/config-loader";
+import { AuditUtils } from "../../src/core/audit/audit-utils";
 
 const Fixtures = path.join(import.meta.dir, "fixtures");
 
@@ -124,6 +125,33 @@ describe("plugin hooks", () => {
     // Stored, not merely returned — the write carried the mutation.
     const stored = await service.entries.get(scope, "posts", entry.id);
     expect(stored.data.slug).toBe("hello-plugin-world");
+  }, 30000);
+
+  /**
+   * `disable` is the one management verb whose whole job is to stop something
+   * happening, so a test that only checked the record would pass while the
+   * plugin kept running (D38).
+   */
+  test("a disabled plugin is not loaded, and its hooks do not fire", async () => {
+    await service.plugins.reconcile("slugger", ["hooks:*/*/*:entry.beforeValidate"], [
+      "entry.beforeValidate",
+    ]);
+    await service.plugins.setEnabled("slugger", false, { actor: AuditUtils.cli() });
+
+    const loaded = await load([pluginConfig("slugger", {
+      claims: deliver("entry.beforeValidate"),
+      config: { from: "title" },
+    })]);
+    expect(loaded.list()).toHaveLength(0);
+
+    const entry = await service.entries.create(scope, "posts", { title: "Hello Plugin World" });
+    expect(entry.data.slug).toBeUndefined();
+
+    // Pausing is not un-approving: the grant survives, so re-enabling brings it
+    // back holding exactly what it held.
+    const record = await service.plugins.find("slugger");
+    expect(record?.enabled).toBe(false);
+    expect(record?.requested).toEqual(["hooks:*/*/*:entry.beforeValidate"]);
   }, 30000);
 
   test("a ValidationError from a hook is a rejection, not a fault", async () => {

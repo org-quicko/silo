@@ -2,6 +2,7 @@ import { SiloService } from "../../core/services/silo-service";
 import { KeyService } from "../../core/services/key-service";
 import { Claims } from "@silo/shared/claims";
 import { KeyUtils } from "../../core/keys/key-utils";
+import { AuditUtils } from "../../core/audit/audit-utils";
 
 export class KeysCommand {
   static async run(
@@ -37,7 +38,12 @@ export class KeysCommand {
           );
 
       const labelStr = typeof values.label === "string" ? values.label : "";
-      const { secret, entry } = await service.keys.create(labelStr, claims);
+      // Recorded as the CLI, not as `system`: the offline path is bounded by
+      // filesystem access rather than by a key, and a trail that could not tell
+      // the two apart would be missing the more interesting half (D38).
+      const { secret, entry } = await service.keys.create(labelStr, claims, {
+        actor: AuditUtils.cli(),
+      });
       console.log(
         `created key ${entry.id} (${claims.length} claim${claims.length === 1 ? "" : "s"})\n\n  ${secret}\n\nShown only this once.`
       );
@@ -67,7 +73,13 @@ export class KeysCommand {
         console.error("usage: silo keys revoke <id>");
         process.exit(1);
       }
-      await service.keys.revoke(id);
+      const removed = await service.keys.revoke(id, AuditUtils.cli());
+      // Descendants go too (D38), and saying so here is the only place an
+      // operator finds out before looking at the trail.
+      if (removed.length > 1) {
+        console.log(`also revoked ${removed.length - 1} key(s) minted by it:`);
+        for (const child of removed.slice(0, -1)) console.log(`  ${child}`);
+      }
       console.log("revoked", id);
     } else {
       console.error(

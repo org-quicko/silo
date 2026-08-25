@@ -5,7 +5,11 @@ import type { Entry } from "../domain/entry";
 import { EntryUtils } from "../domain/entry-utils";
 import { Scope } from "../domain/scope";
 import type { KeyInfo } from "../keys/key-info";
-import type { KeyOwner } from "../keys/key-owner";
+import type { AuditActor } from "../audit/audit-actor";
+import type { AuditService } from "./audit-service";
+import type { AuthenticatedKey } from "../keys/authenticated-key";
+import type { KeyMintOptions } from "../keys/key-mint-options";
+import { KeyLineage, type IdentifiedKey } from "../keys/key-lineage";
 import { KeyUtils } from "../keys/key-utils";
 import type { KeyView } from "./support/key-view";
 import type { ServiceContext } from "./support/service-context";
@@ -21,9 +25,11 @@ export class KeyService {
   private static readonly ListLimit = 500;
 
   private readonly context: ServiceContext;
+  private readonly audit: AuditService;
 
-  constructor(context: ServiceContext) {
+  constructor(context: ServiceContext, audit: AuditService) {
     this.context = context;
+    this.audit = audit;
   }
 
   /** The public shape of a key record — never the secret, which exists only
@@ -43,16 +49,20 @@ export class KeyService {
       // one would invite an operator to revoke it by hand and then wonder why
       // the plugin came back with a new one at the next start (D34).
       ...(info.owner ? { owner: info.owner } : {}),
+      // Disclosed for the same reason `owner` is: revoking a key takes its
+      // descendants with it (D38), and a list that hid the link would make that
+      // look like data loss rather than the point.
+      ...(info.parent_id ? { parent_id: info.parent_id } : {}),
     };
   }
 
   async create(
     label: string,
     claims: string[],
-    owner?: KeyOwner
+    options: KeyMintOptions = {}
   ): Promise<{ secret: string; entry: Entry }> {
     const keyLabel = typeof label === "string" && label.trim() ? label.trim() : "API key";
-    const { secret, info } = KeyUtils.generateKey(keyLabel, claims, owner);
+    const { secret, info } = KeyUtils.generateKey(keyLabel, claims, options);
 
     const now = EntryUtils.now();
     const entry: Entry = {
@@ -69,6 +79,22 @@ export class KeyService {
 
     await this.context.withWriteLock(() =>
       this.context.store.put(entry, { usages: [], search: null })
+    );
+
+    // Recorded here rather than at the route, so the offline `silo keys create`
+    // lands in the trail too. A log that only sees the API would say a key
+    // appeared from nowhere — which is exactly the question it exists to answer.
+    await this.audit.record(
+      "key.create",
+      options.actor ?? { kind: "system" },
+      entry.id,
+      {
+        label: info.label,
+        prefix: info.prefix,
+        claims: info.claims,
+        ...(options.owner ? { owner: options.owner } : {}),
+        ...(options.parentId ? { parent_id: options.parentId } : {}),
+      }
     );
     return { secret, entry };
   }
@@ -112,14 +138,24 @@ export class KeyService {
   }
 
   /**
-   * Revoke an ordinary key.
+   * Revoke an ordinary key **and everything it minted**.
    *
    * A **managed** key is refused (D34): it belongs to a plugin, silo holds its
    * secret, and it is re-minted at the next start — so revoking it by hand
    * looks like it worked and undoes itself. The refusal names the command that
    * actually withdraws the authority.
+   *
+   * The cascade is D37's fourth finding, and it is not optional (D38). A key
+   * minted through `POST /api/keys` is bounded by its minter's authority at the
+   * moment it is minted and by nothing afterwards, so leaving descendants behind
+   * makes revocation a suggestion: anyone about to lose a key mints a spare
+   * first. Making it a `?cascade=true` flag would put the correct behaviour
+   * behind an argument nobody passes, which is the same as not having it.
+   *
+   * Returns every id removed, descendants first, so the caller can say what
+   * happened — a 204 cannot, and the trail is where it is recorded.
    */
-  async revoke(id: string): Promise<void> {
+  async revoke(id: string, actor: AuditActor = { kind: "system" }): Promise<string[]> {
     const entry = await this.context.store.get(Scope.System, KeyUtils.KeysCollection, id);
     const info = entry.data as KeyInfo;
     if (KeyUtils.isManaged(info)) {
@@ -128,7 +164,37 @@ export class KeyService {
           `Revoke the plugin's grant instead: silo plugin revoke ${info.owner!.name}`
       );
     }
+
+    // Descendants first, so an interruption leaves the parent behind rather than
+    // a set of orphans whose minter is gone and which nothing now points at.
+    const doomed = await this.descendantsOf(id);
+    for (const descendant of doomed) await this.discard(descendant.id);
     await this.discard(id);
+
+    await this.audit.record("key.revoke", actor, id, {
+      label: info.label,
+      prefix: info.prefix,
+      // Named individually, because the response is a 204 and this is the only
+      // place that says a single revocation removed four credentials.
+      cascaded: doomed.map((descendant) => descendant.id),
+    });
+    return [...doomed.map((descendant) => descendant.id), id];
+  }
+
+  /**
+   * Every key minted by `id`, transitively.
+   *
+   * A managed key among the descendants would be a contradiction — silo mints
+   * those itself and never from a request — so none is expected, and one found
+   * is still removed: a plugin key whose grant no longer produces it is exactly
+   * the orphan the ordinary revoke path refuses to clean up.
+   */
+  async descendantsOf(id: string): Promise<IdentifiedKey[]> {
+    const all = (await this.list()).map((entry) => ({
+      id: entry.id,
+      info: entry.data as KeyInfo,
+    }));
+    return KeyLineage.descendantsOf(all, id);
   }
 
   /** Revoke without the managed-key guard. For `PluginGrantService`, which is
@@ -139,7 +205,9 @@ export class KeyService {
     );
   }
 
-  async authenticate(secret: string): Promise<KeyInfo> {
+  /** The presented key's record **and its id** — see `AuthenticatedKey` for why
+   *  the id cannot simply live in the record. */
+  async authenticate(secret: string): Promise<AuthenticatedKey> {
     if (!KeyFormat.looksLikeKey(secret)) {
       throw new ValidationError("unauthorized: invalid API key format");
     }
@@ -154,7 +222,7 @@ export class KeyService {
     }
 
     const info = items[0].data as KeyInfo;
-    return { ...info, claims: Claims.normalize(info.claims) };
+    return { ...info, id: items[0].id, claims: Claims.normalize(info.claims) };
   }
 
   /**

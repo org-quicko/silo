@@ -128,3 +128,38 @@ describe("plugin management claims", () => {
     expect(Claims.presetFixedClaims("root")).toContain(Claims.PluginsEnable);
   });
 });
+
+describe("the audit claim (D38)", () => {
+  test("it is an ordinary fixed claim, and read-only by construction", () => {
+    expect(Claims.isValid(Claims.AuditRead)).toBe(true);
+    expect(Claims.has([Claims.Root], Claims.AuditRead)).toBe(true);
+    expect(Claims.has([Claims.KeysRead], Claims.AuditRead)).toBe(false);
+
+    // There is no `audit:write`, deliberately: nothing updates or deletes an
+    // event, so a claim guarding that would imply a capability that does not
+    // exist. Asserted so adding one is a decision rather than a reflex.
+    expect(Claims.isValid("audit:write")).toBe(false);
+  });
+
+  /**
+   * Reading the trail is an operator's job. Withholding it from the preset an
+   * operator is given would leave the log to `root` alone — the account you
+   * want people using least.
+   */
+  test("manage and root read the trail; write and read do not", () => {
+    expect(Claims.presetFixedClaims("manage")).toContain(Claims.AuditRead);
+    expect(Claims.presetFixedClaims("root")).toContain(Claims.AuditRead);
+    expect(Claims.presetFixedClaims("write")).not.toContain(Claims.AuditRead);
+    expect(Claims.presetFixedClaims("read")).not.toContain(Claims.AuditRead);
+  });
+
+  /**
+   * The trail names every key and every claim ever granted here, which is
+   * disclosure rather than escalation — the line D37 drew for `keys:read` and
+   * `keys:export`. So a plugin may hold it, and that is a trade-off an operator
+   * gets to make rather than one the vocabulary makes for them.
+   */
+  test("a plugin may be granted it, like the other disclosing claims", () => {
+    expect(Claims.PluginForbiddenClaims).not.toContain(Claims.AuditRead);
+  });
+});

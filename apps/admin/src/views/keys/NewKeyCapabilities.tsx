@@ -46,6 +46,23 @@ const GROUPS: CapabilityGroup[] = [
       { claim: Claims.TransferCopy, label: 'Server copy', help: 'Pull another running silo and import it.', warn: true },
     ],
   },
+  {
+    title: 'Plugins',
+    note: 'A plugin runs code, so approving one hands it an authority set — and a key can only approve what it holds itself.',
+    capabilities: [
+      { claim: Claims.PluginsRead, label: 'List', help: 'List plugins, what each requested, and what was granted.' },
+      { claim: Claims.PluginsConfigure, label: 'Configure', help: 'Change plugin settings.' },
+      { claim: Claims.PluginsGrant, label: 'Approve', help: 'Grant and revoke what a plugin may do.', warn: true },
+      { claim: Claims.PluginsEnable, label: 'Enable', help: 'Turn plugins on and off. Takes effect at the next restart.', warn: true },
+    ],
+  },
+  {
+    title: 'Audit',
+    note: 'The trail of authority changes: keys minted and revoked, plugins granted, revoked, enabled and disabled.',
+    capabilities: [
+      { claim: Claims.AuditRead, label: 'Read', help: 'Read the authority trail. It names every key and claim ever granted here.' },
+    ],
+  },
 ]
 
 /**

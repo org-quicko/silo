@@ -4,10 +4,14 @@ import type { Claim } from "@silo/shared/claim";
 import type { Entry } from "../domain/entry";
 import { EntryUtils } from "../domain/entry-utils";
 import { Scope } from "../domain/scope";
+import { ConflictError } from "../errors/conflict-error";
 import { ForbiddenError } from "../errors/forbidden-error";
 import { NotFoundError } from "../errors/not-found-error";
+import type { AuditActor } from "../audit/audit-actor";
 import type { PluginGrant } from "../plugins/plugin-grant";
+import type { PluginGrantRecord } from "../plugins/plugin-grant-record";
 import { PluginGrantUtils } from "../plugins/plugin-grant-utils";
+import type { AuditService } from "./audit-service";
 import type { GrantRequest } from "./support/grant-request";
 import type { KeyService } from "./key-service";
 import type { ServiceContext } from "./support/service-context";
@@ -22,6 +26,10 @@ import type { ServiceContext } from "./support/service-context";
  * whoever can write the database cannot thereby execute code. **Authorization**
  * lives here, so that withdrawing it takes effect now rather than at the next
  * restart, and so that who granted what is recorded.
+ *
+ * Every mutation here appends to the trail (D38) and every mutation may be
+ * fenced with a revision. Both are properties of the service and not of the
+ * route, so the offline CLI gets them for free.
  */
 export class PluginGrantService {
   /** More plugins than any instance is expected to run; listing is unpaged. */
@@ -29,13 +37,15 @@ export class PluginGrantService {
 
   private readonly context: ServiceContext;
   private readonly keys: KeyService;
+  private readonly audit: AuditService;
 
-  constructor(context: ServiceContext, keys: KeyService) {
+  constructor(context: ServiceContext, keys: KeyService, audit: AuditService) {
     this.context = context;
     this.keys = keys;
+    this.audit = audit;
   }
 
-  async list(): Promise<PluginGrant[]> {
+  async list(): Promise<PluginGrantRecord[]> {
     const { items } = await this.context.store.list(
       Scope.System,
       PluginGrantUtils.PluginsCollection,
@@ -45,14 +55,14 @@ export class PluginGrantService {
         offset: 0,
       }
     );
-    return items.map((entry) => entry.data as PluginGrant);
+    return items.map(PluginGrantService.toRecord);
   }
 
   /** The grant for one plugin, or `null` when it has never been reconciled —
    *  which is what an installed-but-untouched package looks like. */
-  async find(name: string): Promise<PluginGrant | null> {
+  async find(name: string): Promise<PluginGrantRecord | null> {
     const entry = await this.findEntry(name);
-    return entry ? (entry.data as PluginGrant) : null;
+    return entry ? PluginGrantService.toRecord(entry) : null;
   }
 
   /**
@@ -63,17 +73,23 @@ export class PluginGrantService {
    * upgrade never escalates" happens: a changed request moves a granted record
    * to `needs_review` and leaves `granted` exactly as it was. The plugin keeps
    * running on the authority it had, and the new claims are simply not in it.
+   *
+   * Deliberately **not audited**. Reconciling is silo noticing what a package
+   * says, not a person deciding anything, and one line per plugin per start
+   * would bury the decisions the trail exists to hold. The decision that follows
+   * from a `needs_review` — approving the new request — is audited, and that is
+   * the entry worth having.
    */
   async reconcile(
     name: string,
     requested: readonly string[],
     hooks: readonly string[]
-  ): Promise<PluginGrant> {
+  ): Promise<PluginGrantRecord> {
     const digest = PluginGrantUtils.digest(requested, hooks);
     const existing = await this.findEntry(name);
 
     if (!existing) {
-      return await this.write({
+      return await this.write(name, {
         name,
         requested: [...requested],
         hooks: [...hooks],
@@ -98,7 +114,14 @@ export class PluginGrantService {
     // start — the plugin would look approved for a request nobody read.
     if (next.state !== "needs_review") next.manifest_digest = digest;
 
-    return await this.write(next, existing);
+    // A reconcile that changes nothing writes nothing. Reconciling runs for
+    // every plugin at every start, so an unconditional write would bump the
+    // revision on each one — invalidating every `If-Match` an operator was
+    // holding, for no change they could point at. Measured against a running
+    // instance, where four restarts had walked one plugin from rev 1 to rev 7.
+    if (PluginGrantService.same(grant, next)) return PluginGrantService.toRecord(existing);
+
+    return await this.write(name, next);
   }
 
   /**
@@ -108,7 +131,11 @@ export class PluginGrantService {
    * what the package asked for, nothing the granter does not itself hold, and
    * nothing from the small set a plugin may never have.
    */
-  async grant(name: string, claims: readonly string[], request: GrantRequest): Promise<PluginGrant> {
+  async grant(
+    name: string,
+    claims: readonly string[],
+    request: GrantRequest
+  ): Promise<PluginGrantRecord> {
     const entry = await this.requireEntry(name);
     const grant = entry.data as PluginGrant;
     const granted = Claims.normalize([...claims]);
@@ -130,28 +157,71 @@ export class PluginGrantService {
       );
     }
 
-    // Minted before the record is written, so a failure to mint leaves the
-    // grant untouched rather than pointing at a key that does not exist.
-    if (grant.key_id) await this.keys.discard(grant.key_id).catch(() => {});
+    // The old key survives until the new record is written, and the new one is
+    // thrown away if that write is refused. Three orderings were possible and
+    // only this one is safe at every step:
+    //
+    // - Discard-then-mint-then-write loses the live key when the write is
+    //   refused, leaving the record pointing at a key that no longer exists.
+    //   That is not hypothetical: a stale `If-Match` did exactly this.
+    // - Write-then-rotate leaves the previous, possibly *wider* key live for a
+    //   moment after the record says it was narrowed.
+    //
+    // So: mint, write, and only then withdraw what the write replaced. The
+    // failure mode left is a key minted and immediately removed — harmless, and
+    // recorded as both, because `keys.create` has already appended by the time
+    // the write is refused and a trail showing a creation with no matching
+    // removal would be a trail that lies.
     const { entry: keyEntry } = await this.keys.create(`plugin:${name}`, [...granted], {
-      kind: "plugin",
-      name,
+      owner: { kind: "plugin", name },
+      actor: request.actor,
     });
 
-    return await this.write(
-      {
-        ...grant,
-        granted,
-        state: "granted",
-        // Approving is reading the request, so this is the one place the digest
-        // advances past what `reconcile` refused to move.
-        manifest_digest: PluginGrantUtils.digest(grant.requested, grant.hooks),
-        key_id: keyEntry.id,
-        granted_by: request.keyId ?? null,
-        granted_at: EntryUtils.now().toISOString(),
-      },
-      entry
-    );
+    let record: PluginGrantRecord;
+    try {
+      record = await this.write(
+        name,
+        {
+          ...grant,
+          granted,
+          state: "granted",
+          // Approving is reading the request, so this is the one place the
+          // digest advances past what `reconcile` refused to move.
+          manifest_digest: PluginGrantUtils.digest(grant.requested, grant.hooks),
+          key_id: keyEntry.id,
+          granted_by: PluginGrantService.actorKey(request.actor),
+          granted_at: EntryUtils.now().toISOString(),
+        },
+        request.expectedRev
+      );
+    } catch (caught) {
+      await this.keys.discard(keyEntry.id).catch(() => {});
+      await this.audit.record("key.revoke", request.actor, keyEntry.id, {
+        label: `plugin:${name}`,
+        reason: "the grant it was minted for was refused",
+        cascaded: [],
+      });
+      throw caught;
+    }
+
+    if (grant.key_id) {
+      await this.keys.discard(grant.key_id).catch(() => {});
+      await this.audit.record("key.revoke", request.actor, grant.key_id, {
+        label: `plugin:${name}`,
+        reason: "replaced by a newly granted key",
+        cascaded: [],
+      });
+    }
+
+    await this.audit.record("plugin.grant", request.actor, name, {
+      granted,
+      requested: grant.requested,
+      // The delta is the reviewable part: "approved everything" and "approved
+      // two of nine" are different decisions and should not read the same.
+      not_granted: PluginGrantUtils.missing(grant.requested, granted),
+      key_id: keyEntry.id,
+    });
+    return record;
   }
 
   /**
@@ -160,24 +230,103 @@ export class PluginGrantService {
    * That order is the point. Between the two writes the plugin holds a key id
    * that no longer resolves, which fails closed; the other order would leave a
    * live key behind a record that says `revoked`.
+   *
+   * The revision is checked **before** the key goes, so a stale `If-Match` does
+   * not destroy a credential on its way to a 409. `write` checks it again under
+   * the lock, which is the authoritative one; this earlier check exists only so
+   * the common refusal costs nothing.
    */
-  async revoke(name: string, request: GrantRequest): Promise<PluginGrant> {
+  async revoke(name: string, request: GrantRequest): Promise<PluginGrantRecord> {
     const entry = await this.requireEntry(name);
     const grant = entry.data as PluginGrant;
+    PluginGrantService.assertRev(name, entry.rev, request.expectedRev);
 
-    if (grant.key_id) await this.keys.discard(grant.key_id).catch(() => {});
+    if (grant.key_id) {
+      await this.keys.discard(grant.key_id).catch(() => {});
+      await this.audit.record("key.revoke", request.actor, grant.key_id, {
+        label: `plugin:${name}`,
+        reason: "the plugin's grant was withdrawn",
+        cascaded: [],
+      });
+    }
 
-    return await this.write(
+    const record = await this.write(
+      name,
       {
         ...grant,
         granted: [],
         state: "revoked",
         key_id: undefined,
-        granted_by: request.keyId ?? null,
+        granted_by: PluginGrantService.actorKey(request.actor),
         granted_at: EntryUtils.now().toISOString(),
       },
-      entry
+      request.expectedRev
     );
+
+    await this.audit.record("plugin.revoke", request.actor, name, {
+      // What it *had*, because the record now says `[]` and the question anyone
+      // asks of a revocation later is what was taken away.
+      withdrawn: grant.granted,
+      key_id: grant.key_id ?? null,
+    });
+    return record;
+  }
+
+  /**
+   * Turn a plugin off, or back on, for the next load (D38).
+   *
+   * Orthogonal to the grant: a disabled plugin keeps its claims and its managed
+   * key, because pausing something is not the same decision as un-approving it,
+   * and an operator who had to re-approve after every pause would learn to
+   * approve widely to save the trouble.
+   */
+  async setEnabled(
+    name: string,
+    enabled: boolean,
+    request: GrantRequest
+  ): Promise<PluginGrantRecord> {
+    const entry = await this.requireEntry(name);
+    const grant = entry.data as PluginGrant;
+
+    const record = await this.write(name, { ...grant, enabled }, request.expectedRev);
+    await this.audit.record(
+      enabled ? "plugin.enable" : "plugin.disable",
+      request.actor,
+      name,
+      { state: grant.state }
+    );
+    return record;
+  }
+
+  /**
+   * Whether reconciling produced any change worth a revision.
+   *
+   * A structural comparison of the whole record rather than a field list: the
+   * fields `reconcile` touches are exactly the ones that could differ, and a
+   * hand-maintained list here would silently stop covering a field added later.
+   * Both sides come from the same code path, so key order is stable.
+   */
+  private static same(before: PluginGrant, after: PluginGrant): boolean {
+    return JSON.stringify(before) === JSON.stringify(after);
+  }
+
+  /** The `If-Match` comparison, in one place so the pre-flight and the
+   *  authoritative check under the lock can never word it differently. */
+  private static assertRev(name: string, current: number, expected: number | undefined): void {
+    if (expected === undefined || current === expected) return;
+    throw new ConflictError(
+      `rev mismatch for plugin "${name}": expected ${expected}, current is ${current}. ` +
+        `Re-read it — what it asks for may have changed.`
+    );
+  }
+
+  private static toRecord(entry: Entry): PluginGrantRecord {
+    return { ...(entry.data as PluginGrant), rev: entry.rev };
+  }
+
+  /** `granted_by` from the actor, so the two can never disagree about who. */
+  private static actorKey(actor: AuditActor): string | null {
+    return actor.kind === "key" ? (actor.id ?? null) : null;
   }
 
   private async findEntry(name: string): Promise<Entry | null> {
@@ -204,26 +353,41 @@ export class PluginGrantService {
     return entry;
   }
 
-  /** Insert or replace, in one place so the envelope is built once. */
-  private async write(grant: PluginGrant, existing?: Entry | null): Promise<PluginGrant> {
-    const now = EntryUtils.now();
-    const entry: Entry = existing
-      ? { ...existing, rev: existing.rev + 1, updated_at: now, data: grant }
-      : {
-          id: EntryUtils.newID(),
-          project: Scope.System.project,
-          env: Scope.System.env,
-          collection: PluginGrantUtils.PluginsCollection,
-          rev: 1,
-          seq: 0,
-          created_at: now,
-          updated_at: now,
-          data: grant,
-        };
+  /**
+   * Insert or replace, re-reading **under the write lock**.
+   *
+   * The caller's copy was read outside the lock, so checking `expectedRev`
+   * against it would compare against a revision that may already be stale — the
+   * lost update `If-Match` exists to stop. `EntryService.update` makes the same
+   * split for the same reason: the value the caller reasoned about is read
+   * early, and the authoritative one is read late.
+   */
+  private async write(
+    name: string,
+    grant: PluginGrant,
+    expectedRev?: number
+  ): Promise<PluginGrantRecord> {
+    return await this.context.withWriteLock(async () => {
+      const current = await this.findEntry(name);
+      PluginGrantService.assertRev(name, current?.rev ?? 0, expectedRev);
 
-    await this.context.withWriteLock(() =>
-      this.context.store.put(entry, { usages: [], search: null })
-    );
-    return grant;
+      const now = EntryUtils.now();
+      const entry: Entry = current
+        ? { ...current, rev: current.rev + 1, updated_at: now, data: grant }
+        : {
+            id: EntryUtils.newID(),
+            project: Scope.System.project,
+            env: Scope.System.env,
+            collection: PluginGrantUtils.PluginsCollection,
+            rev: 1,
+            seq: 0,
+            created_at: now,
+            updated_at: now,
+            data: grant,
+          };
+
+      await this.context.store.put(entry, { usages: [], search: null });
+      return { ...grant, rev: entry.rev };
+    });
   }
 }

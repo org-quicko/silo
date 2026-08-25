@@ -89,6 +89,20 @@ export class PluginLoader {
         PluginGrantResolver.requested(resolved.manifest),
         resolved.manifest.hooks
       );
+
+      // Reconciled first and *then* skipped, so a disabled plugin still has a
+      // record to re-enable through — the same reason reconcile runs before the
+      // worker starts. Loud, because `silo.toml` lists it and it is not running:
+      // that divergence is §13.3's least favourite state, and it is tolerable
+      // here only because it is recorded rather than inferred (D38).
+      if (grant.enabled === false) {
+        options.logger.warn("plugin is disabled and was not loaded", {
+          plugin: config.name,
+          remedy: `POST /api/plugins/${config.name}/enable`,
+        });
+        continue;
+      }
+
       const authority = PluginGrantResolver.resolve(config, resolved.manifest, grant);
       PluginLoader.assertDeliverable(config.name, authority);
 

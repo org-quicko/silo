@@ -31,7 +31,7 @@ script.
 | `tsconfig.base.json` | Compiler options shared by every Bun-side package |
 | `tsconfig.json` | One typecheck pass over the server, `shared` and `tools` |
 | `CONTEXT.md` | Current state, and the index into `docs/context/` |
-| `IMPLEMENTATION.md` | Vision, the D1–D37 decisions log, and the index into `docs/design/` |
+| `IMPLEMENTATION.md` | Vision, the D1–D38 decisions log, and the index into `docs/design/` |
 | `CLAUDE.md` | Standing instructions for AI assistants |
 | `silo.toml` | A commented example config; every key is optional |
 | `Dockerfile` | Two stages — build the admin UI, then a runtime image with only the server's dependencies. Its `COPY` list must name every workspace manifest, or `bun install` aborts with "Workspace not found" |
@@ -45,8 +45,8 @@ script.
 | `config/` | `Config` and its sub-shapes, `ConfigLoader`, and `PluginBlockWriter` — the only writer, and it appends rather than re-serialises |
 | `core/domain/` | `Entry`, `Scope`, `Collection`, `Meta` and their helpers |
 | `core/ports/` | `Storage`, `BlobStorage`, `DerivedIndex` — interfaces only, importing no adapter |
-| `core/services/` | The application service layer. `SiloService` is the facade; `scopes`, `collections`, `entries`, `search`, `keys`, `transfer` and `media` are the services behind it. `support/` holds what they share — the `ServiceContext`, the schema cache, the write lock |
-| `core/errors/`, `core/query/`, `core/schema/`, `core/keys/`, `core/media/`, `core/search/`, `core/transfer/`, `core/hooks/`, `core/plugins/` | One subject each. `core/plugins/` is the grant record and its rules (D34) — the store-side half of plugin authority, which `plugins/` reads but does not own |
+| `core/services/` | The application service layer. `SiloService` is the facade; `scopes`, `collections`, `entries`, `search`, `keys`, `plugins`, `audit`, `transfer` and `media` are the services behind it. `support/` holds what they share — the `ServiceContext`, the schema cache, the write lock |
+| `core/errors/`, `core/query/`, `core/schema/`, `core/keys/`, `core/media/`, `core/search/`, `core/transfer/`, `core/hooks/`, `core/plugins/`, `core/audit/` | One subject each. `core/plugins/` is the grant record and its rules (D34) — the store-side half of plugin authority, which `plugins/` reads but does not own. `core/audit/` is the authority-change trail (D38): the event shape, the actor, and the closed list of actions |
 | `adapters/storage/sqlite/` | The indexed adapter, split per table: migrations, meta, scopes, schemas, entries, media references, FTS documents, and the compiler and searcher on top |
 | `adapters/storage/fs/` | The plain-files adapter, split the same way, with `FsLayout` holding the on-disk path grammar that *is* the export format (D5) |
 | `adapters/blob/` | Filesystem and S3 blob stores |

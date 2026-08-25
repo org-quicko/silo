@@ -9,6 +9,11 @@ import { Scope } from "../../src/core/domain/scope";
 import { KeyUtils } from "../../src/core/keys/key-utils";
 import type { KeyInfo } from "../../src/core/keys/key-info";
 import { PluginGrantUtils } from "../../src/core/plugins/plugin-grant-utils";
+import { AuditUtils } from "../../src/core/audit/audit-utils";
+
+/** What `{}` used to mean before D38 made the actor explicit: the offline CLI,
+ *  which holds no key and is bounded by filesystem access instead. */
+const cli = { actor: AuditUtils.cli() };
 
 /**
  * The grant model itself (D34): `_plugins`, the managed key, and the four
@@ -52,7 +57,7 @@ describe("plugin grants", () => {
 
   test("granting mints a managed key carrying exactly the approved claims", async () => {
     await service.plugins.reconcile("acme", requested, ["entry.afterWrite"]);
-    const grant = await service.plugins.grant("acme", ["hooks:*/*/*:entry.afterWrite"], {});
+    const grant = await service.plugins.grant("acme", ["hooks:*/*/*:entry.afterWrite"], cli);
 
     expect(grant.state).toBe("granted");
     expect(grant.granted).toEqual(["hooks:*/*/*:entry.afterWrite"]);
@@ -70,13 +75,13 @@ describe("plugin grants", () => {
     await service.plugins.reconcile("acme", requested, ["entry.afterWrite"]);
 
     await expect(
-      service.plugins.grant("acme", ["collections:*/*/*:entries:delete"], {})
+      service.plugins.grant("acme", ["collections:*/*/*:entries:delete"], cli)
     ).rejects.toThrow(/did not request/);
   });
 
   test("a grant may narrow the scope the manifest asked for", async () => {
     await service.plugins.reconcile("acme", requested, ["entry.afterWrite"]);
-    const grant = await service.plugins.grant("acme", ["hooks:blog/prod/posts:entry.afterWrite"], {});
+    const grant = await service.plugins.grant("acme", ["hooks:blog/prod/posts:entry.afterWrite"], cli);
 
     expect(grant.granted).toEqual(["hooks:blog/prod/posts:entry.afterWrite"]);
   });
@@ -88,13 +93,14 @@ describe("plugin grants", () => {
     await expect(
       service.plugins.grant("acme", ["collections:*/*/*:entries:create"], {
         claims: ["collections:blog/prod/posts:entries:create"],
+        actor: cli.actor,
       })
     ).rejects.toThrow(/more authority than it holds/);
 
     // The same key granting within its reach is fine.
     const grant = await service.plugins.grant("acme", ["collections:blog/prod/posts:entries:create"], {
       claims: ["collections:blog/*/*:entries:create"],
-      keyId: "key-1",
+      actor: { kind: "key" as const, id: "key-1" },
     });
     expect(grant.granted).toEqual(["collections:blog/prod/posts:entries:create"]);
     expect(grant.granted_by).toBe("key-1");
@@ -104,7 +110,7 @@ describe("plugin grants", () => {
    *  step outside its own grant. */
   test("a plugin can never be granted root or an escalation primitive", async () => {
     await service.plugins.reconcile("acme", [Claims.Root], []);
-    await expect(service.plugins.grant("acme", [Claims.Root], {})).rejects.toThrow(/cannot be granted root/);
+    await expect(service.plugins.grant("acme", [Claims.Root], cli)).rejects.toThrow(/cannot be granted root/);
 
     // Every member of the forbidden set, refused one at a time — the point of
     // the table is that it is complete, so asserting one member would let the
@@ -112,7 +118,7 @@ describe("plugin grants", () => {
     // half: those do not widen the grant record, they walk around it.
     for (const claim of Claims.PluginForbiddenClaims) {
       await service.plugins.reconcile("acme", [claim, Claims.PluginsRead], []);
-      await expect(service.plugins.grant("acme", [claim], {})).rejects.toThrow(
+      await expect(service.plugins.grant("acme", [claim], cli)).rejects.toThrow(
         /cannot be granted/
       );
     }
@@ -128,7 +134,7 @@ describe("plugin grants", () => {
     const grant = await service.plugins.grant(
       "acme",
       [Claims.PluginsRead, Claims.KeysRead, Claims.KeysExport],
-      {}
+      cli
     );
     expect(grant.granted).toEqual([Claims.KeysExport, Claims.KeysRead, Claims.PluginsRead]);
   });
@@ -139,7 +145,7 @@ describe("plugin grants", () => {
    */
   test("an upgrade that asks for more does not escalate", async () => {
     await service.plugins.reconcile("acme", ["collections:*/*/*:entries:read"], []);
-    const granted = await service.plugins.grant("acme", ["collections:*/*/*:entries:read"], {});
+    const granted = await service.plugins.grant("acme", ["collections:*/*/*:entries:read"], cli);
     expect(granted.state).toBe("granted");
 
     // The package now wants to delete, too.
@@ -158,7 +164,7 @@ describe("plugin grants", () => {
 
   test("needs_review survives a restart until it is approved", async () => {
     await service.plugins.reconcile("acme", ["collections:*/*/*:entries:read"], []);
-    await service.plugins.grant("acme", ["collections:*/*/*:entries:read"], {});
+    await service.plugins.grant("acme", ["collections:*/*/*:entries:read"], cli);
 
     const wider = ["collections:*/*/*:entries:read", "collections:*/*/*:entries:delete"];
     await service.plugins.reconcile("acme", wider, []);
@@ -167,14 +173,14 @@ describe("plugin grants", () => {
     const again = await service.plugins.reconcile("acme", wider, []);
     expect(again.state).toBe("needs_review");
 
-    const approved = await service.plugins.grant("acme", wider, {});
+    const approved = await service.plugins.grant("acme", wider, cli);
     expect(approved.state).toBe("granted");
     expect((await service.plugins.reconcile("acme", wider, [])).state).toBe("granted");
   });
 
   test("adding a hook is a change to the request, even at the same claims", async () => {
     await service.plugins.reconcile("acme", ["hooks:*/*/*:entry.afterWrite"], ["entry.afterWrite"]);
-    await service.plugins.grant("acme", ["hooks:*/*/*:entry.afterWrite"], {});
+    await service.plugins.grant("acme", ["hooks:*/*/*:entry.afterWrite"], cli);
 
     const upgraded = await service.plugins.reconcile(
       "acme",
@@ -186,9 +192,9 @@ describe("plugin grants", () => {
 
   test("revoking withdraws the key before the record", async () => {
     await service.plugins.reconcile("acme", requested, ["entry.afterWrite"]);
-    const granted = await service.plugins.grant("acme", ["hooks:*/*/*:entry.afterWrite"], {});
+    const granted = await service.plugins.grant("acme", ["hooks:*/*/*:entry.afterWrite"], cli);
 
-    const revoked = await service.plugins.revoke("acme", { keyId: "key-9" });
+    const revoked = await service.plugins.revoke("acme", { actor: { kind: "key", id: "key-9" } });
     expect(revoked.state).toBe("revoked");
     expect(revoked.granted).toEqual([]);
     expect(revoked.key_id).toBeUndefined();
@@ -201,15 +207,15 @@ describe("plugin grants", () => {
 
   test("re-granting replaces the key rather than leaving the old one live", async () => {
     await service.plugins.reconcile("acme", requested, ["entry.afterWrite"]);
-    const first = await service.plugins.grant("acme", ["hooks:*/*/*:entry.afterWrite"], {});
-    const second = await service.plugins.grant("acme", ["collections:*/*/*:entries:read"], {});
+    const first = await service.plugins.grant("acme", ["hooks:*/*/*:entry.afterWrite"], cli);
+    const second = await service.plugins.grant("acme", ["collections:*/*/*:entries:read"], cli);
 
     expect(second.key_id).not.toBe(first.key_id);
     await expect(store.get(Scope.System, KeyUtils.KeysCollection, first.key_id!)).rejects.toThrow();
   });
 
   test("granting a plugin that was never reconciled is refused", async () => {
-    await expect(service.plugins.grant("ghost", [], {})).rejects.toThrow(/not known to this instance/);
+    await expect(service.plugins.grant("ghost", [], cli)).rejects.toThrow(/not known to this instance/);
   });
 });
 
@@ -232,7 +238,7 @@ describe("managed keys", () => {
 
   test("a managed key cannot be revoked through the ordinary path", async () => {
     await service.plugins.reconcile("acme", ["collections:*/*/*:entries:read"], []);
-    const grant = await service.plugins.grant("acme", ["collections:*/*/*:entries:read"], {});
+    const grant = await service.plugins.grant("acme", ["collections:*/*/*:entries:read"], cli);
 
     await expect(service.keys.revoke(grant.key_id!)).rejects.toThrow(/managed by silo/);
     // Still there, and still usable — a refusal that half-worked would be worse
@@ -247,7 +253,7 @@ describe("managed keys", () => {
    */
   test("a managed key does not count as bootstrapping the instance", async () => {
     await service.plugins.reconcile("acme", ["collections:*/*/*:entries:read"], []);
-    await service.plugins.grant("acme", ["collections:*/*/*:entries:read"], {});
+    await service.plugins.grant("acme", ["collections:*/*/*:entries:read"], cli);
 
     const secret = await service.keys.bootstrap();
     expect(secret).toBeTruthy();

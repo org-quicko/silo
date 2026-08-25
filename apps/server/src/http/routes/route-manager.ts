@@ -10,6 +10,7 @@ import { SessionRoutes } from "./session-routes";
 import { SearchRoutes } from "./search-routes";
 import { PluginRoutes } from "./plugin-routes";
 import { ExtRoutes } from "./ext-routes";
+import { AuditRoutes } from "./audit-routes";
 
 /**
  * Composes all route modules onto the app. Ordering matters for Hono's
@@ -23,12 +24,13 @@ import { ExtRoutes } from "./ext-routes";
 export class RouteManager {
   static registerRoutes(app: any, service: SiloService) {
     SessionRoutes.register(app);
-    // Reserved namespace (D31/§13.1), registered before the scoped param routes
+    // Plugin *management* (D34/D38), registered before the scoped param routes
     // for the same ordering reason the rest of this list exists.
-    PluginRoutes.register(app);
+    PluginRoutes.register(app, service);
     // Reserved for plugin-contributed routes (D36), kept out of /api/plugins/
     // so a plugin name can never collide with a management verb.
     ExtRoutes.register(app);
+    AuditRoutes.register(app, service);
     KeysRoutes.register(app, service);
     TransferRoutes.register(app, service);
     CopyRoutes.register(app, service);

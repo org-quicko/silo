@@ -78,6 +78,10 @@ export class ClaimPresets {
       ClaimVocabulary.MediaDelete,
       ClaimVocabulary.PluginsRead,
       ClaimVocabulary.PluginsConfigure,
+      // Reading the trail is an operator's job, and withholding it from the
+      // preset an operator is given would leave the log to `root` alone —
+      // which is the account you want people using least (D38).
+      ClaimVocabulary.AuditRead,
     ],
   };
 

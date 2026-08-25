@@ -512,10 +512,10 @@ Where a plugin dispatch is involved, assert the clock.
 
 ## 13.11 Where this is going (D34–D36)
 
-> **Designed, not built.** D33 has landed, phase 1 of D34 with it (§13.12), and
-> phase 3's gate is cleared (§13.13). The rest is phased below. This section is
-> the shape, not the specification — the decisions log carries the reasoning,
-> and each phase writes its own detail here as it lands.
+> **Partly built.** D33 has landed, phase 1 of D34 with it (§13.12), phase 3's
+> gate is cleared (§13.13), and phase 2 has shipped (§13.14). The rest is phased
+> below. This section is the shape, not the specification — the decisions log
+> carries the reasoning, and each phase writes its own detail here as it lands.
 
 ### The two holes this closes
 
@@ -564,7 +564,7 @@ could write the database could execute code.**
 | :--- | :--- |
 | 0 | **D33, done.** The causal chain, and the deadlock it fixes |
 | 1 | `_plugins`, managed keys, `hooks:` claims, `plugins:*` claims, `pending` state, offline `silo plugin grant`. **Reserve `/api/ext/`.** |
-| 2 | Management API and audit log |
+| 2 | **Done, §13.14.** Management API, the `_audit` trail, descendant keys |
 | 3 | `ctx.fetch` and the generated client. Its gate, the route-authority audit, is **done** — §13.13 |
 | 4 | Supervisor: live enable, disable, reorder, revoke |
 | 5 | Admin UI, inert `silo add`, `create-silo-plugin`, drift tests |
@@ -589,9 +589,10 @@ or an OS-isolated runner, and providers are trusted by construction — a
 
 ## 13.12 Grants, and the managed key (D34, phase 1)
 
-> **Built.** The rest of D34–D36 — the management API, `ctx` as the HTTP
-> surface, contributions replacing kinds, plugin routes — is still §13.11. D37
-> (§13.13) later widened the forbidden claim set this section describes.
+> **Built.** The rest of D34–D36 — `ctx` as the HTTP surface, contributions
+> replacing kinds, plugin routes — is still §13.11. D37 (§13.13) later widened
+> the forbidden claim set this section describes, and D38 (§13.14) put the
+> management API in front of everything here.
 
 ### Two places an operator can grant, and why
 
@@ -848,3 +849,142 @@ the properties phase 3 *rests on* — so they are asserted rather than assumed.
    permanently on timeout with no restart, and `ctx.fetch` makes a slow hook far
    more likely than five in-process method calls did — so phase 4's supervisor
    stops being optional once phase 3 lands.
+
+## 13.14 The management API and the trail (D38, phase 2)
+
+> **Built.** `ctx` as the HTTP surface (phase 3), the supervisor (phase 4), the
+> admin UI (phase 5) and plugin routes (phase 6) remain.
+
+### What it manages, and what it does not
+
+Everything under `/api/plugins/` reads and writes the **`_plugins` record**.
+Nothing reaches the filesystem, which is D34's registration/authorization split
+holding one layer up: the store says what a plugin may do, and `silo.toml` still
+says what loads and in what order. An API that could add a `[[plugins]]` block
+would be a code-execution primitive wearing a management claim.
+
+```
+GET    /api/plugins                  plugins:read
+GET    /api/plugins/{name}           plugins:read     → ETag: "<rev>"
+PUT    /api/plugins/{name}/grant     plugins:grant    If-Match required
+DELETE /api/plugins/{name}/grant     plugins:grant    If-Match required
+POST   /api/plugins/{name}/enable    plugins:enable   If-Match required
+POST   /api/plugins/{name}/disable   plugins:enable   If-Match required
+GET    /api/audit                    audit:read
+```
+
+Two verbs from the original sketch are **not** here, and both were cut for the
+same reason: `POST /api/plugins/rescan` and `PATCH /api/plugins/{name}/config`
+each need to read a manifest from disk, and each only *takes effect* once phase
+4 can reload without a restart. Shipping them now would be an API whose whole
+answer is "restart to find out". They land with the supervisor.
+
+`PUT` and not `POST` on the grant, because the body is the **complete** granted
+set: sending it twice grants the same thing, and narrowing is expressible
+without first revoking. An omitted body means everything requested, which is the
+default `silo plugin grant` already takes, for the same reason — granting in
+full is the common case, so narrowing is what takes an argument.
+
+### `If-Match` is not ceremony
+
+On a grant it is the mechanism: **approving means approving what you read.**
+Without the fence, a package whose request changed between the operator reading
+it and approving it would be approved on the strength of the older one — the
+exact substitution `needs_review` exists to catch, arriving through the API
+instead of through an upgrade.
+
+That made the ordering inside `grant` load-bearing, and the first version got it
+wrong. Three orderings are possible and only one is safe at every step:
+
+| Order | What breaks |
+| :--- | :--- |
+| discard → mint → write | A refused write leaves the record pointing at a key that no longer exists, plus an orphan. **This shipped, briefly, and a smoke test caught it.** |
+| write → rotate | The previous, possibly *wider* key stays live after the record says it was narrowed. |
+| **mint → write → discard** | Nothing. A refused write throws the new key away and leaves the old one alone. |
+
+`revoke` checks the revision **before** discarding the key, for the same reason:
+a stale `If-Match` must not destroy a credential on its way to a 409.
+
+And **reconciling writes nothing when nothing changed**. Reconcile runs for every
+plugin at every start, so an unconditional write bumped every revision on every
+restart, invalidating every `If-Match` an operator held for a change nobody could
+point at. Measured on a running instance: four restarts walked one plugin from
+rev 1 to rev 7.
+
+### Enable is not revoke
+
+`enabled` is orthogonal to the grant, and deliberately so. A disabled plugin
+keeps its claims and its managed key; pausing something is not the same decision
+as un-approving it, and an operator who had to re-approve after every pause would
+learn to approve widely to avoid the trouble. It is guarded by `plugins:enable`
+rather than `plugins:grant` for the same reason.
+
+Until phase 4 it takes effect at the next start, and **every surface says so**:
+the response carries `restart_required: true`, `PluginLoader` logs a warning when
+it skips one, `silo plugin list` shows `[granted, disabled]`, and `silo plugin
+doctor` reports it and exits non-zero. A management call that silently does
+nothing until someone happens to restart is §13.3's least favourite outcome, and
+the only defence against it is saying so at every surface an operator might look
+at.
+
+### The trail
+
+`_audit` is a fourth reserved system collection, after `_keys` (D12), `_media`
+(D23) and `_plugins` (D34) — so it gets every adapter and query for free, and is
+excluded from archives and from the entries API by rules that already existed.
+Only **authority** changes go in it: `key.create`, `key.revoke`, `plugin.grant`,
+`plugin.revoke`, `plugin.enable`, `plugin.disable`. Entry writes are not audited
+— that is what `rev`, `updated_at` and the hook stream already are, and
+duplicating content history here would turn a log about decisions into a log
+about traffic, which is what makes an audit log too big to read.
+
+Three properties are worth stating because each was a choice:
+
+- **The services append, not the routes.** So `silo keys create` and `silo
+  plugin grant` land in the trail too. A log that only saw the API would say a
+  key appeared from nowhere, which is the question it exists to answer.
+- **An append that fails is logged, not rethrown.** The `Storage` port has no
+  cross-collection transaction, so the choice is between a change that might go
+  unlogged and a caller told its change failed when it succeeded. The second is
+  worse — it invites a retry against state that has already moved — so the
+  failure goes to `error` level and the operation stands.
+- **Retention is unbounded, on purpose.** An authority log grows with
+  *decisions*, not with traffic. An instance that grants a plugin twice a year
+  has a two-line history, and pruning would only ever discard the oldest
+  evidence.
+- **Event ids are monotonic ULIDs**, unlike every other id in silo. Plain
+  `ulid()` re-randomises its suffix per call, so two events in the same
+  millisecond sort either way — and `at` ties there too, leaving "newest
+  first" undefined for exactly the burst a trail most often records: a grant
+  and the key rotation it causes. A flaky test found it. The factory is local
+  to the trail, because entry ids have no ordering requirement and a shared
+  monotonic generator would make every collection pay for a property only this
+  one reads.
+- **Every managed key that disappears says why.** `keys.create` appends before
+  a grant's write is attempted, so a refused write would otherwise leave a
+  creation with no matching removal. The rollback, the rotation and the
+  withdrawal each record a `key.revoke` carrying a `reason`.
+
+`audit:read` is a new fixed claim, carried by `manage` and `root`. There is no
+`audit:write`: nothing updates or deletes an event, so a claim guarding that
+capability would imply one that does not exist.
+
+### Descendant keys (D37's F4, closed)
+
+`POST /api/keys` now records `parent_id`, and revoking a key revokes everything
+descended from it, transitively. D37 measured the gap: a minted key is bounded by
+its minter's authority at the moment of minting and by **nothing afterwards**, so
+without the link, revocation is a suggestion — anyone about to lose a key mints a
+spare first.
+
+Not a `?cascade=true` flag. Putting the correct behaviour behind an argument
+nobody passes is the same as not having it. The response stays 204 and the list
+of what went is in the trail, which is the surface built to answer "what happened
+to those other keys"; `silo keys revoke` prints them, and `KeyView` exposes
+`parent_id` so a caller can see what a revocation would take before asking for
+one.
+
+The walk carries a visited set. A parent must exist before its child, so a cycle
+cannot arise from ordinary use — but `_keys` is an ordinary collection that an
+import or a hand edit can write, and a walk that looped forever on a malformed
+record would turn a bad row into a hung revocation.

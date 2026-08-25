@@ -11,7 +11,12 @@ export class AuthMiddleware {
       }
 
       if (authDisabled) {
-        c.set("keyInfo", { label: "auth-disabled", claims: ["*"] });
+        // `id: ""` and not a made-up one: there is no key here, and every
+        // consumer treats the empty id as "no key to name" rather than as a key
+        // called the empty string. It is what keeps `parent_id` and
+        // `granted_by` absent on an instance running without auth, instead of
+        // pointing at a record that does not exist (D38).
+        c.set("keyInfo", { id: "", label: "auth-disabled", claims: ["*"], prefix: "", hash: "" });
         await next();
         return;
       }

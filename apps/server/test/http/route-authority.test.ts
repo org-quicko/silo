@@ -234,7 +234,7 @@ describe("route authority (D37)", () => {
     });
 
     test("a managed key is still refused before the delegation check is reached", async () => {
-      await service.keys.create("plugin:acme", [], { kind: "plugin", name: "acme" });
+      await service.keys.create("plugin:acme", [], { owner: { kind: "plugin", name: "acme" } });
       const managed = (await service.keys.list()).find((e) =>
         KeyUtils.isManaged(e.data as any)
       )!;

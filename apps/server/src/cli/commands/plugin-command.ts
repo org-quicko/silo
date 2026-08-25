@@ -114,7 +114,12 @@ export class PluginCommand {
       const stored = grant?.granted ?? [];
       const effective = [...new Set([...pluginConfig.claims, ...stored])];
 
-      console.log(`${index + 1}. ${pluginConfig.name}  [${grant?.state ?? "pending"}]`);
+      // `disabled` sits beside the state rather than replacing it, because the
+      // two are orthogonal (D38): a disabled plugin keeps whatever grant it had,
+      // and an operator re-enabling one needs to know what it will come back
+      // holding.
+      const disabled = grant?.enabled === false ? ", disabled" : "";
+      console.log(`${index + 1}. ${pluginConfig.name}  [${grant?.state ?? "pending"}${disabled}]`);
       console.log(`   ${summary}`);
       console.log(`   claims: ${effective.length > 0 ? effective.join(", ") : "(none)"}`);
       // Both halves named separately, because "why does it hold this?" has two
@@ -123,7 +128,9 @@ export class PluginCommand {
         console.log(`     from silo.toml: ${pluginConfig.claims.length}, granted: ${stored.length}`);
       }
       console.log(`   on_error: ${pluginConfig.on_error}, timeout: ${pluginConfig.timeout_ms}ms`);
-      if (effective.length === 0) {
+      if (grant?.enabled === false) {
+        console.log(`   → disabled: listed in silo.toml but not loaded`);
+      } else if (effective.length === 0) {
         console.log(`   → awaiting approval: silo plugin grant ${pluginConfig.name}`);
       }
     }
@@ -187,6 +194,19 @@ export class PluginCommand {
       return;
     }
 
+    // Checked before loading, because a disabled plugin is skipped by the
+    // loader and would therefore not appear in the report at all — silence
+    // about a plugin `silo.toml` lists is exactly what `doctor` exists to
+    // prevent (D38).
+    let disabled = 0;
+    for (const pluginConfig of config.plugins) {
+      const grant = await service.plugins.find(pluginConfig.name);
+      if (grant?.enabled !== false) continue;
+      disabled++;
+      console.log(`WARN ${pluginConfig.name} — disabled, not loaded`);
+      console.log(`       POST /api/plugins/${pluginConfig.name}/enable`);
+    }
+
     let registry: PluginRegistry | null = null;
     try {
       registry = await PluginRegistry.load(config, service, Logger.silent());
@@ -215,6 +235,10 @@ export class PluginCommand {
       console.log(`\n${registry.list().length} plugin(s) loaded. serve would start.`);
       if (unauthorized > 0) {
         console.error(`${unauthorized} plugin(s) are not fully authorized and will not do their job.`);
+        process.exitCode = 1;
+      }
+      if (disabled > 0) {
+        console.error(`${disabled} plugin(s) are configured but disabled.`);
         process.exitCode = 1;
       }
     } catch (caught: any) {

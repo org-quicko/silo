@@ -4,7 +4,7 @@ import { Claims } from "@silo/shared/claims";
 import type { ClaimPreset } from "@silo/shared/claim-preset";
 import { ValidationError } from "@silo/shared/validation-error";
 import type { KeyInfo } from "./key-info";
-import type { KeyOwner } from "./key-owner";
+import type { KeyMintOptions } from "./key-mint-options";
 
 export class KeyUtils {
   static readonly KeysCollection = "_keys";
@@ -17,7 +17,7 @@ export class KeyUtils {
   static generateKey(
     label: string,
     claims: string[],
-    owner?: KeyOwner
+    options: KeyMintOptions = {}
   ): { secret: string; info: KeyInfo } {
     const secret = KeyFormat.Prefix + crypto.randomBytes(32).toString("base64url");
     const info: KeyInfo = {
@@ -26,8 +26,9 @@ export class KeyUtils {
       hash: KeyUtils.hashKey(secret),
       prefix: KeyFormat.displayPrefix(secret),
       // Spread rather than always-present, so an ordinary key's stored shape is
-      // byte-for-byte what it was before D34 and nothing needs backfilling.
-      ...(owner ? { owner } : {}),
+      // byte-for-byte what it was before D34/D38 and nothing needs backfilling.
+      ...(options.owner ? { owner: options.owner } : {}),
+      ...(options.parentId ? { parent_id: options.parentId } : {}),
     };
     return { secret, info };
   }

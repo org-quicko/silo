@@ -2,7 +2,7 @@ import type { Context } from "hono";
 import { Claims } from "@silo/shared/claims";
 import type { Claim } from "@silo/shared/claim";
 import type { CollectionPermission } from "@silo/shared/collection-permission";
-import type { KeyInfo } from "../../core/keys/key-info";
+import type { AuthenticatedKey } from "../../core/keys/authenticated-key";
 import { Scope } from "../../core/domain/scope";
 import { ValidationError } from "@silo/shared/validation-error";
 import { ForbiddenError } from "../../core/errors/forbidden-error";
@@ -15,13 +15,13 @@ export class RouteAuth {
     return Scope.of(project, env);
   }
 
-  static requireKey(c: Context): KeyInfo {
-    const key = c.get("keyInfo") as KeyInfo | undefined;
+  static requireKey(c: Context): AuthenticatedKey {
+    const key = c.get("keyInfo") as AuthenticatedKey | undefined;
     if (!key) throw new UnauthorizedError("API key required for this operation");
     return key;
   }
 
-  static requireClaim(c: Context, claim: Claim): KeyInfo {
+  static requireClaim(c: Context, claim: Claim): AuthenticatedKey {
     const key = RouteAuth.requireKey(c);
     if (!Claims.has(key.claims, claim)) {
       throw new ForbiddenError(`this key is missing claim "${claim}"`);
@@ -35,7 +35,7 @@ export class RouteAuth {
     env: string,
     collection: string,
     permission: CollectionPermission,
-  ): KeyInfo {
+  ): AuthenticatedKey {
     return RouteAuth.requireClaim(
       c,
       Claims.collection(project, env, collection, permission),
@@ -138,8 +138,8 @@ export class RouteAuth {
     collection: string,
     permission: CollectionPermission,
     isPublic: boolean,
-  ): KeyInfo | null {
-    const key = c.get("keyInfo") as KeyInfo | undefined;
+  ): AuthenticatedKey | null {
+    const key = c.get("keyInfo") as AuthenticatedKey | undefined;
     if (!key) {
       if (isPublic) return null;
       throw new UnauthorizedError("API key required for this operation");
@@ -164,7 +164,7 @@ export class RouteAuth {
    * than any one public read discloses.
    */
   static canReadEntries(c: Context, project: string, env: string, collection: string): boolean {
-    const key = c.get("keyInfo") as KeyInfo | undefined;
+    const key = c.get("keyInfo") as AuthenticatedKey | undefined;
     if (!key) return false;
     return Claims.has(
       key.claims,

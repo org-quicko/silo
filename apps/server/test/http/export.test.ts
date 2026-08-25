@@ -6,6 +6,7 @@ import { SqliteStore } from "../../src/adapters/storage/sqlite/sqlite-store";
 import { FsStore } from "../../src/adapters/storage/fs/fs-store";
 import { Exporter } from "../../src/core/transfer/exporter";
 import { Importer } from "../../src/core/transfer/importer";
+import { AuditUtils } from "../../src/core/audit/audit-utils";
 import { SiloService } from "../../src/core/services/silo-service";
 import { FormatVersion } from "../../src/core/transfer/format-version";
 import { EntryUtils } from "../../src/core/domain/entry-utils";
@@ -463,7 +464,7 @@ describe("managed keys are not exportable", () => {
 
       const { entry: ordinary } = await service.keys.create("mine", ["media:read"]);
       await service.plugins.reconcile("acme", ["collections:*/*/*:entries:read"], []);
-      const grant = await service.plugins.grant("acme", ["collections:*/*/*:entries:read"], {});
+      const grant = await service.plugins.grant("acme", ["collections:*/*/*:entries:read"], { actor: AuditUtils.cli() });
 
       const dest = path.join(tempDir, "out");
       await Exporter.exportDir(store, dest, { withKeys: true });
@@ -472,6 +473,44 @@ describe("managed keys are not exportable", () => {
       const files = await fs.readdir(keysDir);
       expect(files).toContain(`${ordinary.id}.json`);
       expect(files).not.toContain(`${grant.key_id}.json`);
+
+      await store.close();
+    } finally {
+      await fs.rm(tempDir, { recursive: true, force: true }).catch(() => {});
+    }
+  });
+});
+
+/**
+ * The trail and the grants stay out of archives (D34/D38).
+ *
+ * `_audit` and `_plugins` are `_`-prefixed, so `Exporter.skipCollection` already
+ * excludes them — but by a rule that names `_keys` and `_media` explicitly and
+ * everything else by prefix. Asserted rather than assumed, because the failure
+ * is a disclosure: an archive is the one artifact that leaves the instance, and
+ * the trail names every key and every claim ever granted on it.
+ */
+describe("system collections stay out of archives", () => {
+  test("neither _audit nor _plugins is exported, even with --with-keys", async () => {
+    const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "silo-system-export-"));
+    try {
+      const store = await SqliteStore.open(path.join(tempDir, "src.db"));
+      const service = new SiloService(store, { mediaDir: path.join(tempDir, "media") });
+      await service.scopes.initDefaults();
+
+      await service.keys.create("mine", ["media:read"], { actor: AuditUtils.cli() });
+      await service.plugins.reconcile("acme", ["media:read"], []);
+      await service.plugins.grant("acme", ["media:read"], { actor: AuditUtils.cli() });
+      expect((await service.audit.list()).total).toBeGreaterThan(0);
+
+      const dest = path.join(tempDir, "out");
+      await Exporter.exportDir(store, dest, { withKeys: true });
+
+      const systemDir = path.join(dest, "projects", "_system", "_system", "content");
+      const collections = await fs.readdir(systemDir);
+      expect(collections).toContain("_keys");
+      expect(collections).not.toContain("_audit");
+      expect(collections).not.toContain("_plugins");
 
       await store.close();
     } finally {

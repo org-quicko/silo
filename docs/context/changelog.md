@@ -4,6 +4,96 @@
 > The *current* state is [CONTEXT.md](../../CONTEXT.md); this is how it got
 > there.
 
+- **Plugin management gets an API, and authority changes get a trail (D38,
+  phase 2, 2026-08-25).** `/api/plugins/` stops being a reserved 404 and becomes
+  the management surface; a fourth system collection, `_audit`, records who
+  changed what.
+  - **The management API manages the record, not the package.** `GET
+    /api/plugins`, `GET /api/plugins/{name}` (with an `ETag`), `PUT`/`DELETE
+    .../grant` and `POST .../enable|disable`. Everything reads and writes
+    `_plugins`; nothing reaches the filesystem, which is D34's
+    registration/authorization split holding one layer up — an API that could
+    add a `[[plugins]]` block would be a code-execution primitive wearing a
+    management claim. `PUT` and not `POST` on the grant, because the body is the
+    complete granted set, so narrowing is expressible without first revoking.
+  - **`If-Match` is required on every mutation, and on a grant it is the
+    mechanism rather than ceremony:** approving means approving *what you read*.
+    Without the fence, a package whose request changed between the operator
+    reading it and approving it is approved on the strength of the older one —
+    `needs_review`'s substitution arriving through the API instead of through an
+    upgrade.
+  - **The obvious ordering inside `grant` was wrong, and it shipped briefly.**
+    Rotating the managed key before writing the record meant a refused write —
+    a stale `If-Match`, the common case — discarded the *live* key and left the
+    record pointing at one that no longer existed, plus an orphan in `_keys`.
+    Write-then-rotate is worse the other way: the previous, possibly wider key
+    stays live after the record says it was narrowed. Only mint → write →
+    discard is safe at every step. `revoke` now checks the revision before
+    discarding, for the same reason.
+  - **Found by an end-to-end smoke test, not by the suite** — the second time in
+    three phases. The regression test now reaches past the record into `_keys`,
+    because "the record is unchanged" was exactly the assertion that passed
+    while a credential was being destroyed.
+  - **`reconcile` no longer writes when nothing changed.** It runs for every
+    plugin at every start, so an unconditional write bumped every revision on
+    every restart and invalidated every outstanding `If-Match` for a change
+    nobody could point at. Measured on a running instance: four restarts walked
+    one plugin from rev 1 to rev 7.
+  - **`enabled` is orthogonal to the grant.** A disabled plugin keeps its claims
+    and its managed key — pausing is not un-approving, and an operator who had
+    to re-approve after every pause would learn to approve widely. Guarded by
+    `plugins:enable` rather than `plugins:grant`. Until phase 4 it takes effect
+    at the next start and **every surface says so**: `restart_required: true` in
+    the response, a warning from `PluginLoader`, `[granted, disabled]` in
+    `silo plugin list`, and a non-zero exit from `silo plugin doctor`.
+  - **The trail.** `_audit` joins `_keys`, `_media` and `_plugins` as a reserved
+    system collection, so it gets every adapter and query for free and is
+    excluded from archives and the entries API by rules that already existed.
+    Only authority changes go in — entry writes are what `rev`, `updated_at` and
+    the hook stream already are. The **services** append rather than the routes,
+    so `silo keys create` and `silo plugin grant` are in it too; an append that
+    fails is logged at `error` and does not undo the change, because telling a
+    caller its change failed when it succeeded invites a retry against state
+    that has already moved. Retention is unbounded on purpose: an authority log
+    grows with decisions, not with traffic.
+  - **Audit event ids are monotonic ULIDs**, unlike every other id in silo.
+    Plain `ulid()` re-randomises its suffix per call, so two events in the same
+    millisecond sorted either way — and `at` ties there too, leaving "newest
+    first" undefined for exactly the burst a trail most often records: a grant
+    and the key rotation it causes. A flaky test found it. The factory is local
+    to the trail, since entry ids have no ordering requirement.
+  - **The admin UI stopped silently dropping claims it had no words for.**
+    `ClaimGroups` renders a claim set as readable sentences so someone can
+    catch a mistake before minting a credential — and it omitted anything
+    missing from its table, so between D34 and D38 a key holding
+    `plugins:grant` (the authority to hand running code a claim set)
+    summarised as **nothing at all**. The five plugin and audit claims are
+    named now, and an unrecognised fixed claim falls into an `Also` group
+    flagged as a warning rather than vanishing — which fixes the *next* claim,
+    not just these. They are also selectable on the guided key-creation page,
+    where the `plugins:*` claims had never appeared.
+  - **New fixed claim `audit:read`**, carried by `manage` and `root`. No
+    `audit:write` — nothing updates or deletes an event, and a claim guarding
+    that would imply a capability that does not exist.
+  - **D37's fourth finding is closed.** `POST /api/keys` records `parent_id`,
+    and revoking a key revokes everything descended from it, transitively. Not
+    behind a `?cascade=true` flag: putting the correct behaviour behind an
+    argument nobody passes is the same as not having it. The response stays 204;
+    what went is in the trail, `silo keys revoke` prints it, and `KeyView`
+    exposes `parent_id` so a caller can see what a revocation would take first.
+  - **Two supporting changes with teeth.** `KeyService.authenticate` now returns
+    an `AuthenticatedKey` carrying the record id — which `granted_by`,
+    `parent_id` and the audit actor all needed and none could get. And
+    `GrantRequest.keyId` became a **required** `actor`, so no call site can
+    change a grant without saying who: the one thing an audit trail may never
+    contain is an anonymous entry, and a field that defaults quietly is a field
+    that will.
+  - **Deliberately not shipped:** `POST /api/plugins/rescan` and `PATCH
+    .../config`. Both need a manifest read from disk and both only take effect
+    once phase 4 can reload without a restart, so shipping them now would be an
+    API whose whole answer is "restart to find out". §13.14 in
+    [the plugin design](../design/plugins.md) has the detail.
+
 - **The route-authority audit, and three holes it closed (D37, 2026-08-25).**
   D35 made this audit the gate on phase 3, because `ctx` becoming an in-process
   dispatch of the HTTP API turns every route guard into a plugin guard. It found
