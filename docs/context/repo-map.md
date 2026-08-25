@@ -31,7 +31,7 @@ script.
 | `tsconfig.base.json` | Compiler options shared by every Bun-side package |
 | `tsconfig.json` | One typecheck pass over the server, `shared` and `tools` |
 | `CONTEXT.md` | Current state, and the index into `docs/context/` |
-| `IMPLEMENTATION.md` | Vision, the D1–D36 decisions log, and the index into `docs/design/` |
+| `IMPLEMENTATION.md` | Vision, the D1–D37 decisions log, and the index into `docs/design/` |
 | `CLAUDE.md` | Standing instructions for AI assistants |
 | `silo.toml` | A commented example config; every key is optional |
 | `Dockerfile` | Two stages — build the admin UI, then a runtime image with only the server's dependencies. Its `COPY` list must name every workspace manifest, or `bun install` aborts with "Workspace not found" |

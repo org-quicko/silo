@@ -94,6 +94,24 @@ export class KeyService {
   }
 
   /**
+   * One key's record, by id. Throws `NotFoundError` if there is none.
+   *
+   * Exists so revocation can be bounded by what the *target* holds (D37) —
+   * `keys:revoke` on its own said nothing about which keys, which made the
+   * narrowest key that held it able to revoke root.
+   *
+   * Returned **as stored**, deliberately unlike `authenticate`: these claims
+   * are being inspected, not exercised, and normalizing would throw on a
+   * hand-edited record — turning the one operation that can clean such a record
+   * up into a 500. `canDelegate` parses each claim itself and treats one it
+   * cannot read as not-covered, so the check fails closed either way.
+   */
+  async find(id: string): Promise<KeyInfo> {
+    const entry = await this.context.store.get(Scope.System, KeyUtils.KeysCollection, id);
+    return entry.data as KeyInfo;
+  }
+
+  /**
    * Revoke an ordinary key.
    *
    * A **managed** key is refused (D34): it belongs to a plugin, silo holds its

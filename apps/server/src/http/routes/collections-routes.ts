@@ -117,6 +117,9 @@ export class CollectionsRoutes {
         Claims.CollectionDelete,
       );
       const force = c.req.query("force") === "true";
+      if (force) {
+        RouteAuth.requireForcedDelete(c, "deleting a collection", scope.project, scope.env, name);
+      }
       await service.collections.delete(scope, name, force);
       return c.body(null, 204);
     };

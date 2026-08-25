@@ -101,19 +101,36 @@ describe("plugin grants", () => {
   });
 
   /** Invariant three: a plugin runs code, so it may never hold the authority to
-   *  widen its own grant. */
-  test("a plugin can never be granted root or the plugin-management claims", async () => {
+   *  step outside its own grant. */
+  test("a plugin can never be granted root or an escalation primitive", async () => {
     await service.plugins.reconcile("acme", [Claims.Root], []);
     await expect(service.plugins.grant("acme", [Claims.Root], {})).rejects.toThrow(/cannot be granted root/);
 
-    await service.plugins.reconcile("acme", [Claims.PluginsGrant, Claims.PluginsRead], []);
-    await expect(
-      service.plugins.grant("acme", [Claims.PluginsGrant], {})
-    ).rejects.toThrow(/could widen its own grant/);
+    // Every member of the forbidden set, refused one at a time — the point of
+    // the table is that it is complete, so asserting one member would let the
+    // other five be dropped from it without a failure. D37 added the `keys:*`
+    // half: those do not widen the grant record, they walk around it.
+    for (const claim of Claims.PluginForbiddenClaims) {
+      await service.plugins.reconcile("acme", [claim, Claims.PluginsRead], []);
+      await expect(service.plugins.grant("acme", [claim], {})).rejects.toThrow(
+        /cannot be granted/
+      );
+    }
 
-    // `plugins:read` is merely reading, and is allowed.
-    const grant = await service.plugins.grant("acme", [Claims.PluginsRead], {});
-    expect(grant.granted).toEqual([Claims.PluginsRead]);
+    // `plugins:read` is merely reading, and is allowed. So are `keys:read` and
+    // `keys:export`: they disclose the authority map rather than change it, and
+    // that is a trade-off an operator gets to make.
+    await service.plugins.reconcile(
+      "acme",
+      [Claims.PluginsRead, Claims.KeysRead, Claims.KeysExport],
+      []
+    );
+    const grant = await service.plugins.grant(
+      "acme",
+      [Claims.PluginsRead, Claims.KeysRead, Claims.KeysExport],
+      {}
+    );
+    expect(grant.granted).toEqual([Claims.KeysExport, Claims.KeysRead, Claims.PluginsRead]);
   });
 
   /**

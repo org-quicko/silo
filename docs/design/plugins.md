@@ -512,9 +512,10 @@ Where a plugin dispatch is involved, assert the clock.
 
 ## 13.11 Where this is going (D34–D36)
 
-> **Designed, not built.** D33 has landed; the rest is phased below. This
-> section is the shape, not the specification — the decisions log carries the
-> reasoning, and each phase writes its own detail here as it lands.
+> **Designed, not built.** D33 has landed, phase 1 of D34 with it (§13.12), and
+> phase 3's gate is cleared (§13.13). The rest is phased below. This section is
+> the shape, not the specification — the decisions log carries the reasoning,
+> and each phase writes its own detail here as it lands.
 
 ### The two holes this closes
 
@@ -564,7 +565,7 @@ could write the database could execute code.**
 | 0 | **D33, done.** The causal chain, and the deadlock it fixes |
 | 1 | `_plugins`, managed keys, `hooks:` claims, `plugins:*` claims, `pending` state, offline `silo plugin grant`. **Reserve `/api/ext/`.** |
 | 2 | Management API and audit log |
-| 3 | `ctx.fetch` and the generated client. **Gated on the route-authority audit** |
+| 3 | `ctx.fetch` and the generated client. Its gate, the route-authority audit, is **done** — §13.13 |
 | 4 | Supervisor: live enable, disable, reorder, revoke |
 | 5 | Admin UI, inert `silo add`, `create-silo-plugin`, drift tests |
 | 6 | Plugin routes under `/api/ext/{name}/*` |
@@ -589,7 +590,8 @@ or an OS-isolated runner, and providers are trusted by construction — a
 ## 13.12 Grants, and the managed key (D34, phase 1)
 
 > **Built.** The rest of D34–D36 — the management API, `ctx` as the HTTP
-> surface, contributions replacing kinds, plugin routes — is still §13.11.
+> surface, contributions replacing kinds, plugin routes — is still §13.11. D37
+> (§13.13) later widened the forbidden claim set this section describes.
 
 ### Two places an operator can grant, and why
 
@@ -623,7 +625,7 @@ rule could otherwise mislead.
 | `granted ⊆ requested` | The check `assertGranted` never had — it enforced only the converse, so a config could grant past the manifest. Harmless while a human typed TOML; wrong the moment a surface shows "this plugin requested X" beside a grant that exceeds it. |
 | `granted ⊆ the granter's own authority` | `Claims.canDelegate`, unchanged from key minting. |
 | **An upgrade never escalates** | A package that asks for more moves the record to `needs_review` and keeps running on the grant it had. The new claims are simply not in it. |
-| A plugin never holds `plugins:grant\|enable\|configure`, or root | It runs code, so it could widen its own grant and act on it. |
+| A plugin never holds an escalation primitive, or root | `plugins:grant\|enable\|configure` widen the grant record; `keys:create\|revoke\|import` make it irrelevant (D37/§13.13). It runs code, so either way the grant would stop meaning what it says. |
 
 `needs_review` is detected by a **digest of the request** — the claims and the
 hooks, sorted — and the digest is deliberately **not advanced** while a review
@@ -686,3 +688,163 @@ management needs that space and the two cannot share it: once
 unroutable. Reserving costs nothing now and is unavailable later, so it happens
 in the change that defines the management surface rather than the one that
 finally uses it.
+
+## 13.13 The route-authority audit (D37)
+
+> **Done, and it changed the shipped API.** Phase 3 was gated on this because
+> `ctx` becomes an in-process dispatch of the routes below: at that point every
+> route guard is a plugin guard, and a route that asks for less authority than
+> it exercises is a way for a granted plugin to do more than it was granted.
+
+### Why this had to come before `ctx`, not after
+
+D34 made a plugin a principal, but a principal is only as bounded as the surface
+it acts through. Today `PluginContext` is five hand-written entry methods with a
+claim check each — narrow enough to audit by reading. Phase 3 replaces that with
+thirty routes, and inherits every authority decision they already make. **Any
+route whose guard names less than the route does becomes an escalation the grant
+model cannot see**, because the grant would be honest and the route would not.
+
+So the question this audit asks is not "is this route safe" but: *if a plugin
+held exactly the claim this route checks, and nothing else, what could it do?*
+
+### Findings
+
+Each was reproduced against a live instance before being written down, and each
+is now an assertion in `apps/server/test/http/route-authority.test.ts`.
+
+| # | Finding | Status |
+| :--- | :--- | :--- |
+| F1 | `?force=true` destroys entries under a collection-lifecycle claim | **Fixed** |
+| F2 | `keys:revoke` names no target, so the narrowest key holding it revokes root | **Fixed** |
+| F3 | A plugin granted `keys:*` escapes its own grant | **Fixed** |
+| F4 | A minted key outlives the principal that minted it | Deferred — phase 2 |
+| F5 | `--no-auth` would hand every plugin root through `ctx` | Phase 3 precondition |
+| F6 | Bulk erasure dispatches no hooks | Deferred — phase 6 |
+| F7 | `/api/copy` fetches an operator-supplied URL | Accepted, see below |
+
+**F1 — force is a second operation, not a modifier.** `DELETE
+.../collections/{name}/schema?force=true` required `collection:delete` and
+nothing else, and erased every entry in the collection. `DELETE
+/api/projects/{p}?force=true` did the same across every environment. Measured: a
+key holding one claim over one collection deleted three entries and returned
+204; a key holding `collections:default/*/*:delete` emptied the instance.
+
+Without `force` these routes refuse while content exists, so `collection:delete`
+alone is an honest ask — the caller is removing a definition that holds nothing.
+With it, the same request is a bulk `entries:delete` wearing a
+collection-lifecycle claim, dispatching no hooks and asking for no revision.
+`force` now additionally requires `entries:delete` at the reach it destroys: the
+collection for a collection delete, `{project}/{env}/*` for an environment,
+`{project}/*/*` for a project. This is the rule `replace` mode already applies to
+transfer and to scope copy (`TransferPermissions.Replace`); forced deletion was
+the third place the same thing was true and the only one where the guard was
+missing.
+
+The pair lives on `Claims` as `ForcedDeletePermissions` rather than at the three
+route guards, so the admin UI gates its delete buttons on exactly what the routes
+enforce. Moving the UI onto it surfaced a second, older mismatch: the environment
+and project pages asked `hasAnyCollectionPermission` — *delete on some collection
+in this scope* — to authorize deleting every collection in it, while the hint text
+beside the disabled button already named the scope-wide claim the route actually
+wanted. The message had been right and the check wrong.
+
+**F2 — revoking was unbounded while minting was not.** `POST /api/keys` has
+always checked `Claims.canDelegate`: you cannot mint a key more powerful than
+your own. `DELETE /api/keys/{id}` checked `keys:revoke` and stopped. Measured: a
+key holding *only* `keys:revoke` revoked the root key, after which the root
+secret returned 401 and the instance had no administrative credential at all.
+
+That is not privilege escalation — it is worse in the way that matters
+operationally, because it is unrecoverable without filesystem access. Revocation
+is now bounded by the same predicate minting is: **if you could not mint a key
+this powerful, you may not destroy one.** A key still revokes itself, since a
+claim list always covers itself, and root still revokes anything.
+
+**F3 — three claims let a plugin walk around its own grant.** `keys:import` is
+the sharpest: an import writes `_keys` rows verbatim, with no schema validation
+because system collections skip it, so an archive can carry a key record whose
+hash the author chose and whose claims are `*`. Measured: a planted record
+authenticated as root on the next request. `keys:create` mints an **unmanaged**
+key — a credential with no `owner`, which `silo plugin revoke` therefore does not
+withdraw. `keys:revoke` destroys other principals' credentials.
+
+None of these widen the grant *record*, which is why D34's original forbidden set
+missed them: they make the record irrelevant instead. All three joined
+`PluginForbiddenClaims`. `keys:read` and `keys:export` deliberately did not —
+they disclose the authority map rather than change it, and disclosure is a
+trade-off an operator can weigh.
+
+**F4 — descendant keys.** With `keys:create` now forbidden to plugins this is not
+reachable *through* a plugin, but it remains true of ordinary keys: a minted key
+has no link to its minter and survives its revocation. The fix is the `parent_id`
+and cascade the original D34 analysis called for, and it belongs with the
+management API in phase 2 rather than here, because that is where key lifecycle
+gets its audit trail.
+
+**F5 — `--no-auth` is a phase 3 precondition, not a bug today.** `AuthMiddleware`
+sets `claims: ["*"]` for every request when auth is disabled. That is correct for
+what it means now. It stops being correct the moment `ctx` dispatches through the
+same middleware: every plugin on every development instance would silently hold
+root — precisely where plugins are written and tested, so the grant model would
+be untested exactly where it is most exercised.
+
+The mechanism was verified to work: `app.request(path, init, env)` delivers a
+principal on `c.env`, a real network request carries `undefined` there, and no
+request header can forge it. **Phase 3's middleware must read the injected
+principal before the `authDisabled` branch, not after.**
+
+**F6 — bulk erasure is invisible to hooks.** `CollectionEraser` calls
+`store.delete` directly, so a forced collection or project delete fires no
+`entry.afterDelete` at all. Measured: a create dispatched, the force-delete that
+removed it did not. Auditing and mirroring plugins therefore see entries appear
+and never see them go.
+
+Left alone deliberately. Dispatching one event per erased entry would make a
+100k-row delete a 100k-event fan-out through the D33 chain, and the honest fix is
+a collection-level hook rather than a flood of entry-level ones. That is a
+`contributes` question, so it belongs to D36 and phase 6.
+
+**F7 — `/api/copy` is a server-side fetch to an operator-supplied URL**, with an
+operator-supplied bearer token. That is what the route is for, and its guard is
+right: `transfer:copy`, instance-wide write, and `media:create`. It is not a new
+capability for a plugin, which holds `fetch` inside its Worker regardless — so
+`transfer:*` stays grantable. Noted because it is the one route that reaches
+outside the instance, and any future network policy has to start here.
+
+### What the audit confirmed was already right
+
+The value of an audit is as much what it pins as what it changes, and these are
+the properties phase 3 *rests on* — so they are asserted rather than assumed.
+
+- **The system scope is unaddressable over HTTP.** `Scope.of` refuses a
+  `_`-prefixed id, so no collection claim — `*` included — reaches `_keys`,
+  `_media` or `_plugins`. This is the single boundary that makes "a plugin is an
+  API key with code attached" safe to say.
+- **Hook dispatch happens outside the write lock.** All four dispatch sites in
+  `EntryService` sit outside `withWriteLock`, so a hook that writes back through
+  the HTTP surface acquires a free lock rather than waiting on the one its own
+  caller holds. `AsyncMutex` is not reentrant, so this is exactly D33's deadlock
+  waiting to return if a dispatch ever moves inside the lock — measured green,
+  and now pinned by a test that fails on the clock rather than on a count.
+- **Instance-wide operations already ask for instance-wide authority.** Export,
+  import, copy and reindex each require the collection permissions they exercise
+  at `*/*/*` on top of their fixed claim, which is what stops a project-confined
+  key from reading its way out through an archive (D21/D24).
+- **Scope-to-scope copy asks for no `transfer:*` claim** and is right not to: it
+  reaches no scope the caller could not already reach one entry at a time (D22).
+- **Media usage listings are filtered per-claim**, so a refused delete reports
+  how widely a file is used without naming scopes the caller cannot see (§8.1).
+
+### What phase 3 must do
+
+1. Read the injected principal **before** the `authDisabled` branch (F5).
+2. Confine `ctx` to `/api/`. The SPA fallback and `/media/{id}` sit outside the
+   auth middleware entirely; a plugin has no business in either.
+3. Carry the causal chain across the dispatch, so a plugin's HTTP-shaped write
+   still refuses to re-enter its own hooks. D33's guarantee currently lives in
+   `PluginContext`, which phase 3 replaces.
+4. Give a dispatch its own timeout budget. `WorkerHost` kills a worker
+   permanently on timeout with no restart, and `ctx.fetch` makes a slow hook far
+   more likely than five in-process method calls did — so phase 4's supervisor
+   stops being optional once phase 3 lands.

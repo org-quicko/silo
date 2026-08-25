@@ -1,5 +1,6 @@
 import type { Context } from "hono";
 import { Claims } from "@silo/shared/claims";
+import type { Claim } from "@silo/shared/claim";
 import { SiloService } from "../../core/services/silo-service";
 import { KeyService } from "../../core/services/key-service";
 import { ForbiddenError } from "../../core/errors/forbidden-error";
@@ -35,9 +36,29 @@ export class KeysRoutes {
       );
     });
 
+    /**
+     * Revoking is bounded by the same rule minting is (D37).
+     *
+     * `keys:revoke` names an operation, not a target, so on its own it let the
+     * narrowest key holding it destroy the root key and lock the instance out —
+     * measured, not theorised. The bound is `canDelegate`, deliberately the
+     * same predicate `POST /api/keys` uses: **if you could not mint a key this
+     * powerful, you may not destroy one.** A key still revokes itself, since a
+     * claim list always covers itself.
+     */
     app.delete("/api/keys/:id", async (c: Context) => {
-      RouteAuth.requireClaim(c, Claims.KeysRevoke);
+      const caller = RouteAuth.requireClaim(c, Claims.KeysRevoke);
       const id = c.req.param("id") || "";
+      const target = await service.keys.find(id);
+      // Passed unnormalized on purpose — see `KeyService.find`. Root short-
+      // circuits, so a corrupt record is still removable by the key that can
+      // remove anything.
+      if (!Claims.canDelegate(caller.claims, target.claims as Claim[])) {
+        throw new ForbiddenError(
+          `cannot revoke a key holding claims the current key does not: ` +
+            `revoking is bounded by the same authority minting is`
+        );
+      }
       await service.keys.revoke(id);
       return c.body(null, 204);
     });

@@ -97,6 +97,40 @@ export class RouteAuth {
     }
   }
 
+  /**
+   * The extra authority `?force=true` needs on a delete (D37).
+   *
+   * `force` is not a modifier, it is a second operation. Without it these routes
+   * refuse while any content exists, so `collection:delete` alone is an honest
+   * ask: the caller is removing a definition that holds nothing. With it the
+   * same request erases every entry underneath — a bulk `entries:delete`
+   * wearing a collection-lifecycle claim, dispatching no hooks and asking for
+   * no revision.
+   *
+   * `collection` is `*` for the project and environment routes, whose `force`
+   * reaches every collection in the scope rather than one. The permission pair
+   * lives on `Claims` for the reason `requireInstanceWide` gives: the admin UI
+   * gates its delete buttons on the same list this enforces, so an affordance
+   * and a refusal cannot disagree.
+   */
+  static requireForcedDelete(
+    c: Context,
+    operation: string,
+    project: string,
+    env: string,
+    collection: string,
+  ): void {
+    const key = RouteAuth.requireKey(c);
+    for (const permission of Claims.ForcedDeletePermissions) {
+      const claim = Claims.collection(project, env, collection, permission);
+      if (!Claims.has(key.claims, claim)) {
+        throw new ForbiddenError(
+          `${operation} with force erases the entries as well as the definition; this key is missing claim "${claim}"`,
+        );
+      }
+    }
+  }
+
   static requirePublicOrClaim(
     c: Context,
     project: string,

@@ -4,6 +4,83 @@
 > The *current* state is [CONTEXT.md](../../CONTEXT.md); this is how it got
 > there.
 
+- **The route-authority audit, and three holes it closed (D37, 2026-08-25).**
+  D35 made this audit the gate on phase 3, because `ctx` becoming an in-process
+  dispatch of the HTTP API turns every route guard into a plugin guard. It found
+  live bugs in the *shipped* API, not hypothetical ones in the planned one.
+  **This tightens authorization on three routes.**
+  - **A forced delete now asks for the authority to destroy what it destroys.**
+    `DELETE .../collections/{name}/schema?force=true` required
+    `collection:delete` and nothing else, and erased every entry underneath;
+    `DELETE /api/projects/{p}?force=true` did it across every environment.
+    Measured: one claim over one collection deleted three entries and returned
+    204. Without `force` these routes refuse while content exists, so
+    `collection:delete` alone is honest — the caller is removing an empty
+    definition. With it, the same request is a bulk `entries:delete` wearing a
+    lifecycle claim, dispatching no hooks and asking for no revision. `force`
+    now also requires `entries:delete` at the reach it erases, through one
+    `RouteAuth.requireForcedDelete`. This is the rule `replace` mode already
+    applies to transfer and scope copy; forced deletion was the third place the
+    same thing was true and the only one where nobody had written it down.
+  - **The admin UI gates on the same list, not a copy of it.** The pair lives
+    on `Claims` as `ForcedDeletePermissions`, following `TransferPermissions`
+    and the rule `RouteAuth.requireInstanceWide` already states — an
+    affordance the server will refuse is worse than no affordance. Three
+    delete buttons moved to it, and two of them were *already* looser than
+    their route: the environment and project pages asked
+    `hasAnyCollectionPermission`, which is "delete on some collection here",
+    to authorize deleting all of them. Their hint text named the wildcard
+    claim the route wanted, so the message had been right and the check
+    wrong. Both now use `hasScopeWide`. The keys page gained the matching
+    per-row rule, and stops offering Revoke on a managed plugin key — a
+    button that has 400d since D34 phase 1.
+  - **Revoking a key is bounded the way minting always was.** `POST /api/keys`
+    has checked `Claims.canDelegate` since D12; `DELETE /api/keys/{id}` checked
+    `keys:revoke` and stopped. Measured: a key holding *only* `keys:revoke`
+    revoked the root key, after which the root secret returned 401 and the
+    instance had no administrative credential at all — unrecoverable without
+    filesystem access. Not an escalation, and worse than one in the way that
+    matters operationally. The bound is now the same predicate: **if you could
+    not mint a key this powerful, you may not destroy one.** A key still revokes
+    itself, since a claim list covers itself.
+  - **Three more claims a plugin may never hold.** `keys:import` is the
+    sharpest: an import writes `_keys` rows verbatim — system collections skip
+    validation — so an archive can carry a key record whose hash the author
+    chose and whose claims are `*`. Measured: the planted record authenticated
+    as root on the next request. `keys:create` mints an **unmanaged** key, a
+    credential with no `owner` that `silo plugin revoke` therefore does not
+    withdraw. `keys:revoke` destroys other principals' credentials. All three
+    joined `PluginForbiddenClaims`; `keys:read` and `keys:export` deliberately
+    did not, because they disclose the authority map rather than change it.
+  - **Why D34's forbidden set missed them.** It was reasoned as "a plugin must
+    not widen its own grant", which names `plugins:grant|enable|configure`
+    exactly and misses `keys:import` completely — because `keys:import` does not
+    widen the record, it makes the record irrelevant. A security predicate
+    stated as an intent does not enumerate its own membership; the question has
+    to be asked mechanically, per claim. That is what an audit is for, and it is
+    the reason this one was worth doing before phase 3 rather than after.
+  - **Four findings recorded and not fixed**, each with the phase that owns it:
+    a minted key still outlives its minter (phase 2, with the key audit trail);
+    `--no-auth` sets `claims: ["*"]` and would hand every plugin root once `ctx`
+    dispatches through the same middleware, so phase 3 must read the injected
+    principal *before* the `authDisabled` branch; `CollectionEraser` dispatches
+    no hooks, so bulk erasure is invisible to auditing plugins (phase 6, as a
+    collection-level hook rather than a 100k-event fan-out); and `/api/copy`'s
+    outbound fetch to an operator-supplied URL, accepted because a Worker holds
+    `fetch` regardless.
+  - **What it pinned as much as what it changed.** The system scope is
+    unaddressable over HTTP because `Scope.of` refuses a `_`-prefixed id — the
+    single boundary that makes "a plugin is an API key with code attached" safe
+    to say. And all four hook dispatch sites sit **outside** `withWriteLock`, so
+    a hook writing back through the HTTP surface takes a free lock rather than
+    waiting on the one its own caller holds. `AsyncMutex` is not reentrant, so
+    that is D33's deadlock waiting to return if a dispatch ever moves inside the
+    lock. Both are now assertions in
+    `apps/server/test/http/route-authority.test.ts`, the second one measured on
+    the clock rather than on a count, for the reason D33 recorded.
+  - The phase-3 requirements the audit produced are in §13.13 of
+    [the plugin design](../design/plugins.md).
+
 - **Plugins become granted principals (D34, phase 1, 2026-08-25).** Hook
   delivery is now a claim, grants live in the store, and each approved plugin
   gets a managed API key. **This is a breaking change to `silo.toml`.**

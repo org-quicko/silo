@@ -44,7 +44,9 @@ export function ProjectGeneralPage({
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
 
-  const canDelete = Claims.hasAnyCollectionPermission(claims, Claims.CollectionDelete, project, '*')
+  // Every environment of the project, and both halves of what `force` costs
+  // (D37) — see `EnvGeneralPage` for why "any collection" was the wrong question.
+  const canDelete = Claims.hasScopeWide(claims, Claims.ForcedDeletePermissions, project, '*')
 
   const remove = async () => {
     setBusy(true)
@@ -164,8 +166,14 @@ export function ProjectGeneralPage({
             {!canDelete && (
               <div className={styles.dangerItem}>
                 <p className={styles.dangerItemDesc}>
-                  This key cannot delete {project} — it is missing{' '}
-                  <code>{Claims.collection(project, '*', '*', Claims.CollectionDelete)}</code>.
+                  This key cannot delete {project} — deleting a project erases
+                  every collection in every one of its environments, so it needs{' '}
+                  {Claims.ForcedDeletePermissions.map((permission, index) => (
+                    <span key={permission}>
+                      {index > 0 && ' and '}
+                      <code>{Claims.collection(project, '*', '*', permission)}</code>
+                    </span>
+                  ))}.
                 </p>
               </div>
             )}

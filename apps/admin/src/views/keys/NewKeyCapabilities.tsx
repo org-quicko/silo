@@ -32,7 +32,7 @@ const GROUPS: CapabilityGroup[] = [
     capabilities: [
       { claim: Claims.KeysRead, label: 'List', help: 'List key labels, prefixes and claims.' },
       { claim: Claims.KeysCreate, label: 'Mint', help: 'Mint keys, never exceeding this key’s own claims.' },
-      { claim: Claims.KeysRevoke, label: 'Revoke', help: 'Revoke any API key on the instance.', warn: true },
+      { claim: Claims.KeysRevoke, label: 'Revoke', help: 'Revoke keys, never ones this key could not have minted.', warn: true },
       { claim: Claims.KeysExport, label: 'Export hashes', help: 'Include key hashes in an archive.', warn: true },
       { claim: Claims.KeysImport, label: 'Import hashes', help: 'Load key hashes from an archive, root keys included.', warn: true },
     ],

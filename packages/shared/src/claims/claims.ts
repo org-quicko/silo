@@ -9,6 +9,7 @@ import type { ClaimPreset } from "./claim-preset";
 import type { CollectionClaim } from "./collection-claim";
 import type { CollectionPermission } from "./collection-permission";
 import type { FixedClaim } from "./fixed-claim";
+import { ForcedDeletePermissions } from "./forced-delete-permissions";
 import type { HookClaim } from "./hook-claim";
 import type { HookName } from "../hooks/hook-name";
 import { ParsedClaim } from "./parsed-claim";
@@ -35,6 +36,9 @@ export class Claims extends ClaimVocabulary {
   static readonly ScopeCopyReadPermissions = ScopeCopyPermissions.Read;
   static readonly ScopeCopyWritePermissions = ScopeCopyPermissions.Write;
   static readonly ScopeCopyReplacePermissions = ScopeCopyPermissions.Replace;
+
+  /** What a `?force=true` delete exercises, at whatever reach it reaches. */
+  static readonly ForcedDeletePermissions = ForcedDeletePermissions.All;
 
   static collection(
     project: string,

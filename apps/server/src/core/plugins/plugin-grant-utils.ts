@@ -63,7 +63,8 @@ export class PluginGrantUtils {
     if (forbidden.length > 0) {
       throw new ValidationError(
         `plugin "${name}" cannot be granted ${forbidden.join(", ")}: a plugin holding ` +
-          `these could widen its own grant and then act on it.`
+          `these could step outside its own grant — by widening the record, or by ` +
+          `minting or planting a credential the record does not bound.`
       );
     }
   }

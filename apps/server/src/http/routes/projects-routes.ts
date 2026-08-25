@@ -86,6 +86,9 @@ export class ProjectsRoutes {
         Claims.CollectionDelete,
       );
       const force = c.req.query("force") === "true";
+      if (force) {
+        RouteAuth.requireForcedDelete(c, "deleting a project", project, "*", "*");
+      }
       await service.scopes.deleteProject(project, force);
       return c.body(null, 204);
     });
@@ -144,6 +147,9 @@ export class ProjectsRoutes {
         Claims.CollectionDelete,
       );
       const force = c.req.query("force") === "true";
+      if (force) {
+        RouteAuth.requireForcedDelete(c, "deleting an environment", scope.project, scope.env, "*");
+      }
       await service.scopes.deleteEnvironment(scope.project, scope.env, force);
       return c.body(null, 204);
     });

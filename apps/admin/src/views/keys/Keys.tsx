@@ -63,6 +63,19 @@ export function KeysView({
   const currentPrefix = KeyFormat.displayPrefix(apiKey)
   const canCreate = Claims.has(claims, Claims.KeysCreate)
   const canRevoke = Claims.has(claims, Claims.KeysRevoke)
+  /**
+   * Whether the Revoke button is offered for one row.
+   *
+   * `keys:revoke` names an operation, not a target: since D37 the route also
+   * requires `canDelegate` against the target's own claims, so a key that
+   * cannot mint one this powerful cannot destroy one either. Mirrored here for
+   * the reason `RouteAuth` states — an affordance the route will refuse is
+   * worse than no affordance. A managed plugin key is excluded outright: silo
+   * holds its secret and re-mints it, so the ordinary path refuses it and
+   * points at `silo plugin revoke`.
+   */
+  const revocable = (key: KeyView) =>
+    canRevoke && !key.owner && Claims.canDelegate(claims, Claims.normalize(key.claims))
   const gridCols = '1.25fr 0.8fr 2fr 0.8fr 90px'
 
   const load = () => {
@@ -131,7 +144,7 @@ export function KeysView({
                 <div className={table.cell}>{KeyClaimSummary.render(key.claims)}</div>
                 <div className={`${table.cell} ${styles.date}`}>{Formatters.shortDate(key.created_at)}</div>
                 <div className={`${table.cell} ${styles.actions}`}>
-                  {isCurrent ? <span className={styles.current}>current</span> : canRevoke ? (
+                  {isCurrent ? <span className={styles.current}>current</span> : revocable(key) ? (
                     <Button variant="dangerGhost" size="sm" onClick={() => setToRevoke(key)}>Revoke</Button>
                   ) : null}
                 </div>

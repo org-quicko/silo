@@ -12,9 +12,9 @@ Hono web framework on Bun. JSON everywhere. Admin UI served at `/`; API under `/
 | GET | `/api/health` | liveness + version |
 | GET | `/api/session` | authenticated key label, prefix, and effective claims |
 | GET / POST | `/api/projects` | list scopes (filtered by claims) / create scope (`{project, env}`) |
-| DELETE | `/api/projects/{project}/envs/{env}` | delete scope and its collections (`?force=true`) |
+| DELETE | `/api/projects/{project}/envs/{env}` | delete scope and its collections (`?force=true`, which also requires `entries:delete` across the scope — D37) |
 | GET / POST | `/api/projects/{project}/envs/{env}/collections` | list / create (body: `{name, schema}`) |
-| GET / PUT / DELETE | `/api/projects/{project}/envs/{env}/collections/{name}/schema` | schema fetch / update / delete |
+| GET / PUT / DELETE | `/api/projects/{project}/envs/{env}/collections/{name}/schema` | schema fetch / update / delete (`?force=true` also requires `entries:delete` — D37) |
 | GET / POST | `/api/projects/{project}/envs/{env}/collections/{name}` | list (query below) / create |
 | GET / PUT / DELETE | `/api/projects/{project}/envs/{env}/collections/{name}/{id}` | PUT is full replace |
 | GET | `/api/projects/{project}/envs/{env}/collections/{name}/search` | search one collection (§5.5) |
@@ -25,7 +25,7 @@ Hono web framework on Bun. JSON everywhere. Admin UI served at `/`; API under `/
 | POST | `/api/import?mode=` | accepts tar.gz (`transfer:import` + `media:create`, plus `media:delete` in replace mode; archives containing keys also require `keys:import`) |
 | POST | `/api/copy` | pulls and imports another silo (`{source_url, source_api_key, mode, with_keys, dry_run, validate, prefer}`; `transfer:copy`) |
 | GET / POST | `/api/keys` | list (`keys:read`) / create (`keys:create`); create returns the secret exactly once |
-| DELETE | `/api/keys/{id}` | revoke a key (`keys:revoke`) |
+| DELETE | `/api/keys/{id}` | revoke a key (`keys:revoke`, **and** the authority to have minted it — D37) |
 | GET / POST | `/api/media` | search (`media:read`) / upload (`media:create`) — see §8.1 |
 | GET / PATCH / DELETE | `/api/media/{id}` | asset detail / rename·move·retag (`media:create`) / guarded delete (`media:delete`) |
 | GET | `/api/media/{id}/usages` | paginated referrers, claim-filtered (`media:read`) |
@@ -49,6 +49,8 @@ Hono web framework on Bun. JSON everywhere. Admin UI served at `/`; API under `/
 - **Presets:** `read`, `write`, `manage`, `root` — a ladder, each including the one before it. `read` is `schema:read` + `entries:read`; `write` adds the three entry mutations; `manage` adds collection lifecycle (`create`, `schema:update`, `access:update`, `delete`); `root` is `*`. Non-root presets also carry media claims (`media:read`, plus create/delete from `write` up). A preset expands over one or more `project/env/collection` targets and is otherwise just a claim set — nothing is stored on a key but its claims.
 - **Bootstrap:** on first boot with no keys, silo generates a root (`*`) key and prints it to stderr exactly once, boxed under the silo wordmark on a terminal and as flat ASCII when redirected. Locked out? `silo keys create --preset root` on the host works directly against the data dir.
 - **Revocation** = deleting the key entry. No expiry and no `last_used_at` in v1 (tracking last-use would turn every request into a storage write, which the fs adapter pays for dearly).
+- **Revocation is bounded the way minting is (D37):** `DELETE /api/keys/{id}` requires `keys:revoke` **and** that `canDelegate` accept the target key's claims — if you could not have minted a key this powerful, you may not destroy one. Without the bound, the narrowest key holding `keys:revoke` could revoke root and leave the instance with no administrative credential, which is unrecoverable without filesystem access. A key still revokes itself, since a claim list always covers itself. Managed plugin keys are refused separately, naming `silo plugin revoke` (D34).
+- **`?force=true` is a second operation, not a modifier (D37):** without it, the collection, environment and project delete routes refuse while content exists, so `collection:delete` alone is an honest ask. With it, the same request erases every entry underneath — dispatching no hooks and asking for no revision — so it additionally requires `entries:delete` at the reach it destroys: the collection, `{project}/{env}/*`, or `{project}/*/*`. Same rule `replace` mode applies to import and to scope copy.
 - The UI stores each saved server's key in `localStorage` (`silo_servers`), verifies it with `GET /api/session`, and sends it as a header on every request; no cookies, so no CSRF surface. Any `401` returns the UI to the server manager.
 
 ### 8.1 Media: catalog, folders, search, and reference integrity (D23)

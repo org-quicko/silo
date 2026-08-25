@@ -72,11 +72,16 @@ export function SchemaEditorView({
       claims,
       Claims.collection(scope.project, scope.env, collection.name, Claims.CollectionAccessUpdate),
     )
+  // The delete below always passes `force`, so the button asks for what force
+  // costs (D37): the definition *and* the entries under it. Gating on
+  // `collection:delete` alone offered a button the route now refuses.
   const canDelete =
     !!collection &&
-    Claims.has(
-      claims,
-      Claims.collection(scope.project, scope.env, collection.name, Claims.CollectionDelete),
+    Claims.ForcedDeletePermissions.every((permission) =>
+      Claims.has(
+        claims,
+        Claims.collection(scope.project, scope.env, collection.name, permission),
+      ),
     )
 
   const switchMode = (next: SchemaEditorMode) => {

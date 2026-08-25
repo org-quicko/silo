@@ -47,9 +47,13 @@ export function EnvGeneralPage({
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
 
-  const canDelete = Claims.hasAnyCollectionPermission(
+  // Scope-wide and both halves (D37). The delete always passes `force`, which
+  // erases every entry in the environment — and even unforced it reaches every
+  // collection, so `hasAnyCollectionPermission` was asking about one collection
+  // to authorize all of them.
+  const canDelete = Claims.hasScopeWide(
     claims,
-    Claims.CollectionDelete,
+    Claims.ForcedDeletePermissions,
     scope.project,
     scope.env,
   )
@@ -192,8 +196,14 @@ export function EnvGeneralPage({
             {!canDelete && (
               <div className={styles.dangerItem}>
                 <p className={styles.dangerItemDesc}>
-                  This key cannot delete {scope.env} — it is missing{' '}
-                  <code>{Claims.collection(scope.project, scope.env, '*', Claims.CollectionDelete)}</code>.
+                  This key cannot delete {scope.env} — deleting an environment
+                  erases every collection in it, so it needs{' '}
+                  {Claims.ForcedDeletePermissions.map((permission, index) => (
+                    <span key={permission}>
+                      {index > 0 && ' and '}
+                      <code>{Claims.collection(scope.project, scope.env, '*', permission)}</code>
+                    </span>
+                  ))}.
                 </p>
               </div>
             )}

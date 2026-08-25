@@ -80,17 +80,34 @@ export class ClaimVocabulary {
   };
 
   /**
-   * The fixed claims a **plugin** may never be granted (D34).
+   * The fixed claims a **plugin** may never be granted (D34, extended by D37).
    *
-   * A plugin runs code, so a plugin holding `plugins:grant` could widen its own
-   * grant and then act on it — the one escalation the grant model cannot
-   * express its way out of. Refused at the grant, not at the call, so it is
-   * visible to whoever is approving rather than surfacing later as a 403.
+   * A plugin runs code, so each of these is a way out of its own grant, and a
+   * grant model that can be stepped around is decoration. Two shapes:
+   *
+   * - `plugins:*` **widen the record.** A plugin holding `plugins:grant` grants
+   *   itself more and then acts on it.
+   * - `keys:*` **bypass the record.** `keys:create` mints an *unmanaged* key,
+   *   which is a credential nothing revokes when the plugin is revoked;
+   *   `keys:import` plants a `_keys` row whose hash the planter chose, which is
+   *   root with no grant at all (D37 measured it); `keys:revoke` destroys other
+   *   principals' credentials, which is not escalation but is a lockout.
+   *
+   * `keys:read` and `keys:export` are deliberately **not** here. They disclose
+   * the authority map — labels, claims, prefixes — and disclosure is a decision
+   * an operator can weigh. These six are not, because no grant that includes
+   * them means what it says.
+   *
+   * Refused at the grant, not at the call, so it is visible to whoever is
+   * approving rather than surfacing later as a 403.
    */
   static readonly PluginForbiddenClaims: readonly FixedClaim[] = [
     ClaimVocabulary.PluginsGrant,
     ClaimVocabulary.PluginsEnable,
     ClaimVocabulary.PluginsConfigure,
+    ClaimVocabulary.KeysCreate,
+    ClaimVocabulary.KeysRevoke,
+    ClaimVocabulary.KeysImport,
   ];
 
   static readonly Presets: Record<ClaimPreset, true> = {
