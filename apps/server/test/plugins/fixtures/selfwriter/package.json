@@ -1,0 +1,21 @@
+{
+  "name": "selfwriter",
+  "version": "1.0.0",
+  "type": "module",
+  "main": "index.ts",
+  "silo": {
+    "silo": "*",
+    "kind": "extension",
+    "hooks": [
+      "entry.afterWrite"
+    ],
+    "claims": [
+      "collections:*/*/*:entries:create"
+    ],
+    "config": {
+      "type": "object",
+      "properties": {},
+      "additionalProperties": false
+    }
+  }
+}

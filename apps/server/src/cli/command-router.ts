@@ -139,7 +139,7 @@ export class CommandRouter {
 
     switch (command) {
       case "serve":
-        await ServeCommand.run(service, config, version, store, runtime.logger);
+        await ServeCommand.run(runtime, config, version);
         await runtime.plugins.stop();
         return;
       case "plugin":

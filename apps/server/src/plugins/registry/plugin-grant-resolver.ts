@@ -60,6 +60,7 @@ export class PluginGrantResolver {
       state: PluginGrantResolver.state(config, grant),
       missing: PluginGrantUtils.missing(requested, claims),
       undeliverable: manifest.hooks.filter((hook) => !PluginGrantResolver.deliverable(claims, hook)),
+      keyId: grant?.key_id ?? "",
     };
   }
 

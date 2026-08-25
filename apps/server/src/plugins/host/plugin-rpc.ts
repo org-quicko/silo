@@ -1,12 +1,15 @@
+import type { PluginCallContext } from "./plugin-call-context";
+
 /** What a plugin may call back into. Implemented by `PluginContext`, which
- *  checks every call against the claims the operator granted. */
+ *  since D35 dispatches every call through the HTTP surface rather than
+ *  checking claims itself. */
 export interface PluginRpc {
   /**
-   * `cause` is the causal chain of the dispatch this call came out of, which
-   * the **host** supplies from the dispatch the worker correlated it to — never
-   * the plugin, which cannot be trusted to describe its own nesting (D33). An
-   * empty chain is a call from outside any dispatch.
+   * `dispatch` describes the hook dispatch this call came out of — its causal
+   * chain and what is left of its budget — and the **host** supplies both from
+   * its own record of that dispatch, never the worker, which cannot be trusted
+   * to describe its own nesting or its own deadline (D33, D35).
    */
-  call(method: string, args: readonly unknown[], cause: readonly string[]): Promise<unknown>;
+  call(method: string, args: readonly unknown[], dispatch: PluginCallContext): Promise<unknown>;
   log(level: string, message: string, fields?: Record<string, unknown>): void;
 }

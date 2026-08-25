@@ -73,7 +73,7 @@ export class EntriesRoutes {
         Claims.CollectionEntriesCreate,
       );
       const data = await c.req.json();
-      const e = await service.entries.create(scope, name, data);
+      const e = await service.entries.create(scope, name, data, RouteAuth.getWriteContext(c));
       const baseUrl = RequestUtils.getBaseUrl(c);
       return c.json(EntryUtils.toApiResponse(e, collection.schema, baseUrl), 201);
     };
@@ -116,7 +116,7 @@ export class EntriesRoutes {
       );
       const rev = RouteAuth.getExpectedRev(c);
       const data = await c.req.json();
-      const e = await service.entries.update(scope, name, id, data, rev);
+      const e = await service.entries.update(scope, name, id, data, rev, RouteAuth.getWriteContext(c));
       const baseUrl = RequestUtils.getBaseUrl(c);
       return c.json(EntryUtils.toApiResponse(e, collection.schema, baseUrl));
     };
@@ -136,7 +136,7 @@ export class EntriesRoutes {
         Claims.CollectionEntriesDelete,
       );
       const rev = RouteAuth.getExpectedRev(c);
-      await service.entries.delete(scope, name, id, rev);
+      await service.entries.delete(scope, name, id, rev, RouteAuth.getWriteContext(c));
       return c.body(null, 204);
     };
 

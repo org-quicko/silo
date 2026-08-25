@@ -4,6 +4,76 @@
 > The *current* state is [CONTEXT.md](../../CONTEXT.md); this is how it got
 > there.
 
+- **`ctx` becomes the HTTP API, dispatched in-process (D35, phase 3,
+  2026-08-25).** A plugin's `ctx` call is now a request against the same Hono
+  app a network request hits, so the guard a plugin meets is the guard a key
+  meets. §13.15 in [../design/plugins.md](../design/plugins.md).
+  - **`PluginContext` went from five methods to one.** The five hand-rolled
+    claim checks are *deleted, not widened to forty*: widening would have
+    re-implemented `requirePublicOrClaim`, the transfer permission lists and the
+    media-usage disclosure rule as a second evaluator free to disagree with the
+    first, which is exactly what `@silo/shared/claims` exists as one facade to
+    prevent. The surface now grows for free — a route added in 1.x is a plugin
+    capability with no plugin work.
+  - **The principal is attached, never presented.** It travels on
+    `app.request`'s `env` under a module-private symbol, which nothing arriving
+    over a socket can reach: `env` is the runtime's bindings object, and no
+    header, query parameter or body shape becomes a symbol-keyed property. That
+    is why `ctx.fetch` drops `Authorization` and `X-Api-Key` outright — a worker
+    never holds its own secret, so **the channel is the credential**.
+  - **The middleware reads the injected principal before the `--no-auth`
+    branch**, closing D37's fifth finding. `--no-auth` gives every request
+    `["*"]`, which is right for what it means and becomes wrong the instant
+    `ctx` dispatches through the same middleware: every plugin on every
+    development instance would have silently held root, which is precisely where
+    plugins are written and tested. The test asserts both halves on one
+    instance — the anonymous request still gets 200, the plugin beside it 403.
+  - **`ctx` is confined to `/api/`,** by resolving the path against a fictional
+    origin and requiring the result to still be that origin. One check catches
+    three shapes: `..` is normalised away before the prefix is tested,
+    `//example.com/api/x` lands on another origin, and an absolute URL never had
+    a chance. The SPA fallback and `/media/{id}` sit outside the auth middleware
+    entirely, so reaching them would mean reaching *unauthenticated* routes with
+    a principal nothing reads.
+  - **D33's causal chain rides the same slot as the principal,** because they
+    are one fact: who is asking, and what caused them to ask. Write routes read
+    it back through one `RouteAuth.getWriteContext`. The new `selfwriter`
+    fixture writes into the collection it hooks, so a dropped chain is an
+    immediate loop rather than a bounded one.
+  - **A `ctx.fetch` is bounded by what is left of its dispatch's budget,** minus
+    a margin. Bounded by exactly the remainder it loses the race to
+    `WorkerHost`'s dispatch timer every time, and the worker is killed for the
+    dispatch running long instead of the plugin being told which call did it —
+    which, until phase 4's supervisor, is permanent and silent. A call outside
+    any dispatch gets the full `timeout_ms`, because it had no deadline at all.
+  - **One contract, two emitters.** The plugin-facing surface was mirrored by
+    hand in three places — the host's method switch, the worker bootstrap, and
+    the `silo:api` declarations — with nothing but review keeping them in step.
+    `PluginApiContract` is the one description; `PluginClientSource` emits the
+    worker's client at start (so there is no second copy to drift) and
+    `PluginTypesSource` emits the `SiloContext` members, which a test pins
+    because `tsc` reads files.
+  - **A dispatched request has no origin, so it writes no media URLs.** Found by
+    the smoke test: a route expands `silo://media/<id>` against the request's
+    `Host` header, and a dispatched request's only host is the fictional one
+    paths resolve against — so a plugin was handed
+    `http://plugin.silo.internal/media/…` to store or forward. `getBaseUrl`
+    returns `""` for one, leaving the reference exactly as stored, which is what
+    `ctx` handed plugins before this phase.
+  - **The access log names the plugin.** It now contains lines no client sent,
+    and without `plugin=<name>` an operator reading one sees traffic from
+    nobody.
+  - **Breaking, for plugin authors:** `ctx.entries.list` returns the route's
+    body, so its rows are under `data` rather than `items`. The client mirrors
+    the HTTP API wart for wart — entries and search page under `data`, media and
+    collections under `items` — because smoothing it over would cost the
+    property the design is for: the same client running against a remote silo.
+  - **Still phase 4's:** revoking a grant destroys the managed key immediately
+    and the running plugin keeps acting on the claims it loaded with. Measured
+    live. Half-fixing it would be worse than leaving it — hook delivery reads
+    the same in-memory grant, so a plugin whose `ctx` is dead while its hooks
+    still fire is a new inconsistent state.
+
 - **Plugin management gets an API, and authority changes get a trail (D38,
   phase 2, 2026-08-25).** `/api/plugins/` stops being a reserved 404 and becomes
   the management surface; a fourth system collection, `_audit`, records who

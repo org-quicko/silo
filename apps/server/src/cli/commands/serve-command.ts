@@ -1,8 +1,6 @@
 import type { Config } from "../../config/config";
-import type { Storage } from "../../core/ports/storage";
-import { SiloService } from "../../core/services/silo-service";
 import { SiloServer } from "../../http/server";
-import type { Logger } from "../../logging/logger";
+import type { SiloRuntime } from "../runtime/silo-runtime";
 import { ListenAddress } from "../../runtime/listen-address";
 import { ProcessTitle } from "../../runtime/process-title";
 import { RunFile } from "../../runtime/run-file";
@@ -17,13 +15,14 @@ import { BootstrapBanner } from "../bootstrap-banner";
  * drifting.
  */
 export class ServeCommand {
-  static async run(
-    service: SiloService,
-    config: Config,
-    version: string,
-    store: Storage,
-    logger: Logger
-  ): Promise<void> {
+  /**
+   * The whole runtime rather than four of its fields: since D35 this needs the
+   * plugin registry as well, to hand it the app once it exists, and a sixth
+   * positional argument would have been the point where the list stopped being
+   * readable.
+   */
+  static async run(runtime: SiloRuntime, config: Config, version: string): Promise<void> {
+    const { service, store, logger, plugins } = runtime;
     // Before anything is written. Two servers over one data directory hand out
     // duplicate `seq` values and defeat the process-local write mutex that
     // makes optimistic concurrency sound — see RunFile.assertNotRunning.
@@ -68,6 +67,10 @@ export class ServeCommand {
       logger,
       logRequests: config.log.requests,
     }).build();
+
+    // Before the bind, so no request can arrive while a plugin's `ctx.fetch`
+    // would still refuse for want of an app (D35).
+    plugins.attach(app);
 
     const { hostname, port } = ListenAddress.parse(config.listen);
     const server = Bun.serve({ port, hostname, fetch: app.fetch });

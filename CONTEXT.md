@@ -26,7 +26,22 @@ keys with claims (D12/D21), export/import and scope-to-scope copy, the admin
 UI, single-binary releases with Homebrew and RPM, and plugins with an installer
 (D31/D32/D33).
 
-**The most recent change gives plugin management an API and authority changes a
+**The most recent change makes `ctx` the HTTP API (D35, phase 3, 2026-08-25).**
+A plugin's `ctx` call is now a request against the same Hono app a network
+request hits, carrying a principal the host attaches under a module-private
+symbol that nothing arriving over a socket can reach — so `AuthMiddleware` and
+`RouteAuth` decide what a plugin may do, and `PluginContext`'s five hand-rolled
+claim checks are **deleted rather than widened to forty**. The middleware reads
+that principal *before* the `--no-auth` branch, which is D37's fifth finding:
+otherwise every plugin on every development instance would have silently held
+root. `ctx` is confined to `/api/`, D33's causal chain rides the same slot so a
+plugin's HTTP-shaped write still cannot re-enter its own hooks, and a call is
+bounded by what is left of its dispatch's budget so a slow route rejects the
+*call* instead of killing the worker. The typed client over `ctx.fetch` and the
+`silo:api` declarations are both emitted from one `PluginApiContract`. See
+§13.15 in [docs/design/plugins.md](docs/design/plugins.md).
+
+**Before that, plugin management got an API and authority changes a
 trail (D38, phase 2, 2026-08-25).** `/api/plugins/` stops being a reserved 404:
 list, read, grant, revoke, enable and disable, all against the `_plugins` record
 and never the filesystem, with `If-Match` required on every mutation — because a
@@ -75,10 +90,12 @@ mutex is gone. Nothing about the plugin-facing payload changed. See
 [the changelog](docs/context/changelog.md) and §13.5/§13.9 in
 [docs/design/plugins.md](docs/design/plugins.md).
 
-**The rest of D34–D36 is decided but not built:** `ctx` as the in-process HTTP
-API (phase 3, whose gate is now cleared), a supervisor for live
+**The rest of D34–D36 is decided but not built:** a supervisor for live
 enable/disable/revoke (phase 4), the admin UI (phase 5), and plugin routes under
-`/api/ext/{name}/*` (phase 6). §13.11 has the shape and the phases.
+`/api/ext/{name}/*` (phase 6). Phase 4 is the next one and now has a named debt:
+revoking a grant destroys the managed key immediately, and the running plugin
+keeps acting on the claims it loaded with until a restart. §13.11 has the shape
+and the phases.
 
 **The change before that was a repository restructure (2026-08-25).** The tree
 moved to a workspace layout — `apps/server`, `apps/admin`, `packages/shared`,

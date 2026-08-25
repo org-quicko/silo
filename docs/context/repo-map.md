@@ -51,9 +51,9 @@ script.
 | `adapters/storage/fs/` | The plain-files adapter, split the same way, with `FsLayout` holding the on-disk path grammar that *is* the export format (D5) |
 | `adapters/blob/` | Filesystem and S3 blob stores |
 | `adapters/http/` | The outbound client used by server-to-server copy |
-| `http/` | `SiloServer` builds the Hono app; `routes/` is one class per route group, `auth/` the claim helpers, `middleware/` logging and auth |
+| `http/` | `SiloServer` builds the Hono app; `routes/` is one class per route group, `auth/` the claim helpers and the injected-principal slot a plugin dispatch arrives in (D35), `middleware/` logging and auth |
 | `logging/` | `Logger`, the level union, the `LogSink` port and its console/file implementations, and the two read-side helpers. Nothing here knows about HTTP or storage |
-| `plugins/` | Five submodules with an index each — `manifest/` reads what a plugin declares without running it, `host/` executes it, `runtime/` is what it can see and do, `registry/` is the single wiring site, `install/` acquires it. Import from `plugins`, never a file inside |
+| `plugins/` | Six submodules with an index each — `manifest/` reads what a plugin declares without running it, `contract/` describes the client a plugin is handed and emits both halves of it (D35), `host/` executes it, `runtime/` is what it can see and do plus the `PluginApiDispatcher` its `ctx.fetch` lands in, `registry/` is the single wiring site, `install/` acquires it. Import from `plugins`, never a file inside |
 | `runtime/` | Process lifecycle: the run file that records a live server, the daemon mechanics, the listen-address grammar, and the process title |
 
 ## `apps/admin/src/`

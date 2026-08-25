@@ -3,6 +3,8 @@ import { Claims } from "@silo/shared/claims";
 import type { Claim } from "@silo/shared/claim";
 import type { CollectionPermission } from "@silo/shared/collection-permission";
 import type { AuthenticatedKey } from "../../core/keys/authenticated-key";
+import type { WriteContext } from "../../core/hooks";
+import { WriteContexts } from "../../core/hooks";
 import { Scope } from "../../core/domain/scope";
 import { ValidationError } from "@silo/shared/validation-error";
 import { ForbiddenError } from "../../core/errors/forbidden-error";
@@ -170,6 +172,25 @@ export class RouteAuth {
       key.claims,
       Claims.collection(project, env, collection, Claims.CollectionEntriesRead),
     );
+  }
+
+  /**
+   * Who caused this write, for the hooks it will dispatch (D33, D35).
+   *
+   * An ordinary request has no opinion and gets `WriteContexts.Api`. A request
+   * a plugin dispatched carries the causal chain of the hook it came out of, so
+   * `HookBus` can refuse to deliver the resulting event back to any plugin
+   * already on that stack — which is what makes a cycle unrepresentable rather
+   * than merely bounded.
+   *
+   * One helper rather than a read at each write route, because the slot is an
+   * implementation detail of the dispatch and a route that reached for it
+   * directly would be a second place to get it wrong. Before phase 3 the chain
+   * never crossed an HTTP boundary at all; `PluginContext` held it and called
+   * `EntryService` directly, and that is exactly the path D35 replaced.
+   */
+  static getWriteContext(c: Context): WriteContext {
+    return (c.get("writeContext") as WriteContext | undefined) ?? WriteContexts.Api;
   }
 
   static getExpectedRev(c: Context): number {

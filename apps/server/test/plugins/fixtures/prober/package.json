@@ -1,0 +1,28 @@
+{
+  "name": "prober",
+  "version": "1.0.0",
+  "type": "module",
+  "main": "index.ts",
+  "silo": {
+    "silo": "*",
+    "kind": "extension",
+    "hooks": [
+      "entry.beforeValidate"
+    ],
+    "claims": [
+      "collections:*/*/*:entries:read",
+      "keys:read",
+      "media:read"
+    ],
+    "config": {
+      "type": "object",
+      "properties": {
+        "path": { "type": "string" },
+        "method": { "type": "string" },
+        "headers": { "type": "object" }
+      },
+      "required": ["path"],
+      "additionalProperties": false
+    }
+  }
+}

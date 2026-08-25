@@ -1,10 +1,11 @@
 import path from "path";
+import type { Hono } from "hono";
 import type { Hooks } from "../../core/hooks/hooks";
 import { NoOpHooks } from "../../core/hooks/no-op-hooks";
 import type { Config } from "../../config/config";
 import type { SiloService } from "../../core/services/silo-service";
 import type { Logger } from "../../logging/logger";
-import { HookBus } from "../runtime";
+import { HookBus, PluginApiDispatcher } from "../runtime";
 import { PluginLoader } from "./plugin-loader";
 import type { PluginRuntime } from "../runtime";
 
@@ -21,9 +22,15 @@ import type { PluginRuntime } from "../runtime";
 export class PluginRegistry {
   private readonly runtimes: readonly PluginRuntime[];
   private readonly bus: Hooks;
+  private readonly dispatcher: PluginApiDispatcher;
 
-  private constructor(runtimes: readonly PluginRuntime[], logger: Logger) {
+  private constructor(
+    runtimes: readonly PluginRuntime[],
+    logger: Logger,
+    dispatcher: PluginApiDispatcher
+  ) {
     this.runtimes = runtimes;
+    this.dispatcher = dispatcher;
     // The null object when nothing is configured, so `SiloService` has one dispatch
     // path rather than five null checks (see NoOpHooks).
     this.bus = runtimes.length === 0 ? new NoOpHooks() : new HookBus(runtimes, logger);
@@ -38,7 +45,7 @@ export class PluginRegistry {
   }
 
   static empty(logger: Logger): PluginRegistry {
-    return new PluginRegistry([], logger);
+    return new PluginRegistry([], logger, new PluginApiDispatcher());
   }
 
   static async load(
@@ -48,17 +55,35 @@ export class PluginRegistry {
   ): Promise<PluginRegistry> {
     if (config.plugins.length === 0) return PluginRegistry.empty(logger);
 
+    const dispatcher = new PluginApiDispatcher();
     const runtimes = await PluginLoader.loadExtensions({
       pluginsDir: PluginRegistry.directory(config),
       configs: config.plugins,
       service,
       logger,
+      dispatcher,
     });
-    return new PluginRegistry(runtimes, logger);
+    return new PluginRegistry(runtimes, logger, dispatcher);
   }
 
   hooks(): Hooks {
     return this.bus;
+  }
+
+  /**
+   * Hand the plugins the HTTP surface their `ctx.fetch` dispatches against
+   * (D35).
+   *
+   * A second step rather than a constructor argument because of the order the
+   * two are built in: extensions load in `SiloRuntime` so `SiloService` can be
+   * given their hook bus, and the server is built from that service afterwards.
+   * Nothing can dispatch in between — a hook only fires from a request, and
+   * there are no requests before the app exists — so the window is real but
+   * empty, and a dispatcher nobody attached refuses with a sentence rather than
+   * a 404.
+   */
+  attach(app: Hono): void {
+    this.dispatcher.attach(app);
   }
 
   list(): readonly PluginRuntime[] {

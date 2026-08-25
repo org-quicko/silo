@@ -9,6 +9,12 @@
  * It is also the shape a published `@silo/plugin-types` would carry: **types
  * only, contributing nothing at runtime**. If it ever grows a value, the
  * dependency-free property that makes the virtual module worth having is gone.
+ *
+ * The `SiloContext` members between the `<generated…>` markers are emitted from
+ * `PluginApiContract` (D35) — the same contract the worker's implementation is
+ * built from, so a method cannot exist in one and not the other. Edit the
+ * contract, not the markers; `plugin-api-contract.test.ts` fails on drift and
+ * prints the block to paste.
  */
 declare module "silo:api" {
   /** `{ project, env }` — the scope a hook event belongs to, and what
@@ -36,8 +42,60 @@ declare module "silo:api" {
     updated_at?: string;
   }
 
-  /** What a plugin may do. Every call is checked against the claims the
-   *  operator granted (§13.6). */
+  /** Query-string parameters, as the route reads them. An object value is sent
+   *  as JSON, which is how `filter` and `sort` already travel. */
+  export interface SiloQuery {
+    limit?: number;
+    offset?: number;
+    [key: string]: any;
+  }
+
+  /** A page whose rows are under `data` — entries and search. */
+  export interface SiloPage {
+    data: any[];
+    total: number;
+    limit: number;
+    offset: number;
+    [key: string]: any;
+  }
+
+  /**
+   * A page whose rows are under `items` — media, collections, projects.
+   *
+   * Two shapes because the HTTP API has two, and the client mirrors it rather
+   * than smoothing it over: the same code has to work against a remote silo,
+   * where the body is whatever the server sent.
+   */
+  export interface SiloItemPage {
+    items: any[];
+    total?: number;
+    limit?: number;
+    offset?: number;
+  }
+
+  /**
+   * One answer from `ctx.fetch`.
+   *
+   * `text()` and `json()` are **synchronous**, unlike a real `Response`: the
+   * bytes have already crossed the worker boundary, so there is nothing left to
+   * await. `await response.json()` still reads fine and still works.
+   */
+  export interface SiloResponse {
+    status: number;
+    ok: boolean;
+    headers: Record<string, string>;
+    bytes: Uint8Array;
+    text(): string;
+    json(): any;
+  }
+
+  /**
+   * What a plugin may do (§13.6).
+   *
+   * Every call is a request against silo's own HTTP API, authorized by the
+   * claims the operator granted — the same routes, the same guards, and the
+   * same answers a key with those claims would get.
+   */
   export interface SiloContext {
     /** `[plugins.config]`, already validated against the manifest's schema. */
     config: Record<string, any>;
@@ -47,24 +105,54 @@ declare module "silo:api" {
       warn(message: string, fields?: Record<string, unknown>): void;
       error(message: string, fields?: Record<string, unknown>): void;
     };
+
+    /**
+     * The whole API, for anything the typed methods below do not cover.
+     *
+     * Paths are absolute and must start with `/api/`. A refusal comes back as
+     * a **status**, not a throw — `fetch` reports what happened, and it is the
+     * typed methods that turn a 400 into a `ValidationError`. There is no
+     * `Authorization` header to set: identity comes from the grant, and one set
+     * here is dropped.
+     */
+    fetch(path: string, init?: {
+      method?: string;
+      headers?: Record<string, string>;
+      body?: string | Uint8Array;
+    }): Promise<SiloResponse>;
+
+    // <generated from PluginApiContract>
     entries: {
+      /** A page of entries. `limit`, `offset`, `filter` and `sort` are the query's keys. */
+      list(scope: SiloScope, collection: string, query?: SiloQuery): Promise<SiloPage>;
+      /** One entry, with media references expanded exactly as the API expands them. */
       get(scope: SiloScope, collection: string, id: string): Promise<any>;
-      list(scope: SiloScope, collection: string, query?: any): Promise<{
-        items: any[];
-        total: number;
-        limit: number;
-        offset: number;
-      }>;
+      /** Create an entry. Validated against the collection's schema, like any write. */
       create(scope: SiloScope, collection: string, data: any): Promise<any>;
-      update(
-        scope: SiloScope,
-        collection: string,
-        id: string,
-        data: any,
-        rev: number
-      ): Promise<any>;
+      /** Replace an entry. `rev` is required — a blind write is not offered. */
+      update(scope: SiloScope, collection: string, id: string, data: any, rev: number): Promise<any>;
+      /** Delete an entry. */
       delete(scope: SiloScope, collection: string, id: string, rev: number): Promise<void>;
+      /** Full-text search within one collection. `q` is the query text. */
+      search(scope: SiloScope, collection: string, query: SiloQuery): Promise<SiloPage>;
     };
+    collections: {
+      /** The collections of one scope that the grant can see. */
+      list(scope: SiloScope): Promise<SiloItemPage>;
+      /** One collection's JSON Schema, for a plugin that validates against it. */
+      schema(scope: SiloScope, collection: string): Promise<any>;
+    };
+    projects: {
+      /** The projects the grant can see, each with its environments. */
+      list(): Promise<SiloItemPage>;
+    };
+    media: {
+      /** A page of the media catalog. Media is instance-global, so this takes no scope. */
+      list(query?: SiloQuery): Promise<SiloItemPage>;
+      /** One media asset's metadata. The bytes are not reachable through `ctx`. */
+      get(id: string): Promise<any>;
+    };
+    // </generated from PluginApiContract>
   }
 
   /**

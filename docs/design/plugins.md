@@ -192,7 +192,8 @@ write path would bypass an HTTP-only plugin, so a validation or enrichment
 plugin would silently not run on exactly the paths that write the most at once.
 
 **Which write paths dispatch.** Every write through `Service` — the HTTP CRUD
-routes, and a plugin's own `ctx.entries.*` calls. The transfer paths
+routes, and a plugin's own `ctx` calls, which since D35 *are* those routes
+(§13.15), reached in-process rather than over a socket. The transfer paths
 (`Importer`, `ScopeCopier`) deliberately do **not**; see D31's rationale for why,
 and `Hooks` in `apps/server/src/core/hooks/` for the same note where a reader of the code
 will meet it.
@@ -214,6 +215,13 @@ using the existing `Claims`/`ParsedClaim` machinery including scoped wildcards
 (D8, D19). A plugin cannot widen its own reach, and its actions are auditable
 in the same vocabulary as a key's — **a plugin is an API key with code
 attached.**
+
+> **Since D35 that last sentence is the implementation, not the analogy.** A
+> `ctx` call is a request against the same Hono app a network request hits,
+> carrying a principal built from the grant, so the check below is
+> `AuthMiddleware` and `RouteAuth` rather than anything this section describes
+> separately. §13.15 has it; what follows is the claim vocabulary, which is
+> unchanged.
 
 **D31 added no new claim strings**, because there was no install API for one to
 guard. **D34 adds five**, because there now is.
@@ -512,9 +520,10 @@ Where a plugin dispatch is involved, assert the clock.
 
 ## 13.11 Where this is going (D34–D36)
 
-> **Partly built.** D33 has landed, phase 1 of D34 with it (§13.12), phase 3's
-> gate is cleared (§13.13), and phase 2 has shipped (§13.14). The rest is phased
-> below. This section is the shape, not the specification — the decisions log
+> **Partly built.** D33 has landed, phase 1 of D34 with it (§13.12), phase 2 has
+> shipped (§13.14), and phase 3 has followed its cleared gate (§13.13) into
+> §13.15. Phases 4 to 6 remain, and the acceptance test below still needs the
+> first of them. This section is the shape, not the specification — the decisions log
 > carries the reasoning, and each phase writes its own detail here as it lands.
 
 ### The two holes this closes
@@ -565,7 +574,7 @@ could write the database could execute code.**
 | 0 | **D33, done.** The causal chain, and the deadlock it fixes |
 | 1 | `_plugins`, managed keys, `hooks:` claims, `plugins:*` claims, `pending` state, offline `silo plugin grant`. **Reserve `/api/ext/`.** |
 | 2 | **Done, §13.14.** Management API, the `_audit` trail, descendant keys |
-| 3 | `ctx.fetch` and the generated client. Its gate, the route-authority audit, is **done** — §13.13 |
+| 3 | **Done, §13.15.** `ctx.fetch`, the generated client, and the four requirements §13.13 left it |
 | 4 | Supervisor: live enable, disable, reorder, revoke |
 | 5 | Admin UI, inert `silo add`, `create-silo-plugin`, drift tests |
 | 6 | Plugin routes under `/api/ext/{name}/*` |
@@ -988,3 +997,167 @@ The walk carries a visited set. A parent must exist before its child, so a cycle
 cannot arise from ordinary use — but `_keys` is an ordinary collection that an
 import or a hand edit can write, and a walk that looped forever on a malformed
 record would turn a bad row into a hung revocation.
+
+## 13.15 `ctx` is the HTTP API (D35, phase 3)
+
+> **Built.** The supervisor (phase 4), the admin UI (phase 5) and plugin routes
+> (phase 6) remain. D36's `contributes`, `activate()` and `required`/`optional`
+> permissions are still §13.11.
+
+### What changed
+
+`PluginContext` held five entry methods with a hand-rolled claim check each. It
+now holds **one** callable method, `fetch`, and a call is a request against the
+same Hono app a network request hits — so `AuthMiddleware` and `RouteAuth` decide
+what a plugin may do, unchanged and unaware that the caller is a plugin.
+
+```
+plugin worker
+    │   ctx.entries.list(scope, "posts")      generated client
+    │   ctx.fetch("/api/…")                   the primitive underneath
+    ▼
+PluginContext.fetch          builds the principal from the grant
+    ▼
+PluginApiDispatcher          confines to /api/, applies the call's deadline
+    ▼
+app.request(url, init, env)  env carries a module-private symbol
+    ▼
+AuthMiddleware               reads the injected principal FIRST
+RouteAuth                    the guard a key meets, unchanged
+    ▼
+SiloService
+```
+
+The alternative was widening `call` from five methods to roughly forty, and it
+fails on the repo's own stated fear: it would have re-implemented
+`requirePublicOrClaim`, the transfer permission lists and the media-usage
+disclosure rule as **a second evaluator that can disagree with the first** —
+exactly what `@silo/shared/claims` exists as one facade to prevent. Reusing the
+routes instead means the surface grows for free: a route added in 1.x is a plugin
+capability with no plugin work, and every guard already written keeps applying.
+
+### The principal is attached, never presented
+
+Identity travels on `app.request`'s `env` argument under a **module-private
+symbol** — `InjectedPrincipals`, whose two methods are the only way to write or
+read the slot. Nothing arriving over a socket can reach it: `env` is the
+runtime's bindings object, and no header, query parameter or body shape becomes
+a symbol-keyed property.
+
+That unforgeability is what lets the middleware trust the slot *more* than a
+bearer token, which is why **`ctx.fetch` drops `Authorization` and `X-Api-Key`
+outright.** A worker never receives its own secret, so a plugin holding a
+credential it found elsewhere still cannot present it: **the channel is the
+credential.**
+
+The claims on that principal are the **resolved** grant — `silo.toml` union the
+`_plugins` record (D34) — rather than the managed key's own `granted` list,
+because an operator may grant through either and the union is what every check
+before this phase used. The key record is the revocable handle and the name in
+the trail; the grant is the authority.
+
+### The four requirements §13.13 left
+
+**1. Read the injected principal before the `authDisabled` branch (F5).** Done,
+and it is the whole of the finding: `--no-auth` gives every request `["*"]`,
+which is right for what it means and becomes wrong the instant `ctx` dispatches
+through the same middleware. Every plugin on every development instance would
+have silently held root — precisely where plugins are written and tested, so the
+grant model would be untested exactly where it is most exercised. Pinned by a
+test that asserts *both* halves on one instance: an anonymous request still gets
+200, and the plugin beside it still gets 403.
+
+**2. Confine `ctx` to `/api/`.** The path is resolved against a fictional origin
+and the result must still be that origin with an `/api/` prefix. One check
+catches three shapes: `..` is normalised away *before* the prefix is tested,
+`//example.com/api/x` — a path that is really an authority — lands on another
+origin, and an absolute URL never had a chance. The two surfaces outside `/api/`
+are the SPA fallback and `/media/{id}`, and both sit outside the auth middleware
+entirely, so a plugin reaching them would be reaching *unauthenticated* routes
+carrying a principal nothing reads. `/media/{id}` is the one that matters: it
+serves bytes to anyone holding an id, which is a media grant nobody made.
+
+**3. Carry the causal chain across the dispatch.** D33's guarantee lived in
+`PluginContext`, which this phase replaced, so the chain rides the same injected
+slot as the principal — one slot, because they are one fact: *who is asking, and
+what caused them to ask.* Write routes read it back through a single
+`RouteAuth.getWriteContext`. The sharp test is a plugin that writes into the
+collection it hooks: with the chain, one write and one echo; without it, an
+immediate loop that only `HookBus.MaxDepth` would stop.
+
+**4. Give a dispatch its own timeout budget.** A `ctx.fetch` is bounded by **what
+is left of its dispatch's budget**, minus a small margin, rather than by a
+constant. The margin is the point: bounded by exactly the remaining budget, the
+call loses the race to `WorkerHost`'s dispatch timer every time, and the worker
+is killed for the dispatch running long instead of the plugin being told which
+call did it. Until phase 4 that kill is permanent and silent, so the difference
+is between a plugin that can catch a slow route and a plugin that never runs
+again. A call made *outside* any dispatch — a timer, or a future `activate()` —
+gets the full `timeout_ms`, because it has no deadline over it and would
+otherwise have had none at all.
+
+Both facts come from the host's record of the dispatch and never from the
+worker's message, for the same reason: a plugin that could name its own chain
+could hand itself an empty one, and a plugin that could name its own deadline
+could hand itself an unbounded one.
+
+### One contract, two emitters
+
+The plugin-facing surface used to be mirrored **by hand in three places** — the
+host's method switch, the worker bootstrap that called it, and the `silo:api`
+declarations that typed it — with nothing but review keeping them in step.
+`PluginApiContract` is now the one description, and two emitters read it:
+
+| Emitter | Produces | Drift |
+| :--- | :--- | :--- |
+| `PluginClientSource` | the worker's client, spliced into the bootstrap **at start** | impossible — there is no second copy |
+| `PluginTypesSource` | the `SiloContext` members in `silo-api-types.d.ts` | pinned by a test, because `tsc` reads files |
+
+The contract is a **convenience, not a boundary**. Every method is a path
+`ctx.fetch` could reach spelled out by hand, so nothing there grants anything and
+leaving a route out denies nothing — which is what makes the list a matter of
+taste rather than of security, and why it covers what a plugin reaches for often
+instead of all thirty routes.
+
+Its field names are the HTTP API's own, wart for wart: entries and search page
+under `data`, media and collections under `items`. Smoothing that over would cost
+the property this design is *for* — the same client running against a remote silo
+over a real socket — for a cosmetic gain the API itself can make later, once, for
+everybody.
+
+The split between the primitive and the client is deliberate and testable:
+`ctx.fetch` reports a refusal as a **status**, and the generated methods turn one
+into a **throw**. A plugin asking whether something exists should not need a
+`try`/`catch` to hear the answer, and a plugin reading an entry it was granted
+should not have to check a status code.
+
+### What a dispatched request is not
+
+**It has no origin, so it writes no media URLs.** A route expands
+`silo://media/<id>` into `<base>/media/<id>` using the request's `Host` header —
+the header naming where a client reached this instance. A dispatched request
+never crossed a socket, so the only host in it is the fictional one paths are
+resolved against, and rewriting a reference to `http://plugin.silo.internal/…`
+is worse than not rewriting it: a plugin that stores or forwards that value has
+persisted a dead link, and one comparing it to the stored reference finds no
+match. `RequestUtils.getBaseUrl` returns `""` for a dispatched request, which
+leaves the reference exactly as stored — what `ctx` handed plugins before this
+phase, and the only honest answer to "where is this instance reachable" when
+nothing asked over the network.
+
+**It is not anonymous in the log.** An access log now contains lines no client
+sent, so a dispatched request carries `plugin=<name>`. Without it an operator
+reading one sees traffic from nobody.
+
+### What phase 4 must still fix
+
+Revoking a grant destroys the managed key immediately and the running plugin
+keeps acting on the claims it loaded with — measured live: after
+`DELETE /api/plugins/smoke/grant`, `_keys` no longer held the record and the next
+`ctx.fetch` still succeeded. That is not a regression, because the resolved grant
+was always held in memory, but it is the gap between "a plugin is an API key with
+code attached" and the implementation, and it is precisely what §13.11's
+acceptance test names: revoke live, and prove **both** `ctx` calls and hook
+delivery stop without a restart. Doing half of it here would be worse than
+none — a plugin whose `ctx` is dead while its hooks still fire is a new
+inconsistent state, and hook delivery is read from the same in-memory grant.

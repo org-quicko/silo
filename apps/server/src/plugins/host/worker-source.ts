@@ -1,3 +1,5 @@
+import { PluginClientSource } from "../contract/plugin-client-source";
+
 /**
  * The bootstrap that runs inside every extension plugin's `Worker` (D31/§13.4).
  *
@@ -12,11 +14,18 @@
  * It therefore speaks only plain JSON over `postMessage`, which is the same
  * discipline §13.4 wants for the payloads anyway.
  *
- * No template literals below: this whole file is one, and a stray `${` inside
- * would interpolate at the wrong level.
+ * Since D35 the client half is **generated** from `PluginApiContract` rather
+ * than written here: what the lines below hold is the invariant runtime — the
+ * RPC plumbing, the query encoder, and the mapping from an error body back to
+ * a throwable — and the per-operation methods are spliced in by
+ * `PluginClientSource`. There is no checked-in copy of those, so they cannot
+ * drift from the contract; only the `.d.ts` needs one, and it has a test.
+ *
+ * No template literals in the lines below: a stray `${` would interpolate at
+ * the wrong level, in a file that is itself assembling source.
  */
 export class WorkerSource {
-  static readonly Code = [
+  private static readonly Prelude = [
     'import { plugin } from "bun";',
     "",
     "// Errors a plugin throws to *reject* rather than to fault. Locally defined",
@@ -74,26 +83,119 @@ export class WorkerSource {
     "  return w;",
     "};",
     "",
+    "const enc = encodeURIComponent;",
+    "",
+    "// An object value becomes JSON, which is how `filter` and `sort` already",
+    "// reach the routes that take them — so a plugin writes the same value it",
+    "// would put in a URL by hand.",
+    "const search = (values) => {",
+    '  if (!values) return "";',
+    "  const parts = [];",
+    "  for (const key of Object.keys(values)) {",
+    "    const value = values[key];",
+    "    if (value === undefined || value === null) continue;",
+    '    const encoded = typeof value === "object" ? JSON.stringify(value) : String(value);',
+    '    parts.push(enc(key) + "=" + enc(encoded));',
+    "  }",
+    '  return parts.length === 0 ? "" : "?" + parts.join("&");',
+    "};",
+    "",
+    "// A refusal arrives as a status and a body, not as a throw: the route",
+    "// handled it, so nothing crossed the RPC boundary as an error. Rebuilding",
+    "// the throwable here is what keeps a plugin's experience identical to",
+    "// before D35, when the host threw these directly.",
+    "const ERROR_NAMES = {",
+    '  not_found: "NotFoundError",',
+    '  conflict: "ConflictError",',
+    '  unauthorized: "UnauthorizedError",',
+    "};",
+    "",
+    "const failure = (status, parsed) => {",
+    "  const error = (parsed && parsed.error) || {};",
+    '  const message = error.message || ("silo answered " + status);',
+    '  if (error.code === "validation_failed") return new SiloValidationError(message, error.details);',
+    '  if (error.code === "forbidden") return new SiloForbiddenError(message);',
+    "  const err = new Error(message);",
+    '  err.name = ERROR_NAMES[error.code] || "SiloApiError";',
+    "  err.status = status;",
+    "  err.code = error.code;",
+    "  return err;",
+    "};",
+    "",
+    "// The primitive. It reports what happened and throws only if the call",
+    "// itself could not be made — a 404 is an answer, and a plugin asking",
+    "// whether something exists should not need a try/catch to hear it.",
+    "const buildFetch = (dispatch) => async (path, init) => {",
+    "  const options = init || {};",
+    "  const raw = await rpc(",
+    '    "fetch",',
+    '    [{ method: options.method || "GET", path, headers: options.headers, body: options.body }],',
+    "    dispatch,",
+    "  );",
+    "  const text = () => new TextDecoder().decode(raw.body);",
+    "  return {",
+    "    status: raw.status,",
+    "    ok: raw.status >= 200 && raw.status < 300,",
+    "    headers: raw.headers,",
+    "    bytes: raw.body,",
+    "    // Synchronous, unlike a real Response — there is nothing left to await,",
+    "    // the bytes are already here. `await response.json()` still works.",
+    "    text,",
+    "    json: () => { const body = text(); return body ? JSON.parse(body) : null; },",
+    "  };",
+    "};",
+    "",
+    "// What every generated method calls. JSON in, JSON out, a refusal as a",
+    "// throw — the ergonomics `ctx.fetch` deliberately does not have.",
+    "const buildCall = (fetch) => async (method, path, options) => {",
+    "  const o = options || {};",
+    "  const headers = {};",
+    "  let body;",
+    "  if (o.body !== undefined) {",
+    '    headers["content-type"] = "application/json";',
+    "    body = JSON.stringify(o.body);",
+    "  }",
+    '  if (o.rev !== undefined) headers["if-match"] = String(o.rev);',
+    "",
+    "  const response = await fetch(path + search(o.query), { method, headers, body });",
+    "  if (response.status === 204) return null;",
+    "",
+    "  let parsed = null;",
+    "  try {",
+    "    parsed = response.json();",
+    "  } catch (caught) {",
+    "    if (response.ok) {",
+    '      throw new Error("silo answered " + response.status + " with a body that is not JSON");',
+    "    }",
+    "  }",
+    "  if (!response.ok) throw failure(response.status, parsed);",
+    "  return parsed;",
+    "};",
+    "",
+  ];
+
+  private static readonly Epilogue = [
+    "",
     "// Built per dispatch rather than once, so every ctx call carries the id of",
     "// the dispatch it came out of. One shared ctx could not say that, which is",
     "// why the host used to serialise dispatches to keep a single depth field",
     "// honest — and why a ctx write from a hook deadlocked.",
-    "const buildCtx = (config, dispatch) => ({",
-    "  config,",
-    "  log: {",
-    '    debug: (m, f) => self.postMessage({ t: "log", level: "debug", message: m, fields: f }),',
-    '    info:  (m, f) => self.postMessage({ t: "log", level: "info",  message: m, fields: f }),',
-    '    warn:  (m, f) => self.postMessage({ t: "log", level: "warn",  message: m, fields: f }),',
-    '    error: (m, f) => self.postMessage({ t: "log", level: "error", message: m, fields: f }),',
-    "  },",
-    "  entries: {",
-    '    get:    (scope, collection, id) => rpc("entries.get", [scope, collection, id], dispatch),',
-    '    list:   (scope, collection, query) => rpc("entries.list", [scope, collection, query || {}], dispatch),',
-    '    create: (scope, collection, data) => rpc("entries.create", [scope, collection, data], dispatch),',
-    '    update: (scope, collection, id, data, rev) => rpc("entries.update", [scope, collection, id, data, rev], dispatch),',
-    '    delete: (scope, collection, id, rev) => rpc("entries.delete", [scope, collection, id, rev], dispatch),',
-    "  },",
-    "});",
+    "const buildCtx = (config, dispatch) => {",
+    "  const fetch = buildFetch(dispatch);",
+    "  return Object.assign(",
+    "    {",
+    "      config,",
+    "      log: {",
+    '        debug: (m, f) => self.postMessage({ t: "log", level: "debug", message: m, fields: f }),',
+    '        info:  (m, f) => self.postMessage({ t: "log", level: "info",  message: m, fields: f }),',
+    '        warn:  (m, f) => self.postMessage({ t: "log", level: "warn",  message: m, fields: f }),',
+    '        error: (m, f) => self.postMessage({ t: "log", level: "error", message: m, fields: f }),',
+    "      },",
+    "      fetch,",
+    "    },",
+    "    buildApi(buildCall(fetch)),",
+    "  );",
+    "};",
     "",
     "self.onmessage = async (event) => {",
     "  const msg = event.data;",
@@ -106,7 +208,7 @@ export class WorkerSource {
     '        throw new Error("the default export is not a plugin definition");',
     "      }",
     "      config = msg.config;",
-    "      const exported = msg.declared.filter((h) => typeof definition[h] === \"function\");",
+    '      const exported = msg.declared.filter((h) => typeof definition[h] === "function");',
     '      self.postMessage({ t: "ready", hooks: exported });',
     "    } catch (caught) {",
     '      self.postMessage({ t: "init-error", error: wire(caught) });',
@@ -134,7 +236,15 @@ export class WorkerSource {
     "};",
     "",
     'self.postMessage({ t: "booted" });',
-  ].join("\n");
+  ];
+
+  /** The whole bootstrap: the hand-written runtime, the generated client, and
+   *  the message loop. */
+  static code(): string {
+    return [...WorkerSource.Prelude, ...PluginClientSource.lines(), ...WorkerSource.Epilogue].join(
+      "\n"
+    );
+  }
 
   /**
    * The bootstrap as a `data:` URL.
@@ -146,6 +256,6 @@ export class WorkerSource {
    * lifetime management.
    */
   static url(): string {
-    return "data:text/javascript;base64," + Buffer.from(WorkerSource.Code, "utf8").toString("base64");
+    return "data:text/javascript;base64," + Buffer.from(WorkerSource.code(), "utf8").toString("base64");
   }
 }

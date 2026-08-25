@@ -6,6 +6,7 @@ import type { Logger } from "../../logging/logger";
 import { ManifestReader } from "../manifest";
 import { PluginConfigValidator } from "../manifest";
 import { PluginContext } from "../runtime";
+import type { PluginApiDispatcher } from "../runtime";
 import { HookBus } from "../runtime";
 import { WorkerHost } from "../host";
 import { PluginRuntime } from "../runtime";
@@ -21,6 +22,9 @@ export interface ExtensionLoadOptions {
   configs: readonly PluginConfig[];
   service: SiloService;
   logger: Logger;
+  /** Where a plugin's `ctx.fetch` lands (D35). Shared by every plugin, and
+   *  handed the app once the server exists — see `PluginRegistry.attach`. */
+  dispatcher: PluginApiDispatcher;
 }
 
 /**
@@ -106,13 +110,14 @@ export class PluginLoader {
       const authority = PluginGrantResolver.resolve(config, resolved.manifest, grant);
       PluginLoader.assertDeliverable(config.name, authority);
 
-      const context = new PluginContext(
-        config.name,
-        authority.claims,
-        options.service,
-        options.logger,
-        HookBus.MaxDepth
-      );
+      const context = new PluginContext({
+        name: config.name,
+        claims: authority.claims,
+        keyId: authority.keyId,
+        dispatcher: options.dispatcher,
+        logger: options.logger,
+        maxDepth: HookBus.MaxDepth,
+      });
 
       const hostOptions = {
         name: config.name,

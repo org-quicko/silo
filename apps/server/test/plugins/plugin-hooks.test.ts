@@ -6,6 +6,7 @@ import { SqliteStore } from "../../src/adapters/storage/sqlite/sqlite-store";
 import { SiloService } from "../../src/core/services/silo-service";
 import { Scope } from "../../src/core/domain/scope";
 import { Logger } from "../../src/logging/logger";
+import { SiloServer } from "../../src/http/server";
 import { ValidationError } from "@silo/shared/validation-error";
 import { Claims } from "@silo/shared/claims";
 import { PluginRegistry } from "../../src/plugins";
@@ -87,6 +88,15 @@ describe("plugin hooks", () => {
     config.plugins = plugins;
     registry = await PluginRegistry.load(config, service, Logger.silent());
     service.useHooks(registry.hooks());
+    // Since D35 a `ctx` call **is** an HTTP request, so a plugin that writes
+    // needs a surface to write through. Attaching a real app rather than a stub
+    // is the point of the design: the guards a fixture meets here are the ones
+    // a plugin meets in production.
+    registry.attach(new SiloServer(service, {
+      version: "test",
+      authDisabled: false,
+      logger: Logger.silent(),
+    }).build());
     return registry;
   };
 

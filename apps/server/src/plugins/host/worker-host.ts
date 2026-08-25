@@ -13,6 +13,11 @@ interface Waiter {
   /** The dispatch's causal chain, kept so a callback arriving mid-dispatch can
    *  be told which one it belongs to (D33). */
   cause: readonly string[];
+  /** When this dispatch's budget runs out, as a monotonic-ish wall clock. A
+   *  `ctx.fetch` made from inside it is bounded by what is left rather than by
+   *  a budget of its own, so a slow call rejects itself instead of the worker
+   *  being killed for the dispatch it was slowing down (D35). */
+  deadline: number;
 }
 
 /**
@@ -148,7 +153,13 @@ export class WorkerHost implements PluginHost {
         reject(err);
       }, this.options.timeoutMs);
 
-      this.waiters.set(id, { resolve, reject, timer, cause: chain });
+      this.waiters.set(id, {
+        resolve,
+        reject,
+        timer,
+        cause: chain,
+        deadline: Date.now() + this.options.timeoutMs,
+      });
       worker.postMessage({
         t: "dispatch",
         id,
@@ -182,17 +193,24 @@ export class WorkerHost implements PluginHost {
   }
 
   /**
-   * The chain comes from the waiter the worker correlated this call to, not
-   * from the message — a plugin that named its own nesting could hand itself an
-   * empty one and escape both the cycle skip and the depth bound (D33). An
-   * unknown dispatch id is an empty chain: a call from a timer or a future
-   * `activate()` is genuinely uncaused, and `PluginContext` still appends the
-   * plugin itself.
+   * The chain and the budget both come from the waiter the worker correlated
+   * this call to, not from the message — a plugin that named its own nesting
+   * could hand itself an empty one and escape both the cycle skip and the depth
+   * bound (D33), and a plugin that named its own deadline could hand itself an
+   * unbounded one (D35).
+   *
+   * An unknown dispatch id is an empty chain and the full budget: a call from a
+   * timer or a future `activate()` is genuinely uncaused and has no deadline
+   * over it, so it gets one of its own rather than none at all.
    */
   private async serveRpc(msg: any): Promise<void> {
-    const cause = this.waiters.get(msg.dispatch)?.cause ?? [];
+    const waiter = this.waiters.get(msg.dispatch);
+    const dispatch = {
+      cause: waiter?.cause ?? [],
+      budgetMs: waiter ? waiter.deadline - Date.now() : this.options.timeoutMs,
+    };
     try {
-      const value = await this.options.rpc.call(msg.method, msg.args ?? [], cause);
+      const value = await this.options.rpc.call(msg.method, msg.args ?? [], dispatch);
       this.worker?.postMessage({ t: "rpc-result", id: msg.id, ok: true, value: value ?? null });
     } catch (caught) {
       this.worker?.postMessage({ t: "rpc-result", id: msg.id, ok: false, error: PluginError.toWire(caught) });

@@ -19,4 +19,16 @@ export interface ResolvedGrant {
   /** Declared hooks this plugin may be delivered **nowhere**. Refused at load,
    *  because the alternative is a plugin that runs and quietly does nothing. */
   undeliverable: HookName[];
+
+  /**
+   * The managed `_keys` record this plugin acts as, or `""` while it is pending
+   * or revoked and no key exists (D35).
+   *
+   * The **name** in a trail, not the authority: `claims` above is what the
+   * injected principal presents, because an operator may grant through
+   * `silo.toml` as well as through the record and the key only ever holds the
+   * record's half. Carried here so `PluginContext` can name the caller without
+   * a second read of a record the loader has already seen.
+   */
+  keyId: string;
 }

@@ -1,0 +1,24 @@
+{
+  "name": "lister",
+  "version": "1.0.0",
+  "type": "module",
+  "main": "index.ts",
+  "silo": {
+    "silo": "*",
+    "kind": "extension",
+    "hooks": [
+      "entry.beforeValidate"
+    ],
+    "claims": [
+      "collections:*/*/*:entries:read"
+    ],
+    "config": {
+      "type": "object",
+      "properties": {
+        "from": { "type": "string" }
+      },
+      "required": ["from"],
+      "additionalProperties": false
+    }
+  }
+}

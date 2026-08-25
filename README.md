@@ -699,7 +699,7 @@ runs.
 | `silo` | The version range of silo this plugin supports, checked at startup. There is no separate plugin API version — a breaking change to a hook payload is a major version of silo. |
 | `kind` | `extension` or `provider`. |
 | `hooks` | Which hooks to dispatch. A hook the module exports but does not declare here is never called. |
-| `claims` | What the plugin asks for. The operator grants in `silo.toml`; a plugin requesting more than it was granted refuses the start. |
+| `claims` | What the plugin asks for. The operator grants it in `silo.toml`, through `/api/plugins/{name}/grant`, or both; a grant may never exceed the request. |
 | `config` | A JSON Schema for `[plugins.config]`, validated at startup. |
 
 `<data dir>/plugins/silo-plugin-slug/index.ts`
@@ -775,15 +775,41 @@ is the single property [Portability](#portability) rests on.
 
 ### What a plugin is allowed to do
 
-A plugin never receives the database or the service. It calls `ctx.entries.*`,
-and every call is checked against the claims the operator granted, using the
-same machinery an API key goes through — **a plugin is an API key with code
-attached.** Plugins introduce no new claim strings; the grammar is the one in
-[Authentication and claims](#authentication-and-claims).
+A plugin never receives the database or the service. It acts through `ctx`, and
+a `ctx` call **is a request against silo's own HTTP API** — the same routes, the
+same guards, the same answers a key with those claims would get. That is not an
+analogy for the claim check; it is the claim check. **A plugin is an API key
+with code attached.**
+
+```ts
+// The typed client, for what a plugin usually wants:
+const page = await ctx.entries.list(event.scope, "posts", { limit: 10 });
+
+// ...and the API underneath it, for everything else. Paths must be under
+// /api/; a refusal comes back as a status, not a throw.
+const response = await ctx.fetch("/api/media?limit=5");
+```
+
+Authority comes from two places and is the **union** of them: the `claims` in
+`silo.toml`, and what an operator approved through `POST`/`PUT
+/api/plugins/{name}/grant`. Neither may exceed what the manifest requested.
 
 ```toml
 claims = ["collections:blog/prod/posts:entries:read"]
 ```
+
+Being *told about* a hook is its own claim, separate from any `entries:*`
+permission — being handed a value before it is validated is not reading a
+committed one:
+
+```toml
+claims = ["hooks:blog/prod/posts:entry.beforeValidate"]
+```
+
+A plugin may never be granted `root`, the `plugins:*` claims, or
+`keys:create|revoke|import` — it runs code, so any of those would let it widen
+its own grant, or make the grant irrelevant. Every other claim uses the grammar
+in [Authentication and claims](#authentication-and-claims).
 
 Throwing `ValidationError` or `ForbiddenError` from a hook is a **deliberate
 rejection** and surfaces as a 400 or 403. Any other throw is a **plugin fault**,
