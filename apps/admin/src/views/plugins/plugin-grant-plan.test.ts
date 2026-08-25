@@ -22,6 +22,7 @@ const plugin = (patch: Partial<PluginView> = {}): PluginView => ({
   config_source: 'silo.toml',
   kind: 'extension',
   config_schema: null,
+  routes: [],
   ...patch,
 })
 

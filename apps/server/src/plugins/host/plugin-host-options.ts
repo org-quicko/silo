@@ -11,6 +11,11 @@ export interface PluginHostOptions {
    *  manifest's JSON Schema. */
   config: Record<string, unknown>;
   declared: readonly HookName[];
+  /** The keys of the routes the manifest declares — `"GET /status"` (D36, phase
+   *  6). Checked against the module's exports at start for the same reason
+   *  `declared` is: a route that is declared and not implemented looks, from
+   *  outside, exactly like one that is working. */
+  routes: readonly string[];
   timeoutMs: number;
   rpc: PluginRpc;
 }

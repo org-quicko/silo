@@ -57,6 +57,7 @@ export class PluginInspector {
         ? {
             kind: sighting.resolved.manifest.kind,
             config_schema: sighting.resolved.manifest.config ?? null,
+            routes: sighting.resolved.manifest.routes,
           }
         : null,
       ...PluginInspector.config(config, name, record),

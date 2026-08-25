@@ -42,4 +42,22 @@ export interface PluginView {
   kind: 'extension' | 'provider' | null
   /** JSON Schema for the config block, or `null` when the plugin takes none. */
   config_schema: unknown | null
+  /**
+   * What the plugin serves under `/api/ext/{name}/*` (D36).
+   *
+   * `http:route` is one claim covering all of them, so this list is where the
+   * decision has any detail — and `auth: "public"` is the part that carries
+   * weight, because a handler runs with the plugin's authority rather than the
+   * caller's. Empty when none are declared; `null` when the package could not be
+   * read at all.
+   */
+  routes: PluginRoute[] | null
+}
+
+/** One route a plugin declares (D36). */
+export interface PluginRoute {
+  method: string
+  /** Relative to `/api/ext/{name}`, and may name `:params`. */
+  path: string
+  auth: "key" | "public"
 }

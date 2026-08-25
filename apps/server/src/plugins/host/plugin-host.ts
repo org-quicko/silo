@@ -1,4 +1,6 @@
 import type { HookName, HookEvent } from "../../core/hooks";
+import type { PluginServeRequest } from "./plugin-serve-request";
+import type { PluginServeResponse } from "./plugin-serve-response";
 
 /**
  * How a plugin's code is executed (D31/§13.4).
@@ -25,6 +27,18 @@ export interface PluginHost {
   /** Run one hook. Rejects with a rehydrated error on a plugin throw, and with
    *  `PluginTimeoutError` when the dispatch outlives its budget. */
   dispatch(hook: HookName, event: HookEvent): Promise<unknown>;
+
+  /**
+   * Serve one declared route (D36, phase 6).
+   *
+   * A second dispatch kind rather than a hook with a request in it, because the
+   * two differ in the one way that matters to this port: a hook's *return* is
+   * advice the host may ignore, and a route's return **is** the answer. Bounded
+   * by the same `timeout_ms`, and a plugin throw arrives rehydrated exactly as
+   * `dispatch`'s does, so `ExtRoutes` can map a `ValidationError` to a 400
+   * without the worker having to know about status codes.
+   */
+  serve(key: string, request: PluginServeRequest): Promise<PluginServeResponse>;
 
   /**
    * Why this host will not run again, or `null` while it will (D39, phase 4).

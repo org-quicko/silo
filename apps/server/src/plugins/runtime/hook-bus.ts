@@ -119,19 +119,26 @@ export class HookBus implements Hooks {
    * §13.9. A `ValidationError` or `ForbiddenError` is the plugin **rejecting**
    * the operation and propagates untouched, so a guard plugin produces a 400 or
    * a 403 rather than a 500. Anything else is the plugin **failing**, which is
-   * the operator's `on_error` to decide. And on a hook that runs after the
-   * write has committed, neither policy applies: there is nothing left to fail,
-   * and turning a post-write fault into a 500 would invite a retry that writes
-   * the entry twice.
+   * the operator's `on_error` to decide.
+   *
+   * **Terminal is asked first, and that ordering is the rule, not a detail.**
+   * After the write has committed there is nothing left to reject, so a refusal
+   * is as meaningless as a fault and is dropped the same way. Asking about the
+   * error's class first instead let a post-commit `ForbiddenError` — a plugin
+   * granted delivery but not the claim its `ctx` write needs, which is the
+   * ordinary outcome of narrowing a grant — surface as a **403 on a request
+   * that succeeded**, naming a claim the caller neither needed nor lacked.
    */
   private async run(runtime: PluginRuntime, hook: HookName, event: HookEvent): Promise<unknown> {
     try {
       return await runtime.dispatch(hook, event);
     } catch (caught) {
-      if (ValidationError.is(caught) || caught instanceof ForbiddenError) throw caught;
+      const terminal = HookNames.isTerminal(hook);
+      if (!terminal && (ValidationError.is(caught) || caught instanceof ForbiddenError)) {
+        throw caught;
+      }
 
       const message = caught instanceof Error ? caught.message : String(caught);
-      const terminal = HookNames.isTerminal(hook);
       const skipped = terminal || runtime.config.on_error === "skip";
 
       this.logger.error("plugin hook failed", {

@@ -4,6 +4,96 @@
 > The *current* state is [CONTEXT.md](../../CONTEXT.md); this is how it got
 > there.
 
+- **Plugins serve their own HTTP routes (D36, phase 6, 2026-08-25).** A plugin
+  declares routes in its manifest and silo serves them under
+  `/api/ext/{name}/*`, gated by a new `http:route` claim. §13.18 in
+  [../design/plugins.md](../design/plugins.md).
+  - **Reaching a route is reaching the plugin's grant.** A handler gets the same
+    `ctx` a hook does, so it acts with **the plugin's** authority and never the
+    caller's — which is what a plugin route *is*, since a handler bounded by the
+    caller's claims could only do what the caller could have done directly. That
+    is the confused deputy, and it shapes everything else: `http:route` is a
+    claim so exposure is a decision, `auth: "public"` is declared per route and
+    called out wherever routes are shown, and the caller's `authorization`,
+    `x-api-key` and `cookie` are **withheld** from the handler — it gets an id, a
+    label and claims, so it can be stricter than its route's `auth` and can never
+    act as whoever called it.
+  - **Routes are data silo matches, not registrations.** One
+    `app.all("/api/ext/*")`, looked up through `PluginSupervisor` per request.
+    `RouteManager` already documents that registration order is load-bearing for
+    Hono's matcher, so letting plugins into that list is letting them break entry
+    reads by accident. Interpreting instead means a plugin cannot shadow a silo
+    route, cannot reorder one, and **phase 4 applies to routes**: enable,
+    disable, revoke, restart and rescan mean here what they already mean for
+    hooks.
+  - **A route cannot become a loop.** `ctx.fetch` is confined to `/api/` and
+    `/api/ext/` is inside it, so a plugin can reach its own route. Refused by
+    D33's causal chain rather than by a new counter — a plugin in the chain is one
+    whose own work caused the request — and refused rather than skipped, because
+    a request has to answer something.
+  - **A handler returns a value and never a status.** Nothing is a 204, a string
+    is text, an object is JSON, and `{ status, headers, body }` sets one;
+    normalised inside the worker, because those forms only exist on that side of
+    the clone boundary. A thrown `ValidationError` is a 400 through
+    `SiloServer.onError`, so there is one error mapping and not a second one for
+    routes. Only the timeout is caught here, as a 504 naming
+    `POST /api/plugins/{name}/restart`.
+  - **One narrow piece of `contributes`, taken early.** `ManifestReader` refused
+    an extension that declared no hooks because "nothing would ever call it",
+    which routes make false — and which is D36's own complaint about `kind`:
+    it made a package that wanted to serve a route invent a hook to be loaded.
+    The check now asks whether *anything* would call it. Declared routes with no
+    `http:route` refuse the start, matching `assertDeliverable`.
+  - **`HEAD` on a declared `GET` route answered 405,** found on a running
+    instance where `HEAD /api/health`, `/api/projects` and `/api/plugins` all
+    answered 200. `HEAD` is `GET` without content (RFC 9110 §9.3.2) and the
+    callers that send it are caches, proxies, link checkers and uptime monitors —
+    none of them anything a plugin author tests with, and a plugin route
+    answering differently would be the one route on the instance that does.
+  - **`http:route` summarised as a raw string under "Also".** `ClaimWords` named
+    it and the per-claim lookup spoke it, but the grant summary's section list
+    was hand-written and no prefix matched `http:`. D40 fixed the version of this
+    that *dropped* hook claims; its guard asks "was this claim rendered by
+    anything", which guarantees a claim is **shown** and not that it is shown in
+    words. Families are now derived from the catalogue, and the new test asks
+    whether a claim is *spoken* rather than whether it is *known*.
+  - **Still open:** D37's F6 — a forced delete dispatches no hooks, so auditing
+    and mirroring plugins see entries appear and never see them go. It was parked
+    on this phase, and a collection-level hook is a new name in the hook
+    *vocabulary*, so it belongs with the rest of the `contributes` restructure
+    rather than with the namespace.
+
+- **A post-commit hook's refusal no longer reaches the caller (2026-08-25).**
+  Found verifying phases 4 and 5 on a running instance: a plugin granted hook
+  delivery but not the claim its `ctx` write needs made an ordinary entry write
+  answer **403 on a request that had already succeeded**, quoting a claim the
+  *plugin* lacked to a caller who neither needed nor lacked it. `HookBus.run`
+  asked what class the error was before it asked whether the hook was terminal,
+  so `HookNames.Terminal`'s own rule — "a fault in one of these can never fail
+  the request" — held for faults and not for refusals. Swapping the two
+  questions is the fix. §13.9 in [../design/plugins.md](../design/plugins.md).
+  - **The operator gained a log line, not just the caller a correct status.** A
+    `ForbiddenError` was rethrown *before* reaching the logger, so the one party
+    who could act on it — an operator who had narrowed the grant a moment
+    earlier — saw nothing at all, while the party who could not saw the wrong
+    thing. It is now `outcome=dropped` carrying the plugin's own message.
+  - **It dates from D31 and nothing newer was needed to reach it**, but nothing
+    newer made it ordinary either: it took a hand-edited partial grant and a
+    restart, where phase 5 offers it as the second checkbox on the grant screen
+    and phase 4 applies it live. Shipping a UI for an operation changes how
+    often that operation's edge cases are reached, and the suite had covered the
+    rejection path and the fault path without ever crossing either with
+    `Terminal`.
+  - **A knife-edge assertion in the D35 fetch-budget test went with it.** Adding
+    one test tipped `expect(elapsed).toBeLessThan(1200)` into failing about one
+    run in five: the call rejects at `timeout_ms - MarginMs` = 1150, so 50 ms
+    had to cover a worker round-trip, an ajv pass and a SQLite write. It also
+    asserted nothing — the line above it already proves the *call* was bounded
+    rather than the worker, because a hook that returns a value is one whose
+    dispatch was not killed. §13.10's "assert the clock" holds where duration is
+    the **only** symptom; here it is not, so the bound is now coarse enough to
+    catch a real hang and nothing else.
+
 - **The grant screen: plugins get an admin UI (D40, phase 5, 2026-08-25).**
   `Settings → Plugins` lists what has a record; each plugin's page is where a
   grant is approved or narrowed, withdrawn, paused, restarted, reconfigured and

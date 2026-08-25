@@ -15,6 +15,7 @@ import { PluginActivityCard } from './PluginActivityCard'
 import { PluginConfigCard } from './PluginConfigCard'
 import { PluginGrantCard } from './PluginGrantCard'
 import { PluginLifecycleCard } from './PluginLifecycleCard'
+import { PluginRoutesCard } from './PluginRoutesCard'
 import { PluginRuntimePill } from './PluginRuntimePill'
 import { PluginStatePill } from './PluginStatePill'
 import { usePlugin } from './use-plugin'
@@ -188,6 +189,8 @@ export function PluginDetailView({
               }
               onRevoke={() => run(() => api.plugins.revoke(url, apiKey, plugin.name, plugin.rev))}
             />
+
+            <PluginRoutesCard plugin={plugin} />
 
             <PluginConfigCard
               key={`config-${plugin.rev}`}

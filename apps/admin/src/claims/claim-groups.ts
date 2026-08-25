@@ -90,17 +90,11 @@ export class ClaimGroups {
   }
 
   private static fixedGroups(claims: readonly string[], spoken: Set<string>): ClaimGroup[] {
-    const sections = [
-      { title: 'Media', prefix: 'media:' },
-      { title: 'API keys', prefix: 'keys:' },
-      { title: 'Data transfer', prefix: 'transfer:' },
-      { title: 'Plugins', prefix: 'plugins:' },
-      { title: 'Audit', prefix: 'audit:' },
-    ]
     const catalogue = ClaimWords.catalogue()
 
     const groups: ClaimGroup[] = []
-    for (const { title, prefix } of sections) {
+    for (const prefix of ClaimWords.families(catalogue)) {
+      const title = ClaimWords.familyTitle(prefix)
       const held = catalogue.filter((claim) => claim.startsWith(prefix) && claims.includes(claim))
       if (held.length === 0) continue
       for (const claim of held) spoken.add(claim)

@@ -48,6 +48,19 @@ export class ClaimVocabulary {
   // to guard and inventing one would imply a capability that does not exist.
   static readonly AuditRead = "audit:read";
 
+  /**
+   * Serving the routes a plugin declared, under `/api/ext/{name}/*` (D36, phase
+   * 6).
+   *
+   * A **plugin-shaped** claim, like `hooks:…`: it authorises being *reached*,
+   * not reaching anything, so a key that holds it gains nothing. It is one
+   * claim rather than one per route because the routes are already enumerated in
+   * the manifest and mounted under the plugin's own name — a plugin cannot
+   * escape its prefix, so there is no reach for a scope to narrow. What the
+   * operator weighs is the route list, which the grant screen shows.
+   */
+  static readonly HttpRoute = "http:route";
+
   // These lookup tables are `Record<Union, true>` rather than sets so the
   // compiler enforces that they stay *complete*: adding a member to one of the
   // unions without listing it here is an error, instead of a claim that
@@ -83,6 +96,7 @@ export class ClaimVocabulary {
     [ClaimVocabulary.PluginsGrant]: true,
     [ClaimVocabulary.PluginsEnable]: true,
     [ClaimVocabulary.AuditRead]: true,
+    [ClaimVocabulary.HttpRoute]: true,
   };
 
   /**

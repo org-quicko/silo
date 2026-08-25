@@ -1,4 +1,5 @@
 import type { PluginGrant } from "../../core/plugins/plugin-grant";
+import type { PluginRoute } from "../manifest/plugin-route";
 import type { PluginStatus } from "./plugin-status";
 
 /**
@@ -20,6 +21,19 @@ export interface PluginManifestFacts {
    *  none — which means it takes no configuration, not that anything is
    *  wrong. */
   config_schema: unknown | null;
+
+  /**
+   * The routes the package declares, which is what an operator approves (D36,
+   * phase 6).
+   *
+   * From the **manifest** and not from the grant, because the point of showing
+   * them is deciding: `http:route` is one claim covering all of them, so the
+   * list is the only place the decision has any detail. `auth` matters most —
+   * a handler runs with the plugin's authority, so a `public` route publishes
+   * whatever that plugin holds at a URL anyone can reach, and that is the one
+   * property of a route nobody can infer from the claim.
+   */
+  routes: readonly PluginRoute[];
 }
 
 /**

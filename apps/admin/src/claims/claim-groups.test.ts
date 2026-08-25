@@ -105,4 +105,21 @@ describe('ClaimWords', () => {
     const catalogue = new Set(ClaimWords.catalogue())
     for (const claim of Object.keys(Claims.FixedClaims)) expect(catalogue.has(claim)).toBe(true)
   })
+
+  /**
+   * Having words is not the same as using them.
+   *
+   * `http:route` had words and still summarised as a raw string under "Also",
+   * because the summary's section list was written by hand and no prefix
+   * matched — measured on a running instance. The test above cannot see that:
+   * it asks whether a claim is *known*, and this asks whether it is *spoken*.
+   */
+  test('summarises every fixed claim in words, never under Also', () => {
+    for (const claim of Object.keys(Claims.FixedClaims)) {
+      const groups = ClaimGroups.build([claim])
+      const also = groups.find((group) => group.title === 'Also')
+      expect(also, `${claim} fell through to "Also"`).toBeUndefined()
+      expect(groups.flatMap((group) => group.lines)).toContain(ClaimWords.fixed[claim])
+    }
+  })
 })

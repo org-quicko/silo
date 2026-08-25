@@ -1,4 +1,5 @@
 import type { HookName } from "../../core/hooks";
+import type { PluginRoute } from "./plugin-route";
 import type { ProviderPort } from "./provider-port";
 
 /**
@@ -24,6 +25,17 @@ export interface PluginManifest {
    *  the operator never saw. A hook the module exports but does not declare is
    *  never dispatched. */
   hooks: readonly HookName[];
+
+  /**
+   * The HTTP routes this plugin serves under `/api/ext/{name}/*` (D36, phase 6).
+   *
+   * Declared for the same reason `hooks` is: an operator approves what a package
+   * will expose before it runs, and a route the module implements but does not
+   * declare is never reachable. Serving them at all costs the `http:route`
+   * claim, so a package can ask and be refused without the routes vanishing
+   * from what the grant screen shows.
+   */
+  routes: readonly PluginRoute[];
 
   /** What the plugin asks for. The operator grants through `[[plugins]] claims`;
    *  the two are compared at load, so a plugin cannot be silently

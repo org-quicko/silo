@@ -28,9 +28,10 @@ export class RouteManager {
     // Plugin *management* (D34/D38/D39), registered before the scoped param
     // routes for the same ordering reason the rest of this list exists.
     PluginRoutes.register(app, service, plugins);
-    // Reserved for plugin-contributed routes (D36), kept out of /api/plugins/
-    // so a plugin name can never collide with a management verb.
-    ExtRoutes.register(app);
+    // Plugin-contributed routes (D36, phase 6), kept out of /api/plugins/ so a
+    // plugin name can never collide with a management verb. One Hono route for
+    // all of them — see `ExtRoutes` for why plugins are not let into this list.
+    ExtRoutes.register(app, plugins);
     AuditRoutes.register(app, service);
     KeysRoutes.register(app, service);
     TransferRoutes.register(app, service);

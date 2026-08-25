@@ -3,6 +3,8 @@ import type { HookEvent } from "../../core/hooks";
 import { PluginError } from "./plugin-error";
 import type { PluginHost } from "./plugin-host";
 import type { PluginHostOptions } from "./plugin-host-options";
+import type { PluginServeRequest } from "./plugin-serve-request";
+import type { PluginServeResponse } from "./plugin-serve-response";
 import { PluginTimeoutError } from "./plugin-timeout-error";
 import { WorkerSource } from "./worker-source";
 
@@ -80,6 +82,7 @@ export class WorkerHost implements PluginHost {
             entry: this.options.entry,
             config: this.options.config,
             declared: this.options.declared,
+            routes: this.options.routes,
           });
           return;
         }
@@ -125,7 +128,8 @@ export class WorkerHost implements PluginHost {
    * from the outside exactly like one whose guard is running.
    */
   private reconcile(exported: string[]): readonly HookName[] {
-    const missing = this.options.declared.filter((h) => !exported.includes(h));
+    const declared = [...this.options.declared, ...this.options.routes];
+    const missing = declared.filter((h) => !exported.includes(h));
     if (missing.length > 0) {
       throw new Error(
         `plugin "${this.options.name}": declares ${missing.join(", ")} but exports no such function.`
@@ -135,20 +139,56 @@ export class WorkerHost implements PluginHost {
   }
 
   async dispatch(hook: HookName, event: HookEvent): Promise<unknown> {
-    if (this.dead) throw this.dead;
-    const worker = this.worker;
-    if (!worker) throw new Error(`plugin "${this.options.name}": not started`);
-
     // The chain stays host-side and crosses as a count. A plugin needs to know
     // how deeply nested it is; it has no business learning which *other*
     // plugins are installed, which the chain would disclose on every event.
     const { chain, ...payload } = event;
-    const id = ++this.seq;
+    return await this.call(hook, chain, (id) => ({
+      t: "dispatch",
+      id,
+      hook,
+      event: { ...payload, depth: chain.length },
+    }));
+  }
 
+  /**
+   * Serve one route (D36, phase 6).
+   *
+   * The chain is empty because a request is where causality *starts* — nobody's
+   * hook caused it. `PluginContext` appends this plugin to whatever it is given,
+   * so a `ctx` write from a route handler still carries the plugin's own name
+   * and still cannot re-enter the plugin's own hooks (D33). What stops a plugin
+   * reaching its **own route** through `ctx.fetch` is the same chain, read one
+   * level up by `ExtRoutes`.
+   */
+  async serve(key: string, request: PluginServeRequest): Promise<PluginServeResponse> {
+    const answer = await this.call(key, [], (id) => ({ t: "serve", id, key, request }));
+    return answer as PluginServeResponse;
+  }
+
+  /**
+   * One round trip into the worker, bounded and correlated.
+   *
+   * Shared by `dispatch` and `serve` because every property that makes the
+   * timeout mean anything is the same for both: one budget, one waiter, and a
+   * tear-down that is permanent. Two copies of this would be two places for
+   * "does missing the budget kill the worker" to be answered, and §13.9 needs
+   * exactly one.
+   */
+  private async call(
+    what: string,
+    chain: readonly string[],
+    message: (id: number) => Record<string, unknown>
+  ): Promise<unknown> {
+    if (this.dead) throw this.dead;
+    const worker = this.worker;
+    if (!worker) throw new Error(`plugin "${this.options.name}": not started`);
+
+    const id = ++this.seq;
     return await new Promise<unknown>((resolve, reject) => {
       const timer = setTimeout(() => {
         this.waiters.delete(id);
-        const err = new PluginTimeoutError(this.options.name, hook, this.options.timeoutMs);
+        const err = new PluginTimeoutError(this.options.name, what, this.options.timeoutMs);
         this.kill(err);
         reject(err);
       }, this.options.timeoutMs);
@@ -160,12 +200,7 @@ export class WorkerHost implements PluginHost {
         cause: chain,
         deadline: Date.now() + this.options.timeoutMs,
       });
-      worker.postMessage({
-        t: "dispatch",
-        id,
-        hook,
-        event: { ...payload, depth: chain.length },
-      });
+      worker.postMessage(message(id));
     });
   }
 

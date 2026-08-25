@@ -376,10 +376,20 @@ describe("ctx.fetch (D35)", () => {
       const seen = await probe();
       const elapsed = Date.now() - started;
 
+      // The discriminator, and it is binary rather than timed: the hook *ran to
+      // completion and returned a value*, which a dispatch killed at its budget
+      // cannot do — under the default `on_error: "fail"` the write itself would
+      // have rejected, and failing that there would be no note to parse. So
+      // this says the **call** was bounded, not the worker.
       expect(seen.threw).toContain("exceeded");
-      // Inside the dispatch budget, which is what says the *call* timed out
-      // rather than the worker being torn down for the dispatch.
-      expect(elapsed).toBeLessThan(1200);
+
+      // A coarse bound, deliberately not `< 1200`. The call rejects at
+      // `timeout_ms - MarginMs` = 1150, so a knife-edge assertion left 50 ms for
+      // a worker round-trip, an ajv pass and a SQLite write, and tripped under
+      // full-suite load while asserting nothing the line above had not already
+      // proved. §13.10 says to assert the clock where duration is the only
+      // symptom; here it is not, so the clock only has to catch a real hang.
+      expect(elapsed).toBeLessThan(5000);
 
       // The proof that it was not torn down: it answers again.
       const again = await service.entries.create(scope, "probes", { title: "after" });

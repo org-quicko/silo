@@ -8,6 +8,7 @@ import { PluginGrantService } from "../../core/services/plugin-grant-service";
 import type { GrantRequest } from "../../core/services/support/grant-request";
 import type { SiloService } from "../../core/services/silo-service";
 import type { Logger } from "../../logging/logger";
+import type { PluginRuntime } from "../runtime/plugin-runtime";
 import { PluginConfigurator } from "./plugin-configurator";
 import type { PluginFacts } from "./plugin-facts";
 import { PluginInspector } from "./plugin-inspector";
@@ -247,6 +248,18 @@ export class PluginSupervisor {
   /** What a plugin is doing, as opposed to what its record says. */
   async status(name: string, record: PluginGrantRecord | null): Promise<PluginStatus> {
     return await PluginInspector.status(this.config, this.registry, name, record);
+  }
+
+  /**
+   * The loaded plugin of that name, or `undefined` (D36, phase 6).
+   *
+   * Asked **per request** by `ExtRoutes`, and that is the point: only this class
+   * mutates the registry, so a lookup that goes through it sees enable, disable,
+   * revoke and rescan the moment they happen. A route table captured at boot
+   * would have made plugin routes the one surface where phase 4 did not apply.
+   */
+  runtime(name: string): PluginRuntime | undefined {
+    return this.registry.find(name);
   }
 
   /** Start a plugin the operator just enabled: worker first, record second. */

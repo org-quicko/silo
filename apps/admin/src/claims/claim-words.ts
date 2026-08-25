@@ -85,6 +85,7 @@ export class ClaimWords {
     [Claims.PluginsGrant]: 'approve what a plugin may do',
     [Claims.PluginsEnable]: 'turn plugins on and off',
     [Claims.AuditRead]: 'read the authority trail',
+    [Claims.HttpRoute]: 'serve its own HTTP routes',
   }
 
   /** Groups holding one of these are flagged for a second look. */
@@ -103,6 +104,48 @@ export class ClaimWords {
   /** The fixed claims that have words here, in the order they were written. */
   static catalogue(): string[] {
     return Object.keys(ClaimWords.fixed)
+  }
+
+  /**
+   * Section headings for the claim families, for the ones worth renaming.
+   *
+   * A lookup rather than the section list itself, because the *list* is derived
+   * — see `families`. Only families whose prefix reads badly as a heading need
+   * an entry here.
+   */
+  private static readonly familyTitles: Record<string, string> = {
+    'keys:': 'API keys',
+    'transfer:': 'Data transfer',
+    'http:': 'HTTP',
+  }
+
+  /**
+   * The claim families present in a catalogue, in catalogue order.
+   *
+   * **Derived, not listed**, and that is the point. A hand-maintained section
+   * list is how `http:route` first rendered: `ClaimWords.fixed` named it, the
+   * per-claim lookup spoke it, and the summary still printed it raw under "Also"
+   * because no section matched its prefix. D40 fixed the version of this that
+   * *dropped* a claim and left the version that merely fails to describe one, so
+   * the rule is the same one restated: the question has to be answerable for a
+   * claim family nobody has thought of yet.
+   */
+  static families(catalogue: readonly string[]): string[] {
+    const seen: string[] = []
+    for (const claim of catalogue) {
+      const prefix = claim.slice(0, claim.indexOf(':') + 1)
+      if (prefix.length > 0 && !seen.includes(prefix)) seen.push(prefix)
+    }
+    return seen
+  }
+
+  /** `"media:"` → `"Media"`, unless it reads badly and `familyTitles` says
+   *  otherwise. */
+  static familyTitle(prefix: string): string {
+    const named = ClaimWords.familyTitles[prefix]
+    if (named) return named
+    const bare = prefix.replace(/:$/, '')
+    return bare.charAt(0).toUpperCase() + bare.slice(1)
   }
 
   /**

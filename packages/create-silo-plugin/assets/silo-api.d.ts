@@ -155,10 +155,53 @@ declare module "silo:api" {
     // </generated from PluginApiContract>
   }
 
+  /** Who called a plugin route, or `null` on a `public` one reached with no
+   *  credential. Never carries their secret — a plugin acts with its own
+   *  authority, so there is nothing it could correctly do with theirs. */
+  export interface SiloRequestCaller {
+    id: string;
+    label: string;
+    claims: string[];
+  }
+
+  /** One request to a route the manifest declares (D36). */
+  export interface SiloRequest {
+    method: string;
+    /** The **declared** path — `/notes/:id`. The values are in `params`. */
+    path: string;
+    params: Record<string, string>;
+    query: Record<string, string>;
+    /** Lowercased. `authorization`, `x-api-key` and `cookie` are withheld. */
+    headers: Record<string, string>;
+    /** Text, or `null`. Parse it yourself: only the route knows what it is. */
+    body: string | null;
+    caller: SiloRequestCaller | null;
+  }
+
   /**
-   * The hooks a plugin may implement. Only those its manifest **declares** are
-   * dispatched, so adding a function here without adding it to `silo.hooks` in
-   * `package.json` does nothing.
+   * What a route handler may return.
+   *
+   * Nothing is a 204, a string is `text/plain`, any other object is a JSON body,
+   * and this shape sets the status or the headers explicitly. `json` is a
+   * convenience for `body: JSON.stringify(...)` with the content type.
+   */
+  export interface SiloRouteResponse {
+    status?: number;
+    headers?: Record<string, string>;
+    body?: string | null;
+    json?: any;
+  }
+
+  /**
+   * What a plugin implements: hooks and routes, on one object.
+   *
+   * Only what the manifest **declares** is ever called, so adding a function
+   * here without adding it to `silo.hooks` or `silo.routes` in `package.json`
+   * does nothing — and declaring one without implementing it refuses the start.
+   *
+   * A route is keyed exactly as the manifest declares it: `"GET /notes/:id"`.
+   * The index signature is what lets those be written at all; it is deliberately
+   * last, so the hooks above keep their precise types.
    */
   export interface SiloPluginDefinition {
     /** Return `{ data }` to replace the value, or nothing to leave it. */
@@ -171,6 +214,21 @@ declare module "silo:api" {
     "entry.afterWrite"?(event: SiloHookEvent, ctx: SiloContext): void | Promise<void>;
     "entry.beforeDelete"?(event: SiloHookEvent, ctx: SiloContext): void | Promise<void>;
     "entry.afterDelete"?(event: SiloHookEvent, ctx: SiloContext): void | Promise<void>;
+
+    /**
+     * A route, named `"<METHOD> <path>"` as `silo.routes` declares it.
+     *
+     * Throw `ValidationError` or `ForbiddenError` to answer 400 or 403 — a
+     * handler never names a status code to refuse.
+     */
+    [route: string]:
+      | undefined
+      | ((
+          request: SiloRequest,
+          ctx: SiloContext
+        ) => void | any | SiloRouteResponse | Promise<void | any | SiloRouteResponse>)
+      | SiloPluginDefinition["entry.beforeValidate"]
+      | SiloPluginDefinition["entry.beforeWrite"];
   }
 
   /** Identity at runtime. It exists so a plugin's default export is typed, and

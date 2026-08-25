@@ -433,6 +433,15 @@ and costs a `format_version` decision (D14).
   rejection** and propagates as 400/403; `SiloServer.onError` already maps both.
 - Any other throw is a **plugin fault**, governed by `on_error` — `fail`
   (default, matching silo's fail-loud instinct) or `skip`, logged either way.
+- **Both of those stop at the commit.** `HookNames.Terminal` —
+  `entry.afterWrite`, `entry.afterDelete` — asks whether the hook is terminal
+  *before* it asks what class the error was, because after the write has landed
+  there is nothing left to reject and a refusal is as meaningless as a fault.
+  Asked the other way round, a post-commit `ForbiddenError` surfaced as a **403
+  on a request that had already succeeded**, naming a claim the *plugin*
+  lacked to a caller who never needed it — and never reached the logger, so
+  the operator saw nothing while the client saw the wrong thing. Both halves
+  are now the same line: dropped, and logged as `outcome=dropped`.
 - Every dispatch is bounded by `timeout_ms`. This matters because `Service`
   serialises writes on a process-local `AsyncMutex`, which is exactly what makes
   optimistic concurrency sound without CAS in the adapters (D25, §6.1) — a hook
@@ -523,8 +532,11 @@ Where a plugin dispatch is involved, assert the clock.
 > **Partly built.** D33 has landed, phase 1 of D34 with it (§13.12), phase 2 has
 > shipped (§13.14), phase 3 has followed its cleared gate (§13.13) into §13.15,
 > phase 4 is §13.16 — so the acceptance test below now passes, and is a test
-> rather than a plan — and phase 5 is §13.17. Phase 6 remains. This section is
-> the shape, not the specification — the decisions log carries the reasoning, and
+> rather than a plan — phase 5 is §13.17, and phase 6 is §13.18. **Every phase
+> has landed.** What is left of D36 is the `contributes` restructure it shares
+> with this section: `kind` giving way to a contribution list, `activate()` and
+> `deactivate()`, and `required`/`optional` permissions carrying `reason`
+> strings. This section is the shape, not the specification — the decisions log carries the reasoning, and
 > each phase writes its own detail here as it lands.
 
 ### The two holes this closes
@@ -578,7 +590,7 @@ could write the database could execute code.**
 | 3 | **Done, §13.15.** `ctx.fetch`, the generated client, and the four requirements §13.13 left it |
 | 4 | **Done, §13.16.** Supervisor: live enable, disable, reorder, revoke, reconfigure, rescan |
 | 5 | **Done, §13.17.** Admin UI — the grant screen, lifecycle and the trail. (`silo add`, `create-silo-plugin` and the drift tests landed early, with D32) |
-| 6 | Plugin routes under `/api/ext/{name}/*` |
+| 6 | **Done, §13.18.** Plugin routes under `/api/ext/{name}/*`, gated by `http:route` |
 
 ### The acceptance test
 
@@ -700,7 +712,8 @@ the same authority `silo keys create` already has here. That is what makes them
 more than a convenience: they are the way out of the boot deadlock, and the way
 to provision a plugin in CI.
 
-`/api/ext/` is reserved here too, though nothing mounts under it until phase 6.
+`/api/ext/` is reserved here too. Nothing mounted under it until phase 6, which
+is §13.18.
 D31 reserved `/api/plugins/` for plugin routes and D34 took it back, because
 management needs that space and the two cannot share it: once
 `POST /api/plugins/acme/grant` is a verb, a plugin route named `grant` is
@@ -739,7 +752,7 @@ is now an assertion in `apps/server/test/http/route-authority.test.ts`.
 | F3 | A plugin granted `keys:*` escapes its own grant | **Fixed** |
 | F4 | A minted key outlives the principal that minted it | Deferred — phase 2 |
 | F5 | `--no-auth` would hand every plugin root through `ctx` | Phase 3 precondition |
-| F6 | Bulk erasure dispatches no hooks | Deferred — phase 6 |
+| F6 | Bulk erasure dispatches no hooks | **Still open** — see below |
 | F7 | `/api/copy` fetches an operator-supplied URL | Accepted, see below |
 
 **F1 — force is a second operation, not a modifier.** `DELETE
@@ -821,8 +834,17 @@ and never see them go.
 
 Left alone deliberately. Dispatching one event per erased entry would make a
 100k-row delete a 100k-event fan-out through the D33 chain, and the honest fix is
-a collection-level hook rather than a flood of entry-level ones. That is a
-`contributes` question, so it belongs to D36 and phase 6.
+a collection-level hook rather than a flood of entry-level ones.
+
+**Still open after phase 6 (§13.18), and that is a scoping call worth recording
+rather than a slip.** It was parked here because it is a `contributes` question,
+and phase 6 deliberately took only the one narrow piece of `contributes` that
+routes forced — the "declares nothing" check. A collection-level hook is a new
+name in the hook *vocabulary*, which reaches `HookNames`, the claim grammar, the
+manifest, the `.d.ts` and the grant screen's words; it belongs with the rest of
+the `contributes` restructure, not with the namespace. Until then, auditing and
+mirroring plugins still see entries appear and never see them go under a forced
+delete.
 
 **F7 — `/api/copy` is a server-side fetch to an operator-supplied URL**, with an
 operator-supplied bearer token. That is what the route is for, and its guard is
@@ -1022,9 +1044,10 @@ record would turn a bad row into a hung revocation.
 ## 13.15 `ctx` is the HTTP API (D35, phase 3)
 
 > **Built.** The supervisor landed in §13.16 and closed the debt this section
-> ends on. The admin UI is §13.17 and plugin routes (phase 6) remain, and D36's
-> `contributes`, `activate()` and `required`/`optional` permissions are still
-> §13.11.
+> ends on. The admin UI is §13.17 and plugin routes are §13.18 — which is also
+> where the `/api/` confinement below turns out to matter twice, since
+> `/api/ext/` is inside it. D36's `contributes`, `activate()` and
+> `required`/`optional` permissions are still §13.11.
 
 ### What changed
 
@@ -1360,7 +1383,8 @@ refusal nor a bug.
 
 ## 13.17 The grant screen (D40, phase 5)
 
-> **Built.** Plugin routes under `/api/ext/{name}/*` (phase 6) remain.
+> **Built.** Plugin routes followed in §13.18, and the route list is rendered
+> beside the grant there for the reason this section gives about hook delivery.
 
 Phase 4 is what makes a UI worth building. Before the supervisor every button
 here would have ended in *"restart the server to find out"*, which is not a
@@ -1449,6 +1473,17 @@ for: it read `detail.claims`, which is what `key.create` writes, while
 `plugin.grant` writes `granted` and `plugin.revoke` writes `withdrawn`. One
 field name across seven actions, and the one that mattered was not it.
 
+A **fourth** turned up in the verification pass over the finished phases, and it
+is the oldest bug either phase has surfaced: a post-commit hook's refusal
+reaching the caller as a 403 on a write that succeeded (§13.9). It dates from
+D31 and needed nothing newer to exist — but nothing newer made it *ordinary*
+either. Reaching it used to mean hand-editing a partial grant into `silo.toml`
+and restarting; phase 5 offers it as the second checkbox on the grant screen and
+phase 4 applies it with no restart, so the thing to notice is not that a live
+pass found an old bug. It is that **shipping a UI for an operation changes how
+often that operation's edge cases are reached**, and the suite had covered the
+rejection path and the fault path without ever crossing either with `Terminal`.
+
 ### What phase 5 does not do
 
 - **It does not install plugins.** `silo add` writes to the data directory and
@@ -1459,3 +1494,158 @@ field name across seven actions, and the one that mattered was not it.
 - **It does not gate its own nav item.** Consistent with API Keys and Data
   Transfer, the page loads and reports what the key may not read, rather than
   the nav quietly having fewer entries on some keys than others.
+
+## 13.18 Plugin routes (D36, phase 6)
+
+> **Built.** The rest of D36 — `contributes` replacing `kind`, `activate()`, and
+> `required`/`optional` permissions with `reason` strings — is still §13.11.
+
+A plugin declares routes in its manifest and serves them under
+`/api/ext/{name}/*`. That is the whole feature; everything interesting is about
+two questions, and one of them is not the one it looks like.
+
+### Reaching a route is reaching the plugin's grant
+
+A handler receives the same `ctx` a hook does, so it reads and writes with **the
+plugin's** authority and never the caller's. That is not an implementation
+detail to be tightened later — it is what a plugin route *is*. A plugin exists
+to do something the caller cannot, and a handler bounded by the caller's claims
+could only ever do what the caller could have done directly.
+
+The consequence is the classic confused deputy, and it is the reason for the
+shape of everything else here:
+
+- **`http:route` is a claim**, so exposing a plugin at all is a decision an
+  operator makes rather than a property of the package. It is plugin-shaped like
+  `hooks:…` — it authorises being *reached*, not reaching anything, so a key
+  holding it gains nothing.
+- **One claim, not one per route.** The routes are already enumerated in the
+  manifest and mounted under the plugin's own name; a plugin cannot escape its
+  prefix, so there is no reach for a scope to narrow. What carries the detail is
+  the route list, which is why the grant screen renders it beside the claim
+  rather than leaving a client to infer it.
+- **`auth: "public"` is declared per route** and called out wherever the routes
+  are shown. It is the one property of a route nobody can infer from the claim,
+  and it is the sharp end of the deputy problem: a public route publishes
+  whatever the plugin was granted at a URL anyone can reach.
+- **A plugin never receives a credential.** `authorization`, `x-api-key` and
+  `cookie` are withheld from the handler, and `caller` carries an id, a label and
+  claims instead. The same rule as `PluginApiDispatcher` stripping those on the
+  way *out*: a plugin acts as itself, so the only use for a caller's secret is to
+  act as them, and a plugin that never holds one cannot log or forward one.
+  Claims are included so a plugin can be *stricter* than its route's `auth`,
+  which is the one thing it might legitimately want.
+
+### Routes are data, not registrations
+
+silo matches them itself. A plugin never touches Hono's router, and that is the
+design rather than a shortcut.
+
+`RouteManager` already documents that registration order is load-bearing for
+Hono's matcher — `/schema` before `/:id`, `/search` before entries — so letting
+third parties into that list is letting them break entry reads by accident. And a
+plugin able to register `/api/ext/x/*` would claim every path its namespace will
+ever have, including ones a later silo version gives a meaning.
+
+Interpreting them instead buys three things at once. They cannot shadow a silo
+route. They cannot reorder one. And they can appear and vanish while the process
+runs — which is what makes **phase 4 apply to routes**: `ExtRoutes` looks the
+plugin up through `PluginSupervisor` on every request, so enable, disable,
+revoke, restart and rescan mean here exactly what they already mean for hooks. A
+route table captured at boot would have made this the one surface the supervisor
+did not reach.
+
+The grammar is deliberately smaller than Hono's — literal segments and `:name`
+parameters, no wildcards, no optionals, no regular expressions —  and
+`ManifestReader` refuses the rest at the manifest, so the refusal names the
+package rather than surfacing as a route that never matches. Paths are split
+**before** they are decoded, because decoding first lets a `%2F` inside a
+parameter become a separator and one segment match two.
+
+### A route cannot become a loop
+
+`ctx.fetch` is confined to `/api/`, and `/api/ext/` is inside it — so a plugin
+can reach its own route, and a one-line handler that calls itself would
+otherwise recurse until the fetch budget ran out.
+
+The guard is not a new counter. It is the fact `HookBus.shouldDispatch` already
+reads: a plugin in the event's causal chain is one whose own work caused this
+request, and re-entering it is exactly what D33 made unrepresentable for hooks.
+`ExtRoutes` refuses rather than skips, because a request has to answer something
+and a 200 with no handler run would be a lie. Plugin-to-plugin calls are
+untouched — only a cycle has its target already in the chain.
+
+### What the answer looks like
+
+A handler returns a value and never a status code. Nothing is a 204, a string is
+`text/plain`, any other object is a JSON body, and `{ status, headers, body }` or
+`{ json }` sets one explicitly. The normalising happens **inside the worker**,
+because those forms only exist on that side of the clone boundary; the host only
+ever sees `{ status, headers, body }`.
+
+Refusals reuse the path that already exists. A handler throwing `ValidationError`
+or `ForbiddenError` produces a 400 or a 403 through `SiloServer.onError`, rebuilt
+by name across the worker boundary exactly as a hook's refusal is (§13.9) — so
+there is one error mapping in the codebase and not a second one for routes. The
+only failure `ExtRoutes` catches itself is the timeout, because it is the one
+whose meaning is about the transport rather than the request: the plugin did not
+answer, it is now `failed`, and the response says
+`POST /api/plugins/{name}/restart`.
+
+A body is bounded at 1 MiB and **refused** past it rather than truncated or
+dropped, because a plugin cannot tell a body it was not given from one that was
+never sent — a caller would get a 200 describing work done on the wrong input.
+
+### One narrow piece of `contributes`, taken early
+
+`ManifestReader` refused an extension that declared no hooks, on the grounds that
+nothing would ever call it. With routes that sentence is simply false, and it is
+D36's own complaint about `kind`: it made a package that wanted to serve a route
+invent a hook merely to be loaded. The check now asks whether *anything* would
+call the plugin — hooks or routes — which is the same question with the right
+subject. The rest of the `contributes` restructure is untouched.
+
+Declared routes with no `http:route` **refuse the start**, matching
+`assertDeliverable` one capability over: a plugin whose every route answers 403 is
+running, healthy, and not doing the thing it was installed for, and that failure
+would otherwise surface to a caller rather than to whoever deployed it. A plugin
+awaiting approval is exempt, for the boot-deadlock reason D34 gives.
+
+### What a live pass caught, for the fifth phase running
+
+Two, and both were about a plugin route being *unlike the rest of the instance*
+rather than about plugins at all.
+
+**`HEAD` on a declared `GET` route answered 405.** Measured against a running
+instance: `HEAD /api/health`, `/api/projects` and `/api/plugins` all answer 200,
+and `HEAD /api/ext/greeter/hello` did not. `HEAD` is `GET` without content (RFC
+9110 §9.3.2), and the callers that send it are caches, proxies, link checkers and
+uptime monitors — none of them anything a plugin author tests with. A declared
+`GET` now answers it and `ExtRoutes` drops the body, so a handler never has to
+know which of the two it is answering.
+
+**`http:route` summarised as a raw string under "Also".** `ClaimWords` named it
+and the per-claim lookup spoke it, but the grant summary's section list was
+written by hand and no prefix matched `http:`. This is D40's bug at one lower
+severity — that one *dropped* hook claims, this one merely failed to describe a
+claim — and D40's fix does not cover it, because asking "was this claim rendered
+by anything" guarantees a claim is **shown**, not that it is shown in words. The
+families are now derived from the catalogue, and the new test asks whether a
+claim is *spoken* rather than whether it is *known*, which is the distinction the
+existing one could not see.
+
+### What phase 6 does not do
+
+- **It does not let a plugin serve outside `/api/ext/{name}`.** Not a
+  restriction to relax later: the prefix is what makes "cannot shadow a silo
+  route" a structural fact rather than a review item.
+- **It does not add middleware.** A plugin cannot intercept another plugin's
+  route or silo's own; §12.8 lists interceptors as a separate, additive idea and
+  they would need their own authority story.
+- **It does not stream.** A request and a response each cross the worker
+  boundary as one value, so there is no back-pressure to be had and an unbounded
+  body would be a way to make the host allocate whatever a caller sends. Media
+  has its own route.
+- **It does not make a `Worker` a security boundary.** Unchanged since D31, and
+  worth restating in the phase that gives plugin code a URL: installing is the
+  trust boundary.

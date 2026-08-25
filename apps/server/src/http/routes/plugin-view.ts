@@ -1,6 +1,6 @@
 import type { PluginGrantRecord } from "../../core/plugins/plugin-grant-record";
 import { PluginGrantUtils } from "../../core/plugins/plugin-grant-utils";
-import type { PluginFacts, PluginStatus } from "../../plugins";
+import type { PluginFacts, PluginRoute, PluginStatus } from "../../plugins";
 
 /** What `GET /api/plugins` returns per plugin (D38, D39). */
 export interface PluginView {
@@ -87,6 +87,21 @@ export interface PluginView {
    * no configuration, which is not the same as something being wrong.
    */
   config_schema: unknown | null;
+
+  /**
+   * The routes this plugin serves under `/api/ext/{name}/*` (D36, phase 6).
+   *
+   * Here rather than left to the client to infer from `http:route`, because that
+   * claim is one string covering every route and the list is where the decision
+   * has any content. `auth` is the part that carries weight: a handler runs with
+   * the **plugin's** authority, so a `public` route publishes whatever the plugin
+   * was granted to anyone who can reach the URL. That is why the routes are part
+   * of the approval and not a detail of the package.
+   *
+   * Empty for a plugin that declares none. `null` only when the package could
+   * not be read at all, which `runtime.detail` explains.
+   */
+  routes: readonly PluginRoute[] | null;
 }
 
 export class PluginViews {
@@ -113,6 +128,7 @@ export class PluginViews {
       config_source: facts.source,
       kind: facts.manifest?.kind ?? null,
       config_schema: facts.manifest?.config_schema ?? null,
+      routes: facts.manifest?.routes ?? null,
     };
   }
 }

@@ -11,6 +11,8 @@ import { WorkerHost } from "../host";
 import { PluginRuntime } from "../runtime";
 import { SiloApi } from "../host";
 import { VersionRange } from "../manifest";
+import type { PluginManifest } from "../manifest";
+import { PluginRoutes } from "../manifest";
 import type { ResolvedPlugin } from "../manifest";
 import type { ProviderRegistry } from "./provider-registry";
 import { PluginAuthority } from "./plugin-authority";
@@ -161,6 +163,7 @@ export class PluginLoader {
   ): Promise<PluginRuntime> {
     const authority = PluginGrantResolver.resolve(config, resolved.manifest, grant);
     PluginLoader.assertDeliverable(config.name, authority);
+    PluginLoader.assertServable(config.name, resolved.manifest, authority);
 
     // The document that actually reaches the worker, which is not always the
     // one `resolve` checked: `resolve` sees what `silo.toml` declared, and a
@@ -184,6 +187,7 @@ export class PluginLoader {
       entry: resolved.entry,
       config: runtimeConfig,
       declared: resolved.manifest.hooks,
+      routes: PluginRoutes.keys(resolved.manifest.routes),
       timeoutMs: config.timeout_ms,
       rpc: pluginContext,
     });
@@ -279,6 +283,37 @@ export class PluginLoader {
         `claim that delivers ${authority.undeliverable.length === 1 ? "it" : "them"} in any ` +
         `scope, so ${authority.undeliverable.length === 1 ? "it" : "they"} would never fire. ` +
         `Add to the plugin's "claims" in silo.toml (narrow the scopes to taste):\n${lines}`
+    );
+  }
+
+  /**
+   * Declared routes with no `http:route` refuse the start (D36, phase 6).
+   *
+   * The same argument as `assertDeliverable`, one capability over. A plugin
+   * whose routes all answer 403 is running, healthy, and not doing the thing it
+   * was installed for — and the failure surfaces to whoever *calls* the route
+   * rather than to the operator who deployed it, which is the wrong person and
+   * usually much later.
+   *
+   * Exempt while awaiting approval, for the same boot-deadlock reason: granting
+   * needs a server to grant through.
+   */
+  private static assertServable(
+    name: string,
+    manifest: PluginManifest,
+    authority: ResolvedGrant
+  ): void {
+    if (manifest.routes.length === 0) return;
+    if (authority.claims.length === 0) return;
+    if (Claims.has(authority.claims, Claims.HttpRoute)) return;
+
+    throw new Error(
+      `plugin "${name}": declares ${manifest.routes.length} ` +
+        `route${manifest.routes.length === 1 ? "" : "s"} ` +
+        `(${PluginRoutes.keys(manifest.routes).join(", ")}) but is not granted ` +
+        `"${Claims.HttpRoute}", so every one of them would answer 403. ` +
+        `Add "${Claims.HttpRoute}" to the plugin's "claims" in silo.toml, ` +
+        `or approve it through the plugins API.`
     );
   }
 }

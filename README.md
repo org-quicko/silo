@@ -625,7 +625,7 @@ media:read        media:create      media:delete
 keys:read         keys:create       keys:revoke
 keys:export       keys:import
 plugins:read      plugins:grant     plugins:enable     plugins:configure
-audit:read
+audit:read        http:route
 transfer:export   transfer:import   transfer:copy
 ```
 
@@ -640,6 +640,13 @@ a committed one. It exists for plugins — see [Plugins](#plugins) — and the
 `plugins:*` and `audit:read` guard the management API and the authority trail.
 There is no `audit:write`: nothing updates or deletes an event, so a claim
 guarding that would imply a capability that does not exist.
+
+`http:route` is the other plugin-shaped claim, beside `hooks:...`: it lets a
+plugin **be reached** at the routes its manifest declares, and grants no reach of
+its own, so a key holding it gains nothing. One claim covers every route a
+manifest lists, because they are all mounted under the plugin's own name and it
+cannot escape that prefix — what an operator weighs is the route list itself. See
+[Serving routes](#serving-routes).
 
 **Wildcards.** Each of `project`, `env`, and `name` independently accepts `*`.
 `collections:acme/*/*:entries:read` covers every environment of one project,
@@ -687,7 +694,7 @@ Two kinds, and no more:
 
 | Kind | What it does | Runs |
 |------|--------------|------|
-| **Extension** | Registers hooks on the entry lifecycle | In a `Worker`, one per plugin |
+| **Extension** | Registers hooks on the entry lifecycle, and serves HTTP routes of its own | In a `Worker`, one per plugin |
 | **Provider** | Implements the storage or blob-storage port, adding a driver name | In-process |
 
 The built-in adapters are registered through the same registry, under the
@@ -742,6 +749,7 @@ runs.
 | `silo` | The version range of silo this plugin supports, checked at startup. There is no separate plugin API version — a breaking change to a hook payload is a major version of silo. |
 | `kind` | `extension` or `provider`. |
 | `hooks` | Which hooks to dispatch. A hook the module exports but does not declare here is never called. |
+| `routes` | The HTTP routes this plugin serves, each `{ "method", "path", "auth" }`. Served under `/api/ext/<name>/`, and only with the `http:route` claim. An extension needs at least one hook *or* one route — something has to call it. |
 | `claims` | What the plugin asks for. The operator grants it in `silo.toml`, through `/api/plugins/{name}/grant`, or both; a grant may never exceed the request. |
 | `config` | A JSON Schema for `[plugins.config]`, validated at startup. |
 
@@ -931,6 +939,77 @@ is the single property [Portability](#portability) rests on.
 
 **Delivery is claim-checked**, before the event crosses into the worker — see
 below.
+
+### Serving routes
+
+A plugin can answer HTTP itself. Declare the routes in the manifest, implement
+each as a function named the same way, and silo serves them under
+`/api/ext/<name>/`:
+
+```json
+"silo": {
+  "kind": "extension",
+  "hooks": [],
+  "routes": [
+    { "method": "GET",  "path": "/health", "auth": "public" },
+    { "method": "POST", "path": "/reindex/:collection" }
+  ],
+  "claims": ["http:route", "collections:*/*/*:entries:read"]
+}
+```
+
+```ts
+export default defineSiloPlugin({
+  "GET /health"() {
+    return { ok: true };
+  },
+
+  async "POST /reindex/:collection"(request, ctx) {
+    if (!request.caller.claims.includes("*")) {
+      throw new ForbiddenError("this one is for admins");
+    }
+    const page = await ctx.entries.list(
+      { project: "blog", env: "prod" },
+      request.params.collection,
+    );
+    return { status: 202, json: { queued: page.total } };
+  },
+});
+```
+
+A handler takes `(request, ctx)` and returns a value, never a status code:
+nothing is a `204`, a string is `text/plain`, any other object is a JSON body,
+and `{ status, headers, body }` or `{ json }` sets one explicitly. Throwing
+`ValidationError` or `ForbiddenError` answers `400` or `403`, exactly as it does
+from a hook.
+
+`request` carries the method, the declared `path`, the bound `params`, the
+`query`, the `headers`, the `body` as text, and `caller`. **`caller` is who is
+calling, never how they proved it** — an id, a label and their claims, with
+`Authorization`, `X-Api-Key` and `Cookie` withheld. It is `null` on a `public`
+route reached with no credential.
+
+Two things are worth being deliberate about.
+
+**A route runs with the plugin's authority, not the caller's.** That is what a
+plugin route is for — a handler bounded by the caller's claims could only do what
+the caller could have done directly — but it means **reaching a route is reaching
+the plugin's grant**. Serving routes at all therefore costs the `http:route`
+claim, and `auth: "public"` is a separate line on the grant screen, because a
+public route publishes whatever the plugin was granted to anyone who can reach
+the URL. Check `request.caller.claims` when a route should be narrower than the
+plugin is.
+
+**silo matches the routes; a plugin never registers one.** The grammar is literal
+segments and `:name` parameters — no wildcards, no regular expressions — and a
+path that could reach outside the namespace is refused at startup, naming the
+package. The upshot is that a plugin cannot shadow or reorder a built-in route,
+and that its routes come and go with `enable`, `disable`, `grant`, `revoke` and
+`rescan` without a restart, like its hooks.
+
+`HEAD` reaches a declared `GET`. A handler that misses `timeout_ms` answers `504`
+and the plugin is left `failed` until `POST /api/plugins/<name>/restart`. Request
+bodies are capped at 1 MiB.
 
 ### What a plugin is allowed to do
 

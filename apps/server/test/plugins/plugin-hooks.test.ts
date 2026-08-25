@@ -189,6 +189,35 @@ describe("plugin hooks", () => {
     expect(ok.id).toBeTruthy();
   }, 30000);
 
+  /**
+   * The rejection/fault split stops at the commit, and `Terminal` says why:
+   * "a fault in one of these can never fail the request — there is nothing left
+   * to fail, and turning it into a 500 would invite a retry that writes the
+   * entry twice". A 403 invites the same retry, and lies about whose authority
+   * was short — the claim named is the *plugin's*, reported to a caller who
+   * never needed it and holds `*`.
+   *
+   * Reachable in two clicks since phase 4: narrowing a grant is what the grant
+   * screen is for, and it takes effect with no restart.
+   */
+  test("a refusal from a post-commit hook does not reach the caller", async () => {
+    // Delivery, and deliberately not the `entries:create` its ctx write needs.
+    await load([
+      pluginConfig("mirror", {
+        claims: deliver("entry.afterWrite"),
+        config: { into: "mirrors" },
+      }),
+    ]);
+
+    const entry = await service.entries.create(scope, "posts", { title: "committed" });
+    expect(entry.id).toBeTruthy();
+
+    // The write is not undone by the refusal, so reporting one would describe a
+    // failure that did not happen.
+    const listed = await service.entries.list(scope, "posts", {});
+    expect(listed.total).toBe(1);
+  }, 30000);
+
   test("an ordinary throw is a plugin fault, governed by on_error", async () => {
     await load([pluginConfig("crasher", { claims: deliver("entry.beforeWrite"), on_error: "fail" })]);
     const failed = await rejection(service.entries.create(scope, "posts", { title: "x" }));

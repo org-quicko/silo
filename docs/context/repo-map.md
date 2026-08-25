@@ -51,9 +51,9 @@ script.
 | `adapters/storage/fs/` | The plain-files adapter, split the same way, with `FsLayout` holding the on-disk path grammar that *is* the export format (D5) |
 | `adapters/blob/` | Filesystem and S3 blob stores |
 | `adapters/http/` | The outbound client used by server-to-server copy |
-| `http/` | `SiloServer` builds the Hono app; `routes/` is one class per route group, `auth/` the claim helpers and the injected-principal slot a plugin dispatch arrives in (D35), `middleware/` logging and auth |
+| `http/` | `SiloServer` builds the Hono app; `routes/` is one class per route group — including `ExtRoutes`, the single handler every plugin route is matched and dispatched through (D36) — `auth/` the claim helpers and the injected-principal slot a plugin dispatch arrives in (D35), `middleware/` logging and auth |
 | `logging/` | `Logger`, the level union, the `LogSink` port and its console/file implementations, and the two read-side helpers. Nothing here knows about HTTP or storage |
-| `plugins/` | Six submodules with an index each — `manifest/` reads what a plugin declares without running it, `contract/` describes the client a plugin is handed and emits both halves of it (D35), `host/` executes it, `runtime/` is what it can see and do plus the `PluginApiDispatcher` its `ctx.fetch` lands in, `registry/` is the single wiring site and, since D39, the live one — `PluginRegistry` is a mutable ordered set that only `PluginSupervisor` mutates, with `PluginLifecycle`, `PluginConfigurator`, `PluginRescan` and the read-only `PluginInspector` beside it — and `install/` acquires it. Import from `plugins`, never a file inside |
+| `plugins/` | Six submodules with an index each — `manifest/` reads what a plugin declares without running it — hooks, and since D36 the routes it serves — `contract/` describes the client a plugin is handed and emits both halves of it (D35), `host/` executes it, `runtime/` is what it can see and do, plus the `PluginApiDispatcher` its `ctx.fetch` lands in and the `PluginRouteTable` a request is matched against (D36), `registry/` is the single wiring site and, since D39, the live one — `PluginRegistry` is a mutable ordered set that only `PluginSupervisor` mutates, with `PluginLifecycle`, `PluginConfigurator`, `PluginRescan` and the read-only `PluginInspector` beside it — and `install/` acquires it. Import from `plugins`, never a file inside |
 | `runtime/` | Process lifecycle: the run file that records a live server, the daemon mechanics, the listen-address grammar, and the process title |
 
 ## `apps/admin/src/`
@@ -69,7 +69,7 @@ script.
 | `schema/` | `SchemaDraft` (a JSON Schema document ↔ the visual builder's field list), `SiloRefs` |
 | `styles/` | The intentionally global CSS foundation |
 | `utils/` | `Formatters`, `ThemeManager`, `ScopeMemory`, `CollectionVisits`, `ByteSize` |
-| `views/` | One directory per feature: `shell/`, `servers/`, `entries/`, `search/`, `schema/`, `keys/`, `media/`, `plugins/`, `transfer/`, `settings/`. `plugins/` (D40) holds the list, one plugin's page, and `PluginGrantPlan` — the pure half of the grant form, so the rules a grant screen must get right are testable without a DOM |
+| `views/` | One directory per feature: `shell/`, `servers/`, `entries/`, `search/`, `schema/`, `keys/`, `media/`, `plugins/`, `transfer/`, `settings/`. `plugins/` (D40) holds the list, one plugin's page, and `PluginGrantPlan` — the pure half of the grant form, so the rules a grant screen must get right are testable without a DOM. `claims/` beside it turns claim strings into words, with the claim *families* derived from its own catalogue rather than listed (D36) |
 
 ## `packages/`
 

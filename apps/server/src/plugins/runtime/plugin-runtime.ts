@@ -3,7 +3,10 @@ import type { HookName } from "../../core/hooks";
 import type { HookEvent } from "../../core/hooks";
 import type { PluginConfig } from "../../config/plugin-config";
 import type { PluginHost } from "../host";
+import type { PluginServeRequest } from "../host/plugin-serve-request";
+import type { PluginServeResponse } from "../host/plugin-serve-response";
 import type { ResolvedPlugin } from "../manifest";
+import { PluginRouteTable } from "./plugin-route-table";
 import type { PluginAuthority } from "../registry/plugin-authority";
 import type { PluginStatus } from "../registry/plugin-status";
 import type { ResolvedGrant } from "../registry/resolved-grant";
@@ -50,6 +53,8 @@ export class PluginRuntime {
 
   private readonly host: PluginHost;
 
+  private readonly table: PluginRouteTable;
+
   constructor(
     plugin: ResolvedPlugin,
     config: PluginConfig,
@@ -65,6 +70,7 @@ export class PluginRuntime {
     this.hooks = hooks;
     this.cell = authority;
     this.runtimeConfig = runtimeConfig;
+    this.table = new PluginRouteTable(plugin.manifest.routes);
   }
 
   /** Read afresh at every call site. Destructuring this once into a local is
@@ -80,6 +86,30 @@ export class PluginRuntime {
 
   handles(hook: HookName): boolean {
     return this.hooks.includes(hook);
+  }
+
+  /** What this plugin declared it serves. Built once — the manifest cannot
+   *  change without a restart, because it is read from disk before the worker
+   *  starts. */
+  get routes(): PluginRouteTable {
+    return this.table;
+  }
+
+  /**
+   * Whether this plugin may serve its routes **right now** (D36, phase 6).
+   *
+   * Read through `authority` at every call, like `mayReceive`, so revoking
+   * `http:route` closes the routes on the next request with no restart — the
+   * same property phase 4 established for hook delivery and `ctx`. A plugin
+   * that declares routes and holds no grant is reachable in exactly the way it
+   * is dispatched to: not at all.
+   */
+  mayServe(): boolean {
+    return Claims.has(this.authority.claims, Claims.HttpRoute);
+  }
+
+  async serve(key: string, request: PluginServeRequest): Promise<PluginServeResponse> {
+    return await this.host.serve(key, request);
   }
 
   /**
