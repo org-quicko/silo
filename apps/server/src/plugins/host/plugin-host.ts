@@ -26,5 +26,17 @@ export interface PluginHost {
    *  `PluginTimeoutError` when the dispatch outlives its budget. */
   dispatch(hook: HookName, event: HookEvent): Promise<unknown>;
 
+  /**
+   * Why this host will not run again, or `null` while it will (D39, phase 4).
+   *
+   * A worker that missed its budget or crashed is torn down and deliberately
+   * **not** respawned (§13.9) — a plugin that blew its deadline is usually still
+   * spinning, so a respawn walks into the same wall while hiding that anything
+   * happened. What phase 4 changes is that the tear-down stops being *silent*:
+   * the supervisor reports it, and `POST /api/plugins/{name}/restart` is the
+   * deliberate act that brings one back.
+   */
+  failure(): Error | null;
+
   stop(): Promise<void>;
 }

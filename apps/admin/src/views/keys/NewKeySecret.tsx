@@ -4,7 +4,7 @@ import { Button } from '../../components/buttons/Button'
 import { CopyButton } from '../../components/buttons/CopyButton'
 import { ModalIcon } from '../../components/modal/ModalIcon'
 import type { CreatedKey } from '../../api/types/created-key'
-import { ClaimGroups } from './claim-groups'
+import { ClaimGroups } from '../../claims/claim-groups'
 import styles from './NewKey.module.css'
 
 /** The one and only time the secret exists outside the caller's hands (§8). */

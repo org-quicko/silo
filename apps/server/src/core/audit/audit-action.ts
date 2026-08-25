@@ -22,6 +22,18 @@ export type AuditAction =
   | "plugin.grant"
   /** A plugin's stored grant was withdrawn. */
   | "plugin.revoke"
-  /** A plugin was enabled or disabled for the next load. */
+  /** A plugin was started or stopped. Since phase 4 that happens immediately
+   *  rather than at the next load (D39). */
   | "plugin.enable"
-  | "plugin.disable";
+  | "plugin.disable"
+  /**
+   * A plugin's stored config override was set or cleared (D39).
+   *
+   * An authority change, narrowly but genuinely: config decides what a plugin
+   * *does* with the claims it holds — which endpoint it calls, which collection
+   * it mirrors — so an operator asking "why did this plugin start writing
+   * there?" is asking a question only this answers. `detail.cleared` says which
+   * of the two it was, because reverting to `silo.toml` and pinning an override
+   * look identical in a diff of the record.
+   */
+  | "plugin.configure";

@@ -4,7 +4,7 @@ import { Claims } from '@silo/shared/claims'
 import type { AccessLevel } from '@silo/shared/access-level'
 import { CopyButton } from '../../components/buttons/CopyButton'
 import { Pill } from '../../components/feedback/Pill'
-import { ClaimGroups } from './claim-groups'
+import { ClaimGroups } from '../../claims/claim-groups'
 import styles from './NewKey.module.css'
 
 const ACCESS_TEXT: Record<AccessLevel, string> = {

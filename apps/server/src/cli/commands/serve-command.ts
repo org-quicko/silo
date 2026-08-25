@@ -22,7 +22,7 @@ export class ServeCommand {
    * readable.
    */
   static async run(runtime: SiloRuntime, config: Config, version: string): Promise<void> {
-    const { service, store, logger, plugins } = runtime;
+    const { service, store, logger, plugins, supervisor } = runtime;
     // Before anything is written. Two servers over one data directory hand out
     // duplicate `seq` values and defeat the process-local write mutex that
     // makes optimistic concurrency sound — see RunFile.assertNotRunning.
@@ -66,6 +66,10 @@ export class ServeCommand {
       authDisabled: config.auth.disabled,
       logger,
       logRequests: config.log.requests,
+      // The management API acts on the live set, not on the record alone
+      // (D39) — enabling a plugin starts it, and revoking a grant stops
+      // delivery on the next hook rather than at the next start.
+      plugins: supervisor,
     }).build();
 
     // Before the bind, so no request can arrive while a plugin's `ctx.fetch`

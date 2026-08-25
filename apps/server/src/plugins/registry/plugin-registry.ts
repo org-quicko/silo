@@ -1,7 +1,6 @@
 import path from "path";
 import type { Hono } from "hono";
 import type { Hooks } from "../../core/hooks/hooks";
-import { NoOpHooks } from "../../core/hooks/no-op-hooks";
 import type { Config } from "../../config/config";
 import type { SiloService } from "../../core/services/silo-service";
 import type { Logger } from "../../logging/logger";
@@ -18,22 +17,28 @@ import type { PluginRuntime } from "../runtime";
  * whose whole job is to add things, and under the worker host it stops being a
  * convention: a side-effecting import in a plugin cannot reach the host's
  * objects at all.
+ *
+ * Since phase 4 the list is **mutable, and only `PluginSupervisor` mutates it**
+ * (D39). This class stays the answer to "what is loaded, in what order"; the
+ * supervisor is the answer to "what changes it, and in what order do the steps
+ * happen". Splitting them keeps the thing everything reads small enough to be
+ * obviously correct, and puts every rule about ordering and rollback in one file
+ * instead of scattered across the readers.
  */
 export class PluginRegistry {
-  private readonly runtimes: readonly PluginRuntime[];
-  private readonly bus: Hooks;
+  private runtimes: readonly PluginRuntime[] = [];
+  private readonly bus: HookBus;
   private readonly dispatcher: PluginApiDispatcher;
 
-  private constructor(
-    runtimes: readonly PluginRuntime[],
-    logger: Logger,
-    dispatcher: PluginApiDispatcher
-  ) {
-    this.runtimes = runtimes;
+  constructor(logger: Logger, dispatcher = new PluginApiDispatcher()) {
     this.dispatcher = dispatcher;
-    // The null object when nothing is configured, so `SiloService` has one dispatch
-    // path rather than five null checks (see NoOpHooks).
-    this.bus = runtimes.length === 0 ? new NoOpHooks() : new HookBus(runtimes, logger);
+    // One real bus, always, reading the list through a supplier. Before phase 4
+    // an empty registry substituted `NoOpHooks` to save five null checks; a
+    // registry that can *stop* being empty cannot, because whatever
+    // `SiloService.useHooks` was handed at boot is what it dispatches through
+    // forever. An empty loop costs nothing, and there is now one dispatch path
+    // rather than two that must agree.
+    this.bus = new HookBus(() => this.runtimes, logger);
   }
 
   /** Where plugins live: `<data dir>/plugins/`. In the data directory rather
@@ -45,7 +50,7 @@ export class PluginRegistry {
   }
 
   static empty(logger: Logger): PluginRegistry {
-    return new PluginRegistry([], logger, new PluginApiDispatcher());
+    return new PluginRegistry(logger);
   }
 
   static async load(
@@ -53,21 +58,27 @@ export class PluginRegistry {
     service: SiloService,
     logger: Logger
   ): Promise<PluginRegistry> {
-    if (config.plugins.length === 0) return PluginRegistry.empty(logger);
-
-    const dispatcher = new PluginApiDispatcher();
-    const runtimes = await PluginLoader.loadExtensions({
-      pluginsDir: PluginRegistry.directory(config),
-      configs: config.plugins,
-      service,
-      logger,
-      dispatcher,
-    });
-    return new PluginRegistry(runtimes, logger, dispatcher);
+    const registry = new PluginRegistry(logger);
+    registry.replace(
+      await PluginLoader.loadExtensions({
+        pluginsDir: PluginRegistry.directory(config),
+        configs: config.plugins,
+        service,
+        logger,
+        dispatcher: registry.dispatcher,
+      })
+    );
+    return registry;
   }
 
   hooks(): Hooks {
     return this.bus;
+  }
+
+  /** The dispatcher every plugin's `ctx.fetch` lands on, so the supervisor can
+   *  hand it to a plugin it starts after the server already exists. */
+  api(): PluginApiDispatcher {
+    return this.dispatcher;
   }
 
   /**
@@ -90,9 +101,29 @@ export class PluginRegistry {
     return this.runtimes;
   }
 
+  find(name: string): PluginRuntime | undefined {
+    return this.runtimes.find((runtime) => runtime.name === name);
+  }
+
+  /**
+   * Install a new ordered set (D39).
+   *
+   * Whole-list replacement rather than add/remove, because the order **is** the
+   * dispatch order and a per-plugin mutation would have to say where a plugin
+   * goes — a question `silo.toml` has already answered and no caller should get
+   * to answer differently. Assignment, so a dispatch already iterating the old
+   * array finishes against a consistent set instead of one shifting underneath
+   * it.
+   */
+  replace(runtimes: readonly PluginRuntime[]): void {
+    this.runtimes = [...runtimes];
+  }
+
   /** Tear every worker down. Called on shutdown so a detached server does not
    *  leave threads behind holding the data directory's run file hostage. */
   async stop(): Promise<void> {
-    await Promise.all(this.runtimes.map((r) => r.stop().catch(() => {})));
+    const running = this.runtimes;
+    this.runtimes = [];
+    await Promise.all(running.map((r) => r.stop().catch(() => {})));
   }
 }

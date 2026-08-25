@@ -62,8 +62,28 @@ export interface PluginGrant {
    * different remedies, and collapsing them would mean re-approving a plugin
    * you only ever wanted to pause.
    *
-   * Until phase 4's supervisor it takes effect at the next start, and every
-   * surface that sets it says so.
+   * Since phase 4 it takes effect **now**: `POST .../enable` starts the worker
+   * and `POST .../disable` stops it, and the record is what the next start
+   * reads so the two never disagree (D39).
    */
   enabled?: boolean;
+
+  /**
+   * The config this plugin runs with, when an operator set one through
+   * `PATCH /api/plugins/{name}/config` (D39, phase 4).
+   *
+   * Absent means `silo.toml`'s `[plugins.config]` block is in force, which is
+   * the ordinary case and needs no backfill. Present means the file's block is
+   * **ignored** for this plugin until the override is cleared — this is not the
+   * union `claims` gets, because a union of two documents has no readable answer
+   * to "what config is this plugin running with", and `required` and
+   * `additionalProperties` would then be judged against a value neither side
+   * wrote. Whichever source is in force, `config_source` on the view says which.
+   *
+   * It lives in the record and not in the file for the same reason the grant
+   * does: an instance whose `silo.toml` is a config map cannot be hand-edited,
+   * and an API that could write the file would be a code-execution primitive
+   * wearing a management claim (D34).
+   */
+  config?: Record<string, unknown>;
 }

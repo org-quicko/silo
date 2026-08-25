@@ -233,6 +233,12 @@ export class WorkerHost implements PluginHost {
     this.worker = null;
   }
 
+  /** What `kill` recorded, so a management surface can report a worker that
+   *  died hours ago instead of showing it as healthy (D39). */
+  failure(): Error | null {
+    return this.dead;
+  }
+
   async stop(): Promise<void> {
     if (!this.dead) this.dead = new Error(`plugin "${this.options.name}": stopped`);
     this.kill(this.dead);

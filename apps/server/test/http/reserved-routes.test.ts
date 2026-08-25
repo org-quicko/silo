@@ -64,14 +64,14 @@ describe("reserved API namespaces", () => {
 
   /**
    * `/api/plugins/` stopped being a reservation in D38 — it is the management
-   * API now. What must still hold is that an unmatched path under it does not
-   * reach the SPA: a management verb that does not exist has to say so, or a
-   * client calling `POST /api/plugins/acme/restart` before phase 4 ships would
-   * get `index.html` and a 200.
+   * API now, and D39 added `restart`, `rescan` and `config` to it. What must
+   * still hold is that an unmatched path under it does not reach the SPA: a
+   * management verb that does not exist has to say so, or a client reaching for
+   * one silo has not shipped yet would get `index.html` and a 200.
    */
   test("an unknown /api/plugins/ verb answers 404, not the SPA", async () => {
     for (const url of [
-      "http://local/api/plugins/acme/restart",
+      "http://local/api/plugins/acme/reload",
       "http://local/api/plugins/acme/grant/extra",
     ]) {
       const response = await app.fetch(new Request(url, { method: "POST" }));

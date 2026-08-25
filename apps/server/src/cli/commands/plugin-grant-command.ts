@@ -68,7 +68,7 @@ export class PluginGrantCommand {
           `${undeliverable.length === 1 ? "it" : "them"}.`
       );
     }
-    console.log(`\nrestart the server for this to take effect.`);
+    PluginGrantCommand.reportReach();
   }
 
   static async revoke(
@@ -92,7 +92,22 @@ export class PluginGrantCommand {
       for (const claim of Claims.normalize(pluginConfig.claims)) console.log(`  ${claim}`);
       console.log(`\nEdit its [[plugins]] block to withdraw them.`);
     }
-    console.log(`\nrestart the server for this to take effect.`);
+    PluginGrantCommand.reportReach();
+  }
+
+  /**
+   * Where this change has landed, and where it has not (D39).
+   *
+   * Through the API a grant takes effect on the next hook and the next
+   * `ctx.fetch`. This command is the *offline* path, against the data directory,
+   * so a server already running over it is holding a resolved grant in memory
+   * that nothing here can reach — and saying "restart" without saying that a
+   * rescan also does it would send an operator to the heaviest available remedy.
+   */
+  private static reportReach(): void {
+    console.log(`\nA server already running over this data directory picks this up on`);
+    console.log(`POST /api/plugins/rescan, or at its next start. Through the API`);
+    console.log(`(PUT /api/plugins/{name}/grant) a change is live immediately.`);
   }
 
   private static require(config: Config, name: string | undefined) {

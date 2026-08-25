@@ -1,7 +1,9 @@
+import { AuditApi } from './clients/audit-api'
 import { CollectionsApi } from './clients/collections-api'
 import { EntriesApi } from './clients/entries-api'
 import { KeysApi } from './clients/keys-api'
 import { MediaApi } from './clients/media-api'
+import { PluginsApi } from './clients/plugins-api'
 import { ProjectsApi } from './clients/projects-api'
 import { SearchApi } from './clients/search-api'
 import { SessionApi } from './clients/session-api'
@@ -27,6 +29,8 @@ export class SiloApi {
   readonly keys = new KeysApi(this.transport)
   readonly media = new MediaApi(this.transport)
   readonly transfer = new TransferApi(this.transport)
+  readonly plugins = new PluginsApi(this.transport)
+  readonly audit = new AuditApi(this.transport)
 
   /** A stored key can be revoked out from under an open session; a 401 on any
    *  authenticated call routes the app back to the welcome gate. */

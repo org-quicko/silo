@@ -96,8 +96,8 @@ downloads is checked against the registry's own digest; a plain URL is checked
 only against --integrity, and a git checkout is pinned by commit. What was
 installed, and what it was verified as, is recorded in
 <data>/plugins/silo-plugins.lock.json — a record, not a resolver: serve still
-loads exactly what silo.toml names. Plugins are read at startup, so a running
-server picks up an added plugin on its next restart.
+loads exactly what silo.toml names. A running server picks up an added plugin
+on POST /api/plugins/rescan, or at its next start — never on its own.
 
 Environment overrides: SILO_LISTEN, SILO_DEFAULT_PROJECT, SILO_DEFAULT_ENV,
 SILO_STORAGE_DRIVER, SILO_STORAGE_PATH, SILO_BLOB_DRIVER, SILO_BLOB_PATH,

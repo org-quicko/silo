@@ -21,9 +21,10 @@ export interface PluginCallContext {
    * A `ctx.fetch` is bounded by the time its own dispatch has left rather than
    * by a budget of its own, so a call that runs long **rejects and names
    * itself** a moment before `WorkerHost` would kill the worker for the
-   * dispatch running long. Until phase 4 that kill is permanent and silent, so
-   * the difference is between a plugin that can catch a slow call and a plugin
-   * that never runs again (D37, phase 3's fourth requirement).
+   * dispatch running long. That kill is still not undone automatically — since
+   * phase 4 it is reported and an operator can restart (D39) — so the
+   * difference is between a plugin that can catch a slow call and a plugin that
+   * needs somebody to notice (D37, phase 3's fourth requirement).
    *
    * The full `timeout_ms` for a call outside any dispatch, which has no
    * deadline over it and would otherwise have none at all.

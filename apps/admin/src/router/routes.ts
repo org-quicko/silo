@@ -25,6 +25,7 @@ function adoptLegacySort(sort: string): string {
  * tail — so a workspace URL becomes its settings URL by swapping that tail:
  *
  *   /servers/:sid/settings/{keys,keys/new,transfer,connection,appearance}
+ *   /servers/:sid/settings/plugins[/:name]
  *   /servers/:sid/projects/:project/settings/{general,environments}
  *   /servers/:sid/projects/:project/environments/:env/settings/{general,transfer}
  *
@@ -41,7 +42,16 @@ export class Routes {
 
   static serverSettings(serverId: string, section: ServerSettingsSection): string {
     const base = `/servers/${encodeURIComponent(serverId)}/settings`
-    return section === 'key-new' ? `${base}/keys/new` : `${base}/${section}`
+    if (section === 'key-new') return `${base}/keys/new`
+    // A bare `plugin` names no plugin, so it can only mean the index it hangs
+    // off; `Routes.plugin` is how one is addressed.
+    if (section === 'plugin') return `${base}/plugins`
+    return `${base}/${section}`
+  }
+
+  /** One plugin's page: its grant, its config, and what has been done to it. */
+  static plugin(serverId: string, name: string): string {
+    return `${Routes.serverSettings(serverId, 'plugins')}/${encodeURIComponent(name)}`
   }
 
   static projectSettings(serverId: string, project: string, section: ProjectSettingsSection): string {
@@ -160,6 +170,11 @@ export class Routes {
       return segs[4] === 'new'
         ? { view: 'server-settings', serverId, section: 'key-new' }
         : { view: 'server-settings', serverId, section: 'keys' }
+    }
+    if (section === 'plugins') {
+      return segs[4]
+        ? { view: 'server-settings', serverId, section: 'plugin', plugin: segs[4] }
+        : { view: 'server-settings', serverId, section: 'plugins' }
     }
     if (
       section === 'projects' ||

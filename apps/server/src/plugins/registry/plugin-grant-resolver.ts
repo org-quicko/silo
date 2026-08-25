@@ -54,10 +54,10 @@ export class PluginGrantResolver {
       );
     }
 
-    const claims = Claims.normalize([...config.claims, ...(grant?.granted ?? [])]);
+    const claims = PluginGrantResolver.effective(config.claims, grant);
     return {
       claims,
-      state: PluginGrantResolver.state(config, grant),
+      state: PluginGrantResolver.state(config.claims, grant),
       missing: PluginGrantUtils.missing(requested, claims),
       undeliverable: manifest.hooks.filter((hook) => !PluginGrantResolver.deliverable(claims, hook)),
       keyId: grant?.key_id ?? "",
@@ -72,11 +72,23 @@ export class PluginGrantResolver {
    * reporting that would tell an operator to approve something that is already
    * running. `needs_review` wins over everything, because it is the one state
    * that is about the package rather than about the grant.
+   *
+   * Public since D40, because the management API was the surface reporting the
+   * record's raw state and therefore saying exactly the wrong thing.
    */
-  private static state(config: PluginConfig, grant: PluginGrant | null): PluginGrant["state"] {
+  static state(
+    configClaims: readonly string[],
+    grant: PluginGrant | null
+  ): PluginGrant["state"] {
     if (grant && PluginGrantUtils.isActive(grant.state)) return grant.state;
-    if (config.claims.length > 0) return "granted";
+    if (configClaims.length > 0) return "granted";
     return grant?.state ?? "pending";
+  }
+
+  /** Everything a plugin actually holds: the two grant paths, unioned and
+   *  normalized. The one answer to "what may this plugin do". */
+  static effective(configClaims: readonly string[], grant: PluginGrant | null): string[] {
+    return Claims.normalize([...configClaims, ...(grant?.granted ?? [])]);
   }
 
   /**

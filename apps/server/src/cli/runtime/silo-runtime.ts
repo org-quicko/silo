@@ -3,7 +3,7 @@ import type { Config } from "../../config/config";
 import { SiloService } from "../../core/services/silo-service";
 import { SearchTokenizers } from "../../core/search/search-tokenizers";
 import { Logger } from "../../logging/logger";
-import { PluginLoader, PluginRegistry, ProviderRegistry } from "../../plugins";
+import { PluginLoader, PluginRegistry, PluginSupervisor, ProviderRegistry } from "../../plugins";
 import type { Storage } from "../../core/ports/storage";
 
 /**
@@ -20,16 +20,23 @@ export class SiloRuntime {
   readonly logger: Logger;
   readonly plugins: PluginRegistry;
 
+  /** The one thing allowed to change the running plugin set (D39). Built even
+   *  when nothing is configured, because `POST /api/plugins/rescan` is how a
+   *  first plugin arrives without a restart. */
+  readonly supervisor: PluginSupervisor;
+
   private constructor(
     store: Storage,
     service: SiloService,
     logger: Logger,
-    plugins: PluginRegistry
+    plugins: PluginRegistry,
+    supervisor: PluginSupervisor
   ) {
     this.store = store;
     this.service = service;
     this.logger = logger;
     this.plugins = plugins;
+    this.supervisor = supervisor;
   }
 
   /**
@@ -37,7 +44,11 @@ export class SiloRuntime {
    * plugins. Throws rather than exiting, so the caller owns the error message
    * and the exit code.
    */
-  static async open(config: Config, command: string): Promise<SiloRuntime> {
+  static async open(
+    config: Config,
+    command: string,
+    reload?: () => Promise<Config>
+  ): Promise<SiloRuntime> {
     // Only `serve` logs: every other subcommand writes *program output* to
     // stdout — data the caller pipes somewhere — and routing that into a log
     // file would take the answer away from whoever asked for it.
@@ -69,7 +80,14 @@ export class SiloRuntime {
       }
     }
 
-    return new SiloRuntime(store, service, logger, plugins);
+    const supervisor = new PluginSupervisor({
+      registry: plugins,
+      service,
+      logger,
+      config,
+      reload,
+    });
+    return new SiloRuntime(store, service, logger, plugins, supervisor);
   }
 
   async close(): Promise<void> {

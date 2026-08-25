@@ -95,8 +95,9 @@ lives in one file.
 # settings, nested under the scope each page configures
 /servers/:serverId/projects/:project/settings/:section                    general, environments
 /servers/:serverId/projects/:project/environments/:env/settings/:section  general, transfer
-/servers/:serverId/settings/:section                                      projects, keys, transfer, connection, appearance
+/servers/:serverId/settings/:section                                      projects, keys, transfer, connection, appearance, plugins
 /servers/:serverId/settings/keys/new                                      key creation
+/servers/:serverId/settings/plugins/:name                                 one plugin's grant, config and trail
 ```
 
 Every workspace URL carries its server, project, and environment, so links are
@@ -140,6 +141,7 @@ which knows nothing about the aliases.
 ```
 src/
   api/           ApiClient, ApiError, EntryMapper, DTOs under api/types/
+  claims/        ClaimGroups (a claim set -> the sentences it means) and ClaimWords
   components/    Shared visual primitives: Button, Modal, Toast, Pill, Segmented, DataTable, ...
   forms/         The RJSF theme: templates/, widgets/, fields/, build-ui-schema.ts
   query/         FilterModel (the builder's flat model <-> the Query AST), UrlFilter, PathLabel
@@ -155,12 +157,20 @@ src/
     schema/      Schema editor and builder
     keys/        Key list and creation
     media/       Media library
+    plugins/     Plugin list, one plugin's grant/config/trail, and PluginGrantPlan
     transfer/    Export, import, and direct server copy
     settings/    The settings shell, its nav and scope switchers, and pages/
 ```
 
 One exported artifact per file, matching the repository-wide convention. Files
 target 100 to 150 lines, and each React component keeps its styles beside it.
+
+`claims/` sits outside `views/` because two features render the same thing: the
+key creation form and the plugin grant screen both turn a claim list into the
+handful of sentences it actually means. A summary that silently drops a claim is
+the one failure it cannot afford — that is exactly what happened to `hooks:`
+claims between D34 and D40 — so anything with no words for it prints raw under
+"Also" rather than not printing.
 
 ## Forms
 
@@ -175,6 +185,14 @@ Full JSON Schema is not fully renderable as a form. The policy is that RJSF
 renders what it can and anything it cannot becomes a raw JSON editor for that
 subtree. The server is authoritative either way: server-side validation errors
 are mapped back onto the fields that caused them.
+
+The same theme renders a **plugin's settings form** from the `config` schema in
+its manifest, which `GET /api/plugins` carries. A plugin that declares no schema
+falls back to a JSON editor, since a config silo cannot describe is still one an
+operator may need to change. Either way the form edits a whole document and the
+endpoint takes a delta, so what is sent is a `MergePatch.diff` against the config
+in force — posting the edited document as the patch looks right and cannot
+express a deletion.
 
 `SiloRefs` (`src/schema/silo-refs.ts`) resolves `silo://collections/<name>`
 references for the form layer. RJSF's renderer and validator only follow
@@ -219,10 +237,11 @@ alongside a color picker.
 
 Protocol rules that both the server and this app must agree on live in
 `@silo/shared` (the repository's `shared/` directory): the claim catalog,
-validation and matching, delegation, presets, `ValidationError` and its wire
-shape, the `silo://` reference scheme, `x-silo-auth`, `x-silo-type: "media"`,
-and the API key display format. Import from there rather than restating a rule
-locally, so the two sides cannot drift.
+validation and matching, delegation, presets, the `HookName` vocabulary that hook
+claims are validated and rendered against, `MergePatch` (RFC 7396),
+`ValidationError` and its wire shape, the `silo://` reference scheme,
+`x-silo-auth`, `x-silo-type: "media"`, and the API key display format. Import
+from there rather than restating a rule locally, so the two sides cannot drift.
 
 `ui/` is a member of the root Bun workspace and depends on the package through
 `workspace:*`, so `node_modules/@silo/shared` is one symlink to the `shared/`

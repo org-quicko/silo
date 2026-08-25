@@ -20,6 +20,13 @@ import type { PluginRuntime } from "./plugin-runtime";
  * and something an operator can change without touching a plugin. Deriving it
  * from a priority number in each manifest would make ordering a thing plugins
  * compete over, and there would be no single place to read the answer.
+ *
+ * The set is read through a **supplier** rather than held (D39, phase 4). A bus
+ * that captured the list at construction would keep dispatching into a plugin
+ * disabled a moment ago, and would never see one enabled a moment ago — and
+ * since `PluginRegistry` is what a rescan rebuilds, the snapshot and the
+ * registry would disagree for as long as the process ran. One function call per
+ * hook buys the guarantee that "what is loaded" has exactly one answer.
  */
 export class HookBus implements Hooks {
   /**
@@ -33,10 +40,10 @@ export class HookBus implements Hooks {
    */
   static readonly MaxDepth = 4;
 
-  private readonly runtimes: readonly PluginRuntime[];
+  private readonly runtimes: () => readonly PluginRuntime[];
   private readonly logger: Logger;
 
-  constructor(runtimes: readonly PluginRuntime[], logger: Logger) {
+  constructor(runtimes: () => readonly PluginRuntime[], logger: Logger) {
     this.runtimes = runtimes;
     this.logger = logger;
   }
@@ -47,7 +54,7 @@ export class HookBus implements Hooks {
    */
   async beforeValidate(event: BeforeValidateEvent): Promise<any> {
     let data = event.data;
-    for (const runtime of this.runtimes) {
+    for (const runtime of this.runtimes()) {
       if (!this.shouldDispatch(runtime, "entry.beforeValidate", event)) continue;
       const result = await this.run(runtime, "entry.beforeValidate", { ...event, data });
       if (result && typeof result === "object" && "data" in (result as any)) {
@@ -74,7 +81,7 @@ export class HookBus implements Hooks {
   }
 
   private async veto(hook: HookName, event: HookEvent): Promise<void> {
-    for (const runtime of this.runtimes) {
+    for (const runtime of this.runtimes()) {
       if (this.shouldDispatch(runtime, hook, event)) await this.run(runtime, hook, event);
     }
   }

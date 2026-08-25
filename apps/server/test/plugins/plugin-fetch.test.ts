@@ -354,10 +354,10 @@ describe("ctx.fetch (D35)", () => {
   /**
    * D37's fourth requirement for this phase.
    *
-   * `WorkerHost` kills a worker permanently on a dispatch timeout and phase 4's
-   * supervisor does not exist yet, so the difference between bounding the call
-   * and bounding only the dispatch is the difference between a plugin that can
-   * catch a slow route and a plugin that never runs again.
+   * `WorkerHost` kills a worker on a dispatch timeout and never respawns one, so
+   * the difference between bounding the call and bounding only the dispatch is
+   * the difference between a plugin that can catch a slow route and one that
+   * needs an operator to notice and restart it (D39).
    */
   describe("a slow call is the call's problem, not the worker's", () => {
     test("the fetch rejects, the hook completes, and the worker survives", async () => {

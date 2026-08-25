@@ -9,6 +9,8 @@ import type { Server } from '../servers/server'
 import { CommandPalette } from '../search/CommandPalette'
 import type { PaletteSeed } from '../search/palette-seed'
 import { KeysView } from '../keys/Keys'
+import { PluginsView } from '../plugins/Plugins'
+import { PluginDetailView } from '../plugins/PluginDetail'
 import { NewKeyView } from '../keys/NewKey'
 import { ExportImportView } from '../transfer/ExportImport'
 import { SettingsNav } from './SettingsNav'
@@ -229,6 +231,42 @@ export function SettingsView({ server, route, onUpdateServer, onDeleteServer, on
             onNavigateToCollection={goToCollectionSearch}
             onCancel={() => router.navigate(Routes.serverSettings(serverId, 'keys'))}
             onDone={() => router.navigate(Routes.serverSettings(serverId, 'keys'))}
+          />
+        )}
+
+        {route.view === 'server-settings' && route.section === 'plugins' && (
+          <PluginsView
+            serverId={serverId}
+            scope={scope}
+            smartCollections={smartCollections}
+            url={url}
+            apiKey={apiKey}
+            claims={claims}
+            session={session}
+            onOpenPalette={setPalette}
+            onNavigateToCollection={goToCollectionSearch}
+          />
+        )}
+
+        {/*
+          Keyed on the plugin, so navigating between two of them cannot carry a
+          half-edited grant across — the same reason the scoped pages above are
+          keyed on their scope.
+        */}
+        {route.view === 'server-settings' && route.section === 'plugin' && route.plugin && (
+          <PluginDetailView
+            key={route.plugin}
+            serverId={serverId}
+            name={route.plugin}
+            scope={scope}
+            projects={projects}
+            smartCollections={smartCollections}
+            url={url}
+            apiKey={apiKey}
+            claims={claims}
+            session={session}
+            onOpenPalette={setPalette}
+            onNavigateToCollection={goToCollectionSearch}
           />
         )}
 

@@ -315,12 +315,26 @@ describe("plugin management API (D38)", () => {
       expect(view.key_id).toBe(granted.key_id);
     });
 
-    test("the response says a restart is needed, because it is until phase 4", async () => {
+    /**
+     * `restart_required: true` is gone (D39, phase 4). It was there because it
+     * was true, and the replacement is not a `false` in the same field — a flag
+     * that is always false is noise — but `runtime`, which says what actually
+     * happened.
+     *
+     * This process has no `silo.toml` and therefore lists no plugins, so the
+     * blocking fact is not that the plugin was just disabled but that nothing
+     * would load it either way — and the more actionable of two true reasons is
+     * the one `detail` gives.
+     */
+    test("the response says what is running, not that a restart is needed", async () => {
       const res = await app.request("/api/plugins/acme/disable", {
         method: "POST",
         headers: at(rootKey, 1),
       });
-      expect((await res.json() as any).restart_required).toBe(true);
+      const view = (await res.json()) as any;
+      expect(view.restart_required).toBeUndefined();
+      expect(view.runtime.state).toBe("stopped");
+      expect(view.runtime.detail).toContain("not listed in silo.toml");
     });
 
     test("enabling again clears it", async () => {

@@ -25,6 +25,8 @@ describe('Routes.parse', () => {
     ['/servers/s1/settings/transfer', 'server-settings:transfer'],
     ['/servers/s1/settings/connection', 'server-settings:connection'],
     ['/servers/s1/settings/appearance', 'server-settings:appearance'],
+    ['/servers/s1/settings/plugins', 'server-settings:plugins'],
+    ['/servers/s1/settings/plugins/silo-plugin-slug', 'server-settings:plugin'],
     ['/servers/s1/projects/acme/settings/general', 'project-settings:general'],
     ['/servers/s1/projects/acme/settings/environments', 'project-settings:environments'],
     ['/servers/s1/projects/acme/environments/prod/settings/general', 'env-settings:general'],
@@ -136,6 +138,8 @@ describe('Routes builders', () => {
     [Routes.serverSettings('s1', 'transfer'), 'server-settings:transfer'],
     [Routes.serverSettings('s1', 'connection'), 'server-settings:connection'],
     [Routes.serverSettings('s1', 'appearance'), 'server-settings:appearance'],
+    [Routes.serverSettings('s1', 'plugins'), 'server-settings:plugins'],
+    [Routes.plugin('s1', 'silo-plugin-slug'), 'server-settings:plugin'],
     [Routes.projectSettings('s1', 'acme', 'general'), 'project-settings:general'],
     [Routes.projectSettings('s1', 'acme', 'environments'), 'project-settings:environments'],
     [Routes.envSettings('s1', 'acme', 'prod', 'general'), 'env-settings:general'],
@@ -147,6 +151,22 @@ describe('Routes builders', () => {
   test('server-level settings carry no scope prefix, so each has one canonical URL', () => {
     expect(Routes.serverSettings('s1', 'keys')).toBe('/servers/s1/settings/keys')
     expect(Routes.serverSettings('s1', 'keys')).not.toContain('projects')
+  })
+
+  test('a plugin page carries the name it is about', () => {
+    expect(Routes.parse(Routes.plugin('s1', 'silo-plugin-slug'))).toEqual({
+      view: 'server-settings',
+      serverId: 's1',
+      section: 'plugin',
+      plugin: 'silo-plugin-slug',
+    })
+  })
+
+  /** A package name is a URL segment like any other, and npm scopes put a
+   *  slash in one — so it has to survive the round trip encoded. */
+  test('a scoped package name round-trips', () => {
+    const route = Routes.parse(Routes.plugin('s1', '@acme/silo-plugin-mirror'))
+    expect(route).toMatchObject({ section: 'plugin', plugin: '@acme/silo-plugin-mirror' })
   })
 
   test('an environment settings URL is its workspace URL with a new tail', () => {

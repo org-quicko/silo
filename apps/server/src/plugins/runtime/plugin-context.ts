@@ -5,17 +5,23 @@ import type { Logger } from "../../logging/logger";
 import type { PluginCallContext } from "../host/plugin-call-context";
 import type { PluginFetchRequest } from "../host/plugin-fetch-request";
 import type { PluginRpc } from "../host";
+import type { PluginAuthority } from "../registry/plugin-authority";
 import type { PluginApiDispatcher } from "./plugin-api-dispatcher";
 
 /** Everything a context needs to stand in for one plugin. An options object
  *  rather than six positional arguments, three of which are strings. */
 export interface PluginContextOptions {
   name: string;
-  /** The plugin's effective authority: `silo.toml` union the `_plugins` grant
-   *  (D34), which is what the injected principal presents. */
-  claims: readonly string[];
-  /** The managed `_keys` record, or `""` while the plugin is pending. */
-  keyId: string;
+  /**
+   * The plugin's effective authority — `silo.toml` union the `_plugins` grant
+   * (D34) — as the **cell** `HookBus` reads, not a copy of it (D39).
+   *
+   * The claims and the managed key id used to be copied in here at load. Two
+   * snapshots of one grant is what made revocation need a restart, and worse,
+   * what would have made a half-fix produce a plugin whose `ctx` was dead while
+   * its hooks still fired.
+   */
+  authority: PluginAuthority;
   dispatcher: PluginApiDispatcher;
   logger: Logger;
   maxDepth: number;
@@ -43,16 +49,14 @@ export interface PluginContextOptions {
  */
 export class PluginContext implements PluginRpc {
   private readonly name: string;
-  private readonly claims: readonly string[];
-  private readonly keyId: string;
+  private readonly authority: PluginAuthority;
   private readonly dispatcher: PluginApiDispatcher;
   private readonly logger: Logger;
   private readonly maxDepth: number;
 
   constructor(options: PluginContextOptions) {
     this.name = options.name;
-    this.claims = options.claims;
-    this.keyId = options.keyId;
+    this.authority = options.authority;
     this.dispatcher = options.dispatcher;
     this.logger = options.logger;
     this.maxDepth = options.maxDepth;
@@ -119,13 +123,19 @@ export class PluginContext implements PluginRpc {
    * No secret and no hash, because there is nothing to authenticate: the host
    * attaches this beside the request rather than presenting it, which is why a
    * worker never receives its own secret and cannot present a different one.
+   *
+   * Built **per call** from the cell (D39). It was built per call before phase 4
+   * as well, but from fields that could not change; reading the cell here is
+   * what makes `DELETE .../grant` land on the very next `ctx.fetch` rather than
+   * on the next restart.
    */
   private principal(cause: readonly string[]): InjectedPrincipal {
+    const granted = this.authority.current();
     return {
       key: {
-        id: this.keyId,
+        id: granted.keyId,
         label: `plugin:${this.name}`,
-        claims: [...this.claims],
+        claims: [...granted.claims],
         hash: "",
         prefix: "",
         owner: { kind: "plugin", name: this.name },

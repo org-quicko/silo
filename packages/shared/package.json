@@ -24,6 +24,7 @@
     "./key-format": "./src/keys/key-format.ts",
     "./media-field": "./src/schema/media-field.ts",
     "./media-ref": "./src/media/media-ref.ts",
+    "./merge-patch": "./src/json/merge-patch.ts",
     "./parsed-claim": "./src/claims/parsed-claim.ts",
     "./path-selector": "./src/query/path/path-selector.ts",
     "./schema-access": "./src/schema/schema-access.ts",

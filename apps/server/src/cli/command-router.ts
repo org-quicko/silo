@@ -36,7 +36,24 @@ export class CommandRouter {
 
     if (await CommandRouter.runBeforeConfig(invocation, configPath)) return;
 
-    const config = ConfigLoader.resolveDerivedDefaults(
+    // One closure, used both for the initial load and for `POST
+    // /api/plugins/rescan` (D39). The same one, deliberately: a rescan that
+    // re-read the file without the flags and environment variables this process
+    // was started with would apply a different config than the one in force,
+    // and the difference would show up as plugins mysteriously changing on a
+    // call that was supposed to be a no-op.
+    const reload = () => CommandRouter.loadConfig(invocation, configPath);
+    const config = await reload();
+
+    if (await CommandRouter.runWithoutStorage(invocation, config, configPath)) return;
+    await CommandRouter.runAgainstData(invocation, config, reload);
+  }
+
+  private static async loadConfig(
+    invocation: CliInvocation,
+    configPath: string
+  ): Promise<Config> {
+    return ConfigLoader.resolveDerivedDefaults(
       CliOptions.applyOverrides(
         await ConfigLoader.loadConfig(
           configPath,
@@ -45,9 +62,6 @@ export class CommandRouter {
         invocation.values
       )
     );
-
-    if (await CommandRouter.runWithoutStorage(invocation, config, configPath)) return;
-    await CommandRouter.runAgainstData(invocation, config);
   }
 
   /**
@@ -77,8 +91,9 @@ export class CommandRouter {
 
     // `add` belongs here (D32): it writes a directory under the data dir and
     // appends to the config file, and opens neither storage nor a plugin.
-    // Installing against a data dir a live server owns is therefore safe — §13
-    // loads plugins once at startup and nothing reloads them.
+    // Installing against a data dir a live server owns is therefore safe: the
+    // files land inert, and since phase 4 a running server picks them up on
+    // `POST /api/plugins/rescan` or at its next start — never on its own.
     //
     // `silo plugin add` is accepted as well as `silo add`, because §12.8 named
     // it that way for years before it existed and an operator who remembers the
@@ -110,11 +125,12 @@ export class CommandRouter {
 
   private static async runAgainstData(
     invocation: CliInvocation,
-    config: Config
+    config: Config,
+    reload: () => Promise<Config>
   ): Promise<void> {
     let runtime: SiloRuntime;
     try {
-      runtime = await SiloRuntime.open(config, invocation.command);
+      runtime = await SiloRuntime.open(config, invocation.command, reload);
     } catch (error: any) {
       console.error(`silo: ${error.message}`);
       process.exit(1);

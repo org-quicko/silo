@@ -35,8 +35,9 @@ export interface AddOptions {
  * Which is also why `add` runs before storage is opened, alongside `init`,
  * `status` and `logs`: it writes a directory and a config file and never opens
  * the database, so it is safe to run against a data dir a live server owns.
- * What it changes takes effect on that server's next restart, not sooner —
- * §13 loads plugins at startup and nothing reloads them.
+ * What it changes reaches that server when it is asked — `POST
+ * /api/plugins/rescan` (D39) — or at its next start, and never on its own: a
+ * directory appearing under `plugins/` is not consent to run it.
  */
 export class AddCommand {
   static async run(
@@ -111,7 +112,10 @@ export class AddCommand {
 
     await PluginBlockWriter.append(configPath, block);
     console.log(`\nlisted in ${configPath}. It dispatches last, after the plugins above it.`);
-    console.log(`Restart the server to load it: plugins are read at startup.`);
+    // Never "it is now running". `add` writes files and a config block; loading
+    // is a separate decision a running server makes when it is asked to re-read
+    // that block, or at its next start (D39).
+    console.log(`A running server loads it on POST /api/plugins/rescan, or at its next start.`);
   }
 
   /**

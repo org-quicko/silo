@@ -49,8 +49,10 @@ export class PluginApiDispatcher {
 
   private app: Hono | null = null;
 
-  /** Called once the server exists. The last app wins, which is what phase 4
-   *  will need when it rebuilds one. */
+  /** Called once the server exists. The last app wins, and every plugin the
+   *  supervisor starts later shares this one dispatcher (D39) — so a plugin
+   *  enabled at minute forty reaches the same route table as one loaded at
+   *  boot, with no second attach to forget. */
   attach(app: Hono): void {
     this.app = app;
   }

@@ -299,6 +299,42 @@ export class PluginGrantService {
   }
 
   /**
+   * Set or clear the stored config override (D39, phase 4).
+   *
+   * `undefined` clears it, which is not the same as `{}`: cleared means
+   * `silo.toml`'s block applies again, and empty means an operator deliberately
+   * configured this plugin with nothing. A field that could not tell those apart
+   * would make the file's block unreachable forever after the first `PATCH`.
+   *
+   * Nothing is validated here. The manifest that says what a valid config is
+   * lives on disk, and this service reaches the store only (D34) — so the
+   * supervisor validates, restarts, and then calls this, which is also the order
+   * that keeps a refused write from leaving an unbootable record.
+   */
+  async setConfig(
+    name: string,
+    config: Record<string, unknown> | undefined,
+    request: GrantRequest
+  ): Promise<PluginGrantRecord> {
+    const entry = await this.requireEntry(name);
+    const grant = entry.data as PluginGrant;
+
+    const next: PluginGrant = { ...grant };
+    if (config === undefined) delete next.config;
+    else next.config = config;
+
+    const record = await this.write(name, next, request.expectedRev);
+    await this.audit.record("plugin.configure", request.actor, name, {
+      cleared: config === undefined,
+      // The keys and not the values: a config is where a plugin's own secrets
+      // live — an API token for the service it calls — and a trail that copied
+      // them would become the credential store D38 says it must never be.
+      keys: Object.keys(config ?? {}).sort(),
+    });
+    return record;
+  }
+
+  /**
    * Whether reconciling produced any change worth a revision.
    *
    * A structural comparison of the whole record rather than a field list: the
@@ -310,9 +346,15 @@ export class PluginGrantService {
     return JSON.stringify(before) === JSON.stringify(after);
   }
 
-  /** The `If-Match` comparison, in one place so the pre-flight and the
-   *  authoritative check under the lock can never word it differently. */
-  private static assertRev(name: string, current: number, expected: number | undefined): void {
+  /**
+   * The `If-Match` comparison, in one place so no two call sites word it
+   * differently.
+   *
+   * Public since phase 4, because `PluginSupervisor` needs the same pre-flight
+   * before it starts a worker it would otherwise have to stop again — and a
+   * second copy of the comparison there is exactly what "one place" was for.
+   */
+  static assertRev(name: string, current: number, expected: number | undefined): void {
     if (expected === undefined || current === expected) return;
     throw new ConflictError(
       `rev mismatch for plugin "${name}": expected ${expected}, current is ${current}. ` +

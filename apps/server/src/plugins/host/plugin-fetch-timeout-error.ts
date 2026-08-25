@@ -4,8 +4,9 @@
  * Deliberately **not** `PluginTimeoutError`, whose remedy is to tear the worker
  * down: this one is handed back to the plugin as an ordinary rejection and the
  * worker keeps running. The distinction is the whole of phase 3's fourth
- * requirement — a hook that outlives its budget is unrecoverable until phase
- * 4's supervisor exists, so a slow *call* has to be catchable rather than fatal.
+ * requirement — a hook that outlives its budget costs the plugin its worker,
+ * and phase 4 made that visible and recoverable rather than free, so a slow
+ * *call* still has to be catchable rather than fatal.
  *
  * It crosses the clone boundary as a plain error by name, which is correct: it
  * is a fault, not a rejection, so `PluginError.fromWire` must not dress it as

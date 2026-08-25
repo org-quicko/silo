@@ -1,4 +1,5 @@
 import type { SiloService } from "../../core/services/silo-service";
+import type { PluginSupervisor } from "../../plugins";
 import { ProjectsRoutes } from "./projects-routes";
 import { CollectionsRoutes } from "./collections-routes";
 import { EntriesRoutes } from "./entries-routes";
@@ -22,11 +23,11 @@ import { AuditRoutes } from "./audit-routes";
  * before `EntriesRoutes`.
  */
 export class RouteManager {
-  static registerRoutes(app: any, service: SiloService) {
+  static registerRoutes(app: any, service: SiloService, plugins: PluginSupervisor) {
     SessionRoutes.register(app);
-    // Plugin *management* (D34/D38), registered before the scoped param routes
-    // for the same ordering reason the rest of this list exists.
-    PluginRoutes.register(app, service);
+    // Plugin *management* (D34/D38/D39), registered before the scoped param
+    // routes for the same ordering reason the rest of this list exists.
+    PluginRoutes.register(app, service, plugins);
     // Reserved for plugin-contributed routes (D36), kept out of /api/plugins/
     // so a plugin name can never collide with a management verb.
     ExtRoutes.register(app);

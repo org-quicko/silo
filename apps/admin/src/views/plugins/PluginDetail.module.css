@@ -1,0 +1,143 @@
+.headPills { display: flex; align-items: center; gap: 8px; }
+
+.card {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  padding: 20px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: var(--panel);
+  margin-bottom: 16px;
+}
+
+.cardHeader { display: flex; flex-direction: column; gap: 3px; }
+.cardHeader p { margin: 0; color: var(--text-3); font-size: 12.5px; line-height: 1.6; }
+
+.sectionTitle { display: flex; align-items: center; gap: 8px; color: var(--text); }
+.sectionTitle h2 { margin: 0; font-size: 15px; font-weight: 600; }
+
+.cardActions { display: flex; align-items: center; justify-content: flex-end; gap: 10px; }
+.form { display: flex; flex-direction: column; gap: 16px; }
+.empty { padding: 8px 0; color: var(--text-3); font-size: 12.5px; }
+
+/* Enable / disable */
+.enableRow { display: flex; align-items: center; justify-content: space-between; gap: 20px; }
+.enableRow > div { display: flex; min-width: 0; flex-direction: column; gap: 3px; }
+.enableRow b { color: var(--text); font-size: 13px; }
+.enableRow span { color: var(--text-3); font-size: 12.5px; line-height: 1.6; }
+
+.keyRow {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding-top: 14px;
+  border-top: 1px solid var(--line);
+  color: var(--text-3);
+  font-size: 12.5px;
+  line-height: 1.6;
+}
+
+.keyRow svg { margin-top: 3px; flex: none; }
+
+/* The grant */
+.claimList { display: flex; flex-direction: column; gap: 2px; }
+
+.claimRow {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 9px 10px;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+}
+
+.claimRow:hover { background: color-mix(in oklab, var(--panel-2) 55%, transparent); }
+.claimRow input { margin-top: 3px; flex: none; }
+.claimBlocked { cursor: not-allowed; opacity: 0.6; }
+
+.claimBody { display: flex; min-width: 0; flex-direction: column; gap: 3px; }
+.claimText { color: var(--text); font-family: var(--font-mono); font-size: 11.5px; word-break: break-all; }
+
+.claimPhrase {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  color: var(--text-3);
+  font-size: 12.5px;
+}
+
+.claimFlag { display: inline-flex; align-items: center; gap: 4px; color: var(--warn); }
+.claimNarrowed { display: flex; flex-wrap: wrap; gap: 6px; color: var(--text-3); font-size: 12px; }
+.claimNarrowed code { color: var(--text-2); font-family: var(--font-mono); font-size: 11px; word-break: break-all; }
+.claimBlockedWhy { display: inline-flex; align-items: center; gap: 4px; color: var(--text-3); font-size: 12px; }
+
+.selectRow { display: flex; gap: 8px; }
+
+.scopeRow { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.scopeField { display: flex; flex-direction: column; gap: 6px; }
+.scopeField > span { color: var(--text-2); font-size: 12px; font-weight: 500; }
+
+.note {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 12px 14px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: var(--panel-2);
+  color: var(--text-3);
+  font-size: 12.5px;
+  line-height: 1.6;
+}
+
+.note b { color: var(--text); }
+
+.codeList { display: flex; flex-direction: column; gap: 3px; }
+.codeList code { color: var(--text-2); font-family: var(--font-mono); font-size: 11.5px; word-break: break-all; }
+
+/* The review */
+.review {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 14px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: var(--panel-2);
+}
+
+.reviewHead { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.reviewHead b { color: var(--text); font-size: 13px; }
+
+.groups { display: flex; flex-direction: column; gap: 8px; }
+
+.group {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding-left: 10px;
+  border-left: 2px solid var(--line);
+}
+
+.group b { color: var(--text-2); font-size: 12.5px; }
+.group span { color: var(--text-3); font-size: 12.5px; }
+.groupWarn { border-left-color: var(--warn); }
+
+/* The trail */
+.trail { display: flex; flex-direction: column; gap: 2px; margin: 0; padding: 0; list-style: none; }
+
+.trailItem {
+  display: grid;
+  grid-template-columns: 78px 1fr;
+  gap: 4px 12px;
+  padding: 8px 0;
+  border-bottom: 1px solid var(--line);
+}
+
+.trailItem:last-child { border-bottom: 0; }
+.trailWhen { color: var(--text-3); font-size: 12px; }
+.trailWhat { color: var(--text-2); font-size: 12.5px; }
+.trailWhat b { color: var(--text); font-weight: 500; }
+.trailDetail { grid-column: 2; color: var(--text-3); font-family: var(--font-mono); font-size: 11px; word-break: break-all; }

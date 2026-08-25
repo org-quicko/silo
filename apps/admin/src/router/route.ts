@@ -14,12 +14,22 @@ export type ServerSettingsSection =
   | 'appearance'
   /** The project index: every project on the instance, and creating one. */
   | 'projects'
+  /** Installed plugins, and one plugin's grant, config and activity (D40). */
+  | 'plugins'
+  | 'plugin'
 export type ProjectSettingsSection = 'general' | 'environments'
 export type EnvSettingsSection = 'general' | 'transfer'
 
 export type Route =
   | { view: 'servers' }
-  | { view: 'server-settings'; serverId: string; section: ServerSettingsSection }
+  | {
+      view: 'server-settings'
+      serverId: string
+      section: ServerSettingsSection
+      /** Set only by `section: 'plugin'`, which is the one server-level page
+       *  addressed by a name rather than being a singleton. */
+      plugin?: string
+    }
   | { view: 'project-settings'; serverId: string; project: string; section: ProjectSettingsSection }
   | {
       view: 'env-settings'

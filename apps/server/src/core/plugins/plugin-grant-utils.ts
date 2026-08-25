@@ -81,4 +81,20 @@ export class PluginGrantUtils {
   static isActive(state: PluginGrant["state"]): boolean {
     return state === "granted" || state === "needs_review";
   }
+
+  /**
+   * The config a plugin actually runs with (D39).
+   *
+   * The stored override wins whole when there is one, and `silo.toml`'s block
+   * applies otherwise — an override *replaces* rather than merges, so the
+   * answer to "what is this plugin configured with" is one document somebody
+   * wrote rather than a computation over two. One place, because the loader,
+   * the supervisor and the management view all have to agree about it.
+   */
+  static configFor(
+    grant: Pick<PluginGrant, "config"> | null,
+    declared: Record<string, unknown>
+  ): Record<string, unknown> {
+    return grant?.config ?? declared;
+  }
 }

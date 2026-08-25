@@ -4,6 +4,8 @@ import type { HookEvent } from "../../core/hooks";
 import type { PluginConfig } from "../../config/plugin-config";
 import type { PluginHost } from "../host";
 import type { ResolvedPlugin } from "../manifest";
+import type { PluginAuthority } from "../registry/plugin-authority";
+import type { PluginStatus } from "../registry/plugin-status";
 import type { ResolvedGrant } from "../registry/resolved-grant";
 
 /**
@@ -23,10 +25,28 @@ export class PluginRuntime {
   readonly config: PluginConfig;
   readonly hooks: readonly HookName[];
 
-  /** What the operator granted, and where it stands (D34). A plugin awaiting
-   *  approval holds an empty claim list, which is why `pending` needs no code
-   *  path of its own — every check already refuses it. */
-  readonly authority: ResolvedGrant;
+  /**
+   * The config document the worker was actually initialised with (D39).
+   *
+   * `config.config` is what `silo.toml` declares; this is what won — the stored
+   * override when `PATCH .../config` set one. Kept because config crosses to the
+   * worker exactly once, at `init`, so "is this plugin already running the
+   * config it should be?" is a question only the value it started with can
+   * answer, and a rescan that could not ask it would restart every plugin every
+   * time.
+   */
+  readonly runtimeConfig: Record<string, unknown>;
+
+  /**
+   * What the operator granted, in the cell `PluginContext` reads too (D34, D39).
+   *
+   * A cell rather than a value because phase 4 revokes without a restart, and
+   * the two readers of a grant — hook delivery here, the injected principal
+   * there — must never disagree about it for even one dispatch. A plugin
+   * awaiting approval holds an empty claim list, which is why `pending` needs no
+   * code path of its own: every check already refuses it.
+   */
+  private readonly cell: PluginAuthority;
 
   private readonly host: PluginHost;
 
@@ -35,14 +55,27 @@ export class PluginRuntime {
     config: PluginConfig,
     host: PluginHost,
     hooks: readonly HookName[],
-    authority: ResolvedGrant
+    authority: PluginAuthority,
+    runtimeConfig: Record<string, unknown>
   ) {
     this.plugin = plugin;
     this.config = config;
     this.name = config.name;
     this.host = host;
     this.hooks = hooks;
-    this.authority = authority;
+    this.cell = authority;
+    this.runtimeConfig = runtimeConfig;
+  }
+
+  /** Read afresh at every call site. Destructuring this once into a local is
+   *  how a live revocation stops being live. */
+  get authority(): ResolvedGrant {
+    return this.cell.current();
+  }
+
+  /** Swap what this plugin may do, with no restart and no torn state (D39). */
+  useAuthority(grant: ResolvedGrant): void {
+    this.cell.set(grant);
   }
 
   handles(hook: HookName): boolean {
@@ -60,6 +93,18 @@ export class PluginRuntime {
    */
   mayReceive(hook: HookName, project: string, env: string, collection: string): boolean {
     return Claims.canDeliver(this.authority.claims, project, env, collection, hook);
+  }
+
+  /** Running, or dead and why (D39). A worker that missed its budget is torn
+   *  down and never respawned, so "loaded" and "working" are different
+   *  questions and a management surface has to be able to ask the second. */
+  status(): PluginStatus {
+    const failure = this.host.failure();
+    return {
+      state: failure ? "failed" : "running",
+      hooks: [...this.hooks],
+      detail: failure ? failure.message : null,
+    };
   }
 
   async dispatch(hook: HookName, event: HookEvent): Promise<unknown> {

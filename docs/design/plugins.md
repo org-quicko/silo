@@ -521,10 +521,11 @@ Where a plugin dispatch is involved, assert the clock.
 ## 13.11 Where this is going (D34–D36)
 
 > **Partly built.** D33 has landed, phase 1 of D34 with it (§13.12), phase 2 has
-> shipped (§13.14), and phase 3 has followed its cleared gate (§13.13) into
-> §13.15. Phases 4 to 6 remain, and the acceptance test below still needs the
-> first of them. This section is the shape, not the specification — the decisions log
-> carries the reasoning, and each phase writes its own detail here as it lands.
+> shipped (§13.14), phase 3 has followed its cleared gate (§13.13) into §13.15,
+> phase 4 is §13.16 — so the acceptance test below now passes, and is a test
+> rather than a plan — and phase 5 is §13.17. Phase 6 remains. This section is
+> the shape, not the specification — the decisions log carries the reasoning, and
+> each phase writes its own detail here as it lands.
 
 ### The two holes this closes
 
@@ -575,8 +576,8 @@ could write the database could execute code.**
 | 1 | `_plugins`, managed keys, `hooks:` claims, `plugins:*` claims, `pending` state, offline `silo plugin grant`. **Reserve `/api/ext/`.** |
 | 2 | **Done, §13.14.** Management API, the `_audit` trail, descendant keys |
 | 3 | **Done, §13.15.** `ctx.fetch`, the generated client, and the four requirements §13.13 left it |
-| 4 | Supervisor: live enable, disable, reorder, revoke |
-| 5 | Admin UI, inert `silo add`, `create-silo-plugin`, drift tests |
+| 4 | **Done, §13.16.** Supervisor: live enable, disable, reorder, revoke, reconfigure, rescan |
+| 5 | **Done, §13.17.** Admin UI — the grant screen, lifecycle and the trail. (`silo add`, `create-silo-plugin` and the drift tests landed early, with D32) |
 | 6 | Plugin routes under `/api/ext/{name}/*` |
 
 ### The acceptance test
@@ -585,6 +586,14 @@ Install a package; confirm it executes nothing and holds no key. Approve a
 narrow schema/collection/entry grant; activate it; verify exactly those
 operations work through `ctx` and the neighbouring ones are refused. Revoke it
 live, and prove **both** `ctx` calls and hook delivery stop without a restart.
+
+**It passes, and it is a file:**
+`apps/server/test/plugins/plugin-supervisor.test.ts`. The last sentence is the
+one that needed care — a test asserting only "the plugin stopped doing
+anything" would pass just as happily against the half-fix §13.15 refused to
+ship. So the two halves are proved separately: narrowing the grant to the hook
+claim alone leaves the plugin *still delivered* and *no longer able to read*,
+and only then does the revocation stop delivery too.
 
 ### What is still not claimed
 
@@ -861,8 +870,10 @@ the properties phase 3 *rests on* — so they are asserted rather than assumed.
 
 ## 13.14 The management API and the trail (D38, phase 2)
 
-> **Built.** `ctx` as the HTTP surface (phase 3), the supervisor (phase 4), the
-> admin UI (phase 5) and plugin routes (phase 6) remain.
+> **Built.** Phase 4 (§13.16) later made `enable`, `disable` and the grant take
+> effect immediately, replaced `restart_required` with a `runtime` block, and
+> shipped the two verbs cut below. The admin UI is §13.17; plugin routes
+> (phase 6) remain.
 
 ### What it manages, and what it does not
 
@@ -882,11 +893,13 @@ POST   /api/plugins/{name}/disable   plugins:enable   If-Match required
 GET    /api/audit                    audit:read
 ```
 
-Two verbs from the original sketch are **not** here, and both were cut for the
+Two verbs from the original sketch were **not** here, and both were cut for the
 same reason: `POST /api/plugins/rescan` and `PATCH /api/plugins/{name}/config`
 each need to read a manifest from disk, and each only *takes effect* once phase
-4 can reload without a restart. Shipping them now would be an API whose whole
-answer is "restart to find out". They land with the supervisor.
+4 can reload without a restart. Shipping them then would have been an API whose
+whole answer is "restart to find out". They landed with the supervisor, in
+§13.16, along with `POST /api/plugins/{name}/restart` — which the same argument
+had kept out without anyone naming it.
 
 `PUT` and not `POST` on the grant, because the body is the **complete** granted
 set: sending it twice grants the same thing, and narrowing is expressible
@@ -928,13 +941,21 @@ as un-approving it, and an operator who had to re-approve after every pause woul
 learn to approve widely to avoid the trouble. It is guarded by `plugins:enable`
 rather than `plugins:grant` for the same reason.
 
-Until phase 4 it takes effect at the next start, and **every surface says so**:
-the response carries `restart_required: true`, `PluginLoader` logs a warning when
-it skips one, `silo plugin list` shows `[granted, disabled]`, and `silo plugin
-doctor` reports it and exits non-zero. A management call that silently does
-nothing until someone happens to restart is §13.3's least favourite outcome, and
-the only defence against it is saying so at every surface an operator might look
-at.
+Until phase 4 it took effect at the next start, and **every surface said so**:
+the response carried `restart_required: true`, `PluginLoader` logged a warning
+when it skipped one, `silo plugin list` showed `[granted, disabled]`, and `silo
+plugin doctor` reported it and exited non-zero. A management call that silently
+does nothing until someone happens to restart is §13.3's least favourite
+outcome, and the only defence against it was saying so at every surface an
+operator might look at.
+
+Since §13.16 it takes effect **now**, and `restart_required` is gone rather than
+set to `false` — a flag that is always false is noise. What replaced it is
+`runtime`, which answers a question the record never could: `enabled` and
+`state` are what an operator *decided*, and a granted, enabled plugin whose
+worker died on a dispatch timeout is still not running. The other four surfaces
+stayed exactly as they were; they were right about the facts, and only wrong
+about the remedy.
 
 ### The trail
 
@@ -1000,9 +1021,10 @@ record would turn a bad row into a hung revocation.
 
 ## 13.15 `ctx` is the HTTP API (D35, phase 3)
 
-> **Built.** The supervisor (phase 4), the admin UI (phase 5) and plugin routes
-> (phase 6) remain. D36's `contributes`, `activate()` and `required`/`optional`
-> permissions are still §13.11.
+> **Built.** The supervisor landed in §13.16 and closed the debt this section
+> ends on. The admin UI is §13.17 and plugin routes (phase 6) remain, and D36's
+> `contributes`, `activate()` and `required`/`optional` permissions are still
+> §13.11.
 
 ### What changed
 
@@ -1149,15 +1171,291 @@ nothing asked over the network.
 sent, so a dispatched request carries `plugin=<name>`. Without it an operator
 reading one sees traffic from nobody.
 
-### What phase 4 must still fix
+### What phase 4 had to fix (§13.16 did)
 
-Revoking a grant destroys the managed key immediately and the running plugin
-keeps acting on the claims it loaded with — measured live: after
+Revoking a grant destroyed the managed key immediately and the running plugin
+kept acting on the claims it loaded with — measured live: after
 `DELETE /api/plugins/smoke/grant`, `_keys` no longer held the record and the next
-`ctx.fetch` still succeeded. That is not a regression, because the resolved grant
-was always held in memory, but it is the gap between "a plugin is an API key with
-code attached" and the implementation, and it is precisely what §13.11's
+`ctx.fetch` still succeeded. That was not a regression, because the resolved grant
+was always held in memory, but it was the gap between "a plugin is an API key with
+code attached" and the implementation, and precisely what §13.11's
 acceptance test names: revoke live, and prove **both** `ctx` calls and hook
-delivery stop without a restart. Doing half of it here would be worse than
+delivery stop without a restart. Doing half of it here would have been worse than
 none — a plugin whose `ctx` is dead while its hooks still fire is a new
 inconsistent state, and hook delivery is read from the same in-memory grant.
+
+That "same in-memory grant" is what made the fix small: two *copies* of it were
+the bug, and one cell with two readers is §13.16.
+
+## 13.16 The supervisor (D39, phase 4)
+
+> **Built.** The admin UI followed in §13.17; plugin routes (phase 6) remain.
+
+### One cell, two readers
+
+The whole of live revocation is that a `ResolvedGrant` stopped being copied.
+
+It used to be captured twice at load: once on `PluginRuntime`, where `HookBus`
+reads it to decide whether an event may cross into a worker, and once inside
+`PluginContext`, where it becomes the injected principal. Both were `readonly`,
+which is why revoking needed a restart — and why fixing only one of them would
+have produced the state §13.15 named and refused. `PluginAuthority` is a box
+holding one `ResolvedGrant`; both readers hold the box; `set` is the whole
+operation. Nothing is torn down, because nothing should be: **a plugin is an API
+key with code attached, and changing what a key may do has never meant
+restarting whoever holds it.**
+
+The discipline the cell demands is small and absolute: read it at the decision
+point, never into a local at construction. That is the only way the sentence
+above stays true, and it is why `PluginRuntime.authority` is a getter rather than
+a field.
+
+### The ordering rule
+
+Everything else in phase 4 is process lifecycle, and every lifecycle verb has two
+steps — one that changes the running set and one that writes the record. Which
+goes first is not a matter of taste, and it does not point the same way twice.
+One rule settles all of them:
+
+> **The record must never describe a state the next `serve` cannot reach.**
+
+| Verb | Order | What the other order breaks |
+| :--- | :--- | :--- |
+| `enable` | **start → write** | `PluginLoader` refuses the *whole start* for a plugin it cannot load. A record saying `enabled: true` for a broken package therefore turns one failed API call into a server that will not boot. Undoing the start is stopping, which cannot fail. |
+| `disable` | **write → stop** | Stopping first and then losing the write to a stale `If-Match` leaves a stopped plugin whose restoration is a *restart* — and a restart can fail. |
+| `config` | **restart → write** | Same as `enable`: a record holding a config its plugin cannot start with is an unbootable instance. If the write is then refused the previous config is put back, and if that fails the plugin reports `failed` while the record still names the config that worked. |
+| `grant` / `revoke` | **write → swap** | The swap cannot fail, so it goes second and a refused write changes nothing. |
+
+D38 found the same shape one level in, where only mint → write → discard is safe
+at every step inside `grant`. It is the same question each time — *if the second
+step fails, can the first be undone, and what does the record claim in the
+meantime?*
+
+Every operation runs under one mutex. Not for the store, which has its own write
+lock, but because these compose: an `enable` and a `rescan` that interleaved
+would both decide what the ordered set is, and one would win by accident.
+
+### What the API gained
+
+```
+PATCH  /api/plugins/{name}/config    plugins:configure   If-Match required
+DELETE /api/plugins/{name}/config    plugins:configure   If-Match required
+POST   /api/plugins/{name}/restart   plugins:enable      no If-Match
+POST   /api/plugins/rescan           plugins:enable      no If-Match
+```
+
+`restart` and `rescan` are unfenced because neither writes a record: there is no
+revision anybody could be approving, and requiring one would be the ceremony
+§13.14 says `If-Match` is not.
+
+Every view also gained a `runtime` block — `running | stopped | failed`, with a
+sentence saying why when it is not running — and `config` beside
+`config_source`. `restart_required` is gone.
+
+### Config: an override, not a union
+
+`plugins:configure` was defined in D34 and used by nothing until now, which is
+the claim `PATCH .../config` wanted.
+
+Claims **union** the two grant paths because claims are a set and a union is
+still a set, bounded by `requested`. Two config *documents* have no such join. A
+merge would leave `required` and `additionalProperties` judged against a value
+neither source wrote, and would make "what config is this plugin running with" a
+computation rather than something to read. So the stored override **replaces**
+`silo.toml`'s block whole, and `DELETE .../config` is the way back — the config
+analogue of `silo plugin revoke` clearing only the stored half, and like it,
+every surface says which source is in force.
+
+The patch itself is [RFC 7396](https://www.rfc-editor.org/rfc/rfc7396) JSON
+Merge Patch: changing one setting without restating the block, and removing one
+with `null`, are exactly what it defines, and inventing a shape would be a
+proprietary field language in the one project that advertises having none. What
+is *stored* is the result rather than the patch, so the record holds a document
+somebody can read.
+
+One consequence found while wiring it, and worth stating because it is the sort
+of thing that would have shipped quietly: because the restart happens *before*
+the write, the record at that moment still holds the previous override — so a
+worker started from `PluginGrantUtils.configFor(record, …)` comes up on the
+config the operator just replaced. The effective document is therefore passed
+into `PluginLoader.start` rather than derived inside it, and validated there
+against the manifest, which also closes a gap the boot path had: a stored
+override was reaching a worker without ever meeting the schema.
+
+### Rescan, and why it does not breach D34's split
+
+`POST /api/plugins/rescan` re-reads `silo.toml` and makes the running set match
+it: plugins added, removed, reordered, upgraded in place, or reconfigured in the
+file. It is also how a grant made offline — `silo plugin grant` against a data
+directory a server is already serving — reaches that server.
+
+It is the one verb here that touches the filesystem, and it touches it to read
+the **operator's own file**. That is the distinction D34 drew: an API that could
+*write* a `[[plugins]]` block would be a code-execution primitive wearing a
+management claim, while one that applies a block the operator already wrote runs
+exactly what a restart would have, sooner. Guarded by `plugins:enable`, because
+rescan is enable and disable applied to the whole set and "may this caller decide
+whether plugin code runs" should have one answer rather than two.
+
+Three properties, each a choice:
+
+- **A plugin nothing changed is left alone.** Restarting everything is what a
+  naive reload does; it also discards in-flight dispatches and any state a
+  plugin built up, on every rescan, for plugins the operator never touched.
+  "Changed" means what the worker was *started with* — the module, the declared
+  hooks, the config document, the dispatch bounds — and deliberately not the
+  grant, which is swapped in place.
+- **A failing plugin is reported, not thrown.** A `serve` that refuses leaves
+  the operator where they were; a rescan that refused would abandon every other
+  change in the file to a plugin they may not have touched. The failure is in
+  the report, that plugin is left not running, and the next `serve` still
+  refuses to start — which the report says. It makes rescan `doctor` that takes
+  effect.
+- **A broken file changes nothing at all,** and says why. The re-read happens
+  first, and a config that does not parse is not a set of plugins. The parse
+  error is re-thrown as a refusal so it reaches the caller *whole*:
+  `ConfigLoader` throws a plain `Error`, which the HTTP layer renders as
+  `internal error` with no detail — the least useful thing to say to somebody
+  who has just mistyped a `[[plugins]]` block, since the message they need is
+  the one being discarded. **Found on a running instance, not by the suite**,
+  which is the second phase running where that has been true.
+- **Providers are skipped, and say so.** A provider *is* the storage; swapping
+  it would mean swapping an open database underneath every in-flight write.
+
+### A dead worker is no longer silent
+
+`WorkerHost` tears a worker down on a dispatch timeout or a crash and does not
+respawn it — a plugin that missed its budget is usually still spinning, so an
+automatic restart walks into the same wall while hiding that anything happened
+(§13.9). That reasoning survives phase 4 intact. What did not survive is the
+*silence*: until now nothing reported it, so the plugin simply stopped working
+while every surface still showed it as loaded.
+
+`runtime.state` is `failed` with the reason, and `POST .../restart` is the
+deliberate act that brings one back. Not automatic, and not a retry — an operator
+restarts having read why it died.
+
+A start that *fails* needed a shape too, and this is the first phase where one
+was required: before it, every start happened at boot, where a plain `Error`
+refusing the whole process is right and the operator reads it on stderr. Through
+the API that same error renders as `internal error`, discarding the sentence
+that says what to fix — *declares `entry.afterWrite` but exports no such
+function*. `PluginStartError` carries the loader's own words out as
+`plugin_start_failed`, a 500 with a `remedy`, in the shape
+`MediaDeleteStalledError` already uses for the other failure that is neither a
+refusal nor a bug.
+
+### What phase 4 does not do
+
+- **It does not write `silo.toml`.** Registration stays the operator's file, and
+  that is the load-bearing half of D34's split.
+- **It does not hot-swap a provider.** Storage is opened before plugins load and
+  a driver change is a restart.
+- **It does not watch the filesystem.** A rescan is asked for. A server that
+  reloaded on its own would make "what is running" depend on an editor's save
+  timing, and would turn a half-written config file into an outage.
+- **It does not make a `Worker` a security boundary.** Unchanged from D31 and
+  worth restating in the phase that makes plugins easier to start and stop:
+  installing is still the trust boundary.
+
+## 13.17 The grant screen (D40, phase 5)
+
+> **Built.** Plugin routes under `/api/ext/{name}/*` (phase 6) remain.
+
+Phase 4 is what makes a UI worth building. Before the supervisor every button
+here would have ended in *"restart the server to find out"*, which is not a
+management surface — it is a form for editing a file badly.
+
+`/servers/{id}/settings/plugins` lists what has a record; each plugin's page
+holds its grant, its configuration and its trail. Nothing new is decided at the
+list level: it answers the question an operator opens it with — *is anything
+waiting on me, is anything broken* — and every write happens one level down.
+
+### Hook delivery has to lead
+
+D34 made hook delivery a claim because a plugin handed `entry.beforeValidate`
+over a collection rewrites everything written to it, which no `entries:*`
+permission grants. A grant screen that listed the two as peers would undo that
+in presentation: the shorter-looking string is the larger authority.
+
+So hook groups come first in every summary, an intervening hook is flagged where
+it is ticked, and the claims are described by **what they let the plugin do**
+rather than by the event name — "rewrite entries before they are validated", not
+`entry.beforeValidate`. `HookNames.Intervening` existed from D34 for this and had
+no caller until now.
+
+Building it found that the summary did not render hook claims **at all**. The
+builder asked whether a claim parsed as a collection permission or as a known
+fixed one, and a hook claim is neither, so it fell through both branches and out.
+Measured: `hooks:blog/prod/posts:entry.beforeValidate` and
+`hooks:*/*/*:entry.afterWrite` beside one `entries:read`, summarised in full as
+*"read entries"*. The fix is not the missing branch — it is the question. The old
+guard asked "is this an unrecognised **fixed** claim", which catches the next
+fixed claim and nothing else; it now asks *was this claim rendered by anything*,
+which is the only form that survives a new claim **kind**.
+
+### Two things the view was not saying
+
+Both were shipped D38 behaviour, both surfaced only because a screen had to
+render them, and both would have made the grant screen lie.
+
+**A grant written in `silo.toml` was invisible.** D34 made effective authority
+the union of the file and the record, and `/api/plugins` reported the record.
+Measured on a running instance: a plugin answering `ctx.fetch` with `200` was
+reported `state: "pending"`, `granted: []`, and everything it asked for still to
+approve. The startup log had it right the whole time, because it goes through
+`PluginGrantResolver`; the API did not, because it read `record.state` directly.
+The view now carries `config_claims` and `effective` beside `granted`, and takes
+its `state` from the resolver — one function, as `stateFor` already says it
+should be.
+
+**What the manifest declares was not there either.** `kind` decides whether the
+lifecycle affordances mean anything — a provider *is* the storage, runs
+in-process, has no worker to restart — and `config_schema` is what the settings
+form is generated from. D31 put that schema in the manifest and said why:
+carried at 1.0 "even though nothing renders it, which is what lets the admin
+settings form arrive later through RJSF with no manifest change". This is that
+later. `PluginInspector` reads the package once per plugin and answers both,
+preferring a running plugin's own copy and falling back to disk — which is what
+lets a *disabled* plugin still show its config form.
+
+### Narrowing, and the answer that is not yes or no
+
+A manifest asks wide (`collections:*/*/*:entries:read`) and an operator grants
+narrow. `PluginGrantPlan.narrow` rewrites only the segments the plugin left as
+`*`: rewriting one it named would not be narrowing, it would point the plugin
+somewhere it never asked to go.
+
+That makes "does the plugin hold this request" a three-valued question, and
+getting it wrong was visible immediately. With a boolean, a narrowed grant reads
+as **not granted** — so after successfully approving `mirror` at `default/prod`,
+the screen redrew with every box clear and the summary reading *"Nothing. It
+stays loaded and receives no events."* about a plugin that was, at that moment,
+mirroring. `granted | narrowed | none` fixes the form, the count in the listing,
+and one thing neither: the scope selects are now **read back off what is
+granted**, because otherwise saving an unchanged form would silently widen it.
+
+The server's `not_granted` is left alone. It is an exact set difference and it is
+true — the plugin does not hold `collections:*/*/*:entries:read` — and the UI
+computes its own count from `requested` against `effective`. Two true statements;
+only one of them answers *"is there a decision outstanding here"*.
+
+### What a live pass caught that the suite did not
+
+The third phase running where that sentence is true, and worth keeping a tally
+of. Along with the two above, driving the finished screen against a real
+instance found the activity trail rendering **nothing** for the action it exists
+for: it read `detail.claims`, which is what `key.create` writes, while
+`plugin.grant` writes `granted` and `plugin.revoke` writes `withdrawn`. One
+field name across seven actions, and the one that mattered was not it.
+
+### What phase 5 does not do
+
+- **It does not install plugins.** `silo add` writes to the data directory and
+  `silo.toml` names what loads; an API — and therefore a UI — that could do
+  either would be a code-execution primitive wearing a management claim.
+- **It does not edit `silo.toml`.** The config form writes an *override*, and
+  says so; "Use silo.toml" clears it.
+- **It does not gate its own nav item.** Consistent with API Keys and Data
+  Transfer, the page loads and reports what the key may not read, rather than
+  the nav quietly having fewer entries on some keys than others.

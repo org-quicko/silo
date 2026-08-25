@@ -4,6 +4,7 @@ import {
   FolderGit2,
   KeyRound,
   Layers,
+  Plug,
   Palette,
   Server as ServerIcon,
   SlidersHorizontal,
@@ -132,6 +133,13 @@ export function SettingsNav({
             title="Data Transfer"
             subtitle="Whole-instance archive & copy"
             active={serverSection === 'transfer'}
+          />
+          <SettingsNavItem
+            to={Routes.serverSettings(serverId, 'plugins')}
+            icon={<Plug size={15} />}
+            title="Plugins"
+            subtitle="Grants, config & lifecycle"
+            active={serverSection === 'plugins' || serverSection === 'plugin'}
           />
           <SettingsNavItem
             to={Routes.serverSettings(serverId, 'connection')}

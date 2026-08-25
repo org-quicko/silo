@@ -31,7 +31,7 @@ script.
 | `tsconfig.base.json` | Compiler options shared by every Bun-side package |
 | `tsconfig.json` | One typecheck pass over the server, `shared` and `tools` |
 | `CONTEXT.md` | Current state, and the index into `docs/context/` |
-| `IMPLEMENTATION.md` | Vision, the D1–D38 decisions log, and the index into `docs/design/` |
+| `IMPLEMENTATION.md` | Vision, the D1–D39 decisions log, and the index into `docs/design/` |
 | `CLAUDE.md` | Standing instructions for AI assistants |
 | `silo.toml` | A commented example config; every key is optional |
 | `Dockerfile` | Two stages — build the admin UI, then a runtime image with only the server's dependencies. Its `COPY` list must name every workspace manifest, or `bun install` aborts with "Workspace not found" |
@@ -46,14 +46,14 @@ script.
 | `core/domain/` | `Entry`, `Scope`, `Collection`, `Meta` and their helpers |
 | `core/ports/` | `Storage`, `BlobStorage`, `DerivedIndex` — interfaces only, importing no adapter |
 | `core/services/` | The application service layer. `SiloService` is the facade; `scopes`, `collections`, `entries`, `search`, `keys`, `plugins`, `audit`, `transfer` and `media` are the services behind it. `support/` holds what they share — the `ServiceContext`, the schema cache, the write lock |
-| `core/errors/`, `core/query/`, `core/schema/`, `core/keys/`, `core/media/`, `core/search/`, `core/transfer/`, `core/hooks/`, `core/plugins/`, `core/audit/` | One subject each. `core/plugins/` is the grant record and its rules (D34) — the store-side half of plugin authority, which `plugins/` reads but does not own. `core/audit/` is the authority-change trail (D38): the event shape, the actor, and the closed list of actions |
+| `core/errors/`, `core/query/`, `core/schema/`, `core/keys/`, `core/media/`, `core/search/`, `core/transfer/`, `core/hooks/`, `core/plugins/`, `core/audit/` | One subject each. `core/plugins/` is the grant record and its rules (D34) — the store-side half of plugin authority, including the config override a running instance may be given (D39), which `plugins/` reads but does not own. `core/audit/` is the authority-change trail (D38): the event shape, the actor, and the closed list of actions |
 | `adapters/storage/sqlite/` | The indexed adapter, split per table: migrations, meta, scopes, schemas, entries, media references, FTS documents, and the compiler and searcher on top |
 | `adapters/storage/fs/` | The plain-files adapter, split the same way, with `FsLayout` holding the on-disk path grammar that *is* the export format (D5) |
 | `adapters/blob/` | Filesystem and S3 blob stores |
 | `adapters/http/` | The outbound client used by server-to-server copy |
 | `http/` | `SiloServer` builds the Hono app; `routes/` is one class per route group, `auth/` the claim helpers and the injected-principal slot a plugin dispatch arrives in (D35), `middleware/` logging and auth |
 | `logging/` | `Logger`, the level union, the `LogSink` port and its console/file implementations, and the two read-side helpers. Nothing here knows about HTTP or storage |
-| `plugins/` | Six submodules with an index each — `manifest/` reads what a plugin declares without running it, `contract/` describes the client a plugin is handed and emits both halves of it (D35), `host/` executes it, `runtime/` is what it can see and do plus the `PluginApiDispatcher` its `ctx.fetch` lands in, `registry/` is the single wiring site, `install/` acquires it. Import from `plugins`, never a file inside |
+| `plugins/` | Six submodules with an index each — `manifest/` reads what a plugin declares without running it, `contract/` describes the client a plugin is handed and emits both halves of it (D35), `host/` executes it, `runtime/` is what it can see and do plus the `PluginApiDispatcher` its `ctx.fetch` lands in, `registry/` is the single wiring site and, since D39, the live one — `PluginRegistry` is a mutable ordered set that only `PluginSupervisor` mutates, with `PluginLifecycle`, `PluginConfigurator`, `PluginRescan` and the read-only `PluginInspector` beside it — and `install/` acquires it. Import from `plugins`, never a file inside |
 | `runtime/` | Process lifecycle: the run file that records a live server, the daemon mechanics, the listen-address grammar, and the process title |
 
 ## `apps/admin/src/`
@@ -61,6 +61,7 @@ script.
 | Directory | What it holds |
 |-----------|---------------|
 | `api/` | `SiloApi` is the facade; `clients/` is one class per resource, `transport/` holds the one place a request is made, `types/` the DTOs |
+| `claims/` | `ClaimGroups` (a claim set → the handful of sentences it means) and `ClaimWords` (the vocabulary it reads them in). Used by the key form and the plugin grant screen, which is why it is not inside either |
 | `components/` | Shared visual primitives, grouped by kind: `modal/`, `buttons/`, `feedback/`, `data/`, `brand/`, `controls/`, `navigation/` |
 | `forms/` | The RJSF theme — `templates/`, `widgets/`, `fields/` |
 | `query/` | `FilterModel` (the builder's flat model ↔ the Query AST), `UrlFilter` (its round trip through the address bar), `PathLabel` |
@@ -68,14 +69,14 @@ script.
 | `schema/` | `SchemaDraft` (a JSON Schema document ↔ the visual builder's field list), `SiloRefs` |
 | `styles/` | The intentionally global CSS foundation |
 | `utils/` | `Formatters`, `ThemeManager`, `ScopeMemory`, `CollectionVisits`, `ByteSize` |
-| `views/` | One directory per feature: `shell/`, `servers/`, `entries/`, `search/`, `schema/`, `keys/`, `media/`, `transfer/`, `settings/` |
+| `views/` | One directory per feature: `shell/`, `servers/`, `entries/`, `search/`, `schema/`, `keys/`, `media/`, `plugins/`, `transfer/`, `settings/`. `plugins/` (D40) holds the list, one plugin's page, and `PluginGrantPlan` — the pure half of the grant form, so the rules a grant screen must get right are testable without a DOM |
 
 ## `packages/`
 
 | Path | What it is |
 |------|------------|
 | `packages/shared/src/claims/` | The claim protocol: `Claims` is the facade over `ClaimVocabulary`, `ClaimGrammar`, `ClaimPresets`, `ClaimAuthorizer` and `ClaimSummary`. Both the server and the UI evaluate claims through it and nothing else |
-| `packages/shared/src/` (rest) | `errors/`, `hooks/`, `keys/`, `media/`, `query/`, `schema/`. `hooks/` holds the `HookName` vocabulary, which moved here when hook delivery became a claim (D34) — the grammar validates it and the UI renders it, so neither side may own a second copy. Something belongs here when both sides need it *or* when shared itself must produce it; anything importing `bun:*`, node builtins, `hono` or React does not |
+| `packages/shared/src/` (rest) | `errors/`, `hooks/`, `json/`, `keys/`, `media/`, `query/`, `schema/`. `json/` holds `MergePatch` (RFC 7396), which lives here because the server *applies* a config patch and the admin UI has to *produce* one — two implementations either side of one endpoint agree until a nested key is deleted. `hooks/` holds the `HookName` vocabulary, which moved here when hook delivery became a claim (D34) — the grammar validates it and the UI renders it, so neither side may own a second copy. Something belongs here when both sides need it *or* when shared itself must produce it; anything importing `bun:*`, node builtins, `hono` or React does not |
 | `create-silo-plugin/src/` | The plugin scaffolder, published on its own. Nothing here may import from `apps/` or `packages/shared`, and nothing may use a `Bun.*` global — it runs under Node, and the facts it needs from silo are copied and drift-tested rather than imported. `render/` holds one class per generated file |
 
 ## `tools/`

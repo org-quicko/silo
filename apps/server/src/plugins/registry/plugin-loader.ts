@@ -1,12 +1,11 @@
 import { Claims } from "@silo/shared/claims";
 import { SiloVersion } from "../../version";
 import type { PluginConfig } from "../../config/plugin-config";
-import type { SiloService } from "../../core/services/silo-service";
-import type { Logger } from "../../logging/logger";
+import type { PluginGrantRecord } from "../../core/plugins/plugin-grant-record";
+import { PluginGrantUtils } from "../../core/plugins/plugin-grant-utils";
 import { ManifestReader } from "../manifest";
 import { PluginConfigValidator } from "../manifest";
 import { PluginContext } from "../runtime";
-import type { PluginApiDispatcher } from "../runtime";
 import { HookBus } from "../runtime";
 import { WorkerHost } from "../host";
 import { PluginRuntime } from "../runtime";
@@ -14,17 +13,13 @@ import { SiloApi } from "../host";
 import { VersionRange } from "../manifest";
 import type { ResolvedPlugin } from "../manifest";
 import type { ProviderRegistry } from "./provider-registry";
+import { PluginAuthority } from "./plugin-authority";
 import { PluginGrantResolver } from "./plugin-grant-resolver";
+import type { PluginLoadContext } from "./plugin-load-context";
 import type { ResolvedGrant } from "./resolved-grant";
 
-export interface ExtensionLoadOptions {
-  pluginsDir: string;
+export interface ExtensionLoadOptions extends PluginLoadContext {
   configs: readonly PluginConfig[];
-  service: SiloService;
-  logger: Logger;
-  /** Where a plugin's `ctx.fetch` lands (D35). Shared by every plugin, and
-   *  handed the app once the server exists — see `PluginRegistry.attach`. */
-  dispatcher: PluginApiDispatcher;
 }
 
 /**
@@ -36,6 +31,12 @@ export interface ExtensionLoadOptions {
  * not export. None of those is skipped with a warning, because a skipped plugin
  * leaves an instance that runs, looks healthy, and has quietly stopped doing
  * whatever the plugin was installed to do.
+ *
+ * Since phase 4 it also starts **one** plugin at a time, for `PluginSupervisor`.
+ * `start` is the shared body: enabling a plugin on a running instance has to
+ * reach exactly the checks a boot does, or the two would disagree about which
+ * packages are loadable and an operator would discover the difference at the
+ * next restart.
  */
 export class PluginLoader {
   /**
@@ -82,24 +83,16 @@ export class PluginLoader {
     const runtimes: PluginRuntime[] = [];
 
     for (const config of options.configs) {
-      const resolved = await PluginLoader.resolve(options.pluginsDir, config);
-      if (resolved.manifest.kind !== "extension") continue;
-
-      // Reconciled before the worker starts, so `_plugins` describes what is
-      // installed even for a plugin nobody has approved — there is nothing to
-      // grant through the API or the UI until a record exists (D34).
-      const grant = await options.service.plugins.reconcile(
-        config.name,
-        PluginGrantResolver.requested(resolved.manifest),
-        resolved.manifest.hooks
-      );
+      const prepared = await PluginLoader.prepare(options, config);
+      if (!prepared) continue;
 
       // Reconciled first and *then* skipped, so a disabled plugin still has a
-      // record to re-enable through — the same reason reconcile runs before the
-      // worker starts. Loud, because `silo.toml` lists it and it is not running:
-      // that divergence is §13.3's least favourite state, and it is tolerable
-      // here only because it is recorded rather than inferred (D38).
-      if (grant.enabled === false) {
+      // record to re-enable through. Loud, because `silo.toml` lists it and it
+      // is not running: that divergence is §13.3's least favourite state, and it
+      // is tolerable here only because it is recorded rather than inferred
+      // (D38). Since phase 4 it is also undone without a restart, which is why
+      // the remedy no longer mentions one.
+      if (prepared.grant.enabled === false) {
         options.logger.warn("plugin is disabled and was not loaded", {
           plugin: config.name,
           remedy: `POST /api/plugins/${config.name}/enable`,
@@ -107,60 +100,129 @@ export class PluginLoader {
         continue;
       }
 
-      const authority = PluginGrantResolver.resolve(config, resolved.manifest, grant);
-      PluginLoader.assertDeliverable(config.name, authority);
-
-      const context = new PluginContext({
-        name: config.name,
-        claims: authority.claims,
-        keyId: authority.keyId,
-        dispatcher: options.dispatcher,
-        logger: options.logger,
-        maxDepth: HookBus.MaxDepth,
-      });
-
-      const hostOptions = {
-        name: config.name,
-        entry: resolved.entry,
-        config: config.config,
-        declared: resolved.manifest.hooks,
-        timeoutMs: config.timeout_ms,
-        rpc: context,
-      };
-
-      // Always a worker (§13.4). The isolation choice is not the operator's:
-      // it is the only host where `timeout_ms` means anything.
-      const host = new WorkerHost(hostOptions);
-      const hooks = await host.start();
-
-      // Loud on every start, because a plugin awaiting approval is running,
-      // healthy and doing nothing — §13.3's least favourite outcome. It is not
-      // a refused start only because granting needs a server to grant through
-      // (D34), so the log is what carries the fact instead.
-      if (authority.state === "pending" || authority.state === "revoked") {
-        options.logger.warn("plugin is not authorized and will receive nothing", {
-          plugin: config.name,
-          state: authority.state,
-          remedy: `silo plugin grant ${config.name}`,
-        });
-      } else if (authority.state === "needs_review") {
-        options.logger.warn("plugin asks for more than was approved", {
-          plugin: config.name,
-          unapproved: authority.missing.join(","),
-          remedy: `silo plugin info ${config.name}`,
-        });
-      }
-
-      options.logger.info("plugin loaded", {
-        plugin: config.name,
-        hooks: hooks.join(","),
-        state: authority.state,
-        claims: authority.claims.length,
-      });
-      runtimes.push(new PluginRuntime(resolved, config, host, hooks, authority));
+      runtimes.push(
+        await PluginLoader.start(
+          options,
+          config,
+          prepared.resolved,
+          prepared.grant,
+          PluginGrantUtils.configFor(prepared.grant, config.config)
+        )
+      );
     }
 
     return runtimes;
+  }
+
+  /**
+   * Read the manifest and bring the `_plugins` record in line with it, without
+   * running anything.
+   *
+   * `null` for a provider, which has no runtime to prepare. Reconciling happens
+   * here rather than inside `start` because the record it returns is what
+   * decides whether `start` is called at all — there is nothing to grant through
+   * the API or the UI until a record exists (D34).
+   */
+  static async prepare(
+    context: PluginLoadContext,
+    config: PluginConfig
+  ): Promise<{ resolved: ResolvedPlugin; grant: PluginGrantRecord } | null> {
+    const resolved = await PluginLoader.resolve(context.pluginsDir, config);
+    if (resolved.manifest.kind !== "extension") return null;
+
+    const grant = await context.service.plugins.reconcile(
+      config.name,
+      PluginGrantResolver.requested(resolved.manifest),
+      resolved.manifest.hooks
+    );
+    return { resolved, grant };
+  }
+
+  /**
+   * Start one prepared plugin's worker and hand back its runtime.
+   *
+   * Deliberately unaware of `enabled`: the caller decides whether a plugin
+   * should be running, and the supervisor's `enable` calls this *before* writing
+   * the record it is about to flip. That ordering is not an accident — see
+   * `PluginSupervisor`.
+   *
+   * `runtimeConfig` is passed rather than derived, and that is the same story
+   * one level down. It is usually `PluginGrantUtils.configFor(grant, …)`, but
+   * `PATCH .../config` restarts *before* it writes, so at that moment the record
+   * still holds the previous override and deriving from it would start the
+   * plugin on the config the operator just replaced.
+   */
+  static async start(
+    context: PluginLoadContext,
+    config: PluginConfig,
+    resolved: ResolvedPlugin,
+    grant: PluginGrantRecord | null,
+    runtimeConfig: Record<string, unknown>
+  ): Promise<PluginRuntime> {
+    const authority = PluginGrantResolver.resolve(config, resolved.manifest, grant);
+    PluginLoader.assertDeliverable(config.name, authority);
+
+    // The document that actually reaches the worker, which is not always the
+    // one `resolve` checked: `resolve` sees what `silo.toml` declared, and a
+    // stored override (D39) has to meet the same schema before its plugin runs
+    // on it. The same validator, called about a different document.
+    PluginConfigValidator.validate(resolved.manifest, runtimeConfig);
+
+    const cell = new PluginAuthority(authority);
+    const pluginContext = new PluginContext({
+      name: config.name,
+      authority: cell,
+      dispatcher: context.dispatcher,
+      logger: context.logger,
+      maxDepth: HookBus.MaxDepth,
+    });
+
+    // Always a worker (§13.4). The isolation choice is not the operator's:
+    // it is the only host where `timeout_ms` means anything.
+    const host = new WorkerHost({
+      name: config.name,
+      entry: resolved.entry,
+      config: runtimeConfig,
+      declared: resolved.manifest.hooks,
+      timeoutMs: config.timeout_ms,
+      rpc: pluginContext,
+    });
+    const hooks = await host.start();
+
+    PluginLoader.report(context, config.name, authority, hooks);
+    return new PluginRuntime(resolved, config, host, hooks, cell, runtimeConfig);
+  }
+
+  /** Loud on every start, because a plugin awaiting approval is running,
+   *  healthy and doing nothing — §13.3's least favourite outcome. It is not a
+   *  refused start only because granting needs a server to grant through (D34),
+   *  so the log is what carries the fact instead. */
+  private static report(
+    context: PluginLoadContext,
+    name: string,
+    authority: ResolvedGrant,
+    hooks: readonly string[]
+  ): void {
+    if (authority.state === "pending" || authority.state === "revoked") {
+      context.logger.warn("plugin is not authorized and will receive nothing", {
+        plugin: name,
+        state: authority.state,
+        remedy: `silo plugin grant ${name}`,
+      });
+    } else if (authority.state === "needs_review") {
+      context.logger.warn("plugin asks for more than was approved", {
+        plugin: name,
+        unapproved: authority.missing.join(","),
+        remedy: `silo plugin info ${name}`,
+      });
+    }
+
+    context.logger.info("plugin loaded", {
+      plugin: name,
+      hooks: hooks.join(","),
+      state: authority.state,
+      claims: authority.claims.length,
+    });
   }
 
   /** Read the manifest and run every check that does not need the module. Used

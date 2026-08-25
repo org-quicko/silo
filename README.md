@@ -204,9 +204,17 @@ administer several servers.
 
 It provides a server, project, and environment browser, an entries table per
 collection, RJSF-generated entry forms with a raw JSON fallback for constructs a
-form cannot render, a schema editor, a media library, key management, and a data
-transfer view for export, import, and direct server copy. Navigation and actions
-adapt to the claims of the key in use.
+form cannot render, a schema editor, a media library, key management, plugin
+management, and a data transfer view for export, import, and direct server copy.
+Navigation and actions adapt to the claims of the key in use.
+
+**Settings → Plugins** is the grant screen: what each plugin asked for, what you
+allow, and what it is doing. Approving, narrowing, revoking, pausing, restarting
+and reconfiguring all take effect immediately, and each plugin's settings form is
+generated from its own manifest schema. Hook delivery leads every grant, because
+a plugin handed `entry.beforeValidate` can rewrite everything written to a
+collection — a larger authority than any `entries:*` permission, and one that
+reads like a smaller one.
 
 Search is on the table and on `⌘K`: the table searches its own collection and
 shows which field each result matched, while `⌘K` searches every collection the
@@ -267,8 +275,10 @@ max_size_mb = 10              # rotate past this size; 0 never rotates
 max_files   = 5               # kept as silo.log.1 … silo.log.5
 # file = "/var/log/silo.log"  # unset means the console
 
-# Plugins. An *ordered* array — the order is hook dispatch order.
-# Absent by default; `init` writes none. See "Plugins" below.
+# Plugins. An *ordered* array — the order is hook dispatch order. This says
+# *which* plugins load; what each may do is a grant in the store, and `claims`
+# here is a second, declarative way to say it. Absent by default; `init` writes
+# none. See "Plugins" below.
 # [[plugins]]
 # name   = "silo-plugin-slug"           # a directory under <data dir>/plugins/
 # claims = ["collections:*/*/*:entries:read"]
@@ -412,8 +422,11 @@ bun run apps/server/src/main.ts export [flags]                export schemas, en
 bun run apps/server/src/main.ts import [flags] <dir|tarball>  import an export
 bun run apps/server/src/main.ts media reconcile               repair the media catalog against stored blobs
 bun run apps/server/src/main.ts search reindex [--check]      rebuild the search index, and verify it
+bun run apps/server/src/main.ts add <spec> [flags]            install a plugin and list it in silo.toml
 bun run apps/server/src/main.ts plugin list                   configured plugins and what they attach to
 bun run apps/server/src/main.ts plugin info <name>            one plugin's manifest, claims and config
+bun run apps/server/src/main.ts plugin grant <name>           approve what a plugin asked for
+bun run apps/server/src/main.ts plugin revoke <name>          withdraw the stored grant
 bun run apps/server/src/main.ts plugin doctor                 load every plugin, report failures, exit
 bun run apps/server/src/main.ts version                       print the version
 ```
@@ -445,6 +458,12 @@ bun run apps/server/src/main.ts version                       print the version
 | `--dry-run` | `import` | report what would be written, write nothing |
 | `--prefer <local\|remote>` | `import` | override merge conflict resolution |
 | `--check` | `search reindex` | also report both index integrity checks, exiting non-zero on disagreement |
+| `--claims <a,b>` | `plugin grant`, `add` | approve exactly these instead of everything the manifest requests |
+| `--integrity <sri>` | `add` | check the downloaded bytes against a `sha512-...` digest |
+| `--ref <r>`, `--registry <url>` | `add` | git ref to check out; npm registry to fetch from |
+| `-y`, `--yes` | `add` | do not ask before granting (a non-interactive shell without it is a no) |
+| `--force` | `add` | replace an already-installed plugin of the same name |
+| `--no-register` | `add` | install the files, print the block, leave `silo.toml` alone |
 
 A bare collection name in `--collections` grants the permission in **every**
 project and environment (`collections:*/*/<name>:...`). Write
@@ -475,7 +494,15 @@ Present a key as `Authorization: Bearer <key>` or `X-Api-Key: <key>`.
 | `POST` | `/api/import?mode=` | accept a `tar.gz` archive |
 | `POST` | `/api/copy` | pull and import another running silo |
 | `GET` / `POST` | `/api/keys` | list keys / create one, the secret is returned exactly once |
-| `DELETE` | `/api/keys/{id}` | revoke a key |
+| `DELETE` | `/api/keys/{id}` | revoke a key, and everything descended from it |
+| `GET` | `/api/plugins` | list plugins: what each requested, what it was granted, and what it is doing |
+| `GET` | `/api/plugins/{name}` | one plugin, with an `ETag` to send back as `If-Match` |
+| `PUT` / `DELETE` | `/api/plugins/{name}/grant` | approve or narrow a grant / withdraw it |
+| `POST` | `/api/plugins/{name}/enable`, `/disable` | start or stop a plugin now |
+| `PATCH` / `DELETE` | `/api/plugins/{name}/config` | change its config / return it to `silo.toml` |
+| `POST` | `/api/plugins/{name}/restart` | bring a dead worker back |
+| `POST` | `/api/plugins/rescan` | re-read `silo.toml` and apply it |
+| `GET` | `/api/audit` | who changed what authority, and when |
 | `GET` / `POST` | `/api/media` | list / upload media |
 | `DELETE` | `/api/media/{id}` | delete a media asset, refused while an entry still references it |
 | `GET` | `/api/projects/{project}/envs/{env}/collections/{name}/search` | search one collection |
@@ -567,7 +594,10 @@ what stops two admin tabs from silently overwriting each other.
 **Errors.** `{"error": {"code": "...", "message": "...", "details": [...]}}` with
 codes `validation_failed` (400), `unauthorized` (401), `forbidden` (403),
 `not_found` (404), `conflict` (409), and `internal` (500). Validation details
-carry JSON Pointer paths from the validator.
+carry JSON Pointer paths from the validator. Two failures get codes of their
+own because they are neither a refusal nor a bug and a caller can act on them:
+`media_delete_stalled` (500) and `plugin_start_failed` (500), each carrying a
+`remedy` in `details`.
 
 ## Authentication and claims
 
@@ -590,13 +620,26 @@ collections:<project>/<env>/<name>:entries:create
 collections:<project>/<env>/<name>:entries:read
 collections:<project>/<env>/<name>:entries:update
 collections:<project>/<env>/<name>:entries:delete
+hooks:<project>/<env>/<name>:<hook>
 media:read        media:create      media:delete
 keys:read         keys:create       keys:revoke
 keys:export       keys:import
+plugins:read      plugins:grant     plugins:enable     plugins:configure
+audit:read
 transfer:export   transfer:import   transfer:copy
 ```
 
 `*` is the root claim and grants everything.
+
+`hooks:...` is **delivery**, and it is deliberately not implied by any
+`collections:...:entries:*` permission: being handed an entry before it is
+validated, with the chance to rewrite it, is a different authority from reading
+a committed one. It exists for plugins — see [Plugins](#plugins) — and the
+`<hook>` segment is one of the five hook names, with no wildcard.
+
+`plugins:*` and `audit:read` guard the management API and the authority trail.
+There is no `audit:write`: nothing updates or deletes an event, so a claim
+guarding that would imply a capability that does not exist.
 
 **Wildcards.** Each of `project`, `env`, and `name` independently accepts `*`.
 `collections:acme/*/*:entries:read` covers every environment of one project,
@@ -729,10 +772,15 @@ a test in this repo keeps the two byte-identical.
 
 ### Enabling one
 
+Two separate decisions, kept apart on purpose.
+
+**Which plugins load, and in what order** is `silo.toml` — the operator's file,
+and nothing but a text editor writes it:
+
 ```toml
 [[plugins]]
 name       = "silo-plugin-slug"   # the directory under <data dir>/plugins/
-claims     = []                   # what this plugin is allowed to do
+claims     = []                   # a declarative grant; see below
 timeout_ms = 5000                 # per dispatch
 on_error   = "fail"               # "fail" (default) | "skip"
 
@@ -747,6 +795,114 @@ bottom, with no priority number to compete over and no load-order surprise.
 `node_modules/<name>` layout. There is deliberately no `SILO_PLUGINS`
 environment variable: which code an instance runs is not something the
 environment should be able to change.
+
+**What each plugin is allowed to do** is a record in the reserved `_plugins`
+collection, changed through `silo plugin grant` or the management API. The split
+is the load-bearing part: *if grants lived in config, revoking would need a
+restart; if registration lived in the database, whoever could write the database
+could execute code.*
+
+A listed plugin that nobody has approved is **`pending`**. It loads, it is
+delivered nothing, and every `ctx` call is refused — a state, not a failure, and
+the one exception to "a plugin that cannot do its job refuses the start":
+approving needs a running server to approve through, so a server that refused to
+boot could never be given one. It is loud about it, on every start, in
+`silo plugin list`, and in a non-zero exit from `silo plugin doctor`.
+
+```sh
+silo plugin grant silo-plugin-slug                  # approve everything it asked for
+silo plugin grant silo-plugin-slug --claims a,b     # approve exactly these
+silo plugin revoke silo-plugin-slug                 # withdraw the stored grant
+```
+
+Both are offline, against the data directory — the same authority
+`silo keys create` already has there — which is what makes them the way out of
+that boot deadlock, and the way to provision a plugin in CI.
+
+Effective authority is the **union** of the two paths, each bounded by what the
+manifest requested. Two paths because they serve genuinely different
+deployments: a container built from a config map cannot use an interactive
+grant, and an operator on a box does not want to hand-edit TOML to withdraw one.
+`silo plugin revoke` clears only the stored half, and says so when `silo.toml`
+still grants something.
+
+Approving mints a real API key for the plugin, with exactly the granted claims
+and `owner: {kind: "plugin"}`. Its secret stays host-side and the plugin never
+sees it — not because a hostile plugin would gain anything by holding one, but
+because the common failure is accidental: a plugin logging its token, or sending
+it to a telemetry endpoint. `silo keys revoke` refuses a managed key and names
+`silo plugin revoke` instead; a managed key never counts toward bootstrapping,
+and is left out of every archive.
+
+### Managing a running instance
+
+Everything under `/api/plugins/` acts on the grant record and the running set,
+and **takes effect immediately** — there is no restart in any of these answers:
+
+```sh
+curl -X PUT http://localhost:8090/api/plugins/silo-plugin-slug/grant \
+  -H "Authorization: Bearer $SILO_KEY" -H 'If-Match: "3"' \
+  -H "Content-Type: application/json" \
+  -d '{"claims": ["collections:blog/prod/posts:entries:read"]}'
+```
+
+| Call | Claim | Does |
+|------|-------|------|
+| `GET /api/plugins`, `/api/plugins/{name}` | `plugins:read` | what each requested, what it was granted, and what it is doing |
+| `PUT`/`DELETE /api/plugins/{name}/grant` | `plugins:grant` | approve or narrow / withdraw. Live on the next hook and the next `ctx` call |
+| `POST /api/plugins/{name}/enable`, `/disable` | `plugins:enable` | start or stop the plugin now |
+| `PATCH`/`DELETE /api/plugins/{name}/config` | `plugins:configure` | change its config / return it to `silo.toml` |
+| `POST /api/plugins/{name}/restart` | `plugins:enable` | bring a worker back after it died |
+| `POST /api/plugins/rescan` | `plugins:enable` | re-read `silo.toml` and apply it |
+
+**`If-Match` is required on everything that writes the record**, and on a grant
+it is not ceremony: approving means approving *what you read*. Without the
+fence, a package whose request changed between the read and the approval would
+be approved on the strength of the older one. `restart` and `rescan` write no
+record, so neither takes one.
+
+**The API never writes `silo.toml`.** One that could add a `[[plugins]]` block
+would be a code-execution primitive wearing a management claim. `rescan` reads
+that file — the one the operator already wrote — and applies it: plugins added,
+removed, reordered, upgraded in place, or reconfigured. It is also how a grant
+made with the offline CLI reaches a server that is already running.
+
+`enabled` is orthogonal to the grant. A disabled plugin keeps its claims and its
+key, because pausing something is not the same decision as un-approving it — and
+an operator who had to re-approve after every pause would learn to approve
+widely to avoid the trouble.
+
+`PATCH .../config` takes an [RFC 7396](https://www.rfc-editor.org/rfc/rfc7396)
+merge patch, so one setting changes without restating the block and `null`
+removes one. The result **replaces** `silo.toml`'s block for that plugin rather
+than merging with it — two config documents have no sane join, and "what config
+is this plugin running with" should be something you read, not something you
+compute. `DELETE .../config` is the way back, and `config_source` on every view
+says which of the two is in force.
+
+Every view carries a `runtime` block — `running`, `stopped` or `failed`, with a
+sentence saying why when it is not running. That is a different question from
+`enabled` and `state`, which are what an operator *decided*: a granted, enabled
+plugin whose worker outlived its dispatch budget is torn down and not respawned,
+and `POST .../restart` is the deliberate way back. A restart is never automatic —
+a plugin that missed its budget is usually still spinning, so a respawn would
+walk into the same wall while hiding that anything happened.
+
+**All of it is in the admin UI** under *Settings → Plugins*, which is the same
+API with sentences around it: what a plugin asked for beside what you allow, the
+claims narrowed to a project and environment with two selects, a settings form
+generated from the plugin's own manifest schema, and the trail below. It leads
+with hook delivery and flags a hook that can change or stop a write, because
+`entry.beforeValidate` over a collection is a larger authority than
+`entries:update` and reads like a smaller one.
+
+**Who changed what** is `GET /api/audit`, behind `audit:read`. It records
+authority decisions only — `key.create`, `key.revoke`, `plugin.grant`,
+`plugin.revoke`, `plugin.enable`, `plugin.disable`, `plugin.configure` — and
+never entry writes, which is what `rev`, `updated_at` and the hook stream
+already are. The **services** append rather than the routes, so a change made
+with the offline CLI is in it too. Retention is unbounded on purpose: an
+authority log grows with decisions, not with traffic.
 
 ### Hooks
 
@@ -773,6 +929,9 @@ or a scope copy: an import reproduces an archive faithfully, and a hook
 rewriting data mid-import would make export then import non-idempotent — which
 is the single property [Portability](#portability) rests on.
 
+**Delivery is claim-checked**, before the event crosses into the worker — see
+below.
+
 ### What a plugin is allowed to do
 
 A plugin never receives the database or the service. It acts through `ctx`, and
@@ -791,8 +950,9 @@ const response = await ctx.fetch("/api/media?limit=5");
 ```
 
 Authority comes from two places and is the **union** of them: the `claims` in
-`silo.toml`, and what an operator approved through `POST`/`PUT
-/api/plugins/{name}/grant`. Neither may exceed what the manifest requested.
+`silo.toml`, and what an operator approved through `PUT
+/api/plugins/{name}/grant` or `silo plugin grant`. Neither may exceed what the
+manifest requested.
 
 ```toml
 claims = ["collections:blog/prod/posts:entries:read"]
@@ -800,16 +960,27 @@ claims = ["collections:blog/prod/posts:entries:read"]
 
 Being *told about* a hook is its own claim, separate from any `entries:*`
 permission — being handed a value before it is validated is not reading a
-committed one:
+committed one. It is checked **before the event crosses into the worker**,
+because a check on the far side would be an audit trail rather than a boundary:
 
 ```toml
 claims = ["hooks:blog/prod/posts:entry.beforeValidate"]
 ```
 
+A plugin whose grant delivers a hook it declares in **no** scope at all refuses
+the start. A missing API claim is not an error — a plugin may run on less than
+it asked for — but a hook that can never fire means the plugin loads, looks
+healthy, and never does the thing it was installed for.
+
 A plugin may never be granted `root`, the `plugins:*` claims, or
 `keys:create|revoke|import` — it runs code, so any of those would let it widen
 its own grant, or make the grant irrelevant. Every other claim uses the grammar
 in [Authentication and claims](#authentication-and-claims).
+
+Withdrawing a grant is **live**: the next hook is not delivered and the next
+`ctx` call is refused, with no restart and without the plugin being torn down.
+Changing what a key may do has never meant restarting whoever holds it, and a
+plugin is an API key with code attached.
 
 Throwing `ValidationError` or `ForbiddenError` from a hook is a **deliberate
 rejection** and surfaces as a 400 or 403. Any other throw is a **plugin fault**,
@@ -887,24 +1058,35 @@ breaks nothing.
 
 silo installs no dependencies. A plugin needs none — that is what `silo:api`
 buys — and a package that declares some is installed with a warning rather than
-a dependency tree. There is no `remove`: delete the `[[plugins]]` block to stop
-loading a plugin, and the directory to be rid of it.
+a dependency tree. There is no `remove`: `POST /api/plugins/{name}/disable`
+stops one on a running server, deleting the `[[plugins]]` block stops it
+loading at all, and deleting the directory is how you are rid of it.
 
-Plugins are read at startup, so a running server picks up an added plugin on its
-next restart.
+A running server picks up an added plugin on `POST /api/plugins/rescan`, or at
+its next start — never on its own. Placing a directory under `plugins/` is not
+consent to run it, and neither is listing it: the plugin still arrives
+`pending` and is granted separately.
 
 ### Inspecting
 
 ```
-silo plugin list             configured plugins, what they attach to, their claims
+silo plugin list             configured plugins, what they attach to, their state and claims
 silo plugin info <name>      one plugin's manifest, requested vs granted claims, config
 silo plugin doctor           load everything the way serve would, report failures, exit
 ```
 
 All three are read-only and need no network. `list` and `info` read the manifest
 without executing anything, so they still work on a plugin that would fail to
-load. `doctor` answers "would `serve` start?" without starting a server, and
-exits non-zero when the answer is no.
+load, and both show the request beside the grant — `[pending]`, `[granted]`,
+`[needs_review]` or `[granted, disabled]`. `doctor` answers "would `serve`
+start?" without starting a server, and exits non-zero when the answer is no,
+including when a plugin would start and quietly do nothing.
+
+An upgrade never escalates. A package that starts asking for more moves its
+record to `needs_review` and **keeps running on the grant it had** — the new
+claims are simply not in it — and the digest the record was approved against is
+deliberately not advanced while a review is outstanding, or a second start would
+settle it silently.
 
 A plugin that fails to load — a missing directory, a version range that
 excludes this binary, invalid config, a claim that was not granted, a declared
@@ -1193,10 +1375,12 @@ and static helpers rather than loose top-level functions.
   publishing it is what turns "behaves like the built-in drivers" from folklore
   into something a Postgres, git-remote or object-store adapter can run in its
   own CI.
-- **A plugin installer.** Today a plugin is a directory you place and list.
-  `silo plugin add`, with a lockfile, integrity pinning and a signature policy,
-  is deliberately not in 1.0: none of it changes what a plugin can do, and all
-  of it can arrive later without touching the contract.
+- **Plugin-contributed routes.** `/api/ext/{name}/*` is reserved and answers
+  404. A plugin mounting under its own name there, gated by its own claim, is
+  what turns an extension into something with a face of its own.
+- **Signed plugin packages.** `silo add` already pins by digest and records what
+  it verified; a signature policy — trusted publishers, and a refusal to install
+  outside them — is the part that does not exist yet.
 - **More backup options.** Scheduled and incremental exports, retention
   policies, and pushing an archive straight to a remote target such as an
   S3-compatible bucket, a git repository, or another running silo, instead of
