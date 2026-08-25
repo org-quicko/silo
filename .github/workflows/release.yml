@@ -1,7 +1,7 @@
 # Cuts a silo release: one executable per platform, checksummed, signed twice,
 # published, and pushed to the Homebrew tap.
 #
-# Everything the build does lives in `scripts/build.ts`, which is also what
+# Everything the build does lives in `tools/build/`, which is also what
 # `bun run build` runs, so a release is the local build with flags rather than a
 # recipe that only exists here and only runs on tags.
 #
@@ -223,7 +223,7 @@ jobs:
             if [ "${{ steps.key.outputs.signed }}" = "true" ]; then
               args+=(--sign-key "$RUNNER_TEMP/signing-key.asc")
             fi
-            bun run scripts/build-rpm.ts "${args[@]}"
+            bun run tools/build-rpm.ts "${args[@]}"
           done
           ls -l dist/
 
@@ -444,7 +444,7 @@ jobs:
       - name: Render the formula
         working-directory: silo
         run: |
-          bun run scripts/render-formula.ts \
+          bun run tools/render-formula.ts \
             --version "${{ needs.version.outputs.version }}" \
             --checksums SHA256SUMS \
             --out ../tap/Formula/silo.rb

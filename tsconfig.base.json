@@ -1,0 +1,22 @@
+{
+  // Compiler options shared by every Bun-side package: the server, the shared
+  // package, and the build tooling. The admin UI has its own tree because it
+  // needs DOM and JSX; `create-silo-plugin` has its own because it publishes
+  // alone and may not assume anything about the tree above it.
+  "compilerOptions": {
+    "lib": ["ESNext"],
+    "module": "ESNext",
+    "target": "ESNext",
+    "moduleResolution": "bundler",
+    "moduleDetection": "force",
+    "strict": true,
+    "skipLibCheck": true,
+    "allowSyntheticDefaultImports": true,
+    "forceConsistentCasingInFileNames": true,
+    "allowJs": true,
+    // Typecheck only. Bun runs the TypeScript directly, so nothing here is
+    // ever compiled — and without this, a bare `tsc -b` silently litters a .js
+    // file beside every source file.
+    "noEmit": true
+  }
+}

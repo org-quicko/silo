@@ -128,16 +128,16 @@ Requires Bun 1.3 or newer.
 
 ```sh
 bun install                    # every workspace: server, shared, admin UI
-bun run --cwd ui build         # admin UI, output in ui/dist
-bun run server/main.ts serve
+bun run --cwd apps/admin build   # admin UI, output in apps/admin/dist
+bun run apps/server/src/main.ts serve
 ```
 
-`bun run server/main.ts init` first writes a `silo.toml` of default settings if
+`bun run apps/server/src/main.ts init` first writes a `silo.toml` of default settings if
 you would rather configure silo in a file than with flags; it is optional.
 
-From source the server hosts the admin UI from `./ui/dist` relative to its
+From source the server hosts the admin UI from `./apps/admin/dist` relative to its
 working directory, with an SPA fallback; skip the UI build if you only want the
-API. A released binary is different — `bun run build` embeds `ui/dist` into the
+API. A released binary is different — `bun run build` embeds `apps/admin/dist` into the
 executable, so an installed `silo` serves the UI wherever it is run from.
 
 `serve` runs in the foreground. Add `--detach` to run it in the background
@@ -167,7 +167,7 @@ Locked out? Keys live in the data directory, so you can always mint a new one
 against it directly, with no running server:
 
 ```sh
-bun run server/main.ts keys create --preset root --label recovery
+bun run apps/server/src/main.ts keys create --preset root --label recovery
 ```
 
 ## Concepts
@@ -197,8 +197,8 @@ entries that predate a change are flagged in the UI when opened.
 
 ## Admin UI
 
-The admin UI is a React and Vite single-page app in [`ui/`](ui), built to
-`ui/dist` and served by the silo server at `/`. It manages a list of servers in
+The admin UI is a React and Vite single-page app in [`apps/admin/`](apps/admin), built to
+`apps/admin/dist` and served by the silo server at `/`. It manages a list of servers in
 `localStorage` and can connect to any reachable silo instance, so one build can
 administer several servers.
 
@@ -214,7 +214,7 @@ key can read, across projects and environments, with media as its own group. A
 filter builder writes the same query AST the API takes. All of it lives in the
 URL, so a searched, filtered, sorted view is a link you can send someone.
 
-See [ui/README.md](ui/README.md) for its architecture and development workflow.
+See [apps/admin/README.md](apps/admin/README.md) for its architecture and development workflow.
 
 ## Configuration
 
@@ -400,22 +400,22 @@ storage at all, so asking whether a server is running cannot create a data
 directory or disturb one another process already owns.
 
 ```
-bun run server/main.ts init [flags]                  write a silo.toml of default settings
-bun run server/main.ts serve [flags]                 start the HTTP server
-bun run server/main.ts stop [flags]                  stop a server started with --detach
-bun run server/main.ts status [flags]                report whether a server is running
-bun run server/main.ts logs [flags]                  show the server log
-bun run server/main.ts keys create [flags]           mint an API key (secret shown once)
-bun run server/main.ts keys list                     list keys (label, claims, prefix, created)
-bun run server/main.ts keys revoke <id>              revoke a key
-bun run server/main.ts export [flags]                export schemas, entries, and media
-bun run server/main.ts import [flags] <dir|tarball>  import an export
-bun run server/main.ts media reconcile               repair the media catalog against stored blobs
-bun run server/main.ts search reindex [--check]      rebuild the search index, and verify it
-bun run server/main.ts plugin list                   configured plugins and what they attach to
-bun run server/main.ts plugin info <name>            one plugin's manifest, claims and config
-bun run server/main.ts plugin doctor                 load every plugin, report failures, exit
-bun run server/main.ts version                       print the version
+bun run apps/server/src/main.ts init [flags]                  write a silo.toml of default settings
+bun run apps/server/src/main.ts serve [flags]                 start the HTTP server
+bun run apps/server/src/main.ts stop [flags]                  stop a server started with --detach
+bun run apps/server/src/main.ts status [flags]                report whether a server is running
+bun run apps/server/src/main.ts logs [flags]                  show the server log
+bun run apps/server/src/main.ts keys create [flags]           mint an API key (secret shown once)
+bun run apps/server/src/main.ts keys list                     list keys (label, claims, prefix, created)
+bun run apps/server/src/main.ts keys revoke <id>              revoke a key
+bun run apps/server/src/main.ts export [flags]                export schemas, entries, and media
+bun run apps/server/src/main.ts import [flags] <dir|tarball>  import an export
+bun run apps/server/src/main.ts media reconcile               repair the media catalog against stored blobs
+bun run apps/server/src/main.ts search reindex [--check]      rebuild the search index, and verify it
+bun run apps/server/src/main.ts plugin list                   configured plugins and what they attach to
+bun run apps/server/src/main.ts plugin info <name>            one plugin's manifest, claims and config
+bun run apps/server/src/main.ts plugin doctor                 load every plugin, report failures, exit
+bun run apps/server/src/main.ts version                       print the version
 ```
 
 | Flags | Applies to | Meaning |
@@ -663,7 +663,7 @@ To start from a working one:
 npm create silo-plugin          # or: bun create silo-plugin
 ```
 
-[`create-silo-plugin`](create-silo-plugin/) asks what the plugin is for and
+[`create-silo-plugin`](packages/create-silo-plugin/) asks what the plugin is for and
 writes the manifest, a runnable stub per hook you pick, the `silo:api` type
 declarations, and the `[[plugins]]` block to paste into `silo.toml`. Everything
 below is what it produces, and what to change once you have it.
@@ -723,7 +723,7 @@ export default defineSiloPlugin({
 silo injects it into the plugin's import graph before the plugin loads. That is
 why a plugin declares no dependencies, and why there is only ever one copy of
 `ValidationError` in play instead of one per plugin. For editor support, keep
-`server/plugins/host/silo-api-types.d.ts` next to your plugin; it is types only
+`apps/server/src/plugins/host/silo-api-types.d.ts` next to your plugin; it is types only
 and contributes nothing at runtime. `create-silo-plugin` copies it for you, and
 a test in this repo keeps the two byte-identical.
 
@@ -889,10 +889,10 @@ doing what a plugin was installed to do is the worst outcome available.
 ## Portability
 
 ```sh
-bun run server/main.ts export --dir ./backup               # on-disk tree
-bun run server/main.ts export --out backup.tar.gz          # reproducible tarball
-bun run server/main.ts import ./backup --mode merge        # newest updated_at wins
-bun run server/main.ts import backup.tar.gz --mode replace # replace per collection
+bun run apps/server/src/main.ts export --dir ./backup               # on-disk tree
+bun run apps/server/src/main.ts export --out backup.tar.gz          # reproducible tarball
+bun run apps/server/src/main.ts import ./backup --mode merge        # newest updated_at wins
+bun run apps/server/src/main.ts import backup.tar.gz --mode replace # replace per collection
 ```
 
 An export contains every project and environment, including empty ones, plus
@@ -1079,7 +1079,7 @@ consider the service dead the moment the parent returned.
 
 ```sh
 bun test                # server, shared, and storage conformance suites
-bun run server/main.ts serve --data ./silo_data
+bun run apps/server/src/main.ts serve --data ./silo_data
 cd ui && bun run dev    # hot-reloading admin UI against a running backend
 cd ui && bun run lint   # oxlint plus stylelint
 ```
@@ -1087,7 +1087,7 @@ cd ui && bun run lint   # oxlint plus stylelint
 An empty instance hides most of what the admin UI does, so there is a seeder:
 
 ```sh
-bun run scripts/seed.ts --key "$SILO_KEY"
+bun run tools/seed/main.ts --key "$SILO_KEY"
 ```
 
 It fills a running server over the HTTP API with roughly 5,000 entries across
@@ -1131,20 +1131,21 @@ manifest.
 
 | Path | What it is |
 |------|------------|
-| `server/` | Bun and Hono backend: `core/` (domain, ports, schema, transfer, service), `adapters/` (storage, blob, http client), `http/` (server, routes, auth, middleware), `cli/`, `config/` |
-| `shared/` | `@silo/shared`, a Bun workspace holding runtime-neutral rules both the server and UI depend on: claims, validation errors, schema keywords, key format |
-| `ui/` | React and Vite admin UI, built to `ui/dist` |
-| `create-silo-plugin/` | The plugin scaffolder published to npm as `create-silo-plugin` — a workspace of this repo, with no runtime dependencies of its own. Lives here so its copies of the plugin contract are checked against the originals by silo's own suite |
-| `server/test/`, `shared/test/` | `bun test` suites |
-| `scripts/` | Build, packaging, and versioning tooling invoked through `bun run`, outside the server's source tree |
+| `apps/server/` | Bun and Hono backend: `src/core/` (domain, ports, services, schema, transfer), `src/adapters/` (storage, blob, http client), `src/http/` (server, routes, auth, middleware), `src/cli/`, `src/config/`, `src/plugins/`, and `test/` |
+| `apps/admin/` | React and Vite admin UI, built to `apps/admin/dist` |
+| `packages/shared/` | `@silo/shared` — runtime-neutral rules both the server and the UI depend on: claims, validation errors, schema keywords, key format |
+| `packages/create-silo-plugin/` | The plugin scaffolder published to npm as `create-silo-plugin`, with no runtime dependencies of its own. It lives here so its copies of the plugin contract are checked against the originals by silo's own suite |
+| `plugins/` | First-party plugins, one workspace package each |
+| `tools/` | Build, packaging, seeding and versioning tooling invoked through `bun run` |
 | `packaging/` | The Homebrew formula and the dnf package: systemd unit, scriptlets, and repository metadata |
+| `docs/` | `context/` — what exists now; `design/` — why it is shaped this way |
 
-The architecture is ports and adapters: `server/core/` defines domain types and
-the `Storage` and `BlobStorage` interfaces and imports no adapter, adapters
-implement them, and the CLI wires everything explicitly from config. The testing
-spine is the storage conformance suite in
-`server/test/conformance/storage-conformance.ts`, run against both drivers, plus
-export and import round-trip tests. Both drivers are held to identical behavior
+The architecture is ports and adapters: `apps/server/src/core/` defines domain
+types and the `Storage` and `BlobStorage` interfaces and imports no adapter,
+adapters implement them, and the CLI wires everything explicitly from config.
+The testing spine is the storage conformance suite in
+`apps/server/test/conformance/`, run against both drivers, plus export and
+import round-trip tests. Both drivers are held to identical behavior
 there, which is what keeps migration between them honest.
 
 Two conventions run through the whole repository. Every exported class,

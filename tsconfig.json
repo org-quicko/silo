@@ -1,19 +1,7 @@
 {
-  "compilerOptions": {
-    "lib": ["ESNext"],
-    "module": "ESNext",
-    "target": "ESNext",
-    "moduleResolution": "bundler",
-    "moduleDetection": "force",
-    "strict": true,
-    "skipLibCheck": true,
-    "allowSyntheticDefaultImports": true,
-    "forceConsistentCasingInFileNames": true,
-    "allowJs": true,
-    // Typecheck only. Bun runs the TypeScript directly, so nothing here is
-    // ever compiled — and without this, a bare `tsc -b` at the repo root
-    // silently litters a .js file beside every source file.
-    "noEmit": true
-  },
-  "include": ["server/**/*", "shared/**/*", "scripts/**/*"]
+  // One typecheck pass over everything that runs on Bun. Each package also has
+  // its own config for `bun run --cwd <pkg> typecheck`; this one is what a bare
+  // `tsc -b` at the repo root checks.
+  "extends": "./tsconfig.base.json",
+  "include": ["apps/server/**/*", "packages/shared/**/*", "tools/**/*"]
 }

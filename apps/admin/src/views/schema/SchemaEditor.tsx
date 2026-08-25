@@ -1,0 +1,296 @@
+import { SchemaAccess } from '@silo/shared/schema-access'
+import { Button } from '../../components/buttons/Button'
+import { Breadcrumb } from '../../components/navigation/Breadcrumb'
+import { useState } from 'react'
+import CodeMirror from '@uiw/react-codemirror'
+import { json as jsonLang } from '@codemirror/lang-json'
+import { Check, AlertCircle, List, Code2 } from 'lucide-react'
+import { Claims } from '@silo/shared/claims'
+import { api } from '../../api/silo-api'
+import type { Collection } from '../../api/types/collection'
+import type { ScopeRef } from '../../api/types/scope-ref'
+import { Toggle } from '../../components/controls/Toggle'
+import { Segmented } from '../../components/controls/Segmented'
+import { DangerConfirm } from '../../components/modal/DangerConfirm'
+import { TopBar } from '../shell/TopBar'
+import { SmartSearch } from '../search/SmartSearch'
+import type { PaletteSeed } from '../search/palette-seed'
+import { CollectionRail } from './CollectionRail'
+import { FieldList } from './FieldList'
+import styles from './SchemaEditor.module.css'
+import type { SessionBadge } from '../shell/session-badge'
+import { useSchemaDraft, type SchemaEditorMode } from './use-schema-draft'
+
+interface Props {
+  serverId: string
+  collection: Collection | null
+  collections: Collection[]
+  url: string
+  apiKey: string
+  scope: ScopeRef
+  claims: string[]
+  session: SessionBadge
+  /** URL to return to on cancel — the breadcrumbs link back to it. */
+  backTo: string
+  entryCount: number | null
+  onSaved: (name: string) => void
+  onCancel: () => void
+  onDeleted: () => void
+  onOpenPalette: (seed: PaletteSeed) => void
+  onNavigateToCollection: (name: string, q: string) => void
+}
+
+export function SchemaEditorView({
+  serverId,
+  collection,
+  collections,
+  url,
+  apiKey,
+  scope,
+  claims,
+  session,
+  backTo,
+  entryCount,
+  onSaved,
+  onCancel,
+  onDeleted,
+  onOpenPalette,
+  onNavigateToCollection,
+}: Props) {
+  const draft = useSchemaDraft(collection)
+
+  const [name, setName] = useState(collection?.name || '')
+  const [error, setError] = useState('')
+  const [saving, setSaving] = useState(false)
+  const [showDelete, setShowDelete] = useState(false)
+  const [deleting, setDeleting] = useState(false)
+  const [deleteError, setDeleteError] = useState('')
+
+  const canChangeAccess =
+    !collection ||
+    Claims.has(
+      claims,
+      Claims.collection(scope.project, scope.env, collection.name, Claims.CollectionAccessUpdate),
+    )
+  const canDelete =
+    !!collection &&
+    Claims.has(
+      claims,
+      Claims.collection(scope.project, scope.env, collection.name, Claims.CollectionDelete),
+    )
+
+  const switchMode = (next: SchemaEditorMode) => {
+    setError('')
+    if (!draft.switchMode(next)) {
+      setError('Fix the JSON syntax before switching to the visual builder.')
+    }
+  }
+
+
+  const save = async () => {
+    setError('')
+    const finalName = collection?.name || name.trim()
+    if (!finalName) {
+      setError('Collection name is required.')
+      return
+    }
+    const toSave = draft.toSave()
+    let schema: any
+    try {
+      schema = JSON.parse(toSave)
+    } catch {
+      setError('Invalid JSON — cannot save.')
+      return
+    }
+    setSaving(true)
+    try {
+      if (collection) await api.collections.putSchema(url, apiKey, scope, finalName, schema)
+      else await api.collections.create(url, apiKey, scope, finalName, schema)
+      onSaved(finalName)
+    } catch (caught: any) {
+      setError(caught.message || 'Failed to save schema')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  const removeCollection = async () => {
+    if (!collection) return
+    setDeleting(true)
+    setDeleteError('')
+    try {
+      // The confirmation explicitly covers the schema and every entry, so the
+      // destructive action is the force-delete variant rather than a button
+      // that only happens to work for empty, unreferenced collections.
+      await api.collections.delete(url, apiKey, scope, collection.name, true)
+      setShowDelete(false)
+      onDeleted()
+    } catch (caught: any) {
+      setDeleteError(caught.message || 'Failed to delete collection')
+      setDeleting(false)
+    }
+  }
+
+  const valid = draft.parsed.ok
+
+  return (
+    <>
+      <TopBar
+        search={
+          <SmartSearch
+            serverId={serverId}
+            scope={scope}
+            collection={collection?.name ?? null}
+            collections={collections.map((c) => ({ name: c.name, count: null, schema: c.schema }))}
+            onNavigateToCollection={onNavigateToCollection}
+            onOpenPalette={onOpenPalette}
+          />
+        }
+        session={session}
+      >
+        <Button variant="secondary" onClick={onCancel}>
+          Cancel
+        </Button>
+        <Button variant="primary" onClick={save} disabled={saving || !valid}>
+          {saving ? 'Saving…' : collection ? 'Save schema' : 'Create collection'}
+        </Button>
+      </TopBar>
+      <div className={`content ${styles.content}`}>
+        <Breadcrumb
+          crumbs={
+            collection
+              ? [{ label: 'Collections', to: backTo }, { label: collection.name, to: backTo }, { label: 'Edit collection' }]
+              : [{ label: 'Collections', to: backTo }, { label: 'New collection' }]
+          }
+        />
+        <div className={styles.shell}>
+          <div className={`${styles.main} ${collection ? '' : styles.mainSolo}`}>
+            <div className={styles.layout}>
+          <div className={`page-head ${styles.pageHeader}`}>
+            <div className="page-title-group">
+              <h2 className="page-title">{collection ? 'Edit collection' : 'New collection'}</h2>
+              <span className="page-sub">Define the collection with JSON Schema draft 2020-12.</span>
+            </div>
+          </div>
+
+      {!collection && (
+        <div className={`field ${styles.nameField}`}>
+          <label className="field-label">Collection name</label>
+          <input
+            className="input mono"
+            placeholder="e.g. blog_posts"
+            value={name}
+            onChange={(e) => setName(e.target.value.toLowerCase().replace(/[^a-z0-9_-]/g, ''))}
+          />
+        </div>
+      )}
+
+      {error && (
+        <div className="banner banner-bad">
+          <AlertCircle size={16} />
+          <span>{error}</span>
+        </div>
+      )}
+
+      <div
+        className={styles.authCard}
+      >
+        <div className={styles.authCopy}>
+          <span className={styles.authTitle}>
+            Private collection
+          </span>
+          <span className={styles.authDescription}>
+            Require an API key to read entries (<span className="mono">{SchemaAccess.AuthKeyword}</span>).
+          </span>
+        </div>
+        <Toggle size="sm" on={draft.requiresAuth} onChange={draft.setRequiresAuth} disabled={!canChangeAccess} title={canChangeAccess ? undefined : 'Missing access:update claim'} />
+      </div>
+
+      <div className={styles.card}>
+        <div className={styles.header}>
+          <div className={styles.identity}>
+            <span className={styles.name}>{collection?.name || name || 'untitled'}</span>
+            <span className={styles.tag}>{draft.mode === 'visual' ? 'schema' : 'schema.json'}</span>
+          </div>
+          <Segmented
+            value={draft.mode}
+            variant="compact"
+            onChange={switchMode}
+            options={[
+              { value: 'visual', label: <><List size={13} /> Visual</> },
+              { value: 'code', label: <><Code2 size={13} /> Code</> },
+            ]}
+          />
+        </div>
+
+        {draft.mode === 'visual' ? (
+          <FieldList
+            fields={draft.fields}
+            collections={collections}
+            expanded={draft.expanded}
+            onExpand={draft.setExpanded}
+            onChangeField={draft.updateField}
+            onRemoveField={draft.removeField}
+            onAddField={draft.addField}
+          />
+        ) : (
+          <div className={styles.codeEditor}>
+            <CodeMirror
+              value={draft.text}
+              height="420px"
+              theme="dark"
+              extensions={[jsonLang()]}
+              onChange={(value) => draft.setText(value)}
+            />
+          </div>
+        )}
+
+        <div className={styles.footer}>
+          <span className={`${styles.validity} ${valid ? '' : styles.invalid}`}>
+            {valid ? <Check size={14} /> : <AlertCircle size={14} />}
+            {valid ? `Schema is valid · ${draft.fieldCount} ${draft.fieldCount === 1 ? 'field' : 'fields'}` : 'Invalid JSON'}
+          </span>
+        </div>
+      </div>
+            </div>
+          </div>
+
+          {collection && (
+            <CollectionRail
+              collection={collection}
+              scope={scope}
+              fieldCount={draft.fieldCount}
+              entryCount={entryCount}
+              requiresAuth={draft.requiresAuth}
+              canDelete={canDelete}
+              onDelete={() => {
+                setDeleteError('')
+                setShowDelete(true)
+              }}
+            />
+          )}
+        </div>
+      </div>
+
+      {showDelete && collection && (
+        <DangerConfirm
+          title="Delete this collection?"
+          confirmWord={collection.name}
+          confirmLabel="Delete collection"
+          busy={deleting}
+          error={deleteError}
+          onConfirm={removeCollection}
+          onCancel={() => setShowDelete(false)}
+        >
+          The <b>{collection.name}</b> schema and{' '}
+          {entryCount == null
+            ? 'all of its entries'
+            : entryCount === 1
+              ? 'its 1 entry'
+              : `all ${entryCount} of its entries`}{' '}
+          are deleted permanently. References from other collection schemas are not removed.
+        </DangerConfirm>
+      )}
+    </>
+  )
+}

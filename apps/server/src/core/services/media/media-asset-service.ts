@@ -1,0 +1,179 @@
+import crypto from "crypto";
+import type { Filter } from "@silo/shared/filter";
+import { EntryUtils } from "../../domain/entry-utils";
+import { ConflictError } from "../../errors/conflict-error";
+import { MediaCatalog } from "../../media/media-catalog";
+import { MediaPaths } from "../../media/media-paths";
+import { MimeUtils } from "../../media/mime-utils";
+import type { MediaAsset } from "../../media/media-asset";
+import type { MediaAssetView } from "../../media/media-asset-view";
+import type { MediaQuery } from "../../media/media-query";
+import type { MediaUsage } from "../../media/media-usage";
+import { QueryUtils } from "../../query/query-utils";
+import type { SortKey } from "../../query/sort-key";
+import type { ServiceContext } from "../support/service-context";
+import { MediaAssetPatch, type MediaAssetPatchInput } from "./media-asset-patch";
+import { MediaCatalogStore } from "./media-catalog-store";
+import { MediaFilter } from "./media-filter";
+import { MediaSortOrder } from "./media-sort-order";
+import type { MediaUsageCounter } from "./media-usage-counter";
+
+/** Decides which referring entries a caller may see, so a scoped key learns
+ *  that a file is in use without learning where (§8.1). */
+export type MediaUsageVisibility = (
+  project: string,
+  env: string,
+  collection: string
+) => boolean;
+
+/** One page of the media library. */
+export interface MediaAssetPage {
+  items: MediaAssetView[];
+  total: number;
+  limit: number;
+  offset: number;
+}
+
+/** Uploading, searching, reading and editing catalog records. Nothing here
+ *  deletes; that saga lives in `MediaDeletionService`. */
+export class MediaAssetService {
+  private readonly context: ServiceContext;
+  private readonly catalog: MediaCatalogStore;
+  private readonly usageCounter: MediaUsageCounter;
+
+  constructor(
+    context: ServiceContext,
+    catalog: MediaCatalogStore,
+    usageCounter: MediaUsageCounter
+  ) {
+    this.context = context;
+    this.catalog = catalog;
+    this.usageCounter = usageCounter;
+  }
+
+  /** Searches the catalog. Paging comes from `Storage.list` unchanged. */
+  async list(query: MediaQuery = {}): Promise<MediaAssetPage> {
+    const folder =
+      query.folder === undefined ? undefined : MediaPaths.normalizeFolder(query.folder);
+    const filter = MediaFilter.build(query, folder);
+
+    const limit = QueryUtils.normalizeQuery({ limit: query.limit }).limit;
+    const offset = Math.max(0, query.offset || 0);
+    const sort = MediaSortOrder.parse(query.sort);
+
+    // A recursive filter rooted at "" matches everything, so it is no filter at
+    // all — taking the in-memory path for it would load the whole catalog to
+    // page the library's default view.
+    if (folder && query.recursive) {
+      return this.listRecursive(filter, sort, folder, limit, offset);
+    }
+
+    const page = await this.catalog.listAssets({ filter, sort, limit, offset });
+    return {
+      items: await this.usageCounter.withCounts(page.items),
+      total: page.total,
+      limit,
+      offset,
+    };
+  }
+
+  async get(id: string): Promise<MediaAssetView> {
+    const [view] = await this.usageCounter.withCounts([await this.catalog.asset(id)]);
+    return view;
+  }
+
+  /**
+   * Referrers of an asset. Instance-global media meets scoped entries here: the
+   * caller gets the true total but only the rows `visibility` admits (§8.1).
+   */
+  async usages(
+    id: string,
+    page: { limit?: number; offset?: number } = {},
+    visibility?: MediaUsageVisibility
+  ): Promise<{ items: MediaUsage[]; total: number; visible: number }> {
+    const entry = await this.catalog.asset(id);
+    const tokens = MediaCatalog.tokens(entry.id, MediaCatalog.toAsset(entry).blob_key);
+    const found = await this.context.store.listMediaUsages(tokens, page);
+
+    const items = visibility
+      ? found.items.filter((usage) => visibility(usage.project, usage.env, usage.collection))
+      : found.items;
+    return { items, total: found.total, visible: items.length };
+  }
+
+  async save(
+    originalName: string,
+    fileData: Uint8Array,
+    mimeType?: string,
+    folder?: string
+  ): Promise<MediaAssetView> {
+    const filename = MediaPaths.normalizeFilename(originalName);
+    const id = EntryUtils.newID();
+    const blobKey = MediaPaths.blobKey(id, filename);
+    const contentType = mimeType && mimeType.trim() ? mimeType : MimeUtils.lookup(filename);
+
+    return this.context.withWriteLock(async () => {
+      // Bytes first: a blob with no catalog record is an orphan reconcile can
+      // adopt or report, whereas a record with no bytes is a broken asset every
+      // reader trips over.
+      await this.context.blobStorage.put(blobKey, fileData, { contentType });
+
+      const asset: MediaAsset = {
+        filename,
+        folder: MediaPaths.normalizeFolder(folder),
+        blob_key: blobKey,
+        size: fileData.length,
+        content_type: contentType,
+        hash: crypto.createHash("sha256").update(fileData).digest("hex"),
+        state: "active",
+        tags: [],
+      };
+      return MediaCatalog.toView(await this.catalog.putAsset(id, asset), 0);
+    });
+  }
+
+  /** Rename, move, or retag. None of it touches the blob or any entry. */
+  async update(id: string, patch: MediaAssetPatchInput): Promise<MediaAssetView> {
+    return this.context.withWriteLock(async () => {
+      const entry = await this.catalog.asset(id);
+      const asset = MediaCatalog.toAsset(entry);
+      if (asset.state === "deleting") {
+        throw new ConflictError(`media asset "${id}" is being deleted`);
+      }
+
+      const updated = await this.catalog.putAsset(id, MediaAssetPatch.apply(asset, patch));
+      const [view] = await this.usageCounter.withCounts([updated]);
+      return view;
+    });
+  }
+
+  /**
+   * A recursive folder filter cannot be one AST op — `contains` on a string
+   * would also match "/marketing-old" for "/marketing" — so it is applied after
+   * the fact rather than adding a `prefix` op both adapters would have to
+   * implement forever.
+   */
+  private async listRecursive(
+    filter: Filter | undefined,
+    sort: SortKey[],
+    folder: string,
+    limit: number,
+    offset: number
+  ): Promise<MediaAssetPage> {
+    const { items } = await this.catalog.listAssets({
+      filter,
+      sort,
+      limit: MediaCatalogStore.WholeCatalog,
+      offset: 0,
+    });
+    const within = items.filter((entry) =>
+      MediaPaths.isWithin(MediaCatalog.toAsset(entry).folder, folder)
+    );
+    return {
+      items: await this.usageCounter.withCounts(within.slice(offset, offset + limit)),
+      total: within.length,
+      limit,
+      offset,
+    };
+  }
+}
