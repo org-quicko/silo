@@ -7,6 +7,7 @@
   "workspaces": ["apps/*", "packages/*", "plugins/*"],
   "scripts": {
     "start": "bun run --cwd apps/server start",
+    "dev": "concurrently -n server,admin -c blue,magenta --kill-others \"bun run start\" \"bun run --cwd apps/admin dev\"",
     "test": "bun test",
     "lint": "bun run --cwd apps/admin lint",
     "typecheck": "tsc -b",
@@ -18,6 +19,7 @@
     "@types/bun": "^1.4.0",
     "@types/node": "^20.19.43",
     "@types/tar": "^6.1.13",
+    "concurrently": "^10.0.5",
     "tar": "^7.5.22",
     "typescript": "^7.0.2"
   }
