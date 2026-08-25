@@ -41,9 +41,7 @@ describe("PluginInstaller", () => {
     main: "index.ts",
     silo: {
       silo: "*",
-      kind: "extension",
-      hooks: ["entry.beforeValidate"],
-      claims: [],
+      contributes: { hooks: ["entry.beforeValidate"] },
       ...overrides.silo,
     },
   });
@@ -79,7 +77,7 @@ describe("PluginInstaller", () => {
 
       // The oracle: the call `serve` makes, against the directory `add` wrote.
       const resolved = await ManifestReader.read(pluginsDir, "silo-plugin-slug");
-      expect(resolved.manifest.hooks).toEqual(["entry.beforeValidate"]);
+      expect(resolved.manifest.contributes.hooks).toEqual(["entry.beforeValidate"]);
       expect(resolved.entry).toBe(path.join(result.dir, "index.ts"));
     });
 
@@ -124,9 +122,9 @@ describe("PluginInstaller", () => {
 
       expect(result.dir).toBe(path.join(pluginsDir, "silo-plugin-slug"));
       expect(await entries(result.dir)).toEqual(["index.ts", "package.json"]);
-      expect((await ManifestReader.read(pluginsDir, "silo-plugin-slug")).manifest.kind).toBe(
-        "extension"
-      );
+      expect(
+        (await ManifestReader.read(pluginsDir, "silo-plugin-slug")).manifest.contributes.hooks
+      ).toEqual(["entry.beforeValidate"]);
     });
 
     test("records a digest even when nothing was given to check it against", async () => {
@@ -202,7 +200,13 @@ describe("PluginInstaller", () => {
     test("a provider cannot take a reserved driver name", async () => {
       await writePackage(
         sourceDir,
-        manifest({ silo: { kind: "provider", hooks: [], provider: { port: "storage", driver: "sqlite" } } })
+        manifest({
+          silo: {
+            contributes: {
+              providers: [{ port: "storage", driver: "sqlite", entry: "./index.ts" }],
+            },
+          },
+        })
       );
       await expect(install(sourceDir)).rejects.toThrow(/reserved for a built-in adapter/);
       expect(await entries(pluginsDir)).toEqual([]);

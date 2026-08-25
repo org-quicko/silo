@@ -8,6 +8,7 @@ const plugin = (patch: Partial<PluginView> = {}): PluginView => ({
   state: 'pending',
   enabled: true,
   requested: [],
+  required: patch.requested ? [...patch.requested] : [],
   granted: [],
   config_claims: [],
   effective: [],
@@ -20,9 +21,9 @@ const plugin = (patch: Partial<PluginView> = {}): PluginView => ({
   runtime: { state: 'running', hooks: [], detail: null },
   config: {},
   config_source: 'silo.toml',
-  kind: 'extension',
+  contributes: { hooks: [], routes: [], runtime: false, providers: [] },
+  reasons: {},
   config_schema: null,
-  routes: [],
   ...patch,
 })
 

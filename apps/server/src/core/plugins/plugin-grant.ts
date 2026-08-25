@@ -21,6 +21,22 @@ export interface PluginGrant {
    *  upgrade's delta is computable without re-reading the package. */
   requested: string[];
 
+  /**
+   * The subset of `requested` the package declares it cannot work without (D36).
+   *
+   * In the record and not only in the manifest because `PUT .../grant` with no
+   * body means "approve the default", and D38's rule is that the management API
+   * acts on the record and **never on the filesystem**. Without this the default
+   * grant would either have to read the package — which is the coupling that rule
+   * exists to prevent — or approve everything, which is what made `optional`
+   * worth introducing.
+   *
+   * Absent in a record written before D36, where there was no optional and so
+   * everything requested was required. `PluginGrantUtils.requiredOf` is that
+   * reading; nothing else should touch the field directly.
+   */
+  required?: string[];
+
   /** The hooks the manifest declares. Part of what an operator approves — a
    *  package that quietly adds one has changed its request even if its claims
    *  did not — so it is stored beside them rather than re-read from disk. */

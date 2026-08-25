@@ -1,6 +1,6 @@
 import type { PluginGrantRecord } from "../../core/plugins/plugin-grant-record";
 import { PluginGrantUtils } from "../../core/plugins/plugin-grant-utils";
-import type { PluginFacts, PluginRoute, PluginStatus } from "../../plugins";
+import type { PluginContributions, PluginFacts, PluginStatus } from "../../plugins";
 
 /** What `GET /api/plugins` returns per plugin (D38, D39). */
 export interface PluginView {
@@ -10,6 +10,16 @@ export interface PluginView {
    *  reading `undefined` as false would show every plugin as off. */
   enabled: boolean;
   requested: string[];
+
+  /**
+   * The subset of `requested` the package says it cannot work without (D36).
+   *
+   * On the wire because it is what `PUT .../grant` with no body approves, and a
+   * client offering "approve the default" has to be able to show what that is
+   * before sending it. From the **record**, like `requested`, so the two always
+   * describe the same reconciliation.
+   */
+  required: string[];
 
   /** What the operator approved **through the record** — the half this API can
    *  change. `config_claims` is the other half, and `effective` is the two of
@@ -67,16 +77,27 @@ export interface PluginView {
   config_source: "silo.toml" | "store";
 
   /**
-   * Extension or provider — `null` when the package could not be read, which
-   * `runtime.detail` explains rather than this repeating it.
+   * What the package contributes — hooks, routes, a runtime, providers (D36).
    *
-   * A provider *is* the storage: it runs in-process, has no worker and takes no
-   * hooks, so every lifecycle affordance a client would otherwise offer for it
-   * is one that does nothing. That is a different sentence from "stopped", and a
-   * surface with no way to tell the two apart has to pick one of them to be
-   * wrong about (D40).
+   * `null` when the package could not be read, which `runtime.detail` explains
+   * rather than this repeating it.
+   *
+   * It replaced `kind`, and the reason it had to is the reason `kind` was there:
+   * a package contributing only a provider *is* the storage — it runs in-process,
+   * has no worker and takes no hooks, so every lifecycle affordance a client
+   * would otherwise offer for it is one that does nothing. `kind` could say that
+   * about a package doing one thing, and had no way to describe one doing two.
    */
-  kind: "extension" | "provider" | null;
+  contributes: PluginContributions | null;
+
+  /**
+   * Why the package says it wants each claim (D36).
+   *
+   * Claim to reason, derived claims included. From the manifest rather than the
+   * record: it is documentation, and a record carrying it would be a second copy
+   * to drift. `{}` when the package could not be read.
+   */
+  reasons: Record<string, string>;
 
   /**
    * JSON Schema for the config block, straight from the manifest.
@@ -88,20 +109,6 @@ export interface PluginView {
    */
   config_schema: unknown | null;
 
-  /**
-   * The routes this plugin serves under `/api/ext/{name}/*` (D36, phase 6).
-   *
-   * Here rather than left to the client to infer from `http:route`, because that
-   * claim is one string covering every route and the list is where the decision
-   * has any content. `auth` is the part that carries weight: a handler runs with
-   * the **plugin's** authority, so a `public` route publishes whatever the plugin
-   * was granted to anyone who can reach the URL. That is why the routes are part
-   * of the approval and not a detail of the package.
-   *
-   * Empty for a plugin that declares none. `null` only when the package could
-   * not be read at all, which `runtime.detail` explains.
-   */
-  routes: readonly PluginRoute[] | null;
 }
 
 export class PluginViews {
@@ -114,6 +121,7 @@ export class PluginViews {
       state: facts.state,
       enabled: record.enabled !== false,
       requested: record.requested,
+      required: PluginGrantUtils.requiredOf(record),
       granted: record.granted,
       config_claims: facts.config_claims,
       effective: facts.effective,
@@ -126,9 +134,9 @@ export class PluginViews {
       runtime: facts.status,
       config: facts.config,
       config_source: facts.source,
-      kind: facts.manifest?.kind ?? null,
+      contributes: facts.manifest?.contributes ?? null,
+      reasons: facts.manifest?.reasons ?? {},
       config_schema: facts.manifest?.config_schema ?? null,
-      routes: facts.manifest?.routes ?? null,
     };
   }
 }

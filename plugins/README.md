@@ -4,7 +4,8 @@ First-party silo plugins. Each subdirectory is a workspace package and follows
 the same contract as any third-party plugin (D31, `IMPLEMENTATION.md` §13):
 
 - `package.json` carries the static manifest under a `silo` key — the version
-  range it supports, the claims it requests, and a JSON Schema for its config.
+  range it supports, what it `contributes`, the `permissions` it asks for with a
+  reason for each, and a JSON Schema for its config.
 - The module's default export is a descriptor of functions. Importing it has no
   side effects and nothing self-registers.
 - The host is reached through the `silo:api` virtual module, so a plugin

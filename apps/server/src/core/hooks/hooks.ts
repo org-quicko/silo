@@ -4,6 +4,7 @@ import type {
   BeforeDeleteEvent,
   BeforeValidateEvent,
   BeforeWriteEvent,
+  CollectionDeletedEvent,
 } from "./events";
 
 /**
@@ -43,4 +44,16 @@ export interface Hooks {
 
   /** Best-effort, as `afterWrite`. */
   afterDelete(event: AfterDeleteEvent): Promise<void>;
+
+  /**
+   * One collection erased, dispatched **after** the write lock is released
+   * (D36, closing D37's F6).
+   *
+   * Outside the lock for the reason D37 pinned about the entry hooks: a plugin
+   * that writes back through the HTTP surface must acquire a free lock rather
+   * than wait on the one its own caller holds, or D33's deadlock returns. That
+   * is why an erase collects a plan inside the lock and dispatches after it,
+   * rather than `CollectionEraser` dispatching where the deletes happen.
+   */
+  afterCollectionDelete(event: CollectionDeletedEvent): Promise<void>;
 }

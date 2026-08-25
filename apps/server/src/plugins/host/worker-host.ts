@@ -54,6 +54,11 @@ export class WorkerHost implements PluginHost {
    */
   private dead: Error | null = null;
 
+  /** Whether `activate()` has already run. The boot pass and a live `enable` both
+   *  drive activation and neither knows about the other, so idempotence lives
+   *  here rather than in a rule each caller has to remember (D36). */
+  private activated = false;
+
   constructor(options: PluginHostOptions) {
     this.options = options;
   }
@@ -83,6 +88,7 @@ export class WorkerHost implements PluginHost {
             config: this.options.config,
             declared: this.options.declared,
             routes: this.options.routes,
+            runtime: this.options.runtime,
           });
           return;
         }
@@ -129,6 +135,7 @@ export class WorkerHost implements PluginHost {
    */
   private reconcile(exported: string[]): readonly HookName[] {
     const declared = [...this.options.declared, ...this.options.routes];
+    if (this.options.runtime) declared.push("activate", "deactivate");
     const missing = declared.filter((h) => !exported.includes(h));
     if (missing.length > 0) {
       throw new Error(
@@ -164,6 +171,46 @@ export class WorkerHost implements PluginHost {
   async serve(key: string, request: PluginServeRequest): Promise<PluginServeResponse> {
     const answer = await this.call(key, [], (id) => ({ t: "serve", id, key, request }));
     return answer as PluginServeResponse;
+  }
+
+  /**
+   * Run `activate(ctx)` once (D36).
+   *
+   * Bounded by `timeout_ms` like any other call, so a plugin that hangs in
+   * `activate` is torn down rather than holding the boot open — and because a
+   * refused start is the honest outcome, the rejection propagates instead of
+   * being logged. The chain is empty: activation is where causality *starts*, so
+   * a `ctx` write from here dispatches hooks to every other plugin and, through
+   * `PluginContext` appending this plugin's own name, never back to this one.
+   */
+  async activate(): Promise<void> {
+    if (!this.options.runtime || this.activated) return;
+    this.activated = true;
+    try {
+      await this.call("activate", [], (id) => ({ t: "activate", id }));
+    } catch (caught) {
+      // Named, the way `HookBus.run` names a failing hook. A plugin's `activate`
+      // throws the plugin's *own* error — a `NotFoundError` about a collection,
+      // say — and unwrapped that refuses the start with a sentence mentioning
+      // neither a plugin nor activation. Measured on a running instance: the
+      // whole report was `silo: collection "default/prod/mirrors" not found`.
+      const message = caught instanceof Error ? caught.message : String(caught);
+      throw new Error(`plugin "${this.options.name}" failed in activate: ${message}`);
+    }
+  }
+
+  /**
+   * Run `deactivate(ctx)` and swallow whatever it does (D36).
+   *
+   * Best-effort on purpose, and for the reason `entry.afterWrite` is: by the time
+   * this runs the decision to stop has been taken, and there is nothing a failure
+   * here could usefully change. A plugin that hangs in `deactivate` costs one
+   * `timeout_ms` and is then terminated regardless, which is what stops a badly
+   * written cleanup from holding a shutdown or a `disable` open forever.
+   */
+  private async deactivate(): Promise<void> {
+    if (!this.options.runtime || !this.activated || this.dead) return;
+    await this.call("deactivate", [], (id) => ({ t: "deactivate", id })).catch(() => {});
   }
 
   /**
@@ -274,7 +321,15 @@ export class WorkerHost implements PluginHost {
     return this.dead;
   }
 
+  /**
+   * Let the plugin clean up, then tear the worker down.
+   *
+   * `deactivate` runs **before** `dead` is set, because a host marked dead
+   * refuses every call including this one — and after it, unconditionally, so a
+   * plugin whose cleanup throws or hangs still stops.
+   */
   async stop(): Promise<void> {
+    await this.deactivate();
     if (!this.dead) this.dead = new Error(`plugin "${this.options.name}": stopped`);
     this.kill(this.dead);
   }

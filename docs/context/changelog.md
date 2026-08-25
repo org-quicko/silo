@@ -4,6 +4,77 @@
 > The *current* state is [CONTEXT.md](../../CONTEXT.md); this is how it got
 > there.
 
+- **Contributions replace kinds, and every claim carries a reason (D36, completed,
+  2026-08-25).** The rest of D36 — the half phase 6 deliberately left — plus
+  D37's F6, which was parked on it. §13.19 in
+  [../design/plugins.md](../design/plugins.md). **Breaking:** every plugin
+  manifest changes shape, and the five retired keys refuse the start by name.
+  - **A package is not one thing or the other.** `kind` was an enum, so the two
+    restrictions it imposed were arbitrary in both directions: it forced a
+    package that only wanted a background timer to **invent a hook merely to be
+    called**, and it forbade a storage provider from registering the hook that
+    keeps its own derived data in step. `contributes` is any of `hooks`,
+    `routes`, `runtime` and `providers`, none exclusive.
+  - **Each provider names its own entry module.** Not tidiness — a provider is
+    imported into the host before storage is opened, because it *is* the storage,
+    while hooks and routes run in a `Worker` afterwards. Sharing the package's
+    main module means importing the worker half at the one moment when there is
+    no store for it to reach. It also lets one package register two drivers,
+    which the singular `provider` block could not express.
+  - **`activate(ctx)` is capability without authority.** It costs no claim, and
+    the parallel with `http:route` is resisted deliberately: a route is reachable
+    by a stranger and runs with the plugin's grant, which is the confused deputy.
+    Nobody calls `activate` but silo, it is told about nobody else's data, and its
+    `ctx` is the same claim-checked surface a hook's is — what it adds is
+    *uncaused* work, not new reach. It runs as a **step after the app is
+    attached**, because at the moment a worker starts the surface a `ctx` call
+    dispatches against does not exist: `serve` attaches, activates, then binds.
+  - **The default grant is `required`.** A flat `claims` array could not say
+    whether a plugin is broken without a permission or merely does less, and a
+    default has to pick something — approving everything makes `optional`
+    meaningless, approving nothing trains an operator to press *Select all*. So
+    the CLI, `PUT .../grant` with no body, and the boxes a form opens ticked all
+    changed together. `required` is stored **in the record**, because D38's rule
+    is that the management API acts on the record and never on the filesystem.
+  - **`required` joins the manifest digest; the reasons do not.** Promoting an
+    optional claim to required changes what "approve the default" approves
+    without changing a single claim in the list. The `reason` strings stay out:
+    a package fixing a typo would otherwise move every instance to
+    `needs_review` for a decision nobody changed, and re-prompting for nothing is
+    how a review prompt stops being read.
+  - **A blank reason refuses the start.** Three voices now speak on every grant
+    row — the claim is the grammar, `ClaimWords.phrase` is what silo says it
+    means, and the reason is what the *author* says the plugin wants it for. Only
+    the last answers "should I allow this". `http:route` joined the hook claims
+    as **derived** rather than written by hand.
+  - **`collection.afterDelete` closes D37's F6.** A forced collection,
+    environment or project delete erased every entry underneath it and dispatched
+    nothing, so auditing and mirroring plugins saw entries appear and never saw
+    them go. One event per collection — carrying how many entries went and a
+    `cause` of `collection`, `environment` or `project` — rather than a 100k-event
+    fan-out for a fact one sentence long. It dispatches **outside the write
+    lock**, which is the whole of the implementation: `CollectionEraser` runs
+    inside it, so it returns a count and the caller raises the event after. No
+    `before` counterpart, on purpose.
+  - **A failing `activate` named neither the plugin nor activation.** Found live.
+    `HookBus.run` has always wrapped a failing hook; activation had no equivalent
+    because until now there was nothing to activate, so a refused start reported
+    only the plugin's own error — `silo: collection "default/prod/mirrors" not
+    found`, with nothing tying it to the package that caused it.
+  - **A live narrowing below `required` was silent.** Found live. The start warns
+    and `PluginLifecycle.reapply` did not — and phase 4 made narrowing a live
+    operation while phase 5 made it a checkbox, so the operator who narrows a
+    grant was the one person who never saw the consequence. The grant screen now
+    says it too.
+  - **`silo plugin list|info` reported the record's raw state.** Found live. The
+    `_plugins` record describes only the *store* half of a grant, so a plugin
+    granted entirely through `silo.toml` sits at `pending` there forever — and the
+    CLI printed `[pending]` on the line directly above the `claims:` line listing
+    what that plugin was running on. This is D40's `/api/plugins` defect exactly,
+    in the other caller of the same fix. Worth recording as a pattern: when a
+    defect is a surface reading the wrong one of two sources, the next question is
+    which *other* surfaces read the same thing.
+
 - **Plugins serve their own HTTP routes (D36, phase 6, 2026-08-25).** A plugin
   declares routes in its manifest and silo serves them under
   `/api/ext/{name}/*`, gated by a new `http:route` claim. §13.18 in

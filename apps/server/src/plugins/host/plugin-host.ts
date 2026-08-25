@@ -41,6 +41,17 @@ export interface PluginHost {
   serve(key: string, request: PluginServeRequest): Promise<PluginServeResponse>;
 
   /**
+   * Run the plugin's `activate(ctx)`, if it declared a runtime (D36).
+   *
+   * Separate from `start` because the two can happen at different times and only
+   * one of them may call `ctx`: `start` imports the module before the HTTP surface
+   * a `ctx` call dispatches against exists, and `activate` is the first moment a
+   * plugin may act. Idempotent per host — calling it twice activates once — so the
+   * boot pass and a live `enable` can both drive it without coordinating.
+   */
+  activate(): Promise<void>;
+
+  /**
    * Why this host will not run again, or `null` while it will (D39, phase 4).
    *
    * A worker that missed its budget or crashed is torn down and deliberately

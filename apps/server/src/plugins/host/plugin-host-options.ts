@@ -16,6 +16,10 @@ export interface PluginHostOptions {
    *  `declared` is: a route that is declared and not implemented looks, from
    *  outside, exactly like one that is working. */
   routes: readonly string[];
+  /** Whether the manifest declares `contributes.runtime` — the module exports
+   *  `activate(ctx)` and `deactivate(ctx)` (D36). Checked against the exports at
+   *  start, like the two lists above. */
+  runtime: boolean;
   timeoutMs: number;
   rpc: PluginRpc;
 }

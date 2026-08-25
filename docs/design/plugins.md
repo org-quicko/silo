@@ -22,14 +22,15 @@ HTTP interceptors, plugin routes, plugin CLI subcommands, import/export format
 plugins, and admin-UI contributions. `/api/plugins/` is reserved and returns
 404; reserving it costs nothing now and cannot be done later.
 
-> **Being superseded (D34–D36).** The two-kind table above becomes a
-> `contributes` list, authorization moves from `[[plugins]] claims` into a
-> granted `_plugins` record with a managed API key, hook *delivery* becomes
-> claim-gated, `ctx` becomes the HTTP API dispatched in-process, and plugin
-> routes move to a reserved `/api/ext/{name}/*` so `/api/plugins/*` can be the
-> management surface. §13.11 sketches it; the decisions carry the reasoning.
-> Everything below this line describes what is **built today** except where it
-> says otherwise, and D33 (the causal chain) has already landed inside it.
+> **Superseded (D34–D36), and all of it has landed.** The two-kind table above
+> is now a `contributes` list (§13.19), authorization has moved from
+> `[[plugins]] claims` into a granted `_plugins` record with a managed API key
+> (§13.12), hook *delivery* is claim-gated, `ctx` is the HTTP API dispatched
+> in-process (§13.15), the running set changes without a restart (§13.16), and
+> plugin routes live under a reserved `/api/ext/{name}/*` so `/api/plugins/*` can
+> be the management surface (§13.18). §13.11 has the shape and the phase list;
+> the decisions carry the reasoning. Sections 13.2–13.10 describe D31 as it
+> shipped, and each says where a later phase changed it.
 
 ### 13.2 The manifest is static
 
@@ -42,14 +43,23 @@ package wants before any of its code runs.
   "name": "@acme/silo-plugin-slugs",
   "silo": {
     "silo": "^1",                    // SiloVersion range; checked at startup
-    "kind": "extension",             // "extension" | "provider"
-    "hooks": ["entry.beforeValidate"],
-    "claims": ["collections:*/*/*:entries:read"],
+    "contributes": { "hooks": ["entry.beforeValidate"] },
+    "permissions": {
+      "required": [
+        { "claim": "collections:*/*/*:entries:read", "reason": "To read the entry it slugs." }
+      ]
+    },
     "config": { "type": "object", "properties": { "field": { "type": "string" } } }
   }
 }
 ```
 
+- `contributes` is everything the package adds — any of `hooks`, `routes`,
+  `runtime` and `providers`, none of them exclusive. It replaced a `kind` that
+  could only ever pick one; see §13.19 for what that cost.
+- `permissions` splits what it asks for into `required` and `optional`, each
+  entry carrying the author's `reason`. **The default grant is `required`**, and
+  a blank reason refuses the start.
 - `silo` is a range against `SiloVersion` (D28). **There is no separate plugin
   API version** — see D31's rationale and D13, which makes this one comparison
   the whole compatibility gate. Ranges are ordinary npm ranges, evaluated by the
@@ -127,7 +137,12 @@ sandbox.
 
 ### 13.5 Hooks
 
-Five, each carrying `op` rather than doubling the set:
+Six. The five entry hooks each carry `op` rather than doubling the set, and the
+sixth is collection-level, added by D36 to close D37's F6 — a forced delete
+erases every entry under a collection and dispatches no `entry.afterDelete` at
+all, so an auditing plugin saw entries appear and never saw them go. See §13.19
+for why it is one event rather than one per row, and why there is no `before`
+counterpart.
 
 | Hook | Kind | May |
 | :--- | :--- | :--- |
@@ -136,6 +151,7 @@ Five, each carrying `op` rather than doubling the set:
 | `entry.afterWrite` | observe | nothing |
 | `entry.beforeDelete` | veto-only | reject |
 | `entry.afterDelete` | observe | nothing |
+| `collection.afterDelete` | observe | nothing |
 
 Placement in `Service.createEntry` / `updateEntry`:
 
@@ -204,6 +220,11 @@ at-least-once delivery needs the change feed (§12.1); no `seq` cursor is
 exposed to plugins, because doing so would freeze a cursor contract before the
 sync design that owns it exists (D7).
 
+**`collection.afterDelete` dispatches outside the write lock too**, and getting
+that right is the whole of its implementation: `CollectionEraser` runs *inside*
+the lock, so it returns a count instead of dispatching, and the caller — which
+owns the lock and knows when it released it — raises the event after. See §13.19.
+
 Order is the order of the `[[plugins]]` array — config-owned, deterministic,
 and debuggable.
 
@@ -260,7 +281,8 @@ Three things follow, and each is deliberate:
 
 A manifest does not restate these: they are **derived** from its declared
 `hooks` at the widest scope, `hooks:*/*/*:<hook>`, and a grant may narrow the
-scope because a narrower claim is covered by a wider request. What a grant may
+scope because a narrower claim is covered by a wider request. Since D36 the same
+is true of `http:route`, derived from declared routes (§13.19). What a grant may
 not be is *absent* — a declared hook that no granted claim delivers anywhere
 refuses the start, naming the line to add. That is D30's rule about absent
 declarations applied here: nothing has been said, so nothing may be assumed.
@@ -272,7 +294,14 @@ the same registry under **reserved names** (`sqlite`, `fs`, `s3`) that no plugin
 may shadow, while staying compiled into the binary. `[storage] driver` and
 `[blob_storage] driver` become registry lookups.
 
-**`Searcher` is a port but not a provider kind**, though D30 makes it one of the
+**A provider is a contribution, not a kind of package** (D36). One package may
+register several drivers and may register hooks beside them, and each provider
+names **its own entry module** — it is imported into the host process before
+storage is opened, while the rest of the package runs in a `Worker` afterwards,
+so sharing one module means importing the worker half at the one moment when
+there is no store for it to reach. See §13.19.
+
+**`Searcher` is a port but not a provider port**, though D30 makes it one of the
 three. Two reasons, and the second is the real one. Nothing selects a searcher
 by name — `[search]` has no `driver` key, and `Cli` derives the engine from the
 store's own type — so the value would name a capability with no path behind it,
@@ -285,8 +314,9 @@ outside that transaction by construction, so it could only be fed by
 `entry.afterWrite`, which is best-effort and at-most-once (§13.5). An index that
 drifts silently makes content unfindable and reports nothing, so the honest
 prerequisite is the change feed (§12.1) rather than a config key. Until then a
-third-party search backend is §12.8 work, and the enum stays two values — adding
-one back is additive, removing one after 1.0 freezes the manifest would not be.
+third-party search backend is §12.8 work, and `ProviderPort` stays two values —
+adding one back is additive, removing one after 1.0 freezes the manifest would
+not be.
 
 This is the trick D12 used for `_keys` and D18 for `Scope.System`: one code
 path rather than two. Default installs are unchanged and need no network, and
@@ -529,14 +559,14 @@ Where a plugin dispatch is involved, assert the clock.
 
 ## 13.11 Where this is going (D34–D36)
 
-> **Partly built.** D33 has landed, phase 1 of D34 with it (§13.12), phase 2 has
+> **Built.** D33 has landed, phase 1 of D34 with it (§13.12), phase 2 has
 > shipped (§13.14), phase 3 has followed its cleared gate (§13.13) into §13.15,
 > phase 4 is §13.16 — so the acceptance test below now passes, and is a test
-> rather than a plan — phase 5 is §13.17, and phase 6 is §13.18. **Every phase
-> has landed.** What is left of D36 is the `contributes` restructure it shares
-> with this section: `kind` giving way to a contribution list, `activate()` and
-> `deactivate()`, and `required`/`optional` permissions carrying `reason`
-> strings. This section is the shape, not the specification — the decisions log carries the reasoning, and
+> rather than a plan — phase 5 is §13.17, and phase 6 is §13.18. The rest of D36
+> — `contributes` replacing `kind`, `activate()`/`deactivate()`, and
+> `required`/`optional` permissions carrying `reason` strings — is **§13.19**,
+> which also closes D37's F6. **Nothing here is outstanding.** This section is
+> the shape, not the specification — the decisions log carries the reasoning, and
 > each phase writes its own detail here as it lands.
 
 ### The two holes this closes
@@ -591,6 +621,7 @@ could write the database could execute code.**
 | 4 | **Done, §13.16.** Supervisor: live enable, disable, reorder, revoke, reconfigure, rescan |
 | 5 | **Done, §13.17.** Admin UI — the grant screen, lifecycle and the trail. (`silo add`, `create-silo-plugin` and the drift tests landed early, with D32) |
 | 6 | **Done, §13.18.** Plugin routes under `/api/ext/{name}/*`, gated by `http:route` |
+| — | **Done, §13.19.** `contributes` replaces `kind`, `activate`/`deactivate`, `required`/`optional` permissions with reasons, and D37's F6 |
 
 ### The acceptance test
 
@@ -752,7 +783,7 @@ is now an assertion in `apps/server/test/http/route-authority.test.ts`.
 | F3 | A plugin granted `keys:*` escapes its own grant | **Fixed** |
 | F4 | A minted key outlives the principal that minted it | Deferred — phase 2 |
 | F5 | `--no-auth` would hand every plugin root through `ctx` | Phase 3 precondition |
-| F6 | Bulk erasure dispatches no hooks | **Still open** — see below |
+| F6 | Bulk erasure dispatches no hooks | **Fixed** — §13.19 |
 | F7 | `/api/copy` fetches an operator-supplied URL | Accepted, see below |
 
 **F1 — force is a second operation, not a modifier.** `DELETE
@@ -836,15 +867,19 @@ Left alone deliberately. Dispatching one event per erased entry would make a
 100k-row delete a 100k-event fan-out through the D33 chain, and the honest fix is
 a collection-level hook rather than a flood of entry-level ones.
 
-**Still open after phase 6 (§13.18), and that is a scoping call worth recording
-rather than a slip.** It was parked here because it is a `contributes` question,
-and phase 6 deliberately took only the one narrow piece of `contributes` that
-routes forced — the "declares nothing" check. A collection-level hook is a new
-name in the hook *vocabulary*, which reaches `HookNames`, the claim grammar, the
-manifest, the `.d.ts` and the grant screen's words; it belongs with the rest of
-the `contributes` restructure, not with the namespace. Until then, auditing and
-mirroring plugins still see entries appear and never see them go under a forced
-delete.
+**Closed by `collection.afterDelete` (§13.19).** It stayed open across six phases
+because it is a `contributes` question — a new name in the hook *vocabulary*,
+reaching `HookNames`, the claim grammar, the manifest, the `.d.ts` and the grant
+screen's words — and phase 6 deliberately took only the narrow piece of
+`contributes` that routes forced. One event per collection carries the count and
+a `cause` of `collection`, `environment` or `project`. It dispatches **outside
+the write lock**, which is the property this section pins two entries below and
+the reason `CollectionEraser` returns a count instead of raising the event where
+the deletes happen. There is no `before` counterpart, on purpose: a veto would be
+a plugin overruling an explicit `?force=true` from a caller who already had to
+hold `entries:delete` at the reach being erased — F1's own fix — and a project
+delete erases many collections under one lock, so a refusal halfway through would
+leave the project half-erased.
 
 **F7 — `/api/copy` is a server-side fetch to an operator-supplied URL**, with an
 operator-supplied bearer token. That is what the route is for, and its guard is
@@ -1649,3 +1684,252 @@ existing one could not see.
 - **It does not make a `Worker` a security boundary.** Unchanged since D31, and
   worth restating in the phase that gives plugin code a URL: installing is the
   trust boundary.
+- **It did not finish `contributes`.** It took the one narrow piece routes forced
+  — the "declares nothing" check — and left `kind`, `activate()` and
+  `required`/`optional` to §13.19, which is where they landed. §13.19 also made
+  `http:route` **derived** from declared routes rather than written out by hand,
+  so `assertServable` now catches a case an author can no longer create.
+
+## 13.19 Contributions, and a reason for every claim (D36, completed)
+
+> **Built.** This is the rest of D36 — the half phase 6 (§13.18) deliberately
+> left — plus D37's **F6**, which was parked here because closing it needed the
+> hook vocabulary to grow. §13.11 has nothing outstanding after it.
+
+Two fields replace two, and the pair is what a grant screen is made of:
+`contributes` is **what a package will do**, and `permissions` is **what it needs
+in order to do it**.
+
+```jsonc
+"silo": {
+  "silo": "^1",
+  "contributes": {
+    "hooks": ["entry.beforeValidate", "collection.afterDelete"],
+    "routes": [{ "method": "GET", "path": "/health", "auth": "public" }],
+    "runtime": true,
+    "providers": [{ "port": "storage", "driver": "turso", "entry": "./storage.ts" }]
+  },
+  "permissions": {
+    "required": [
+      { "claim": "collections:*/*/*:entries:read", "reason": "To read the entry it slugs." }
+    ],
+    "optional": [
+      { "claim": "media:read", "reason": "To count images in a post, when you allow it." }
+    ]
+  }
+}
+```
+
+### A package is not one thing or the other
+
+`kind` was an enum, so it had one value, and the two restrictions that followed
+were arbitrary in both directions. It forced a package that only wanted a
+background timer to **invent a hook merely to be called**. And it forbade a
+storage provider from registering the hook that keeps its own derived data in
+step — a plugin whose whole reason to exist is that the two belong together.
+
+The halves run in different places, and that is a fact about *when* rather than
+about what a package **is**: a provider is constructed in the host process before
+storage is opened, because it *is* the storage, and hooks and routes run in a
+`Worker` afterwards. So a provider names **its own entry module**. That is not
+tidiness — sharing the package's main module means the host imports the worker
+half at the one moment when there is no store for it to reach, and a provider
+load failing that way produces an error nobody can read. It also lets one package
+register two drivers, which the singular `provider` block could not express.
+
+Everything downstream stops asking what a package is:
+
+- `PluginLoader.loadProviders` walks `contributes.providers` rather than
+  filtering by kind, and a package with none is skipped.
+- `PluginLoader.prepare` asks `PluginContributionUtils.runsInWorker` — hooks, or
+  routes, or a runtime. A package contributing only providers gets no worker and
+  **no grant record**, which is the same rule stated positively: it loads before
+  the store exists, so it could not be authorized from inside the store even if
+  there were somewhere to say so.
+- `PluginInspector` reports "it contributes only the blob driver *x*, so it runs
+  in-process with no worker of its own" instead of choosing between "provider"
+  and "stopped", and the admin listing labels a package by every contribution it
+  has rather than by the one an enum happened to name.
+
+**The retired keys refuse the start, by name.** `kind`, `hooks`, `routes`,
+`provider` and `claims` at the top of the `silo` block each produce a refusal
+naming what replaced them. Reading the old shape too was the alternative and is
+worse in the way that matters: a `claims` array silently dropped is a plugin that
+asks for nothing — it loads, looks healthy and cannot work — and a package could
+then request a claim with no reason attached simply by using the older spelling.
+
+### `activate` is capability without authority
+
+A declared `runtime` means the module exports `activate(ctx)` and
+`deactivate(ctx)`. It is what a plugin with no lifecycle event actually needs, and
+it is **declared** rather than discovered for §13.2's reason: an operator reading
+a manifest should see that this package runs code of its own accord, and a
+function the manifest does not declare is never called.
+
+It costs **no claim**, and the parallel with `http:route` is worth resisting
+deliberately. A route is reachable by a stranger and runs with the plugin's
+grant, which is the confused deputy — that is why exposing one is a decision.
+Nobody calls `activate` but silo, it is told about nobody else's data, and its
+`ctx` is the same claim-checked surface a hook's is. What it adds is *uncaused*
+work, not new reach. A pending plugin is activated too, with every call refused —
+exactly as its hooks go undelivered, and needing no code path of its own.
+
+**Activation is a step after the app is attached.** Extensions load in
+`SiloRuntime` so `SiloService` can be given their hook bus, and the Hono app is
+built from that service afterwards — so at the moment a worker starts, the surface
+a `ctx` call dispatches against does not exist yet. Starting a worker and letting
+it *act* are therefore two different events and only the second has a
+prerequisite: `serve` attaches, then activates, then binds. Activating before the
+bind means a plugin that seeds or migrates something has finished before the first
+request can observe half of it.
+
+`PluginRegistry.activate` is idempotent, which is what lets there be two callers —
+the boot pass, and `PluginLifecycle.spawn` for a plugin enabled on a running
+instance — without either needing to know whether the other already ran.
+`deactivate` runs on the way out and is **best-effort**, for the reason
+`entry.afterWrite` is: the decision to stop has been taken, so there is nothing a
+failure here could change. A plugin that hangs in it costs one `timeout_ms` and is
+terminated regardless.
+
+A declared runtime with no `activate` export refuses the start, exactly as a
+declared hook with no export does, and for the same reason: from outside, a plugin
+whose setup never ran looks identical to one whose setup succeeded.
+
+### `required` and `optional`, and why the default had to change
+
+A flat `claims` array could not say the one thing that decides a grant: whether
+the plugin is broken without a permission, or merely does less. The distinction
+has to exist somewhere, because **a default grant has to pick something** —
+approving everything asked for makes `optional` meaningless, and approving nothing
+makes every approval a chore that trains an operator to press *Select all*.
+
+So the default grant is `required`, and an optional permission is opt-in. That is
+the only reading under which the two words mean what they say, and it changes
+three surfaces at once: `silo plugin grant <name>` with no `--claims`,
+`PUT /api/plugins/{name}/grant` with no body, and the boxes a grant form opens
+ticked. A package declaring nothing optional is unaffected by all three.
+
+`required` is **stored in the record** beside `requested`, and that is D38's rule
+rather than a convenience: the management API acts on the record and never on the
+filesystem, so a default grant that had to read the package would be exactly the
+coupling that rule exists to prevent. A record written before the split carries no
+`required`, and `PluginGrantUtils.requiredOf` reads one as all-required — which is
+what the whole request meant when there was no other kind.
+
+It joins the **manifest digest**, and that is the case worth stating: promoting an
+optional claim to required changes what "approve the default" would approve
+without changing a single claim in the list, so a digest over the claims alone
+would let a package widen a default grant silently at the next start. The `reason`
+strings are deliberately **out** of it — they are what an operator reads while
+deciding, so including them is tempting, but a package fixing a typo would then
+move every instance to `needs_review` for a decision nobody changed, and
+re-prompting for nothing is how a review prompt stops being read.
+
+**A reason is required, and a blank one is refused.** That looks like ceremony
+until you ask what a grant screen shows without it. An author who may omit it
+will, and an empty line beside `collections:*/*/*:entries:delete` tells an
+operator that nothing needs saying. Three things are now said about every row and
+they are three different voices: the claim is the grammar, `ClaimWords.phrase` is
+what silo says it means, and the reason is what the **author** says the plugin
+wants it for. Only the last can answer "should I allow this".
+
+**Derived claims get derived reasons.** A `hooks:` claim per declared hook, and
+`http:route` when routes are declared, are computed rather than restated — D34's
+argument about hooks, extended to routes, where phase 6 left the author to
+remember `http:route` by hand and `assertServable` exists because they forget.
+Both are `required`, and not by the author's say-so: a hook nothing delivers and a
+route that answers 403 each refuse the start already, so calling them optional
+would be calling a refusal optional. Each carries a sentence of silo's own, so no
+row on a grant screen has nothing to say about itself.
+
+A grant short of a required claim is **warned about, not refused**. Refusing would
+refuse every pending plugin, since pending is an empty claim list, and the boot
+deadlock D34 exists to avoid would be back. What the split fixes is the silence: a
+plugin narrowed to two of five claims on purpose and one granted two by accident
+used to look identical, and only the author's own list tells them apart.
+
+### `collection.afterDelete` (D37's F6, closed)
+
+The finding was measured five phases ago and left open deliberately:
+`CollectionEraser` calls `store.delete` directly, so a forced collection,
+environment or project delete removed every entry underneath it and dispatched
+**nothing**. Auditing and mirroring plugins watched entries appear and never saw
+them go.
+
+One event per erased entry was the alternative and is worse: a 100k-row delete
+would become a 100k-event fan-out through the D33 chain, for a fact that is one
+sentence long. So the hook is **collection-level** — one event carrying the
+collection, how many entries went with it, and `cause`, which is `collection`,
+`environment` or `project`. A mirror cares about the last: `environment` and
+`project` mean every sibling collection is going too, so the useful reaction is to
+drop the scope rather than one table.
+
+**Nothing about it is special-cased, and that is why it is one name rather than a
+mechanism.** The claim grammar already reads
+`hooks:<project>/<env>/<collection>:<hook>`, and the collection segment names the
+erased collection, so delivery is checked by the same `Claims.canDeliver` every
+other hook goes through. It is `Terminal`, so a refusal from it is dropped rather
+than answered — the collection is gone by the time it fires, and phase 4's
+ordering rule (terminal is asked *before* the error's class) already covers it.
+
+**It dispatches outside the write lock, and that placement is the whole of the
+implementation.** D37 pinned that every entry-hook dispatch site sits outside
+`withWriteLock`, because a plugin that writes back through the HTTP surface has to
+find a free lock rather than wait on the one its own caller holds — `AsyncMutex`
+is not reentrant, so dispatching inside the lock is D33's deadlock returning. So
+`CollectionEraser` does not dispatch at all: it **returns a count**, and the
+caller, which owns the lock and knows when it released it, dispatches after.
+`ScopeService` was already collecting a plan of every collection before touching
+any of them — so that a project delete cannot be left half-erased — and the counts
+ride out on that same plan.
+
+There is deliberately no `collection.beforeDelete`. A veto there would be a plugin
+overruling an explicit `?force=true` from a caller who already had to hold
+`entries:delete` at the reach being erased (D37's F1), and a project delete erases
+many collections under one lock — so a refusal halfway through would leave the
+project half-erased, which is precisely what the up-front plan exists to prevent.
+
+### What a live pass caught, for the sixth phase running
+
+Three findings, and every one of them is a **report** rather than a behaviour.
+That is why the suite missed all three: the plugin did the right thing in each
+case and nobody was told.
+
+**A failing `activate` named neither the plugin nor activation.** A hook's failure
+has always been wrapped by `HookBus.run` as `plugin "x" failed in <hook>: …`;
+activation had no equivalent, because until now there was nothing to activate. The
+entire report on a running instance was `silo: collection "default/prod/mirrors"
+not found` — a refused start, with nothing tying it to the package that caused it.
+
+**A live narrowing below `required` was silent.** `PluginLoader.report` warns at
+boot; `PluginLifecycle.reapply` did not. Phase 4 made narrowing something that
+happens while the process runs and phase 5 made it a checkbox, so the operator who
+narrows a grant was the one person who never saw the consequence. This is the same
+shape as the phase-4/5 finding recorded in §13.9: shipping a UI for an operation
+changes how often its edge cases are reached.
+
+**`silo plugin list` and `silo plugin info` reported the record's raw state.** The
+`_plugins` record only ever describes the *store* half of a grant, so a plugin
+granted entirely through `silo.toml` sits at `pending` there forever — and the CLI
+printed `[pending]` on the line directly above the `claims:` line listing what
+that plugin was running on. D40 found and fixed exactly this in `/api/plugins`;
+the fix was `PluginGrantResolver.state`, and the CLI was the other caller nobody
+looked at. Worth recording as a pattern rather than a slip: when a defect is a
+surface reading the wrong one of two sources, the question to ask next is which
+*other* surfaces read the same thing.
+
+### What D36 does not do
+
+- **It does not make `contributes` open-ended.** Four kinds, closed. Adding a
+  fifth is additive; a package announcing arbitrary contribution types would be
+  registration magic, which §4 refuses.
+- **It does not let `activate` outlive a request budget.** A `ctx` call from a
+  timer a plugin started gets a fresh `timeout_ms` rather than an unbounded one,
+  because `WorkerHost.serveRpc` gives an uncorrelated call the full budget by
+  design — genuinely uncaused work has no deadline over it, so it gets one.
+- **It does not schedule anything.** `activate` is a callback, not a cron: a
+  plugin that wants a timer sets one. Durable scheduling needs the change feed
+  (§12.1) and belongs with it.
+- **It does not enforce a reason.** Nothing checks that a plugin uses a claim for
+  the reason it gave. The reason is documentation on a decision, and treating it
+  as a constraint would be promising an analysis silo does not perform.

@@ -690,12 +690,21 @@ Plugins live in the data directory rather than beside the binary because a
 packaged binary is root-owned and read-only, and because an instance is a
 directory you can copy — so an instance travels with its extensions.
 
-Two kinds, and no more:
+A package declares what it **contributes**, and it may contribute more than one
+thing:
 
-| Kind | What it does | Runs |
-|------|--------------|------|
-| **Extension** | Registers hooks on the entry lifecycle, and serves HTTP routes of its own | In a `Worker`, one per plugin |
-| **Provider** | Implements the storage or blob-storage port, adding a driver name | In-process |
+| Contribution | What it does | Runs |
+|--------------|--------------|------|
+| `hooks` | Reacts to the entry and collection lifecycle | In a `Worker`, one per plugin |
+| `routes` | Serves HTTP under `/api/ext/<name>/` | In the same `Worker` |
+| `runtime` | Runs `activate(ctx)` at startup and `deactivate(ctx)` on the way out | In the same `Worker` |
+| `providers` | Implements the storage or blob-storage port, adding a driver name | In-process, before storage opens |
+
+None of them is exclusive: a storage provider may register the hook that keeps
+its own derived data in step, and a plugin that only wants a startup task does
+not have to invent a hook to be called. Each provider names its **own entry
+module**, because it is imported before storage exists while the rest of the
+package runs in a worker afterwards.
 
 The built-in adapters are registered through the same registry, under the
 reserved names `sqlite`, `fs` and `s3` that no plugin may take. `[storage]
@@ -727,9 +736,15 @@ below is what it produces, and what to change once you have it.
   "main": "index.ts",
   "silo": {
     "silo": "^1",
-    "kind": "extension",
-    "hooks": ["entry.beforeValidate"],
-    "claims": [],
+    "contributes": { "hooks": ["entry.beforeValidate"] },
+    "permissions": {
+      "required": [
+        {
+          "claim": "collections:*/*/*:entries:read",
+          "reason": "To check the slug is not already taken."
+        }
+      ]
+    },
     "config": {
       "type": "object",
       "properties": { "field": { "type": "string" } },
@@ -747,11 +762,18 @@ runs.
 | Key | Meaning |
 |-----|---------|
 | `silo` | The version range of silo this plugin supports, checked at startup. There is no separate plugin API version — a breaking change to a hook payload is a major version of silo. |
-| `kind` | `extension` or `provider`. |
-| `hooks` | Which hooks to dispatch. A hook the module exports but does not declare here is never called. |
-| `routes` | The HTTP routes this plugin serves, each `{ "method", "path", "auth" }`. Served under `/api/ext/<name>/`, and only with the `http:route` claim. An extension needs at least one hook *or* one route — something has to call it. |
-| `claims` | What the plugin asks for. The operator grants it in `silo.toml`, through `/api/plugins/{name}/grant`, or both; a grant may never exceed the request. |
+| `contributes.hooks` | Which hooks to dispatch. A hook the module exports but does not declare here is never called. |
+| `contributes.routes` | The HTTP routes this plugin serves, each `{ "method", "path", "auth" }`. Served under `/api/ext/<name>/`. Declaring any of them asks for the `http:route` claim automatically. |
+| `contributes.runtime` | `true` when the module exports `activate(ctx)` and `deactivate(ctx)`. Declaring it and not exporting them refuses the start. |
+| `contributes.providers` | Storage or blob drivers, each `{ "port", "driver", "entry" }`. `entry` is required: a provider is imported before storage exists, so it cannot share the module the worker half runs from. |
+| `permissions.required` | What the plugin does not work without. **This is what a default grant approves.** Each entry is `{ "claim", "reason" }`, and the reason is not optional — it is what an operator reads while deciding. |
+| `permissions.optional` | Extras. Ungranted is a normal outcome, never an error. |
 | `config` | A JSON Schema for `[plugins.config]`, validated at startup. |
+
+A package must contribute *something* — otherwise nothing would ever call it,
+and the start refuses saying so. A `hooks:` claim per declared hook, and
+`http:route` for declared routes, are added to the request for you; writing them
+out again would be two lists to keep in step.
 
 `<data dir>/plugins/silo-plugin-slug/index.ts`
 
@@ -818,10 +840,19 @@ boot could never be given one. It is loud about it, on every start, in
 `silo plugin list`, and in a non-zero exit from `silo plugin doctor`.
 
 ```sh
-silo plugin grant silo-plugin-slug                  # approve everything it asked for
+silo plugin grant silo-plugin-slug                  # approve what it says it requires
 silo plugin grant silo-plugin-slug --claims a,b     # approve exactly these
 silo plugin revoke silo-plugin-slug                 # withdraw the stored grant
 ```
+
+**The default is `required`, not everything asked for.** A package that declares
+nothing optional sees no difference; one that does gets to offer an extra without
+having it approved by default, which is the only reading under which "optional"
+means anything. `silo plugin info` prints both lists with the author's reason
+beside each claim, and the admin UI shows the same thing beside a checkbox. A
+grant short of a required claim is a warning rather than a refusal — narrowing on
+purpose is a legitimate thing to do — but it is a warning you will see, on the
+start and on the change.
 
 Both are offline, against the data directory — the same authority
 `silo keys create` already has there — which is what makes them the way out of
@@ -914,7 +945,8 @@ authority log grows with decisions, not with traffic.
 
 ### Hooks
 
-Five, each carrying `op` so `create` and `update` share one function:
+Six. The five entry hooks each carry `op`, so `create` and `update` share one
+function:
 
 | Hook | May | Notes |
 |------|-----|-------|
@@ -923,6 +955,18 @@ Five, each carrying `op` so `create` and `update` share one function:
 | `entry.afterWrite` | observe | Best-effort, at-most-once |
 | `entry.beforeDelete` | reject | Carries the entry, not just its id |
 | `entry.afterDelete` | observe | Best-effort, at-most-once |
+| `collection.afterDelete` | observe | One event per collection erased, however many entries went |
+
+`collection.afterDelete` is the only way to hear about a **forced** delete.
+`DELETE .../collections/{name}?force=true`, and the environment and project
+equivalents, erase every entry underneath without dispatching
+`entry.afterDelete` for each of them — one event per row would make a 100k-row
+delete a 100k-event fan-out for a fact that is one sentence long. So the event
+carries the collection, `erased`, and a `cause` of `collection`, `environment` or
+`project`; the last two mean every sibling collection is going too, so the useful
+reaction is to drop the scope rather than one table. There is no `before`
+counterpart: a veto there would overrule an explicit `force` from a caller who
+already had to hold `entries:delete` at that reach.
 
 Mutation happens **before** validation, so the schema judges exactly what gets
 stored. After validation a hook may reject but not rewrite — otherwise it would
@@ -948,15 +992,25 @@ each as a function named the same way, and silo serves them under
 
 ```json
 "silo": {
-  "kind": "extension",
-  "hooks": [],
-  "routes": [
-    { "method": "GET",  "path": "/health", "auth": "public" },
-    { "method": "POST", "path": "/reindex/:collection" }
-  ],
-  "claims": ["http:route", "collections:*/*/*:entries:read"]
+  "contributes": {
+    "routes": [
+      { "method": "GET",  "path": "/health", "auth": "public" },
+      { "method": "POST", "path": "/reindex/:collection" }
+    ]
+  },
+  "permissions": {
+    "required": [
+      {
+        "claim": "collections:*/*/*:entries:read",
+        "reason": "To count what a reindex would queue."
+      }
+    ]
+  }
 }
 ```
+
+Declaring routes asks for `http:route` on the plugin's behalf — there is no need
+to list it.
 
 ```ts
 export default defineSiloPlugin({
@@ -995,7 +1049,7 @@ Two things are worth being deliberate about.
 plugin route is for — a handler bounded by the caller's claims could only do what
 the caller could have done directly — but it means **reaching a route is reaching
 the plugin's grant**. Serving routes at all therefore costs the `http:route`
-claim, and `auth: "public"` is a separate line on the grant screen, because a
+claim, which declaring one adds to the request for you, and `auth: "public"` is a separate line on the grant screen, because a
 public route publishes whatever the plugin was granted to anyone who can reach
 the URL. Check `request.caller.claims` when a route should be narrower than the
 plugin is.
@@ -1055,6 +1109,14 @@ A plugin may never be granted `root`, the `plugins:*` claims, or
 `keys:create|revoke|import` — it runs code, so any of those would let it widen
 its own grant, or make the grant irrelevant. Every other claim uses the grammar
 in [Authentication and claims](#authentication-and-claims).
+
+A plugin that declares `contributes.runtime` gets `activate(ctx)` once it is
+live, and `deactivate(ctx)` on the way out. `activate` runs before silo takes its
+first request, so setup that must succeed belongs there — a throw refuses the
+start, naming the plugin. It costs no claim, because nobody but silo calls it and
+its `ctx` is the same claim-checked surface a hook's is; what it adds is work
+nothing asked for, not reach. `deactivate` is best-effort: the decision to stop
+has been taken by the time it runs.
 
 Withdrawing a grant is **live**: the next hook is not delivered and the next
 `ctx` call is refused, with no restart and without the plugin being torn down.

@@ -34,6 +34,19 @@ export interface PluginClaimRow {
   /** Whether being delivered this hook lets the plugin change or stop a write.
    *  `false` for every non-hook claim. */
   intervening: boolean
+
+  /** Whether the package says it cannot work without this claim (D36). */
+  required: boolean
+
+  /**
+   * Why the package says it wants it, in the author's words, or `null`.
+   *
+   * The one thing on this screen that is not silo talking. An operator weighing
+   * `collections:*&#47;*&#47;*:entries:delete` can read what silo thinks the claim
+   * *means* from `phrase`; only the author can say what this plugin wants it
+   * **for**, and that is the half that decides.
+   */
+  reason: string | null
 }
 
 /** Narrowing a wildcard the manifest asked for. `''` in either segment leaves
@@ -72,10 +85,22 @@ export class PluginGrantPlan {
     return ''
   }
 
-  /** One row per claim the manifest asked for, in the order the server
-   *  normalized them. */
+  /**
+   * One row per claim the manifest asked for.
+   *
+   * Required first and optional after, rather than in the order the server
+   * normalized them (D36). The order is the decision: everything required is what
+   * "approve the default" approves, so a screen that interleaved the two would
+   * make the default a thing you have to reconstruct by reading every row.
+   */
   static rows(plugin: PluginView, ownClaims: readonly string[]): PluginClaimRow[] {
-    return plugin.requested.map((claim) => {
+    const required = new Set(plugin.required)
+    const ordered = [
+      ...plugin.requested.filter((claim) => required.has(claim)),
+      ...plugin.requested.filter((claim) => !required.has(claim)),
+    ]
+
+    return ordered.map((claim) => {
       const parsed = PluginGrantPlan.parse(claim)
       const under = PluginGrantPlan.under(claim, plugin.effective)
       const granted = PluginGrantPlan.holds(plugin.effective, parsed)
@@ -87,6 +112,8 @@ export class PluginGrantPlan {
         forbidden: PluginGrantPlan.forbidden(claim),
         delegable: parsed ? Claims.canDelegate(ownClaims, [parsed]) : false,
         intervening: !!parsed?.hook && HookNames.isIntervening(parsed.hook),
+        required: required.has(claim),
+        reason: plugin.reasons[claim] ?? null,
       }
     })
   }
@@ -125,6 +152,21 @@ export class PluginGrantPlan {
         PluginGrantPlan.holds(plugin.effective, PluginGrantPlan.parse(claim)) ||
         PluginGrantPlan.under(claim, plugin.effective).length > 0,
     )
+  }
+
+  /**
+   * What a form should open ticked (D36).
+   *
+   * What the plugin already holds, if it holds anything — reopening a narrowed
+   * grant must not silently propose widening it. Otherwise the **required** set,
+   * which is what the API's own default grant approves: an unapproved plugin
+   * opening with nothing ticked makes the common case "tick eight boxes", and
+   * that is how an operator learns to press Select all.
+   */
+  static initialSelection(plugin: PluginView): string[] {
+    const held = PluginGrantPlan.heldRequested(plugin)
+    if (held.length > 0) return held
+    return plugin.requested.filter((claim) => plugin.required.includes(claim))
   }
 
   /** How many of the requests have been answered at all — the number a listing

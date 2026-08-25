@@ -79,19 +79,25 @@ export class PluginGrantService {
    * would bury the decisions the trail exists to hold. The decision that follows
    * from a `needs_review` — approving the new request — is audited, and that is
    * the entry worth having.
+   *
+   * `required` defaults to `requested`, which is what the whole request meant
+   * before D36 split it: there was no optional, so everything asked for was
+   * needed. A caller with a manifest in hand passes both.
    */
   async reconcile(
     name: string,
     requested: readonly string[],
-    hooks: readonly string[]
+    hooks: readonly string[],
+    required: readonly string[] = requested
   ): Promise<PluginGrantRecord> {
-    const digest = PluginGrantUtils.digest(requested, hooks);
+    const digest = PluginGrantUtils.digest(requested, required, hooks);
     const existing = await this.findEntry(name);
 
     if (!existing) {
       return await this.write(name, {
         name,
         requested: [...requested],
+        required: [...required],
         hooks: [...hooks],
         granted: [],
         state: "pending",
@@ -104,6 +110,7 @@ export class PluginGrantService {
     const next: PluginGrant = {
       ...grant,
       requested: [...requested],
+      required: [...required],
       hooks: [...hooks],
       state: PluginGrantUtils.stateFor(grant, digest),
     };
@@ -187,7 +194,11 @@ export class PluginGrantService {
           state: "granted",
           // Approving is reading the request, so this is the one place the
           // digest advances past what `reconcile` refused to move.
-          manifest_digest: PluginGrantUtils.digest(grant.requested, grant.hooks),
+          manifest_digest: PluginGrantUtils.digest(
+            grant.requested,
+            PluginGrantUtils.requiredOf(grant),
+            grant.hooks
+          ),
           key_id: keyEntry.id,
           granted_by: PluginGrantService.actorKey(request.actor),
           granted_at: EntryUtils.now().toISOString(),

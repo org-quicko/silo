@@ -12,14 +12,27 @@ export class PluginGrantUtils {
   /**
    * A stable digest of what a manifest **asks for**, not of the whole package.
    *
-   * Only the fields an operator is approving go in: the requested claims and
-   * the hooks. A version bump that changes neither is not a new decision and
-   * must not re-prompt, and a package that silently adds a hook is one even if
-   * its version did not move.
+   * Only the fields an operator is approving go in: the requested claims, which
+   * of them are required, and the hooks. A version bump that changes none of
+   * those is not a new decision and must not re-prompt, and a package that
+   * silently adds a hook — or silently promotes an optional claim to required, so
+   * that a default grant would now approve it — is one even if its version did
+   * not move.
+   *
+   * The `reason` strings are deliberately **out**. They are what an operator
+   * reads while deciding, so including them is tempting, but a package fixing a
+   * typo in one would then move every instance to `needs_review` for a decision
+   * nobody changed — and re-prompting for nothing is how a review prompt stops
+   * being read.
    */
-  static digest(requested: readonly string[], hooks: readonly string[]): string {
+  static digest(
+    requested: readonly string[],
+    required: readonly string[],
+    hooks: readonly string[]
+  ): string {
     const canonical = JSON.stringify({
       claims: [...requested].sort(),
+      required: [...required].sort(),
       hooks: [...hooks].sort(),
     });
     return crypto.createHash("sha256").update(canonical).digest("hex");
@@ -35,6 +48,18 @@ export class PluginGrantUtils {
    */
   static ungranted(requested: readonly string[], granted: readonly string[]): string[] {
     return granted.filter((claim) => !Claims.has(requested, claim as Claim));
+  }
+
+  /**
+   * Which of a record's requested claims are required (D36).
+   *
+   * A record written before the split carries no `required`, and the honest
+   * reading of one is that every claim in it was required — there was no other
+   * kind. Defaulting to the empty set instead would make a default grant on an
+   * un-reconciled legacy record approve nothing and report success.
+   */
+  static requiredOf(grant: Pick<PluginGrant, "requested" | "required">): string[] {
+    return grant.required ?? grant.requested;
   }
 
   /** The claims a manifest asks for that the operator has not allowed. Not an

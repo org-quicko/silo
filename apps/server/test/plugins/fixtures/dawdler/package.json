@@ -5,16 +5,20 @@
   "main": "index.ts",
   "silo": {
     "silo": "*",
-    "kind": "extension",
-    "hooks": [
-      "entry.beforeValidate"
-    ],
-    "claims": [],
+    "contributes": {
+      "hooks": [
+        "entry.beforeValidate"
+      ]
+    },
     "config": {
       "type": "object",
       "properties": {
-        "ms": { "type": "number" },
-        "mark": { "type": "string" }
+        "ms": {
+          "type": "number"
+        },
+        "mark": {
+          "type": "string"
+        }
       },
       "additionalProperties": false
     }

@@ -1,14 +1,16 @@
 import type { PluginGrant } from "../../core/plugins/plugin-grant";
-import type { PluginRoute } from "../manifest/plugin-route";
+import type { PluginContributions } from "../manifest/plugin-contributions";
 import type { PluginStatus } from "./plugin-status";
 
 /**
  * What the package declares, as much of it as a management surface needs
- * (D40, phase 5).
+ * (D40, phase 5; restructured by D36).
  *
- * `kind` because the affordances differ absolutely: a provider *is* the
- * storage, runs in-process, has no worker to restart and no hooks to be
- * delivered — a UI offering those would be offering nothing.
+ * `contributes` because the affordances differ absolutely: a package that
+ * contributes only a storage driver *is* the storage — it runs in-process, has no
+ * worker to restart and no hooks to be delivered, and a UI offering those would
+ * be offering nothing. It used to be `kind`, which could say that about a package
+ * doing one thing and had no way to describe one doing two.
  *
  * `config_schema` because D31 put the schema in the manifest and said why:
  * "carried at 1.0 even though nothing renders it, which is what lets the admin
@@ -16,24 +18,32 @@ import type { PluginStatus } from "./plugin-status";
  * that later, and this is the field it needed.
  */
 export interface PluginManifestFacts {
-  kind: "extension" | "provider";
+  /**
+   * Everything the package contributes: hooks, routes, a runtime, providers.
+   *
+   * From the **manifest** and not from the grant, because the point of showing
+   * them is deciding. `http:route` is one claim covering every route, so the route
+   * list is the only place that decision has any detail — and `auth` matters most
+   * within it, since a handler runs with the plugin's authority and a `public`
+   * route therefore publishes whatever that plugin holds at a URL anyone can
+   * reach. That is the one property of a route nobody can infer from the claim.
+   */
+  contributes: PluginContributions;
+
+  /**
+   * Why the package says it wants each claim (D36).
+   *
+   * Claim to reason, covering the derived claims too, so a grant screen never has
+   * a row with nothing to say about it. Read fresh from the package rather than
+   * stored in the record: a reason is documentation, and a record that carried it
+   * would be a second copy to drift.
+   */
+  reasons: Record<string, string>;
+
   /** JSON Schema for `[plugins.config]`, or `null` when the plugin declares
    *  none — which means it takes no configuration, not that anything is
    *  wrong. */
   config_schema: unknown | null;
-
-  /**
-   * The routes the package declares, which is what an operator approves (D36,
-   * phase 6).
-   *
-   * From the **manifest** and not from the grant, because the point of showing
-   * them is deciding: `http:route` is one claim covering all of them, so the
-   * list is the only place the decision has any detail. `auth` matters most —
-   * a handler runs with the plugin's authority, so a `public` route publishes
-   * whatever that plugin holds at a URL anyone can reach, and that is the one
-   * property of a route nobody can infer from the claim.
-   */
-  routes: readonly PluginRoute[];
 }
 
 /**

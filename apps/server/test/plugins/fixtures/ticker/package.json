@@ -1,0 +1,20 @@
+{
+  "name": "ticker",
+  "version": "1.0.0",
+  "type": "module",
+  "main": "index.ts",
+  "silo": {
+    "silo": "*",
+    "contributes": {
+      "runtime": true
+    },
+    "permissions": {
+      "required": [
+        {
+          "claim": "collections:*/*/*:entries:create",
+          "reason": "To prove activate() can act through ctx, not merely run."
+        }
+      ]
+    }
+  }
+}

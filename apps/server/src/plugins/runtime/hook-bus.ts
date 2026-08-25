@@ -8,6 +8,7 @@ import type {
   BeforeDeleteEvent,
   BeforeValidateEvent,
   BeforeWriteEvent,
+  CollectionDeletedEvent,
   HookEvent,
 } from "../../core/hooks";
 import type { Logger } from "../../logging/logger";
@@ -78,6 +79,20 @@ export class HookBus implements Hooks {
 
   async afterDelete(event: AfterDeleteEvent): Promise<void> {
     await this.veto("entry.afterDelete", event);
+  }
+
+  /**
+   * The collection-level hook (D36, closing D37's F6).
+   *
+   * Nothing here is special-cased, and that is the whole reason the fix is one
+   * name in the vocabulary rather than a mechanism: the claim check, the causal
+   * skip and the terminal error policy are the same three questions
+   * `shouldDispatch` and `run` already ask, and the answer to "may this plugin
+   * hear that a collection was erased" is `hooks:<project>/<env>/<collection>`
+   * with no grammar change at all.
+   */
+  async afterCollectionDelete(event: CollectionDeletedEvent): Promise<void> {
+    await this.veto("collection.afterDelete", event);
   }
 
   private async veto(hook: HookName, event: HookEvent): Promise<void> {

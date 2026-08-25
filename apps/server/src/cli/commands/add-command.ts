@@ -2,7 +2,7 @@ import { Claims } from "@silo/shared/claims";
 import type { Config } from "../../config/config";
 import { PluginBlockWriter } from "../../config/plugin-block-writer";
 import type { PluginConfig } from "../../config/plugin-config";
-import { PluginInstaller, PluginRegistry } from "../../plugins";
+import { PluginContributionUtils, PluginInstaller, PluginPermissionUtils, PluginRegistry } from "../../plugins";
 import type { InstallResult } from "../../plugins";
 import { Confirm } from "../confirm";
 
@@ -66,15 +66,10 @@ export class AddCommand {
 
   private static report(result: InstallResult): void {
     const { manifest } = result;
-    const attaches =
-      manifest.kind === "provider"
-        ? `provides ${manifest.provider!.port} driver "${manifest.provider!.driver}"`
-        : `hooks ${manifest.hooks.join(", ")}`;
-
     console.log(`${result.replaced ? "replaced" : "installed"} ${result.name}`);
     console.log(`  from      : ${result.source.kind} (${result.resolved})`);
     console.log(`  directory : ${result.dir}`);
-    console.log(`  kind      : ${manifest.kind}, ${attaches}`);
+    console.log(`  contributes: ${PluginContributionUtils.summary(manifest.contributes)}`);
     if (result.integrity) console.log(`  integrity : ${result.integrity}`);
     for (const warning of result.warnings) console.log(`  note      : ${warning}`);
   }
@@ -131,9 +126,13 @@ export class AddCommand {
     result: InstallResult,
     assumeYes: boolean
   ): Promise<boolean> {
-    const missing = result.manifest.claims.filter((claim) => !Claims.has(pluginBlock.claims, claim as any));
+    // The **required** half, not everything requested: an optional permission is
+    // one the plugin runs without by design, so refusing to write a block that
+    // omits one would make `optional` mean nothing here (D36).
+    const required = PluginPermissionUtils.requiredClaims(result.manifest.permissions);
+    const missing = required.filter((claim) => !Claims.has(pluginBlock.claims, claim as any));
     if (missing.length > 0) {
-      console.log(`\n${result.name} requests ${missing.join(", ")}, which --claims does not cover.`);
+      console.log(`\n${result.name} requires ${missing.join(", ")}, which --claims does not cover.`);
       console.log(`serve would refuse to start with that grant, so it was not written.`);
       return false;
     }
@@ -154,13 +153,15 @@ export class AddCommand {
     return await Confirm.ask(`Grant them and list the plugin in the config?`);
   }
 
-  /** What the `[[plugins]]` entry will say: the manifest's request unless
-   *  `--claims` overrides it, and silo's defaults for everything else. */
+  /** What the `[[plugins]]` entry will say: the manifest's **required**
+   *  permissions unless `--claims` overrides it, and silo's defaults for
+   *  everything else. Required and not everything asked for, because that is what
+   *  a default grant means since D36 — an optional permission is opt-in. */
   private static entry(result: InstallResult, options: AddOptions): PluginConfig {
     const requested =
       typeof options.claims === "string"
         ? options.claims.split(",").map((claim) => claim.trim()).filter((claim) => claim.length > 0)
-        : result.manifest.claims;
+        : PluginPermissionUtils.requiredClaims(result.manifest.permissions);
 
     const pluginBlock = PluginBlockWriter.defaults(result.name, requested);
 

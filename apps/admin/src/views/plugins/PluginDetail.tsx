@@ -14,6 +14,7 @@ import type { SessionBadge } from '../shell/session-badge'
 import { PluginActivityCard } from './PluginActivityCard'
 import { PluginConfigCard } from './PluginConfigCard'
 import { PluginGrantCard } from './PluginGrantCard'
+import { PluginContributionWords } from './plugin-contribution-words'
 import { PluginLifecycleCard } from './PluginLifecycleCard'
 import { PluginRoutesCard } from './PluginRoutesCard'
 import { PluginRuntimePill } from './PluginRuntimePill'
@@ -115,7 +116,7 @@ export function PluginDetailView({
         }
         session={session}
       >
-        {plugin && canEnable && plugin.kind !== 'provider' && (
+        {plugin && canEnable && PluginContributionWords.runsInWorker(plugin.contributes) && (
           <Button
             variant="secondary"
             disabled={busy || !plugin.enabled}
@@ -149,9 +150,7 @@ export function PluginDetailView({
               <div className="page-title-group">
                 <h2 className="page-title">{plugin.name}</h2>
                 <span className="page-sub">
-                  {plugin.kind === 'provider'
-                    ? 'A provider: it is this instance’s storage, runs in-process, and takes no hooks.'
-                    : `An extension${plugin.hooks.length > 0 ? `, attached to ${plugin.hooks.join(', ')}` : ' with no hooks declared'}.`}
+                  {PluginContributionWords.sentence(plugin.contributes)}
                 </span>
               </div>
               <div className={styles.headPills}>

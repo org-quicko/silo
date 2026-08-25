@@ -385,7 +385,10 @@ describe("plugin routes (D36)", () => {
 
   describe("the manifest", () => {
     const manifest = (silo: Record<string, unknown>) =>
-      ManifestReader.validate("x", { name: "x", silo: { silo: "*", kind: "extension", ...silo } });
+      ManifestReader.validate("x", {
+        name: "x",
+        silo: { silo: "*", contributes: { ...silo } },
+      });
 
     /**
      * A routes-only plugin is loadable, and before this phase it was not.
@@ -400,13 +403,13 @@ describe("plugin routes (D36)", () => {
       expect((await get("/api/ext/greeter/hello")).status).toBe(200);
     });
 
-    test("a plugin that declares neither is still refused", () => {
-      expect(() => manifest({ hooks: [], routes: [] })).toThrow(/no hooks and no routes/);
+    test("a plugin that contributes nothing at all is still refused", () => {
+      expect(() => manifest({ hooks: [], routes: [] })).toThrow(/declares nothing/);
     });
 
     test("auth defaults to key, which is the weaker of the two", () => {
       const read = manifest({ routes: [{ method: "GET", path: "/a" }] });
-      expect(read.routes[0]!.auth).toBe("key");
+      expect(read.contributes.routes[0]!.auth).toBe("key");
     });
 
     test("refuses a path that could reach outside its own namespace", () => {

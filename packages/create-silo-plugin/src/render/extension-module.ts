@@ -32,7 +32,8 @@ ${bodies.join("\n\n")}
   private static header(options: ScaffoldOptions): string {
     // Only what the stubs actually use: an unused `ValidationError` in a file
     // whose first job is to be read is a wrong signal about which hooks reject.
-    const rejects = options.hooks.some((hook) => hook !== "entry.afterWrite" && hook !== "entry.afterDelete");
+    const observes = ["entry.afterWrite", "entry.afterDelete", "collection.afterDelete"];
+    const rejects = options.hooks.some((hook) => !observes.includes(hook));
     const imported = rejects ? "defineSiloPlugin, ValidationError" : "defineSiloPlugin";
 
     const constant = options.withConfig
@@ -110,6 +111,18 @@ ${guard}
 ${guard}
 
     ctx.log.info("entry deleted", { id: event.id });
+  },`;
+
+      case "collection.afterDelete":
+        return `${doc}
+  "collection.afterDelete"(event, ctx) {
+${guard}
+
+    // One event for the whole collection, however many entries it held — this is
+    // the only way a plugin hears about a forced delete, which erases entries
+    // without dispatching \`entry.afterDelete\` for each of them. \`cause\` says
+    // whether the scope above it is going too.
+    ctx.log.info("collection erased", { erased: event.erased, cause: event.cause });
   },`;
     }
   }

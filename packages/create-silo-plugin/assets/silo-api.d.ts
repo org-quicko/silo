@@ -42,6 +42,27 @@ declare module "silo:api" {
     updated_at?: string;
   }
 
+  /**
+   * What a collection-level hook sees (D36).
+   *
+   * Not a `SiloHookEvent`: there is no entry, so no `id`, `rev` or `data`, and the
+   * one thing it does carry — how many entries went with the collection — has no
+   * counterpart there.
+   */
+  export interface SiloCollectionEvent {
+    op: "delete";
+    origin: string;
+    scope: SiloScope;
+    collection: string;
+    depth: number;
+    /** How many entries the delete erased. `0` is ordinary: an empty collection
+     *  still goes away. */
+    erased: number;
+    /** Which delete erased it. `environment` and `project` mean every sibling
+     *  collection is going too. */
+    cause: "collection" | "environment" | "project";
+  }
+
   /** Query-string parameters, as the route reads them. An object value is sent
    *  as JSON, which is how `filter` and `sort` already travel. */
   export interface SiloQuery {
@@ -214,6 +235,32 @@ declare module "silo:api" {
     "entry.afterWrite"?(event: SiloHookEvent, ctx: SiloContext): void | Promise<void>;
     "entry.beforeDelete"?(event: SiloHookEvent, ctx: SiloContext): void | Promise<void>;
     "entry.afterDelete"?(event: SiloHookEvent, ctx: SiloContext): void | Promise<void>;
+    /** One collection erased, entries and schema, after the delete committed.
+     *  Observe only. There is no `before` counterpart — see the manifest docs. */
+    "collection.afterDelete"?(
+      event: SiloCollectionEvent,
+      ctx: SiloContext
+    ): void | Promise<void>;
+
+    /**
+     * Called once when the plugin becomes live, if the manifest declares
+     * `contributes.runtime` (D36).
+     *
+     * This is where a plugin does something of its own accord — a timer, a warm
+     * cache, a one-off migration — rather than only answering a hook or a route.
+     * It runs before silo accepts its first request, and a throw here refuses the
+     * start, so setup that must succeed belongs in it.
+     *
+     * It grants nothing: `ctx` is the same claim-checked surface a hook gets, and
+     * a plugin awaiting approval is activated too — with every call refused,
+     * exactly as its hooks are undelivered.
+     */
+    activate?(ctx: SiloContext): void | Promise<void>;
+
+    /** Called once before the worker is torn down — a disable, a restart, a
+     *  shutdown. Best-effort and bounded by `timeout_ms`: the decision to stop has
+     *  already been taken, so nothing here can change it. */
+    deactivate?(ctx: SiloContext): void | Promise<void>;
 
     /**
      * A route, named `"<METHOD> <path>"` as `silo.routes` declares it.
@@ -228,7 +275,8 @@ declare module "silo:api" {
           ctx: SiloContext
         ) => void | any | SiloRouteResponse | Promise<void | any | SiloRouteResponse>)
       | SiloPluginDefinition["entry.beforeValidate"]
-      | SiloPluginDefinition["entry.beforeWrite"];
+      | SiloPluginDefinition["entry.beforeWrite"]
+      | SiloPluginDefinition["activate"];
   }
 
   /** Identity at runtime. It exists so a plugin's default export is typed, and

@@ -1,3 +1,4 @@
+import path from "path";
 import { Claims } from "@silo/shared/claims";
 import { SiloVersion } from "../../version";
 import type { PluginConfig } from "../../config/plugin-config";
@@ -5,6 +6,7 @@ import type { PluginGrantRecord } from "../../core/plugins/plugin-grant-record";
 import { PluginGrantUtils } from "../../core/plugins/plugin-grant-utils";
 import { ManifestReader } from "../manifest";
 import { PluginConfigValidator } from "../manifest";
+import { PluginContributionUtils } from "../manifest";
 import { PluginContext } from "../runtime";
 import { HookBus } from "../runtime";
 import { WorkerHost } from "../host";
@@ -39,14 +41,25 @@ export interface ExtensionLoadOptions extends PluginLoadContext {
  * reach exactly the checks a boot does, or the two would disagree about which
  * packages are loadable and an operator would discover the difference at the
  * next restart.
+ *
+ * Since D36 the two load paths are no longer two kinds of *package*. A package
+ * contributes providers, or worker-side things, or both — so `loadProviders`
+ * walks `contributes.providers` and `prepare` asks whether there is anything for
+ * a worker to run, rather than either of them asking what the package *is*.
  */
 export class PluginLoader {
   /**
-   * Provider plugins, loaded before storage is opened — they *are* the storage.
+   * The providers every configured package contributes, loaded before storage is
+   * opened — they *are* the storage.
    *
    * They never go through `PluginHost`: a provider is constructed, not
    * dispatched, so a port built for hook dispatch would be the wrong shape and
    * a second unused code path.
+   *
+   * Each provider is imported from **its own** entry, which is what lets one
+   * package contribute a driver and hooks at once. Sharing the package's main
+   * module would mean importing the worker half into the host process at the one
+   * moment when there is no store for it to reach.
    */
   static async loadProviders(
     pluginsDir: string,
@@ -58,28 +71,39 @@ export class PluginLoader {
 
     for (const config of configs) {
       const resolved = await PluginLoader.resolve(pluginsDir, config);
-      if (resolved.manifest.kind !== "provider") continue;
+      if (resolved.manifest.contributes.providers.length === 0) continue;
 
-      const mod = await import(Bun.pathToFileURL(resolved.entry).href);
-      const create = mod?.default?.create;
-      if (typeof create !== "function") {
-        throw new Error(
-          `plugin "${config.name}": a provider plugin must default-export { create(config) }.`
-        );
-      }
+      for (const provider of resolved.manifest.contributes.providers) {
+        const entry = path.resolve(resolved.dir, provider.entry);
+        const mod = await import(Bun.pathToFileURL(entry).href);
+        const create = mod?.default?.create;
+        if (typeof create !== "function") {
+          throw new Error(
+            `plugin "${config.name}": provider "${provider.port}/${provider.driver}" must ` +
+              `default-export { create(config) } from "${provider.entry}".`
+          );
+        }
 
-      const { port, driver } = resolved.manifest.provider!;
-      if (port === "storage") {
-        registry.registerStorage(driver, (hostConfig) => create(config.config, hostConfig), config.name);
-      } else {
-        registry.registerBlob(driver, (blobConfig) => create(config.config, blobConfig), config.name);
+        if (provider.port === "storage") {
+          registry.registerStorage(
+            provider.driver,
+            (hostConfig) => create(config.config, hostConfig),
+            config.name
+          );
+        } else {
+          registry.registerBlob(
+            provider.driver,
+            (blobConfig) => create(config.config, blobConfig),
+            config.name
+          );
+        }
       }
       loaded.push(config.name);
     }
     return loaded;
   }
 
-  /** Extension plugins, loaded after `SiloService` exists — their context calls
+  /** Worker-side plugins, loaded after `SiloService` exists — their context calls
    *  back into it. */
   static async loadExtensions(options: ExtensionLoadOptions): Promise<PluginRuntime[]> {
     const runtimes: PluginRuntime[] = [];
@@ -120,22 +144,27 @@ export class PluginLoader {
    * Read the manifest and bring the `_plugins` record in line with it, without
    * running anything.
    *
-   * `null` for a provider, which has no runtime to prepare. Reconciling happens
-   * here rather than inside `start` because the record it returns is what
-   * decides whether `start` is called at all — there is nothing to grant through
-   * the API or the UI until a record exists (D34).
+   * `null` when the package contributes nothing that runs in a worker — providers
+   * only — which has no runtime to prepare and no grant to hold: a provider is
+   * constructed before the store exists and therefore cannot be authorized from
+   * inside it (§13.7). Reconciling happens here rather than inside `start`
+   * because the record it returns is what decides whether `start` is called at
+   * all — there is nothing to grant through the API or the UI until a record
+   * exists (D34).
    */
   static async prepare(
     context: PluginLoadContext,
     config: PluginConfig
   ): Promise<{ resolved: ResolvedPlugin; grant: PluginGrantRecord } | null> {
     const resolved = await PluginLoader.resolve(context.pluginsDir, config);
-    if (resolved.manifest.kind !== "extension") return null;
+    if (!PluginContributionUtils.runsInWorker(resolved.manifest.contributes)) return null;
 
+    const request = PluginGrantResolver.request(resolved.manifest);
     const grant = await context.service.plugins.reconcile(
       config.name,
-      PluginGrantResolver.requested(resolved.manifest),
-      resolved.manifest.hooks
+      request.claims,
+      resolved.manifest.contributes.hooks,
+      request.required
     );
     return { resolved, grant };
   }
@@ -147,6 +176,13 @@ export class PluginLoader {
    * should be running, and the supervisor's `enable` calls this *before* writing
    * the record it is about to flip. That ordering is not an accident — see
    * `PluginSupervisor`.
+   *
+   * It also does not `activate`. A declared runtime's `activate(ctx)` may call
+   * `ctx`, and at boot the HTTP surface a `ctx` call dispatches against does not
+   * exist yet — extensions load in `SiloRuntime` so `SiloService` can be given
+   * their hook bus, and the app is built from that service afterwards. So
+   * activation is a step of its own, driven by `PluginRegistry.activate` once the
+   * app is attached.
    *
    * `runtimeConfig` is passed rather than derived, and that is the same story
    * one level down. It is usually `PluginGrantUtils.configFor(grant, …)`, but
@@ -186,8 +222,9 @@ export class PluginLoader {
       name: config.name,
       entry: resolved.entry,
       config: runtimeConfig,
-      declared: resolved.manifest.hooks,
-      routes: PluginRoutes.keys(resolved.manifest.routes),
+      declared: resolved.manifest.contributes.hooks,
+      routes: PluginRoutes.keys(resolved.manifest.contributes.routes),
+      runtime: resolved.manifest.contributes.runtime,
       timeoutMs: config.timeout_ms,
       rpc: pluginContext,
     });
@@ -217,6 +254,16 @@ export class PluginLoader {
       context.logger.warn("plugin asks for more than was approved", {
         plugin: name,
         unapproved: authority.missing.join(","),
+        remedy: `silo plugin info ${name}`,
+      });
+    } else if (authority.unmet.length > 0) {
+      // Distinct from `needs_review`, which is about the package having *changed*.
+      // This is a plugin running on a grant it says is not enough — a deliberate
+      // narrowing looks exactly like a mistake from the outside, and only the
+      // author's own `required` list can tell the two apart (D36).
+      context.logger.warn("plugin is granted less than it says it requires", {
+        plugin: name,
+        unmet: authority.unmet.join(","),
         remedy: `silo plugin info ${name}`,
       });
     }
@@ -303,14 +350,15 @@ export class PluginLoader {
     manifest: PluginManifest,
     authority: ResolvedGrant
   ): void {
-    if (manifest.routes.length === 0) return;
+    const routes = manifest.contributes.routes;
+    if (routes.length === 0) return;
     if (authority.claims.length === 0) return;
     if (Claims.has(authority.claims, Claims.HttpRoute)) return;
 
     throw new Error(
-      `plugin "${name}": declares ${manifest.routes.length} ` +
-        `route${manifest.routes.length === 1 ? "" : "s"} ` +
-        `(${PluginRoutes.keys(manifest.routes).join(", ")}) but is not granted ` +
+      `plugin "${name}": declares ${routes.length} ` +
+        `route${routes.length === 1 ? "" : "s"} ` +
+        `(${PluginRoutes.keys(routes).join(", ")}) but is not granted ` +
         `"${Claims.HttpRoute}", so every one of them would answer 403. ` +
         `Add "${Claims.HttpRoute}" to the plugin's "claims" in silo.toml, ` +
         `or approve it through the plugins API.`

@@ -98,6 +98,10 @@ export class PluginLifecycle {
     this.registry.replace(
       PluginLifecycle.ordered([...this.registry.list(), runtime], config)
     );
+    // After it is in the set, not before: `activate` may write through `ctx`, and
+    // a plugin that is acting but not yet dispatched to would be skipped by
+    // `HookBus` for its own writes in a way it never is again (D36).
+    await runtime.activate();
   }
 
   /** The config document a running worker was initialised with, or `null` when
@@ -121,9 +125,10 @@ export class PluginLifecycle {
    * Cannot throw. `PluginGrantResolver.resolve` refuses only a `silo.toml` that
    * grants past the manifest, and both of those were fixed at load, so a live
    * grant change has nothing left to reject. A hook that a narrowed grant no
-   * longer delivers is **warned about rather than refused**: refusing would make
-   * a plugin impossible to revoke, and a deliberate narrowing is not the
-   * misconfiguration `PluginLoader.assertDeliverable` exists to catch.
+   * longer delivers — or a required permission it no longer covers — is **warned
+   * about rather than refused**: refusing would make a plugin impossible to
+   * revoke, and a deliberate narrowing is not the misconfiguration
+   * `PluginLoader.assertDeliverable` exists to catch.
    */
   reapply(name: string, record: PluginGrantRecord | null): void {
     const runtime = this.registry.find(name);
@@ -136,6 +141,17 @@ export class PluginLifecycle {
       this.logger.warn("plugin has declared hooks that nothing now delivers", {
         plugin: name,
         hooks: authority.undeliverable.join(","),
+      });
+    }
+    // The same warning `PluginLoader.report` gives at boot, on the path that
+    // actually reaches it. Narrowing is a *live* operation since phase 4 and a
+    // checkbox since phase 5, so this is where a grant drops below what a package
+    // says it needs — and reporting it only at the next start would mean the
+    // operator who did it is the one person who never sees the consequence (D36).
+    if (authority.claims.length > 0 && authority.unmet.length > 0) {
+      this.logger.warn("plugin is now granted less than it says it requires", {
+        plugin: name,
+        unmet: authority.unmet.join(","),
       });
     }
     this.logger.info("plugin authority changed", {

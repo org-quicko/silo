@@ -12,6 +12,10 @@ export interface PluginView {
   enabled: boolean
   /** What the manifest asks for. */
   requested: string[]
+  /** The subset of `requested` the package says it cannot work without (D36).
+   *  What `PUT .../grant` approves when no `claims` are sent, and therefore what
+   *  a form has to tick when it opens on an unapproved plugin. */
+  required: string[]
   /** What the operator approved **through the record** — the half this API can
    *  change. */
   granted: string[]
@@ -38,20 +42,39 @@ export interface PluginView {
   runtime: PluginStatus
   config: Record<string, unknown>
   config_source: 'silo.toml' | 'store'
-  /** `null` when the package could not be read; `runtime.detail` says why. */
-  kind: 'extension' | 'provider' | null
+  /**
+   * What the package contributes (D36). `null` when it could not be read;
+   * `runtime.detail` says why.
+   *
+   * It replaced `kind`, which could describe a package doing one thing and had
+   * no way to describe one doing two. `routes` is where a route decision has any
+   * detail — `http:route` is one claim covering all of them — and `auth:
+   * "public"` is the part that carries weight, because a handler runs with the
+   * plugin's authority rather than the caller's.
+   */
+  contributes: PluginContributions | null
+  /** Claim to the author's reason for wanting it, derived claims included.
+   *  `{}` when the package could not be read. */
+  reasons: Record<string, string>
   /** JSON Schema for the config block, or `null` when the plugin takes none. */
   config_schema: unknown | null
-  /**
-   * What the plugin serves under `/api/ext/{name}/*` (D36).
-   *
-   * `http:route` is one claim covering all of them, so this list is where the
-   * decision has any detail — and `auth: "public"` is the part that carries
-   * weight, because a handler runs with the plugin's authority rather than the
-   * caller's. Empty when none are declared; `null` when the package could not be
-   * read at all.
-   */
-  routes: PluginRoute[] | null
+}
+
+/** Everything a package contributes, none of it exclusive (D36). */
+export interface PluginContributions {
+  hooks: string[]
+  routes: PluginRoute[]
+  /** Whether it exports `activate`/`deactivate` — it runs code of its own
+   *  accord, not only in answer to a hook or a request. */
+  runtime: boolean
+  providers: PluginProvider[]
+}
+
+/** One storage or blob driver a package registers (D36). */
+export interface PluginProvider {
+  port: 'storage' | 'blob'
+  driver: string
+  entry: string
 }
 
 /** One route a plugin declares (D36). */

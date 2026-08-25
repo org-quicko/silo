@@ -26,8 +26,36 @@ keys with claims (D12/D21), export/import and scope-to-scope copy, the admin
 UI, single-binary releases with Homebrew and RPM, and plugins with an installer
 (D31/D32/D33).
 
-**The most recent change is plugin routes (D36, phase 6, 2026-08-25) — the last
-phase of the plugin redesign.** A plugin declares routes in its manifest and silo
+**The most recent change completes the plugin redesign (D36, 2026-08-25).** Two
+manifest fields replace two, and the pair is what a grant screen is made of:
+`contributes` is **what a package will do** and `permissions` is **what it needs
+in order to do it**. `kind` is gone — an enum has one value, so it forced a
+package that wanted a background timer to invent a hook merely to be called and
+forbade a storage provider from registering the hook that keeps its own derived
+data in step. A package now contributes any of hooks, routes, a `runtime`
+(`activate(ctx)`/`deactivate(ctx)`) and providers, each provider **naming its own
+entry module** because it is imported into the host before storage exists while
+the rest of the package runs in a worker afterwards. `activate` costs no claim —
+it is reachable by nobody but silo and its `ctx` is the same claim-checked surface
+a hook's is — and it runs as a step *after* the app is attached, since at the
+moment a worker starts there is nothing for a `ctx` call to dispatch against.
+Permissions split into `required` and `optional`, each carrying the author's
+`reason`, and **the default grant is `required`** across the CLI, the API and the
+grant form: approving everything asked for would make `optional` meaningless.
+`required` is stored in the record (D38's rule: the management API never reads
+the filesystem) and joins the manifest digest, because promoting an optional claim
+changes what a default grant approves without changing a single claim in the list.
+The five retired keys refuse the start by name. **D37's F6 is closed** with
+`collection.afterDelete` — one event per erased collection carrying the count and
+whether the scope above it went too, dispatched outside the write lock, so
+auditing and mirroring plugins finally see entries go. A live pass found three
+more, and every one was a *report* rather than a behaviour: a failing `activate`
+named neither the plugin nor activation, a live narrowing below `required` was
+silent though the start warns, and `silo plugin list|info` printed the **record's
+raw state** — D40's `/api/plugins` defect exactly, in the other caller of the same
+fix. See §13.19 in [docs/design/plugins.md](docs/design/plugins.md).
+
+**Before that came plugin routes (D36, phase 6, 2026-08-25).** A plugin declares routes in its manifest and silo
 serves them under `/api/ext/{name}/*` behind a new `http:route` claim. A handler
 gets the same `ctx` a hook does, so it acts with **the plugin's** authority and
 never the caller's — which is what a plugin route *is*, and which is why
@@ -153,14 +181,9 @@ mutex is gone. Nothing about the plugin-facing payload changed. See
 [the changelog](docs/context/changelog.md) and §13.5/§13.9 in
 [docs/design/plugins.md](docs/design/plugins.md).
 
-**Every phase of D34–D36 has now landed.** What is left of D36 is the
-`contributes` restructure: `kind` giving way to a contribution list,
-`activate()`/`deactivate()`, and `required`/`optional` permissions carrying
-`reason` strings. Phase 6 took only the one narrow piece routes forced — an
-extension may now declare routes instead of hooks. D37's **F6 also remains
-open**: a forced delete dispatches no hooks, and the collection-level hook that
-fixes it is a new name in the hook vocabulary, so it belongs with the
-`contributes` work. §13.11 has the shape and the phases.
+**D34–D36 are complete, and so is D37's finding list.** Every phase has landed
+and the `contributes` restructure that phase 6 deferred is §13.19, which closed
+F6 with it. §13.11 has the shape and the phases.
 
 **The change before that was a repository restructure (2026-08-25).** The tree
 moved to a workspace layout — `apps/server`, `apps/admin`, `packages/shared`,
@@ -181,7 +204,7 @@ unchanged and the full suite passes throughout. See
 | [docs/context/repo-map.md](docs/context/repo-map.md) | Where everything lives |
 | [docs/context/code-design.md](docs/context/code-design.md) | How code here is expected to be shaped |
 | [docs/context/changelog.md](docs/context/changelog.md) | Every change that altered behaviour, architecture or layout, newest first |
-| [IMPLEMENTATION.md](IMPLEMENTATION.md) | The vision, the D1–D39 decisions log, and the index into `docs/design/` |
+| [IMPLEMENTATION.md](IMPLEMENTATION.md) | The vision, the D1–D40 decisions log, and the index into `docs/design/` |
 | [README.md](README.md) | How to run, configure and use silo |
 
 ## Working in this repo

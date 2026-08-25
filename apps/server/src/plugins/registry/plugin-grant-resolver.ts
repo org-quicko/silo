@@ -4,6 +4,8 @@ import type { PluginConfig } from "../../config/plugin-config";
 import type { PluginGrant } from "../../core/plugins/plugin-grant";
 import { PluginGrantUtils } from "../../core/plugins/plugin-grant-utils";
 import type { PluginManifest } from "../manifest";
+import { PluginPermissionUtils } from "../manifest";
+import type { PluginRequest } from "./plugin-request";
 import type { ResolvedGrant } from "./resolved-grant";
 
 /**
@@ -17,17 +19,52 @@ import type { ResolvedGrant } from "./resolved-grant";
  */
 export class PluginGrantResolver {
   /**
-   * Everything a manifest is asking for, including the hook claims its declared
-   * hooks imply.
+   * The whole request: claims, which of them are required, and why (D36).
    *
-   * Derived rather than hand-written, because a plugin already declares its
-   * hooks and restating them as claims would be two lists to keep in step. The
-   * derived form is the **maximum** — `hooks:*&#47;*&#47;*:<hook>` — and a grant may
-   * narrow the scope, since a narrower claim is covered by the wider request.
+   * Two kinds of claim end up here. The **declared** ones come from
+   * `silo.permissions`, with the author's own reason attached. The **derived**
+   * ones — a `hooks:` claim per declared hook, and `http:route` when the package
+   * declares routes — are computed rather than written, because a plugin already
+   * declares its hooks and its routes and restating them as claims would be two
+   * lists to keep in step. A derived hook claim is the **maximum**,
+   * `hooks:*&#47;*&#47;*:<hook>`, and a grant may narrow the scope, since a narrower
+   * claim is covered by the wider request.
+   *
+   * Derived claims are `required`, and not by the author's say-so: a hook nothing
+   * delivers and a route that answers 403 both refuse the start already
+   * (`assertDeliverable`, `assertServable`), so calling them optional would be
+   * calling a refusal optional.
    */
+  static request(manifest: PluginManifest): PluginRequest {
+    const declared = PluginPermissionUtils.claims(manifest.permissions);
+    const reasons = PluginPermissionUtils.reasons(manifest.permissions);
+
+    const derived: string[] = [];
+    for (const hook of manifest.contributes.hooks) {
+      const claim = Claims.hook("*", "*", "*", hook);
+      derived.push(claim);
+      reasons[claim] ??=
+        `Declared hook "${hook}" — without this claim the hook is never delivered.`;
+    }
+    if (manifest.contributes.routes.length > 0) {
+      derived.push(Claims.HttpRoute);
+      reasons[Claims.HttpRoute] ??=
+        `Declares ${manifest.contributes.routes.length} route(s) under ` +
+        `/api/ext/${manifest.name}/ — without this claim every one of them answers 403.`;
+    }
+
+    const required = PluginPermissionUtils.requiredClaims(manifest.permissions);
+    return {
+      claims: Claims.normalize([...declared, ...derived]),
+      required: Claims.normalize([...required, ...derived]),
+      reasons,
+    };
+  }
+
+  /** Every claim a manifest asks for. The short form of `request`, for the callers
+   *  that only need the bound. */
   static requested(manifest: PluginManifest): string[] {
-    const hooks = manifest.hooks.map((hook) => Claims.hook("*", "*", "*", hook));
-    return Claims.normalize([...manifest.claims, ...hooks]);
+    return PluginGrantResolver.request(manifest).claims;
   }
 
   /**
@@ -43,9 +80,9 @@ export class PluginGrantResolver {
     manifest: PluginManifest,
     grant: PluginGrant | null
   ): ResolvedGrant {
-    const requested = PluginGrantResolver.requested(manifest);
+    const request = PluginGrantResolver.request(manifest);
 
-    const excess = PluginGrantUtils.ungranted(requested, config.claims);
+    const excess = PluginGrantUtils.ungranted(request.claims, config.claims);
     if (excess.length > 0) {
       throw new Error(
         `plugin "${config.name}": silo.toml grants ${excess.join(", ")}, which its manifest ` +
@@ -58,8 +95,11 @@ export class PluginGrantResolver {
     return {
       claims,
       state: PluginGrantResolver.state(config.claims, grant),
-      missing: PluginGrantUtils.missing(requested, claims),
-      undeliverable: manifest.hooks.filter((hook) => !PluginGrantResolver.deliverable(claims, hook)),
+      missing: PluginGrantUtils.missing(request.claims, claims),
+      unmet: PluginGrantUtils.missing(request.required, claims),
+      undeliverable: manifest.contributes.hooks.filter(
+        (hook) => !PluginGrantResolver.deliverable(claims, hook)
+      ),
       keyId: grant?.key_id ?? "",
     };
   }

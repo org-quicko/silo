@@ -13,5 +13,6 @@ export type {
   BeforeDeleteEvent,
   BeforeValidateEvent,
   BeforeWriteEvent,
+  CollectionDeletedEvent,
   HookEvent,
 } from "./events";

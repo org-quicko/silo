@@ -16,6 +16,7 @@ import type { PaletteSeed } from '../search/palette-seed'
 import type { SessionBadge } from '../shell/session-badge'
 import { PluginGrantPlan } from './plugin-grant-plan'
 import { PluginRuntimePill } from './PluginRuntimePill'
+import { PluginContributionWords } from './plugin-contribution-words'
 import { PluginStatePill } from './PluginStatePill'
 import { RescanResult } from './RescanResult'
 import { usePlugins } from './use-plugins'
@@ -152,12 +153,16 @@ export function PluginsView({
             >
               <div className={`${table.cell} ${styles.nameCell}`}>
                 <span className={styles.avatar}>
-                  {plugin.kind === 'provider' ? <PlugZap size={13} /> : <Plug size={13} />}
+                  {PluginContributionWords.runsInWorker(plugin.contributes) ? (
+                    <Plug size={13} />
+                  ) : (
+                    <PlugZap size={13} />
+                  )}
                 </span>
                 <span className={styles.nameGroup}>
                   <span className={styles.name}>{plugin.name}</span>
                   <span className={styles.kind}>
-                    {plugin.kind === 'provider' ? 'provider' : 'extension'}
+                    {PluginContributionWords.label(plugin.contributes)}
                     {plugin.enabled ? '' : ' · disabled'}
                   </span>
                 </span>

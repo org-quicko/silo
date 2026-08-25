@@ -1,7 +1,13 @@
 import type { Config } from "../../config/config";
 import type { SiloService } from "../../core/services/silo-service";
 import { Logger } from "../../logging/logger";
-import { PluginGrantResolver, PluginLoader, PluginRegistry, ProviderRegistry } from "../../plugins";
+import {
+  PluginContributionUtils,
+  PluginGrantResolver,
+  PluginLoader,
+  PluginRegistry,
+  ProviderRegistry,
+} from "../../plugins";
 import { PluginGrantUtils } from "../../core/plugins/plugin-grant-utils";
 import { PluginGrantCommand } from "./plugin-grant-command";
 import { SiloVersion } from "../../version";
@@ -102,11 +108,9 @@ export class PluginCommand {
       let summary: string;
       try {
         const { manifest } = await PluginLoader.resolve(PluginRegistry.directory(config), pluginConfig);
-        const attaches =
-          manifest.kind === "provider"
-            ? `provides ${manifest.provider!.port} driver "${manifest.provider!.driver}"`
-            : manifest.hooks.join(", ");
-        summary = `${manifest.kind}, silo ${manifest.silo} — ${attaches}`;
+        summary =
+          `silo ${manifest.silo} — contributes ` +
+          PluginContributionUtils.summary(manifest.contributes);
       } catch (caught: any) {
         summary = `ERROR: ${caught.message}`;
       }
@@ -119,7 +123,13 @@ export class PluginCommand {
       // and an operator re-enabling one needs to know what it will come back
       // holding.
       const disabled = grant?.enabled === false ? ", disabled" : "";
-      console.log(`${index + 1}. ${pluginConfig.name}  [${grant?.state ?? "pending"}${disabled}]`);
+      // `PluginGrantResolver.state`, not the record's raw state. The record only
+      // ever describes the *store* half of the grant, so a plugin granted
+      // entirely through `silo.toml` sits at `pending` there forever — and this
+      // line printed `[pending]` directly above a `claims:` line listing what it
+      // was running on. D40 fixed that in `/api/plugins`; the CLI said it too.
+      const state = PluginGrantResolver.state(pluginConfig.claims, grant);
+      console.log(`${index + 1}. ${pluginConfig.name}  [${state}${disabled}]`);
       console.log(`   ${summary}`);
       console.log(`   claims: ${effective.length > 0 ? effective.join(", ") : "(none)"}`);
       // Both halves named separately, because "why does it hold this?" has two
@@ -155,30 +165,58 @@ export class PluginCommand {
     const { manifest } = resolved;
 
     console.log(`name      : ${manifest.name}`);
-    console.log(`kind      : ${manifest.kind}`);
     console.log(`directory : ${resolved.dir}`);
     console.log(`entry     : ${resolved.entry}`);
     console.log(`requires  : silo ${manifest.silo}  (this is silo ${SiloVersion})`);
-    if (manifest.kind === "extension") {
-      console.log(`hooks     : ${manifest.hooks.join(", ")}`);
-    } else {
-      console.log(`provides  : ${manifest.provider!.port} driver "${manifest.provider!.driver}"`);
-    }
-    // The full request, hook claims included — those are derived from the
-    // declared hooks rather than restated in the manifest (D34), so printing
-    // only `manifest.claims` would understate what is being asked for.
-    const requested = PluginGrantResolver.requested(manifest);
+    console.log(`contributes: ${PluginContributionUtils.summary(manifest.contributes)}`);
+
+    // The full request, derived claims included — a hook claim per declared hook
+    // and `http:route` for declared routes are computed rather than restated in
+    // the manifest (D34, D36), so printing only the declared permissions would
+    // understate what is being asked for.
+    const request = PluginGrantResolver.request(manifest);
     const grant = await service.plugins.find(pluginConfig.name);
     const effective = [...new Set([...pluginConfig.claims, ...(grant?.granted ?? [])])].sort();
 
-    console.log(`state     : ${grant?.state ?? "pending"}`);
-    console.log(`requests  : ${requested.length > 0 ? requested.join(", ") : "(no claims)"}`);
-    console.log(`granted   : ${effective.length > 0 ? effective.join(", ") : "(none)"}`);
-    const missing = PluginGrantUtils.missing(requested, effective);
+    console.log(`state     : ${PluginGrantResolver.state(pluginConfig.claims, grant)}`);
+    console.log(`holds     : ${effective.length > 0 ? effective.join(", ") : "(none)"}`);
+    // Both halves named, because "why does it hold this?" has two answers and
+    // only one of them is withdrawable with `revoke` (D34's union rule).
+    if (pluginConfig.claims.length > 0 && (grant?.granted.length ?? 0) > 0) {
+      console.log(
+        `  from silo.toml: ${pluginConfig.claims.length}, granted: ${grant!.granted.length}`
+      );
+    }
+
+    // Required and optional separately, with the author's reason, because that is
+    // the decision: everything required is what a default grant approves, and an
+    // ungranted optional is a normal outcome rather than an oversight (D36).
+    PluginCommand.reportRequest("requires", request.required, request.reasons);
+    const optional = request.claims.filter((claim) => !request.required.includes(claim));
+    PluginCommand.reportRequest("also asks for", optional, request.reasons);
+
+    const missing = PluginGrantUtils.missing(request.claims, effective);
     if (missing.length > 0) console.log(`not granted: ${missing.join(", ")}`);
     if (manifest.config !== undefined) {
       console.log(`config schema:\n${JSON.stringify(manifest.config, null, 2)}`);
       console.log(`config value:\n${JSON.stringify(pluginConfig.config, null, 2)}`);
+    }
+  }
+
+  /** One request list, each claim followed by the author's reason for wanting
+   *  it. Indented rather than tabulated, because a reason is a sentence and a
+   *  column would either truncate it or make the claims unreadable. */
+  private static reportRequest(
+    label: string,
+    claims: readonly string[],
+    reasons: Record<string, string>
+  ): void {
+    if (claims.length === 0) return;
+    console.log(`${label}:`);
+    for (const claim of claims) {
+      console.log(`  ${claim}`);
+      const reason = reasons[claim];
+      if (reason) console.log(`    ${reason}`);
     }
   }
 

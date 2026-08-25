@@ -6,7 +6,10 @@ import { EntryUtils } from "../domain/entry-utils";
 import type { Scope } from "../domain/scope";
 import { ConflictError } from "../errors/conflict-error";
 import { NotFoundError } from "../errors/not-found-error";
+import type { WriteContext } from "../hooks/write-context";
+import { WriteContexts } from "../hooks/write-contexts";
 import { SchemaBundler } from "../schema/schema-bundler";
+import { CollectionEvents } from "./support/collection-events";
 import { CollectionEraser } from "./support/collection-eraser";
 import { SchemaRegistry } from "./support/schema-registry";
 import type { ServiceContext } from "./support/service-context";
@@ -64,10 +67,20 @@ export class CollectionService {
     });
   }
 
-  async delete(scope: Scope, name: string, force: boolean): Promise<void> {
+  /**
+   * `writeContext` so a plugin's own collection delete cannot be delivered back
+   * to it (D33). The hook fires **after** the lock is released, which is why the
+   * count is carried out of the critical section rather than dispatched in it.
+   */
+  async delete(
+    scope: Scope,
+    name: string,
+    force: boolean,
+    writeContext: WriteContext = WriteContexts.Api
+  ): Promise<void> {
     CollectionService.refuseSystemCollection(scope, name);
 
-    await this.context.withWriteLock(async () => {
+    const erased = await this.context.withWriteLock(async () => {
       // Throws if there is no such collection.
       await this.context.store.getSchema(scope, name);
 
@@ -80,9 +93,14 @@ export class CollectionService {
 
       if (!force) await this.refuseWhileReferenced(scope, name);
 
-      await CollectionEraser.erase(this.context.store, scope, name);
+      const count = await CollectionEraser.erase(this.context.store, scope, name);
       this.context.schemaRegistry.invalidate();
+      return count;
     });
+
+    await this.context.hooks.afterCollectionDelete(
+      CollectionEvents.deleted(writeContext, scope, name, erased, "collection")
+    );
   }
 
   /**

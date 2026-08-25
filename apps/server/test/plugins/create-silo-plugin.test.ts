@@ -72,8 +72,8 @@ describe("create-silo-plugin output", () => {
   test("the default scaffold produces a manifest silo reads without running it", async () => {
     const { resolved, opts } = await scaffold();
 
-    expect(resolved.manifest.kind).toBe("extension");
-    expect(resolved.manifest.hooks).toEqual(["entry.beforeValidate"]);
+    expect(resolved.manifest.contributes.hooks).toEqual(["entry.beforeValidate"]);
+    expect(resolved.manifest.contributes.providers).toEqual([]);
     expect(resolved.manifest.silo).toBe(SiloRange.default());
     expect(resolved.entry).toBe(path.join(opts.directory, "index.ts"));
   });
@@ -99,8 +99,8 @@ describe("create-silo-plugin output", () => {
       hooks: [...HookNames.All],
     });
 
-    const exported = resolved.manifest.hooks.filter(
-      (hook) => typeof module.default[hook] === "function"
+    const exported = resolved.manifest.contributes.hooks.filter(
+      (hook: string) => typeof module.default[hook] === "function"
     );
     expect(exported).toEqual([...HookNames.All]);
   });
@@ -163,7 +163,12 @@ describe("create-silo-plugin output", () => {
       withConfig: false,
     });
 
-    expect(resolved.manifest.provider).toEqual({ port: "storage", driver: "turso" });
+    // One entry in a list, each provider naming its own module (D36): a package
+    // can contribute a driver and hooks at once, and the two cannot be imported
+    // from the same file because only one of them may run before the store exists.
+    expect(resolved.manifest.contributes.providers).toEqual([
+      { port: "storage", driver: "turso", entry: "./index.ts" },
+    ]);
 
     // No config schema, and deliberately: the scaffolded one is the single
     // `collection` key every hook stub reads, which a provider has nothing to

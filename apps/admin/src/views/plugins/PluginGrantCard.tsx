@@ -43,7 +43,7 @@ export function PluginGrantCard({
   onRevoke: () => void
 }) {
   const rows = useMemo(() => PluginGrantPlan.rows(plugin, ownClaims), [plugin, ownClaims])
-  const [chosen, setChosen] = useState<string[]>(() => PluginGrantPlan.heldRequested(plugin))
+  const [chosen, setChosen] = useState<string[]>(() => PluginGrantPlan.initialSelection(plugin))
   const [scope, setScope] = useState<GrantScope>(() => PluginGrantPlan.initialScope(plugin))
 
   const claims = PluginGrantPlan.claims(chosen, scope)
@@ -56,6 +56,13 @@ export function PluginGrantCard({
     )
 
   const grantable = rows.filter((row) => !row.forbidden && row.delegable).map((row) => row.claim)
+  const required = grantable.filter((claim) => plugin.required.includes(claim))
+
+  // `held === 'none'` and not a set difference: a required claim answered by a
+  // narrower grant has been *decided*, and calling that unmet would nag at
+  // exactly the operator who was being careful. The three-valued answer D40
+  // introduced is what makes the distinction available here at all.
+  const unmet = rows.filter((row) => row.required && row.held === 'none')
 
   return (
     <section className={styles.card}>
@@ -75,6 +82,17 @@ export function PluginGrantCard({
           <span>
             An upgrade asked for more than this plugin holds. It is still running on what it had;
             nothing was granted automatically.
+          </span>
+        </div>
+      )}
+
+      {unmet.length > 0 && (
+        <div className="banner banner-warn">
+          <span>
+            <b>{plugin.name}</b> holds less than it says it needs:{' '}
+            {unmet.map((claim) => claim.claim).join(', ')}. It is running, and whatever those
+            permissions were for will not work. That is a normal thing to have chosen — this says so
+            because a deliberate narrowing and an accidental one look identical otherwise.
           </span>
         </div>
       )}
@@ -113,6 +131,15 @@ export function PluginGrantCard({
           <div className={styles.selectRow}>
             <Button variant="secondary" size="sm" disabled={locked} onClick={() => setChosen(grantable)}>
               Select all
+            </Button>
+            <Button
+              variant="secondary"
+              size="sm"
+              disabled={locked}
+              onClick={() => setChosen(required)}
+              title="What the package says it cannot work without — and what the API grants when no claims are named"
+            >
+              Only what it requires
             </Button>
             <Button variant="secondary" size="sm" disabled={locked} onClick={() => setChosen([])}>
               Select none

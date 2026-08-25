@@ -97,6 +97,10 @@ describe("plugin hooks", () => {
       authDisabled: false,
       logger: Logger.silent(),
     }).build());
+    // In the same order `serve` does it: attach, then activate. A harness that
+    // skipped this would never run a plugin's `activate`, so the one thing D36
+    // added would be untested exactly where it runs (D36).
+    await registry.activate();
     return registry;
   };
 

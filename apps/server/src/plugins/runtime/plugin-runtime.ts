@@ -70,7 +70,7 @@ export class PluginRuntime {
     this.hooks = hooks;
     this.cell = authority;
     this.runtimeConfig = runtimeConfig;
-    this.table = new PluginRouteTable(plugin.manifest.routes);
+    this.table = new PluginRouteTable(plugin.manifest.contributes.routes);
   }
 
   /** Read afresh at every call site. Destructuring this once into a local is
@@ -110,6 +110,12 @@ export class PluginRuntime {
 
   async serve(key: string, request: PluginServeRequest): Promise<PluginServeResponse> {
     return await this.host.serve(key, request);
+  }
+
+  /** Run the plugin's `activate(ctx)`, if it declared one (D36). Idempotent in
+   *  the host, so the boot pass and a live `enable` may both ask. */
+  async activate(): Promise<void> {
+    await this.host.activate();
   }
 
   /**

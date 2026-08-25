@@ -89,7 +89,7 @@ export class ProjectsRoutes {
       if (force) {
         RouteAuth.requireForcedDelete(c, "deleting a project", project, "*", "*");
       }
-      await service.scopes.deleteProject(project, force);
+      await service.scopes.deleteProject(project, force, RouteAuth.getWriteContext(c));
       return c.body(null, 204);
     });
 
@@ -150,7 +150,12 @@ export class ProjectsRoutes {
       if (force) {
         RouteAuth.requireForcedDelete(c, "deleting an environment", scope.project, scope.env, "*");
       }
-      await service.scopes.deleteEnvironment(scope.project, scope.env, force);
+      await service.scopes.deleteEnvironment(
+        scope.project,
+        scope.env,
+        force,
+        RouteAuth.getWriteContext(c)
+      );
       return c.body(null, 204);
     });
   }

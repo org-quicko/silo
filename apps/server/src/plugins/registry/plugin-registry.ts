@@ -97,6 +97,27 @@ export class PluginRegistry {
     this.dispatcher.attach(app);
   }
 
+  /**
+   * Run `activate(ctx)` on every plugin that declared a runtime and has not been
+   * activated yet (D36).
+   *
+   * Its own step, driven from where the app is attached, because activation is
+   * the first moment a plugin may *act*: `activate` may call `ctx`, and at boot
+   * the plugins are loaded before the Hono app they would dispatch against
+   * exists. Starting the worker and letting it act are therefore two different
+   * events, and only the second one has a prerequisite.
+   *
+   * Idempotent, and that is what lets there be two callers — this pass at boot,
+   * and `PluginLifecycle.spawn` for a plugin enabled on a running instance —
+   * without either having to know whether the other already ran. In order, and
+   * awaited: `silo.toml`'s order is the dispatch order, and a plugin whose
+   * `activate` seeds a collection another plugin's `activate` reads should see
+   * the same sequence a hook would.
+   */
+  async activate(): Promise<void> {
+    for (const runtime of this.runtimes) await runtime.activate();
+  }
+
   list(): readonly PluginRuntime[] {
     return this.runtimes;
   }

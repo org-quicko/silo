@@ -8,6 +8,7 @@ export class HookNames {
     "entry.afterWrite",
     "entry.beforeDelete",
     "entry.afterDelete",
+    "collection.afterDelete",
   ];
 
   /**
@@ -17,7 +18,11 @@ export class HookNames {
    * to fail, and turning it into a 500 would invite a retry that writes the
    * entry twice (§13.9).
    */
-  static readonly Terminal: readonly HookName[] = ["entry.afterWrite", "entry.afterDelete"];
+  static readonly Terminal: readonly HookName[] = [
+    "entry.afterWrite",
+    "entry.afterDelete",
+    "collection.afterDelete",
+  ];
 
   /**
    * Hooks that can change or stop a write, as opposed to observing one.

@@ -1,0 +1,29 @@
+{
+  "name": "dualist",
+  "version": "1.0.0",
+  "type": "module",
+  "main": "index.ts",
+  "silo": {
+    "silo": "*",
+    "contributes": {
+      "hooks": [
+        "entry.afterWrite"
+      ],
+      "providers": [
+        {
+          "port": "blob",
+          "driver": "memo",
+          "entry": "./blob.ts"
+        }
+      ]
+    },
+    "permissions": {
+      "required": [
+        {
+          "claim": "collections:*/*/*:entries:read",
+          "reason": "The hook half reads back what it was told about."
+        }
+      ]
+    }
+  }
+}

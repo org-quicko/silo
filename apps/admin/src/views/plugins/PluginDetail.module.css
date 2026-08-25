@@ -59,6 +59,16 @@
 .claimBody { display: flex; min-width: 0; flex-direction: column; gap: 3px; }
 .claimText { color: var(--text); font-family: var(--font-mono); font-size: 11.5px; word-break: break-all; }
 
+.claimHead { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; min-width: 0; }
+
+.claimReason {
+  color: var(--text-2);
+  font-size: 12.5px;
+  font-style: italic;
+  border-left: 2px solid var(--border);
+  padding-left: 8px;
+}
+
 .claimPhrase {
   display: flex;
   align-items: center;

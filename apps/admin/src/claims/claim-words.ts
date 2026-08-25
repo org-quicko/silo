@@ -53,6 +53,7 @@ export class ClaimWords {
     'entry.afterWrite': 'see every entry written',
     'entry.beforeDelete': 'reject deletes',
     'entry.afterDelete': 'see every entry deleted',
+    'collection.afterDelete': 'see every collection erased, and how much it held',
   }
 
   /** Intervening hooks first — the ones that can change or stop a write, which

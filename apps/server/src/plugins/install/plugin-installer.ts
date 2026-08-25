@@ -221,12 +221,14 @@ export class PluginInstaller {
   }
 
   /** Checked here as well as at registration, because a provider that can
-   *  never be selected is worth catching before it is on disk. */
+   *  never be selected is worth catching before it is on disk. Every driver the
+   *  package contributes, since D36 lets it contribute more than one. */
   private static assertDriverAvailable(name: string, manifest: PluginManifest): void {
-    const driver = manifest.provider?.driver;
-    if (driver && ProviderRegistry.Reserved.includes(driver)) {
+    for (const provider of manifest.contributes.providers) {
+      if (!ProviderRegistry.Reserved.includes(provider.driver)) continue;
       throw new Error(
-        `plugin "${name}": provides driver "${driver}", which is reserved for a built-in adapter.`
+        `plugin "${name}": provides driver "${provider.driver}", which is reserved for a ` +
+          `built-in adapter.`
       );
     }
   }

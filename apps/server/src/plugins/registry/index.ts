@@ -3,6 +3,7 @@ export { PluginAuthority } from "./plugin-authority";
 export { PluginConfigurator } from "./plugin-configurator";
 export type { PluginFacts, PluginManifestFacts } from "./plugin-facts";
 export { PluginGrantResolver } from "./plugin-grant-resolver";
+export type { PluginRequest } from "./plugin-request";
 export { PluginInspector } from "./plugin-inspector";
 export { PluginLifecycle } from "./plugin-lifecycle";
 export { PluginLoader } from "./plugin-loader";

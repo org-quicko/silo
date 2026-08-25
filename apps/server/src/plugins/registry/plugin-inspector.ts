@@ -3,6 +3,7 @@ import type { PluginConfig } from "../../config/plugin-config";
 import type { PluginGrantRecord } from "../../core/plugins/plugin-grant-record";
 import { PluginGrantUtils } from "../../core/plugins/plugin-grant-utils";
 import { PluginGrantResolver } from "./plugin-grant-resolver";
+import { PluginContributionUtils } from "../manifest";
 import type { ResolvedPlugin } from "../manifest";
 import type { PluginRuntime } from "../runtime";
 import type { PluginFacts } from "./plugin-facts";
@@ -35,10 +36,11 @@ export class PluginInspector {
    * the package.
    *
    * Async for a reason that is not incidental: the honest answer for a plugin
-   * that is not running depends on *why*, and one of the reasons — it is a
-   * provider, which is the storage and has no worker at all — is knowable only
-   * from the manifest on disk. A surface that guessed there would be reporting
-   * "not loaded" about a plugin that is, by construction, doing its job.
+   * that is not running depends on *why*, and one of the reasons — it contributes
+   * only a provider, which is the storage and has no worker at all — is knowable
+   * only from the manifest on disk. A surface that guessed there would be
+   * reporting "not loaded" about a plugin that is, by construction, doing its
+   * job.
    */
   static async inspect(
     config: Config,
@@ -55,9 +57,9 @@ export class PluginInspector {
       state: PluginGrantResolver.state(configClaims, record),
       manifest: sighting.resolved
         ? {
-            kind: sighting.resolved.manifest.kind,
+            contributes: sighting.resolved.manifest.contributes,
+            reasons: PluginGrantResolver.request(sighting.resolved.manifest).reasons,
             config_schema: sighting.resolved.manifest.config ?? null,
-            routes: sighting.resolved.manifest.routes,
           }
         : null,
       ...PluginInspector.config(config, name, record),
@@ -134,11 +136,13 @@ export class PluginInspector {
     }
     if (failure) return { state: "failed", hooks: [], detail: failure.message };
 
-    if (resolved && resolved.manifest.kind === "provider") {
-      const { port, driver } = resolved.manifest.provider!;
+    if (resolved && !PluginContributionUtils.runsInWorker(resolved.manifest.contributes)) {
+      const drivers = resolved.manifest.contributes.providers
+        .map((provider) => `the ${provider.port} driver "${provider.driver}"`)
+        .join(" and ");
       return stopped(
-        `a provider, not an extension: it is the ${port} driver "${driver}" and runs ` +
-          `in-process with no worker of its own.`
+        `it contributes only ${drivers}, so it runs in-process with no worker of its own — ` +
+          `there is nothing here to start.`
       );
     }
     return stopped(`listed but not loaded — POST /api/plugins/rescan loads it`);

@@ -13,8 +13,20 @@ export interface ResolvedGrant {
   state: PluginGrant["state"];
 
   /** Requested and not granted. Not an error: a plugin may run on less than it
-   *  asked for, which is what an `optional` request is. */
+   *  asked for, which is what an `optional` permission is (D36). */
   missing: string[];
+
+  /**
+   * The subset of `missing` the package declared **required** (D36).
+   *
+   * Warned about rather than refused, and the boundary is deliberate. Refusing
+   * would refuse every pending plugin, because pending is an empty claim list —
+   * so the boot deadlock D34 exists to avoid would be back. What it fixes is the
+   * silence: before the split, a plugin granted two of its five claims and a
+   * plugin deliberately narrowed to two looked identical, and the author was the
+   * only one who knew which of them was broken.
+   */
+  unmet: string[];
 
   /** Declared hooks this plugin may be delivered **nowhere**. Refused at load,
    *  because the alternative is a plugin that runs and quietly does nothing. */

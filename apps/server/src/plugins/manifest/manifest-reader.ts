@@ -1,14 +1,9 @@
 import fs from "fs/promises";
 import path from "path";
-import { HookNames } from "../../core/hooks";
-import type { HookName } from "../../core/hooks";
-import { ValidationError } from "@silo/shared/validation-error";
-import { Claims } from "@silo/shared/claims";
+import { ManifestContributionsReader } from "./manifest-contributions-reader";
+import { ManifestPermissionsReader } from "./manifest-permissions-reader";
 import { VersionRange } from "./version-range";
 import type { PluginManifest } from "./plugin-manifest";
-import type { PluginRoute } from "./plugin-route";
-import { PluginRoutes } from "./plugin-routes";
-import type { ProviderPort } from "./provider-port";
 import type { ResolvedPlugin } from "./resolved-plugin";
 
 /**
@@ -20,9 +15,25 @@ import type { ResolvedPlugin } from "./resolved-plugin";
  * looks healthy, and quietly stops enforcing whatever the plugin was there to
  * enforce. That is the same instinct D14 applies to an unknown `format_version`
  * and D20 to an invalid default project id.
+ *
+ * The `contributes`/`permissions` shape (D36) is a **breaking** manifest change,
+ * and the four `Retired` keys below are why it can be one safely: a package still
+ * carrying `kind`, `hooks`, `routes` or `claims` at the top level is refused by
+ * name, with the field that replaced it. The alternative — reading the old keys
+ * too — would mean two shapes to keep in step forever, and a package could then
+ * ask for a claim with no reason attached simply by using the older spelling.
  */
 export class ManifestReader {
-  private static readonly ports: readonly ProviderPort[] = ["storage", "blob"];
+  /** Old manifest keys, and what replaced each. Refused rather than ignored: a
+   *  manifest whose `claims` block is silently dropped asks for nothing, which is
+   *  a plugin that loads and then cannot work. */
+  private static readonly Retired: readonly { key: string; instead: string }[] = [
+    { key: "kind", instead: '"silo.contributes" — a package is no longer one thing or the other' },
+    { key: "hooks", instead: '"silo.contributes.hooks"' },
+    { key: "routes", instead: '"silo.contributes.routes"' },
+    { key: "provider", instead: '"silo.contributes.providers", which is a list and takes an "entry"' },
+    { key: "claims", instead: '"silo.permissions.required" / ".optional", each entry with a "reason"' },
+  ];
 
   /**
    * Resolve `name` under `pluginsDir`, accepting either a plain directory or a
@@ -99,162 +110,26 @@ export class ManifestReader {
       );
     }
 
-    if (silo.kind !== "extension" && silo.kind !== "provider") {
-      throw new Error(`plugin "${name}": "silo.kind" must be "extension" or "provider".`);
-    }
+    ManifestReader.refuseRetired(name, silo);
 
-    const hooks = ManifestReader.hooks(name, silo.hooks);
-    const routes = ManifestReader.routes(name, silo.routes);
-    const claims = ManifestReader.claims(name, silo.claims);
-
-    // The question is "would anything ever call this", and since phase 6 there
-    // are two ways to be called. Asking only about hooks is what D36 objects to
-    // in `kind`: it made a package that wanted to serve a route invent a hook
-    // merely to be loaded.
-    if (silo.kind === "extension" && hooks.length === 0 && routes.length === 0) {
-      throw new Error(
-        `plugin "${name}": an extension plugin declares no hooks and no routes, so nothing ` +
-          `would ever call it. Declare at least one hook (${HookNames.All.join(", ")}) ` +
-          `or one route.`
-      );
-    }
-
-    const manifest: PluginManifest = {
+    return {
       name: typeof pkg.name === "string" ? pkg.name : name,
       silo: silo.silo,
-      kind: silo.kind,
-      hooks,
-      routes,
-      claims,
+      contributes: ManifestContributionsReader.read(name, silo.contributes),
+      permissions: ManifestPermissionsReader.read(name, silo.permissions),
       config: silo.config,
     };
-
-    if (silo.kind === "provider") {
-      manifest.provider = ManifestReader.provider(name, silo.provider);
-    }
-    return manifest;
   }
 
-  private static hooks(name: string, raw: unknown): HookName[] {
-    if (raw === undefined) return [];
-    if (!Array.isArray(raw)) throw new Error(`plugin "${name}": "silo.hooks" must be an array.`);
-    for (const hook of raw) {
-      if (!HookNames.isHookName(hook)) {
-        throw new Error(
-          `plugin "${name}": unknown hook ${JSON.stringify(hook)}. ` +
-            `Known hooks: ${HookNames.All.join(", ")}.`
-        );
-      }
-    }
-    return raw as HookName[];
-  }
-
-  /**
-   * Validate `silo.routes` (D36, phase 6).
-   *
-   * Strict about the path grammar, because every rule here is a way a plugin
-   * could otherwise reach outside the namespace it was given: `..` climbs out
-   * of it, a wildcard claims paths a later silo version may define inside it,
-   * and an absolute or scheme-bearing path was never relative at all. Two
-   * routes with the same method and path are refused rather than resolved by
-   * order, since "which handler ran" would then depend on manifest order alone.
-   */
-  private static routes(name: string, raw: unknown): PluginRoute[] {
-    if (raw === undefined) return [];
-    if (!Array.isArray(raw)) throw new Error(`plugin "${name}": "silo.routes" must be an array.`);
-
-    const routes: PluginRoute[] = [];
-    const seen = new Set<string>();
-
-    for (const entry of raw) {
-      if (!entry || typeof entry !== "object") {
-        throw new Error(`plugin "${name}": every entry in "silo.routes" must be an object.`);
-      }
-      if (!PluginRoutes.isMethod(entry.method)) {
-        throw new Error(
-          `plugin "${name}": route method ${JSON.stringify(entry.method)} is not one of ` +
-            `${PluginRoutes.Methods.join(", ")}.`
-        );
-      }
-      const auth = entry.auth === undefined ? "key" : entry.auth;
-      if (auth !== "key" && auth !== "public") {
-        throw new Error(
-          `plugin "${name}": route "${entry.method} ${entry.path}" has ` +
-            `"auth": ${JSON.stringify(entry.auth)}; it must be "key" or "public".`
-        );
-      }
-
-      const route: PluginRoute = {
-        method: entry.method,
-        path: ManifestReader.routePath(name, entry.path),
-        auth,
-      };
-      const key = PluginRoutes.key(route);
-      if (seen.has(key)) {
-        throw new Error(`plugin "${name}": route "${key}" is declared more than once.`);
-      }
-      seen.add(key);
-      routes.push(route);
-    }
-    return routes;
-  }
-
-  /** One route path, or a refusal naming what is wrong with it. */
-  private static routePath(name: string, raw: unknown): string {
-    const at = (why: string) =>
-      new Error(`plugin "${name}": route path ${JSON.stringify(raw)} ${why}.`);
-
-    if (typeof raw !== "string" || raw.length === 0) throw at("must be a non-empty string");
-    if (!raw.startsWith("/")) throw at('must start with "/", and is relative to /api/ext/<name>');
-    if (raw.length > 1 && raw.endsWith("/")) throw at('must not end with "/"');
-    if (raw.includes("//")) throw at('must not contain an empty segment ("//")');
-    if (raw.includes("*")) throw at("must not use a wildcard");
-    if (raw.includes("?") || raw.includes("#")) throw at("must not carry a query or a fragment");
-
-    // "/" itself is the plugin's own root and has no segments to check.
-    if (raw === "/") return raw;
-
-    for (const segment of raw.slice(1).split("/")) {
-      if (segment === "." || segment === "..") throw at(`must not contain "${segment}"`);
-      const body = segment.startsWith(":") ? segment.slice(1) : segment;
-      if (body.length === 0) throw at("has a parameter with no name");
-      if (!/^[A-Za-z0-9._~-]+$/.test(body)) {
-        throw at(`has an unusable segment "${segment}"`);
-      }
-    }
-    return raw;
-  }
-
-  /**
-   * Claims are validated here rather than only where they are enforced, so a
-   * typo is a refused start naming the plugin, not a permission that silently
-   * never matches anything at request time.
-   */
-  private static claims(name: string, raw: unknown): string[] {
-    if (raw === undefined) return [];
-    if (!Array.isArray(raw)) throw new Error(`plugin "${name}": "silo.claims" must be an array.`);
-    try {
-      // normalize is the validator: it rejects anything `isValid` does not
-      // recognise, dedupes, and collapses a set containing root to just root.
-      return Claims.normalize(raw);
-    } catch (caught: any) {
-      const detail = ValidationError.is(caught) ? caught.message : String(caught?.message ?? caught);
-      throw new Error(`plugin "${name}": invalid claim in "silo.claims": ${detail}`);
-    }
-  }
-
-  private static provider(name: string, raw: any): { port: ProviderPort; driver: string } {
-    if (!raw || typeof raw !== "object") {
-      throw new Error(`plugin "${name}": a provider plugin needs a "silo.provider" block.`);
-    }
-    if (!ManifestReader.ports.includes(raw.port)) {
+  /** Name the old key and the new one. A manifest written against the previous
+   *  shape is a fixable mistake, and the fix is mechanical — so the refusal says
+   *  what to write rather than only that something is wrong. */
+  private static refuseRetired(name: string, silo: Record<string, unknown>): void {
+    for (const { key, instead } of ManifestReader.Retired) {
+      if (silo[key] === undefined) continue;
       throw new Error(
-        `plugin "${name}": "silo.provider.port" must be one of ${ManifestReader.ports.join(", ")}.`
+        `plugin "${name}": "silo.${key}" was removed in D36. Use ${instead}.`
       );
     }
-    if (typeof raw.driver !== "string" || raw.driver.length === 0) {
-      throw new Error(`plugin "${name}": "silo.provider.driver" must be a non-empty string.`);
-    }
-    return { port: raw.port, driver: raw.driver };
   }
 }

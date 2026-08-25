@@ -1,6 +1,15 @@
 export { ManifestReader } from "./manifest-reader";
+export { ManifestContributionsReader } from "./manifest-contributions-reader";
+export { ManifestPermissionsReader } from "./manifest-permissions-reader";
+export { ManifestRoutesReader } from "./manifest-routes-reader";
 export type { PluginManifest } from "./plugin-manifest";
 export { PluginConfigValidator } from "./plugin-config-validator";
+export type { PluginContributions } from "./plugin-contributions";
+export { PluginContributionUtils } from "./plugin-contribution-utils";
+export type { PluginPermission } from "./plugin-permission";
+export type { PluginPermissions } from "./plugin-permissions";
+export { PluginPermissionUtils } from "./plugin-permission-utils";
+export type { PluginProvider } from "./plugin-provider";
 export type { PluginRoute, PluginRouteAuth, PluginRouteMethod } from "./plugin-route";
 export { PluginRoutes } from "./plugin-routes";
 export type { ProviderPort } from "./provider-port";

@@ -3,9 +3,20 @@ import { ValidationError } from "@silo/shared/validation-error";
 import type { ScopeCollection } from "../domain/scope-collection";
 import { Scope } from "../domain/scope";
 import { ConflictError } from "../errors/conflict-error";
+import type { WriteContext } from "../hooks/write-context";
+import { WriteContexts } from "../hooks/write-contexts";
 import type { CollectionService } from "./collection-service";
+import { CollectionEvents } from "./support/collection-events";
 import { CollectionEraser } from "./support/collection-eraser";
 import type { ServiceContext } from "./support/service-context";
+
+/** One collection a scope delete erased, carried out of the write lock so the
+ *  hook can be dispatched after it is released. */
+interface Erased {
+  scope: Scope;
+  collection: string;
+  erased: number;
+}
 
 /**
  * Projects and environments — the two plain string containers a collection is
@@ -62,10 +73,14 @@ export class ScopeService {
     await this.context.withWriteLock(() => this.context.store.createProject(project));
   }
 
-  async deleteProject(project: string, force: boolean): Promise<void> {
+  async deleteProject(
+    project: string,
+    force: boolean,
+    writeContext: WriteContext = WriteContexts.Api
+  ): Promise<void> {
     Scope.validateProject(project);
 
-    await this.context.withWriteLock(async () => {
+    const erased = await this.context.withWriteLock(async () => {
       // Every environment is inspected before any of them is touched: checking
       // and erasing env by env would empty the first environments before
       // discovering that a later one still holds content, leaving the project
@@ -85,14 +100,22 @@ export class ScopeService {
         }
       }
 
+      const counts: Erased[] = [];
       for (const plan of plans) {
         for (const collection of plan.collections) {
-          await CollectionEraser.erase(this.context.store, plan.scope, collection.name);
+          counts.push({
+            scope: plan.scope,
+            collection: collection.name,
+            erased: await CollectionEraser.erase(this.context.store, plan.scope, collection.name),
+          });
         }
       }
       this.context.schemaRegistry.invalidate();
       await this.context.store.deleteProject(project);
+      return counts;
     });
+
+    await this.dispatchErased(erased, "project", writeContext);
   }
 
   async listEnvironments(project: string): Promise<string[]> {
@@ -108,20 +131,53 @@ export class ScopeService {
     return scope;
   }
 
-  async deleteEnvironment(project: string, env: string, force: boolean): Promise<void> {
+  async deleteEnvironment(
+    project: string,
+    env: string,
+    force: boolean,
+    writeContext: WriteContext = WriteContexts.Api
+  ): Promise<void> {
     const scope = Scope.of(project, env);
 
-    await this.context.withWriteLock(async () => {
+    const erased = await this.context.withWriteLock(async () => {
       const collections = await this.collectionsIn(scope);
       if (!force) {
         ScopeService.refuseNonEmpty(`environment "${scope.key()}"`, collections);
       }
+      const counts: Erased[] = [];
       for (const collection of collections) {
-        await CollectionEraser.erase(this.context.store, scope, collection.name);
+        counts.push({
+          scope,
+          collection: collection.name,
+          erased: await CollectionEraser.erase(this.context.store, scope, collection.name),
+        });
       }
       this.context.schemaRegistry.invalidate();
       await this.context.store.deleteEnvironment(project, env);
+      return counts;
     });
+
+    await this.dispatchErased(erased, "environment", writeContext);
+  }
+
+  /**
+   * One `collection.afterDelete` per collection the scope delete erased,
+   * dispatched after the lock (D36, closing D37's F6).
+   *
+   * In order and one at a time, matching how `HookBus` already delivers: a
+   * plugin mirroring a scope wants to see it emptied in the order it was
+   * emptied, and a fan-out here would let a slow plugin overlap itself.
+   */
+  private async dispatchErased(
+    erased: readonly Erased[],
+    cause: "environment" | "project",
+    writeContext: WriteContext
+  ): Promise<void> {
+    for (const each of erased) {
+      await this.context.hooks.afterCollectionDelete(
+        CollectionEvents.deleted(writeContext, each.scope, each.collection, each.erased, cause)
+      );
+    }
   }
 
   async list(): Promise<Scope[]> {

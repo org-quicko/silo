@@ -655,10 +655,24 @@ describe("the plugin supervisor (D39)", () => {
       await boot();
     });
 
-    test("an extension reports its kind and its config schema", async () => {
+    test("the view reports what the package contributes and its config schema", async () => {
       const record = await view("prober");
-      expect(record.kind).toBe("extension");
+      expect(record.contributes.hooks).toEqual(["entry.beforeValidate"]);
+      expect(record.contributes.providers).toEqual([]);
+      expect(record.contributes.runtime).toBe(false);
       expect(record.config_schema).toMatchObject({ type: "object" });
+    }, 30000);
+
+    /** The reasons are the author's, so they come from the package rather than
+     *  the record — including the derived one for a declared hook (D36). */
+    test("every requested claim carries a reason, derived ones included", async () => {
+      const record = await view("prober");
+      for (const claim of record.requested) {
+        expect(record.reasons[claim]).toBeTruthy();
+      }
+      expect(String(record.reasons["hooks:*/*/*:entry.beforeValidate"])).toContain(
+        "entry.beforeValidate"
+      );
     }, 30000);
 
     /** The case a running plugin's own copy of the manifest cannot cover: it is
@@ -673,7 +687,7 @@ describe("the plugin supervisor (D39)", () => {
 
       const record = await view("prober");
       expect(record.runtime.state).toBe("stopped");
-      expect(record.kind).toBe("extension");
+      expect(record.contributes.hooks).toEqual(["entry.beforeValidate"]);
       expect(record.config_schema).toMatchObject({ type: "object" });
     }, 30000);
   });

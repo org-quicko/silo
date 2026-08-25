@@ -27,17 +27,24 @@ export class PluginGrantCommand {
       PluginRegistry.directory(config),
       pluginConfig
     );
-    const requested = PluginGrantResolver.requested(manifest);
+    const request = PluginGrantResolver.request(manifest);
 
     // Reconciled first, so `grant` works on a data directory `serve` has never
     // opened — otherwise the first approval would need a server start to create
     // the record it is about to change.
-    await service.plugins.reconcile(pluginConfig.name, requested, manifest.hooks);
+    await service.plugins.reconcile(
+      pluginConfig.name,
+      request.claims,
+      manifest.contributes.hooks,
+      request.required
+    );
 
-    // No `--claims` means "everything it asked for", which is the answer an
-    // operator running this by hand almost always wants; narrowing is the
-    // deliberate act and so it is the one that takes an argument.
-    const granting = claims ?? requested;
+    // No `--claims` means "everything it says it requires" (D36). It used to mean
+    // everything it asked for, which is the same answer for a package that
+    // declares nothing optional — and for one that does, granting the optional
+    // half by default would make the word mean nothing. Narrowing further is
+    // still the deliberate act, and so still the one that takes an argument.
+    const granting = claims ?? request.required;
     const grant = await service.plugins.grant(pluginConfig.name, granting, {
       actor: AuditUtils.cli(),
     });
@@ -45,7 +52,7 @@ export class PluginGrantCommand {
     console.log(`granted ${grant.granted.length} claim(s) to "${grant.name}":`);
     for (const claim of grant.granted) console.log(`  ${claim}`);
 
-    const missing = PluginGrantUtils.missing(requested, grant.granted);
+    const missing = PluginGrantUtils.missing(request.claims, grant.granted);
     if (missing.length > 0) {
       // "Not granted in full", because a narrowed hook claim lands here too:
       // asking for `*/*/*` and receiving one collection is a deliberate
@@ -56,7 +63,7 @@ export class PluginGrantCommand {
       console.log(`(a narrower grant than the request is fine — that is what narrowing is.)`);
     }
 
-    const undeliverable = manifest.hooks.filter(
+    const undeliverable = manifest.contributes.hooks.filter(
       (hook) => !PluginGrantResolver.deliverable(grant.granted, hook)
     );
     if (undeliverable.length > 0) {

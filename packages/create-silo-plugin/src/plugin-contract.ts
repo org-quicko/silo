@@ -23,6 +23,7 @@ export class PluginContract {
     "entry.afterWrite",
     "entry.beforeDelete",
     "entry.afterDelete",
+    "collection.afterDelete",
   ] as const;
 
   /** One line each, phrased as what the hook *may do* — the distinction that
@@ -33,13 +34,24 @@ export class PluginContract {
     "entry.afterWrite": "observe only; best-effort, at-most-once",
     "entry.beforeDelete": "reject only; carries the entry, not just its id",
     "entry.afterDelete": "observe only; best-effort, at-most-once",
+    "collection.afterDelete":
+      "observe only; one event per collection erased, however many entries went",
   };
 
+  /**
+   * The two starting shapes this tool can scaffold.
+   *
+   * A **scaffolder** choice and no longer a manifest field: D36 replaced `kind`
+   * with a `contributes` list precisely because a package can be both at once.
+   * What is offered here is a first file to edit, not a category the package is
+   * stuck in — a scaffolded extension grows a provider by adding one entry to
+   * `silo.contributes.providers`, and nothing has to be regenerated.
+   */
   static readonly Kinds = ["extension", "provider"] as const;
 
   static readonly KindSummaries: Record<PluginKind, string> = {
-    extension: "registers hooks on the entry lifecycle; runs in a Worker",
-    provider: "implements the storage or blob-storage port, adding a driver name",
+    extension: "hooks on the entry lifecycle; runs in a Worker",
+    provider: "a storage or blob-storage driver; runs in-process, before the store exists",
   };
 
   /** §13.7. `Searcher` is a port but deliberately not a provider kind. */
@@ -67,6 +79,21 @@ export class PluginContract {
     { claim: "collections:*/*/*:entries:delete", summary: "delete entries in any collection" },
     { claim: "media:read", summary: "read the media catalog" },
   ];
+
+  /**
+   * The `reason` every emitted permission carries (D36).
+   *
+   * A reason is required by the manifest, and the placeholder is deliberately a
+   * real sentence that reads as unfinished — because the alternatives are both
+   * worse: an empty string refuses the start, and a plausible reason the author
+   * never wrote is a lie on a grant screen.
+   */
+  static reasonFor(claim: string): string {
+    const preset = PluginContract.ClaimPresets.find((each) => each.claim === claim);
+    return preset
+      ? `To ${preset.summary}. (Say what for — an operator reads this while deciding.)`
+      : `TODO: say why this plugin needs "${claim}" — an operator reads this while deciding.`;
+  }
 
   /** What `[[plugins]] timeout_ms` gets in the generated snippet — silo's own
    *  documented default, so a scaffold and an omitted key behave alike. */

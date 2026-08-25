@@ -76,6 +76,12 @@ export class ServeCommand {
     // would still refuse for want of an app (D35).
     plugins.attach(app);
 
+    // And only then may they act. `activate(ctx)` is the first thing a plugin
+    // does of its own accord, so it needs the surface above — and it runs before
+    // the bind, so a plugin that seeds or migrates something has finished before
+    // the first request can observe half of it (D36).
+    await plugins.activate();
+
     const { hostname, port } = ListenAddress.parse(config.listen);
     const server = Bun.serve({ port, hostname, fetch: app.fetch });
 

@@ -20,7 +20,7 @@ import styles from './PluginDetail.module.css'
  * where somebody is deciding.
  */
 export function PluginRoutesCard({ plugin }: { plugin: PluginView }) {
-  const routes = plugin.routes ?? []
+  const routes = plugin.contributes?.routes ?? []
   if (routes.length === 0) return null
 
   const serving = Claims.has(plugin.effective, Claims.HttpRoute)

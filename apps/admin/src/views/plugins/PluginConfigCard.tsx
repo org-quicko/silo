@@ -108,7 +108,7 @@ export function PluginConfigCard({
       ) : (
         <>
           <p className={styles.note}>
-            {plugin.kind === null
+            {plugin.contributes === null
               ? 'This plugin’s package could not be read, so there is no schema to render a form from.'
               : 'This plugin declares no config schema, so there is nothing to render a form from.'}
           </p>

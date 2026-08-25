@@ -1,5 +1,6 @@
 import type { Context } from "hono";
 import { Claims } from "@silo/shared/claims";
+import { PluginGrantUtils } from "../../core/plugins/plugin-grant-utils";
 import { ValidationError } from "@silo/shared/validation-error";
 import type { SiloService } from "../../core/services/silo-service";
 import type { AuditActor } from "../../core/audit/audit-actor";
@@ -73,10 +74,16 @@ export class PluginRoutes {
      * "approve exactly these three claims" impossible to express without first
      * revoking, and an operator narrowing a grant is the case that matters most.
      *
-     * An omitted `claims` means everything requested — the same default
-     * `silo plugin grant` takes, for the same reason: granting in full is the
-     * common case and narrowing is the deliberate one, so narrowing is what
-     * takes an argument.
+     * An omitted `claims` means everything the package says it **requires** — the
+     * same default `silo plugin grant` takes, for the same reason: approving what
+     * a plugin needs is the common case and going further, or narrower, is the
+     * deliberate one. It read `requested` before D36 split the two, which is the
+     * same answer for a package declaring nothing optional and the wrong one for
+     * a package that does: a default that approved the optional half would make
+     * the word mean nothing.
+     *
+     * From the record, never the manifest — that is D38's rule for this whole
+     * surface, and it is why `required` is stored beside `requested`.
      */
     app.put("/api/plugins/:name/grant", async (c: Context) => {
       const caller = RouteAuth.requireClaim(c, Claims.PluginsGrant);
@@ -85,7 +92,9 @@ export class PluginRoutes {
       const body = await PluginRoutes.body(c);
 
       const claims =
-        body.claims === undefined ? record.requested : Claims.normalize(body.claims as string[]);
+        body.claims === undefined
+          ? PluginGrantUtils.requiredOf(record)
+          : Claims.normalize(body.claims as string[]);
       const granted = await supervisor.grant(name, claims, PluginRoutes.request(c, caller));
       return c.json(await PluginRoutes.view(supervisor, granted));
     });

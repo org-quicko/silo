@@ -1,3 +1,4 @@
+import { PluginContract } from "../plugin-contract";
 import type { ScaffoldOptions } from "../scaffold-options";
 
 /**
@@ -17,20 +18,32 @@ import type { ScaffoldOptions } from "../scaffold-options";
  */
 export class Manifest {
   static render(options: ScaffoldOptions): string {
+    // One `contributes` block rather than a `kind` (D36). Only the keys this
+    // scaffold actually fills are written: an empty `hooks: []` beside a provider
+    // is a key an operator has to read and then discard, and `ManifestReader`
+    // treats an absent key and an empty one identically.
+    const contributes: Record<string, unknown> = {};
+    if (options.hooks.length > 0) contributes.hooks = options.hooks;
+    if (options.kind === "provider") {
+      contributes.providers = [
+        { port: options.port, driver: options.driver, entry: "./index.ts" },
+      ];
+    }
+
     const silo: Record<string, unknown> = {
       silo: options.siloRange,
-      kind: options.kind,
+      contributes,
+      // Everything the scaffold asks for goes in `required`: the generated TOML
+      // snippet grants exactly this list, so a claim it declared optional would
+      // be one the snippet grants and the manifest says it does not need.
+      permissions: {
+        required: options.claims.map((claim) => ({
+          claim,
+          reason: PluginContract.reasonFor(claim),
+        })),
+      },
     };
-
-    // Extensions only. `ManifestReader` refuses an extension with no hooks —
-    // nothing would ever call it — and a provider carrying an empty `hooks`
-    // array is a key an operator has to read and then discard.
-    if (options.kind === "extension") silo.hooks = options.hooks;
-    silo.claims = options.claims;
     if (options.withConfig) silo.config = Manifest.configSchema();
-    if (options.kind === "provider") {
-      silo.provider = { port: options.port, driver: options.driver };
-    }
 
     return `${JSON.stringify(
       {
@@ -74,6 +87,6 @@ export class Manifest {
     if (options.kind === "provider") {
       return `A silo ${options.port} provider registering the "${options.driver}" driver`;
     }
-    return `A silo extension plugin (${options.hooks.join(", ")})`;
+    return `A silo plugin (${options.hooks.join(", ")})`;
   }
 }

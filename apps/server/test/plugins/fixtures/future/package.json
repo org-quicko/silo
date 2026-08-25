@@ -5,10 +5,10 @@
   "main": "index.ts",
   "silo": {
     "silo": "^99",
-    "kind": "extension",
-    "hooks": [
-      "entry.afterWrite"
-    ],
-    "claims": []
+    "contributes": {
+      "hooks": [
+        "entry.afterWrite"
+      ]
+    }
   }
 }
