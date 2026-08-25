@@ -33,6 +33,16 @@ export class ClaimVocabulary {
   static readonly MediaCreate = "media:create";
   static readonly MediaDelete = "media:delete";
 
+  // Plugin management (D34). D31 declined these because there was no install
+  // API for them to guard; `_plugins` is that API, so the reasoning inverts.
+  // `PluginsGrant` and `PluginsEnable` are privilege-escalation primitives —
+  // a plugin runs code — so `PluginGrantService` refuses to grant any of them
+  // *to a plugin*, and only `root` carries them by preset.
+  static readonly PluginsRead = "plugins:read";
+  static readonly PluginsConfigure = "plugins:configure";
+  static readonly PluginsGrant = "plugins:grant";
+  static readonly PluginsEnable = "plugins:enable";
+
   // These lookup tables are `Record<Union, true>` rather than sets so the
   // compiler enforces that they stay *complete*: adding a member to one of the
   // unions without listing it here is an error, instead of a claim that
@@ -63,7 +73,25 @@ export class ClaimVocabulary {
     [ClaimVocabulary.MediaRead]: true,
     [ClaimVocabulary.MediaCreate]: true,
     [ClaimVocabulary.MediaDelete]: true,
+    [ClaimVocabulary.PluginsRead]: true,
+    [ClaimVocabulary.PluginsConfigure]: true,
+    [ClaimVocabulary.PluginsGrant]: true,
+    [ClaimVocabulary.PluginsEnable]: true,
   };
+
+  /**
+   * The fixed claims a **plugin** may never be granted (D34).
+   *
+   * A plugin runs code, so a plugin holding `plugins:grant` could widen its own
+   * grant and then act on it — the one escalation the grant model cannot
+   * express its way out of. Refused at the grant, not at the call, so it is
+   * visible to whoever is approving rather than surfacing later as a 403.
+   */
+  static readonly PluginForbiddenClaims: readonly FixedClaim[] = [
+    ClaimVocabulary.PluginsGrant,
+    ClaimVocabulary.PluginsEnable,
+    ClaimVocabulary.PluginsConfigure,
+  ];
 
   static readonly Presets: Record<ClaimPreset, true> = {
     read: true,

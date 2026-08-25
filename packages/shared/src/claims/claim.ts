@@ -1,5 +1,6 @@
 import type { CollectionClaim } from "./collection-claim";
 import type { FixedClaim } from "./fixed-claim";
+import type { HookClaim } from "./hook-claim";
 
 /**
  * Every claim silo can grant or check. Use this wherever a *whole* claim is
@@ -7,4 +8,4 @@ import type { FixedClaim } from "./fixed-claim";
  * `Claims.Collection*` constants, which would otherwise typecheck as strings
  * and silently never match a granted claim.
  */
-export type Claim = "*" | FixedClaim | CollectionClaim;
+export type Claim = "*" | FixedClaim | CollectionClaim | HookClaim;

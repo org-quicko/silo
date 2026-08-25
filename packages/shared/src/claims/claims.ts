@@ -9,6 +9,8 @@ import type { ClaimPreset } from "./claim-preset";
 import type { CollectionClaim } from "./collection-claim";
 import type { CollectionPermission } from "./collection-permission";
 import type { FixedClaim } from "./fixed-claim";
+import type { HookClaim } from "./hook-claim";
+import type { HookName } from "../hooks/hook-name";
 import { ParsedClaim } from "./parsed-claim";
 import { ScopeCopyPermissions } from "./scope-copy-permissions";
 import { TransferPermissions } from "./transfer-permissions";
@@ -43,8 +45,32 @@ export class Claims extends ClaimVocabulary {
     return ClaimGrammar.collection(project, env, name, permission);
   }
 
+  static hook(project: string, env: string, name: string, hook: HookName): HookClaim {
+    return ClaimGrammar.hook(project, env, name, hook);
+  }
+
   static isCollectionName(name: string): boolean {
     return ClaimGrammar.isCollectionName(name);
+  }
+
+  /**
+   * Whether a claim list permits **delivering** `hook` for one collection
+   * (D34).
+   *
+   * Its own method rather than a `has` call at each site because the thing that
+   * must not happen is a caller reaching for `entries:read` and believing it
+   * asked this question: no collection permission satisfies a hook claim, and
+   * `covers` refuses the mix, but naming it here is what stops the wrong
+   * question being asked in the first place.
+   */
+  static canDeliver(
+    claims: HeldClaims,
+    project: string,
+    env: string,
+    collection: string,
+    hook: HookName,
+  ): boolean {
+    return ClaimAuthorizer.has(claims, ClaimGrammar.hook(project, env, collection, hook));
   }
 
   static isScopeId(id: string): boolean {

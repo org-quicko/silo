@@ -7,11 +7,23 @@ import { SiloService } from "../../src/core/services/silo-service";
 import { Scope } from "../../src/core/domain/scope";
 import { Logger } from "../../src/logging/logger";
 import { ValidationError } from "@silo/shared/validation-error";
+import { Claims } from "@silo/shared/claims";
 import { PluginRegistry } from "../../src/plugins";
 import type { PluginConfig } from "../../src/config/plugin-config";
 import { ConfigLoader } from "../../src/config/config-loader";
 
 const Fixtures = path.join(import.meta.dir, "fixtures");
+
+/**
+ * The claims that let a plugin be **delivered** these hooks anywhere (D34).
+ *
+ * Spelled out at every call rather than defaulted into `pluginConfig`, because
+ * granting delivery is exactly what an operator now has to do by hand and a
+ * helper that supplied it silently would test around the check.
+ */
+function deliver(...hooks: string[]): string[] {
+  return hooks.map((hook) => `hooks:*/*/*:${hook}`);
+}
 
 function pluginConfig(name: string, over: Partial<PluginConfig> = {}): PluginConfig {
   return {
@@ -101,7 +113,10 @@ describe("plugin hooks", () => {
   });
 
   test("beforeValidate rewrites data, and the schema judges what was rewritten", async () => {
-    await load([pluginConfig("slugger", { config: { from: "title" } })]);
+    await load([pluginConfig("slugger", {
+      claims: deliver("entry.beforeValidate"),
+      config: { from: "title" },
+    })]);
 
     const entry = await service.entries.create(scope, "posts", { title: "Hello Plugin World" });
     expect(entry.data.slug).toBe("hello-plugin-world");
@@ -112,7 +127,7 @@ describe("plugin hooks", () => {
   }, 30000);
 
   test("a ValidationError from a hook is a rejection, not a fault", async () => {
-    await load([pluginConfig("guard")]);
+    await load([pluginConfig("guard", { claims: deliver("entry.beforeWrite") })]);
 
     // Rejection: surfaces as the same error a schema failure would, so the HTTP
     // layer maps it to 400 rather than 500 (§13.9).
@@ -137,14 +152,14 @@ describe("plugin hooks", () => {
   }, 30000);
 
   test("an ordinary throw is a plugin fault, governed by on_error", async () => {
-    await load([pluginConfig("crasher", { on_error: "fail" })]);
+    await load([pluginConfig("crasher", { claims: deliver("entry.beforeWrite"), on_error: "fail" })]);
     const failed = await rejection(service.entries.create(scope, "posts", { title: "x" }));
     expect(failed.message).toMatch(/crasher.*kaboom/s);
     await registry!.stop();
 
     // The same plugin, skipped instead: the write lands.
     registry = null;
-    await load([pluginConfig("crasher", { on_error: "skip" })]);
+    await load([pluginConfig("crasher", { claims: deliver("entry.beforeWrite"), on_error: "skip" })]);
     const entry = await service.entries.create(scope, "posts", { title: "x" });
     expect(entry.id).toBeTruthy();
   }, 30000);
@@ -163,7 +178,7 @@ describe("plugin hooks", () => {
   test("a hook may write through ctx repeatedly without stalling or dying", async () => {
     await load([
       pluginConfig("mirror", {
-        claims: ["collections:*/*/*:entries:create"],
+        claims: ["collections:*/*/*:entries:create", ...deliver("entry.afterWrite")],
         config: { into: "mirrors" },
         timeout_ms: 2000,
       }),
@@ -216,8 +231,14 @@ describe("plugin hooks", () => {
     });
 
     await load([
-      pluginConfig("pinger", { claims: ["collections:*/*/*:entries:create"], timeout_ms: 2000 }),
-      pluginConfig("ponger", { claims: ["collections:*/*/*:entries:create"], timeout_ms: 2000 }),
+      pluginConfig("pinger", {
+        claims: ["collections:*/*/*:entries:create", ...deliver("entry.afterWrite")],
+        timeout_ms: 2000,
+      }),
+      pluginConfig("ponger", {
+        claims: ["collections:*/*/*:entries:create", ...deliver("entry.afterWrite")],
+        timeout_ms: 2000,
+      }),
     ]);
 
     await service.entries.create(scope, "pings", { note: "start" });
@@ -230,12 +251,88 @@ describe("plugin hooks", () => {
     expect((await service.entries.list(scope, "pongs", {})).total).toBe(1);
   }, 30000);
 
-  test("a plugin cannot use a claim the operator did not grant", async () => {
-    // The manifest requests entries:delete; the config grants nothing. Refused
-    // at load, naming the claim — not at request time, from inside a hook, as a
-    // 403 on somebody else's write (§13.3).
-    const failed = await rejection(load([pluginConfig("greedy")]));
-    expect(failed.message).toMatch(/greedy.*entries:delete.*does not grant/s);
+  /**
+   * A plugin may run on **less** than it asked for (D34).
+   *
+   * This test used to assert the opposite — that a manifest asking for more
+   * than the config granted refused the start. That rule made a request and a
+   * grant the same list, which is precisely the distinction §13.6 exists to
+   * draw: a manifest *requests*, an operator *grants*, and the interesting case
+   * is the gap between them. `greedy` requests `entries:delete`, is granted only
+   * delivery, and runs — its ungranted call is refused when it makes it.
+   */
+  test("a plugin runs on less than it requested, and is refused what it lacks", async () => {
+    const registry = await load([
+      pluginConfig("greedy", { claims: deliver("entry.afterWrite") }),
+    ]);
+
+    const [runtime] = registry.list();
+    expect(runtime!.authority.state).toBe("granted");
+    expect(runtime!.authority.missing).toEqual(["collections:*/*/*:entries:delete"]);
+
+    // Delivery works; the claim it did not get does not.
+    expect(runtime!.mayReceive("entry.afterWrite", "default", "prod", "posts")).toBe(true);
+    expect(
+      Claims.has(runtime!.authority.claims, "collections:default/prod/posts:entries:delete"),
+    ).toBe(false);
+  }, 30000);
+
+  /**
+   * The hole D34 closes, pinned from the other side: hook delivery was not
+   * claim-checked at all, so a plugin granted nothing still saw — and could
+   * rewrite — every write in the instance.
+   */
+  test("an ungranted plugin is delivered nothing", async () => {
+    const registry = await load([pluginConfig("slugger", { config: { from: "title" } })]);
+
+    const [runtime] = registry.list();
+    expect(runtime!.authority.state).toBe("pending");
+    expect(runtime!.mayReceive("entry.beforeValidate", "default", "prod", "posts")).toBe(false);
+
+    // It loaded, and it changed nothing.
+    const entry = await service.entries.create(scope, "posts", { title: "Hello Plugin World" });
+    expect(entry.data.slug).toBeUndefined();
+  }, 30000);
+
+  /** A grant may narrow the scope the manifest asked for at `*&#47;*&#47;*`. */
+  test("hook delivery can be granted for one collection only", async () => {
+    await service.collections.putSchema(scope, "pages", {
+      type: "object",
+      properties: { title: { type: "string" }, slug: { type: "string" } },
+    });
+    await load([
+      pluginConfig("slugger", {
+        claims: ["hooks:default/prod/posts:entry.beforeValidate"],
+        config: { from: "title" },
+      }),
+    ]);
+
+    const post = await service.entries.create(scope, "posts", { title: "In Scope" });
+    expect(post.data.slug).toBe("in-scope");
+
+    const page = await service.entries.create(scope, "pages", { title: "Out Of Scope" });
+    expect(page.data.slug).toBeUndefined();
+  }, 30000);
+
+  /** Refused at load, because a hook that can fire nowhere is a plugin that
+   *  loads, looks healthy and never runs. */
+  test("granting API claims but no delivery is refused, naming the line to add", async () => {
+    const failed = await rejection(
+      load([pluginConfig("greedy", { claims: ["collections:*/*/*:entries:delete"] })]),
+    );
+    expect(failed.message).toMatch(/greedy.*entry\.afterWrite.*never fire/s);
+    expect(failed.message).toContain('"hooks:*/*/*:entry.afterWrite"');
+  }, 30000);
+
+  test("a config granting what the manifest never requested is refused", async () => {
+    const failed = await rejection(
+      load([
+        pluginConfig("guard", {
+          claims: [...deliver("entry.beforeWrite"), "collections:*/*/*:entries:delete"],
+        }),
+      ]),
+    );
+    expect(failed.message).toMatch(/guard.*entries:delete.*never requested/s);
   }, 30000);
 
   test("a plugin whose range excludes this binary is refused", async () => {
@@ -244,7 +341,7 @@ describe("plugin hooks", () => {
   }, 30000);
 
   test("a plugin that declares a hook it does not export is refused", async () => {
-    const failed = await rejection(load([pluginConfig("liar")]));
+    const failed = await rejection(load([pluginConfig("liar", { claims: deliver("entry.beforeWrite") })]));
     expect(failed.message).toMatch(/declares entry\.beforeWrite but exports no such function/);
   }, 30000);
 });

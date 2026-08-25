@@ -215,11 +215,47 @@ using the existing `Claims`/`ParsedClaim` machinery including scoped wildcards
 in the same vocabulary as a key's — **a plugin is an API key with code
 attached.**
 
-**D31 adds no new claim strings.** There is no install API at 1.0, so there is
-nothing for a `plugins:manage` claim to guard; the config file is the
-management surface. `http:intercept` and `http:route` arrive with the features
-that need them, and adding a claim is additive because grants are
-deny-by-default.
+**D31 added no new claim strings**, because there was no install API for one to
+guard. **D34 adds five**, because there now is.
+
+`plugins:read`, `plugins:configure`, `plugins:grant` and `plugins:enable` are
+ordinary fixed claims. Only `root` carries the last two by preset: `canDelegate`
+means an approver can hand over only what it holds, so keeping them out of
+`manage` makes empowering a plugin a deliberate grant rather than a side effect
+of picking the second-widest preset. A **plugin** may never hold any of them,
+nor root — it runs code, so it could widen its own grant and then act on it, and
+that is refused when approving rather than when calling, so it is visible to
+whoever is deciding.
+
+The fifth is a new *shape*, and it closes a hole rather than adding a feature:
+
+```
+hooks:<project>/<env>/<collection>:<hook>
+```
+
+Hook **delivery** was not claim-checked at all. `HookBus` dispatched to any
+runtime that declared a hook, so a plugin granted nothing could declare
+`entry.beforeValidate` and see — and rewrite — every entry write in the
+instance. The claim system governed `ctx` and not the strictly larger authority
+beside it.
+
+Three things follow, and each is deliberate:
+
+- **It is its own shape, not an `entries:*` permission.** Being handed a value
+  before it is validated is not reading a committed one, and neither claim
+  satisfies the other in either direction.
+- **The check runs before the event crosses into the worker**, not inside it and
+  not afterwards. A check after delivery is an audit trail; a boundary has to be
+  where the data would otherwise cross.
+- **The hook segment carries no wildcard**, for the reason D19 gives about
+  action wildcards. "Every hook" is five claims, not one character.
+
+A manifest does not restate these: they are **derived** from its declared
+`hooks` at the widest scope, `hooks:*/*/*:<hook>`, and a grant may narrow the
+scope because a narrower claim is covered by a wider request. What a grant may
+not be is *absent* — a declared hook that no granted claim delivers anywhere
+refuses the start, naming the line to add. That is D30's rule about absent
+declarations applied here: nothing has been said, so nothing may be assumed.
 
 ### 13.7 Providers, and the built-ins
 
@@ -549,3 +585,104 @@ full Bun privileges and can read the database or open a socket regardless, so
 installing remains the trust boundary. A real hostile-plugin promise needs WASI
 or an OS-isolated runner, and providers are trusted by construction — a
 `Storage` implementation sees every byte by definition.
+
+## 13.12 Grants, and the managed key (D34, phase 1)
+
+> **Built.** The rest of D34–D36 — the management API, `ctx` as the HTTP
+> surface, contributions replacing kinds, plugin routes — is still §13.11.
+
+### Two places an operator can grant, and why
+
+**Registration** stays in `silo.toml`: which plugins load, and in what order.
+**Authorization** lives in a reserved `_plugins` collection in `Scope.System` —
+the trick D12 used for `_keys` and D23 for `_media`, so it gets every adapter,
+export and query for free.
+
+The split is load-bearing in both directions. *If grants lived in config,
+revoking would need a restart. If registration lived in the store, whoever could
+write the store could execute code.*
+
+`[[plugins]] claims` therefore survives as a **declarative** grant, and
+effective authority is the **union** of the two, each bounded by what the
+manifest requested:
+
+```
+effective = silo.toml claims  ∪  _plugins granted     both ⊆ requested
+```
+
+Two paths because they serve genuinely different deployments: a container built
+from a config map cannot use an interactive grant, and an operator on a box does
+not want to hand-edit TOML to withdraw one. `silo plugin revoke` clears only the
+stored half and **says so** when config claims remain — the one place the union
+rule could otherwise mislead.
+
+### The four invariants
+
+| | |
+| :--- | :--- |
+| `granted ⊆ requested` | The check `assertGranted` never had — it enforced only the converse, so a config could grant past the manifest. Harmless while a human typed TOML; wrong the moment a surface shows "this plugin requested X" beside a grant that exceeds it. |
+| `granted ⊆ the granter's own authority` | `Claims.canDelegate`, unchanged from key minting. |
+| **An upgrade never escalates** | A package that asks for more moves the record to `needs_review` and keeps running on the grant it had. The new claims are simply not in it. |
+| A plugin never holds `plugins:grant\|enable\|configure`, or root | It runs code, so it could widen its own grant and act on it. |
+
+`needs_review` is detected by a **digest of the request** — the claims and the
+hooks, sorted — and the digest is deliberately **not advanced** while a review
+is outstanding, or a second start would settle it silently and the plugin would
+look approved for a request nobody read.
+
+### The managed key
+
+Approving mints a key into `_keys` with `owner: { kind: "plugin", name }`,
+carrying exactly the granted claims. It is a real API key: a plugin is an API
+key with code attached, and now it has one.
+
+Its secret stays **host-side**. Not because a malicious plugin would gain
+anything by holding it — full Bun privileges mean it can read the database
+regardless (§13.4) — but because the common failure is *accidental*: a plugin
+logging its token, or shipping it to a telemetry endpoint. Custody removes that
+for nothing.
+
+Three consequences, each of which is a place the ordinary key path had to learn
+about managed keys:
+
+- `silo keys revoke` **refuses** one, naming `silo plugin revoke` instead. Silo
+  re-mints it, so revoking by hand looks like it worked and undoes itself.
+- A managed key **does not count** toward bootstrapping. An instance whose only
+  keys were managed would have no way in at all, and would have reported itself
+  as already bootstrapped — the worst version of that.
+- A managed key is **left out of every archive**, including `--with-keys`. It is
+  not a credential anybody holds, so carrying it would put a record in the
+  destination that no `_plugins` grant points at, that the ordinary revoke path
+  refuses to remove, and that nothing can ever authenticate as.
+
+### Pending is a state, not a failure
+
+An installed, listed, ungranted plugin **loads**, is delivered nothing, and has
+every `ctx` call refused. It does **not** refuse the start, and that is a narrow,
+argued exception to §13.3: approving needs a running server to approve through,
+so a server that refused to boot could never be given one.
+
+It needs no code path of its own, which is the part worth keeping. *Pending is
+an empty claim list*, and every check already refuses that — `HookBus` will not
+deliver, `PluginContext` will not act. What pending adds is **noise**: a warning
+on every start, a `[pending]` marker in `silo plugin list`, and a non-zero exit
+from `silo plugin doctor`, because a plugin that runs and quietly does nothing
+is exactly what §13.3 refuses to let pass unremarked.
+
+```
+silo plugin grant <name> [--claims a,b]   approve; no --claims means all requested
+silo plugin revoke <name>                 withdraw the stored grant
+```
+
+Both are **offline, against the data directory** — bounded by filesystem access,
+the same authority `silo keys create` already has here. That is what makes them
+more than a convenience: they are the way out of the boot deadlock, and the way
+to provision a plugin in CI.
+
+`/api/ext/` is reserved here too, though nothing mounts under it until phase 6.
+D31 reserved `/api/plugins/` for plugin routes and D34 took it back, because
+management needs that space and the two cannot share it: once
+`POST /api/plugins/acme/grant` is a verb, a plugin route named `grant` is
+unroutable. Reserving costs nothing now and is unavailable later, so it happens
+in the change that defines the management surface rather than the one that
+finally uses it.

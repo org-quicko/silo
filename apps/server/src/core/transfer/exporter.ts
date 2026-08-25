@@ -7,6 +7,8 @@ import type { BlobStorage } from "../ports/blob-storage";
 import { FsBlobStorage } from "../../adapters/blob/fs-blob-storage";
 import { EntryUtils } from "../domain/entry-utils";
 import { Scope } from "../domain/scope";
+import type { Entry } from "../domain/entry";
+import type { KeyInfo } from "../keys/key-info";
 import { KeyUtils } from "../keys/key-utils";
 import { MediaCatalog } from "../media/media-catalog";
 import { FormatVersion } from "./format-version";
@@ -35,6 +37,23 @@ export class Exporter {
     return false;
   }
 
+  /**
+   * The one case where a collection is exported but an entry inside it is not
+   * (D34): a **managed** key.
+   *
+   * `--with-keys` exists so an instance can be cloned with its credentials
+   * intact. A plugin's key is not a credential anyone holds — silo mints it,
+   * keeps the secret and rotates it at every start — so carrying it would put a
+   * record in the destination that no `_plugins` grant points at, that no
+   * operator can revoke through the ordinary path, and that nothing can ever
+   * authenticate as. The grant it belongs to is instance-local and is not
+   * exported either; the destination mints its own on approval.
+   */
+  private static skipEntry(colName: string, entry: Entry): boolean {
+    if (colName !== KeyUtils.KeysCollection) return false;
+    return KeyUtils.isManaged(entry.data as KeyInfo);
+  }
+
   private static async exportEntries(store: Storage, dest: string, scope: Scope, colName: string): Promise<number> {
     const colDir = path.join(dest, "projects", scope.project, scope.env, "content", colName);
     // Created on first write, not up front, so a collection that turns out to
@@ -55,6 +74,8 @@ export class Exporter {
       }
 
       for (const e of items) {
+        if (Exporter.skipEntry(colName, e)) continue;
+
         const ej = {
           id: e.id,
           project: e.project,

@@ -4,6 +4,55 @@
 > The *current* state is [CONTEXT.md](../../CONTEXT.md); this is how it got
 > there.
 
+- **Plugins become granted principals (D34, phase 1, 2026-08-25).** Hook
+  delivery is now a claim, grants live in the store, and each approved plugin
+  gets a managed API key. **This is a breaking change to `silo.toml`.**
+  - **The two holes it closes.** `HookBus` dispatched to any runtime that
+    declared a hook, with no claim check at all — a plugin granted *nothing*
+    could declare `entry.beforeValidate` and rewrite every entry write in the
+    instance. And `PluginLoader.assertGranted` enforced `requested ⊆ granted`
+    but never the converse, so a config could grant past the manifest.
+  - **A third claim shape.** `hooks:<project>/<env>/<collection>:<hook>`, in
+    `@silo/shared` alongside the other two, with `ParsedClaim` gaining a `hook`
+    kind. No collection permission satisfies it and it satisfies none — being
+    handed a value before validation is not reading a committed one. The check
+    runs *before* the event crosses into the worker, so an event a plugin may
+    not have never leaves the host. The hook segment takes no wildcard (D19).
+  - **Requests are derived, grants may narrow.** A manifest does not restate
+    hook claims; they come from its declared `hooks` at `*/*/*`, and a grant may
+    narrow the scope. It may not be absent — a declared hook nothing delivers
+    refuses the start, printing the line to add. That is D30's rule about absent
+    declarations, applied here.
+  - **`_plugins`, and the split that matters.** Grants live in a reserved
+    system collection; `silo.toml` still says which plugins load and in what
+    order. *If grants lived in config, revoking would need a restart; if
+    registration lived in the store, whoever could write the store could execute
+    code.* `[[plugins]] claims` survives as a declarative grant for immutable
+    deployments, and effective authority is the union, both halves bounded by
+    the request.
+  - **Managed keys.** Approving mints a `_keys` record owned by the plugin,
+    carrying exactly the granted claims; its secret stays host-side. Three
+    places had to learn about them: `keys revoke` refuses one (silo re-mints
+    it, so revoking by hand undoes itself), `bootstrap` does not count one (an
+    instance whose only keys were managed would have no way in and would report
+    itself bootstrapped), and `--with-keys` leaves one out of the archive.
+  - **Pending is a state, not a failure**, and needs no code path: it is an
+    empty claim list, which every check already refuses. It does not refuse the
+    start — approving needs a server to approve through — so it is loud instead:
+    a warning per start, `[pending]` in `plugin list`, non-zero from
+    `plugin doctor`.
+  - **New:** `silo plugin grant <name> [--claims a,b]` and `silo plugin revoke`,
+    both offline against the data directory; claims `plugins:read|configure|
+    grant|enable`, with the last two in `root` only; `/api/ext/` reserved for
+    plugin routes so `/api/plugins/` can be the management surface (D36).
+  - **Migrating:** every `[[plugins]]` block needs a `hooks:*/*/*:<hook>` claim
+    per declared hook, or the start refuses and names them. `create-silo-plugin`
+    emits them, and `silo plugin grant` writes them for you.
+  - 668 tests pass. A CLI smoke test caught what the suite did not: `--claims`
+    was read from the positionals, where `parseArgs` had already consumed it, so
+    a narrowed grant and a refused over-grant both silently granted everything
+    requested.
+
 - **A hook that writes through `ctx` no longer deadlocks and kills its own
   plugin (D33, 2026-08-25).** Plugin causality became a chain instead of a
   counter, and the per-plugin dispatch lock is gone.

@@ -13,6 +13,8 @@ import { SiloApi } from "../host";
 import { VersionRange } from "../manifest";
 import type { ResolvedPlugin } from "../manifest";
 import type { ProviderRegistry } from "./provider-registry";
+import { PluginGrantResolver } from "./plugin-grant-resolver";
+import type { ResolvedGrant } from "./resolved-grant";
 
 export interface ExtensionLoadOptions {
   pluginsDir: string;
@@ -79,9 +81,20 @@ export class PluginLoader {
       const resolved = await PluginLoader.resolve(options.pluginsDir, config);
       if (resolved.manifest.kind !== "extension") continue;
 
+      // Reconciled before the worker starts, so `_plugins` describes what is
+      // installed even for a plugin nobody has approved — there is nothing to
+      // grant through the API or the UI until a record exists (D34).
+      const grant = await options.service.plugins.reconcile(
+        config.name,
+        PluginGrantResolver.requested(resolved.manifest),
+        resolved.manifest.hooks
+      );
+      const authority = PluginGrantResolver.resolve(config, resolved.manifest, grant);
+      PluginLoader.assertDeliverable(config.name, authority);
+
       const context = new PluginContext(
         config.name,
-        config.claims,
+        authority.claims,
         options.service,
         options.logger,
         HookBus.MaxDepth
@@ -101,11 +114,31 @@ export class PluginLoader {
       const host = new WorkerHost(hostOptions);
       const hooks = await host.start();
 
+      // Loud on every start, because a plugin awaiting approval is running,
+      // healthy and doing nothing — §13.3's least favourite outcome. It is not
+      // a refused start only because granting needs a server to grant through
+      // (D34), so the log is what carries the fact instead.
+      if (authority.state === "pending" || authority.state === "revoked") {
+        options.logger.warn("plugin is not authorized and will receive nothing", {
+          plugin: config.name,
+          state: authority.state,
+          remedy: `silo plugin grant ${config.name}`,
+        });
+      } else if (authority.state === "needs_review") {
+        options.logger.warn("plugin asks for more than was approved", {
+          plugin: config.name,
+          unapproved: authority.missing.join(","),
+          remedy: `silo plugin info ${config.name}`,
+        });
+      }
+
       options.logger.info("plugin loaded", {
         plugin: config.name,
         hooks: hooks.join(","),
+        state: authority.state,
+        claims: authority.claims.length,
       });
-      runtimes.push(new PluginRuntime(resolved, config, host, hooks));
+      runtimes.push(new PluginRuntime(resolved, config, host, hooks, authority));
     }
 
     return runtimes;
@@ -127,7 +160,6 @@ export class PluginLoader {
     }
 
     PluginConfigValidator.validate(manifest, config.config);
-    PluginLoader.assertGranted(config, manifest.claims);
     return resolved;
   }
 
@@ -139,22 +171,33 @@ export class PluginLoader {
   }
 
   /**
-   * Every claim the manifest asked for must be covered by what the operator
-   * granted.
+   * A declared hook that no granted claim permits **anywhere** refuses the
+   * start (D34).
    *
-   * Refused rather than warned, because the alternative fails much later and
-   * much worse: the plugin loads, runs, and throws a `ForbiddenError` from
-   * inside a hook the first time a write touches the collection it cares
-   * about — which surfaces as a 403 on someone else's request, naming a claim
-   * nobody was looking at.
+   * A missing *API* claim is not an error — a plugin may run on less than it
+   * asked for — but a hook it can never be delivered is different in kind: the
+   * plugin loads, looks healthy, and its whole reason to exist never fires.
+   * Deriving delivery from the absence of a claim was the alternative, and it
+   * is the mistake D30 refused when it declined to infer a public collection
+   * from a missing declaration: nothing has been said about it, so nothing may
+   * be assumed.
+   *
+   * A plugin awaiting approval is exempt, because it has no claims yet by
+   * definition and refusing here would be the boot deadlock D34 exists to
+   * avoid — the startup log carries that case instead.
    */
-  private static assertGranted(config: PluginConfig, requested: readonly string[]): void {
-    const missing = requested.filter((claim) => !Claims.has(config.claims, claim as any));
-    if (missing.length === 0) return;
+  private static assertDeliverable(name: string, authority: ResolvedGrant): void {
+    if (authority.claims.length === 0) return;
+    if (authority.undeliverable.length === 0) return;
 
+    const lines = authority.undeliverable
+      .map((hook) => `  "${Claims.hook("*", "*", "*", hook)}",`)
+      .join("\n");
     throw new Error(
-      `plugin "${config.name}": requests ${missing.join(", ")}, which this instance does not grant. ` +
-        `Add them to the plugin's "claims" in silo.toml, or remove the plugin.`
+      `plugin "${name}": declares ${authority.undeliverable.join(", ")} but is granted no ` +
+        `claim that delivers ${authority.undeliverable.length === 1 ? "it" : "them"} in any ` +
+        `scope, so ${authority.undeliverable.length === 1 ? "it" : "they"} would never fire. ` +
+        `Add to the plugin's "claims" in silo.toml (narrow the scopes to taste):\n${lines}`
     );
   }
 }

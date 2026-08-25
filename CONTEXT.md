@@ -26,7 +26,20 @@ keys with claims (D12/D21), export/import and scope-to-scope copy, the admin
 UI, single-binary releases with Homebrew and RPM, and plugins with an installer
 (D31/D32/D33).
 
-**The most recent change fixes a plugin deadlock (D33, 2026-08-25).** A hook
+**The most recent change makes plugins granted principals (D34 phase 1,
+2026-08-25).** Hook *delivery* is now a claim —
+`hooks:<project>/<env>/<collection>:<hook>`, checked before the event crosses
+into the worker — closing a hole where a plugin granted nothing could rewrite
+every write in the instance. Grants live in a reserved `_plugins` collection,
+each approved plugin gets a managed API key whose secret stays host-side, and
+`silo plugin grant|revoke` work offline against the data directory.
+`silo.toml` still says which plugins load and in what order; the store says what
+they may do. **Breaking:** every `[[plugins]]` block now needs a
+`hooks:*/*/*:<hook>` claim per declared hook, and the start refuses while naming
+them. `/api/ext/` is reserved for plugin routes (D36). See §13.12 in
+[docs/design/plugins.md](docs/design/plugins.md).
+
+**Before that, a plugin deadlock was fixed (D33, 2026-08-25).** A hook
 that wrote through `ctx` re-entered its own runtime, blocked on the per-plugin
 dispatch lock its own caller held, ended at `timeout_ms`, and left the worker
 dead with no restart — so the first `ctx` write from a hook was also the last,
@@ -37,12 +50,11 @@ mutex is gone. Nothing about the plugin-facing payload changed. See
 [the changelog](docs/context/changelog.md) and §13.5/§13.9 in
 [docs/design/plugins.md](docs/design/plugins.md).
 
-**D34–D36 are decided but not built.** Plugins become granted principals — a
-`_plugins` record, a managed API key per plugin, claim-gated *hook delivery*,
-`ctx` as the in-process HTTP API, contributions in place of the two kinds, and
-`/api/ext/` reserved for plugin routes. Two shipped holes drive it: hook
-delivery is not claim-checked at all, and a grant may exceed what a manifest
-requested. §13.11 has the shape and the phases.
+**The rest of D34–D36 is decided but not built:** the management API and audit
+log (phase 2), `ctx` as the in-process HTTP API (phase 3, gated on a
+route-authority audit), a supervisor for live enable/disable/revoke (phase 4),
+the admin UI (phase 5), and plugin routes under `/api/ext/{name}/*` (phase 6).
+§13.11 has the shape and the phases.
 
 **The change before that was a repository restructure (2026-08-25).** The tree
 moved to a workspace layout — `apps/server`, `apps/admin`, `packages/shared`,

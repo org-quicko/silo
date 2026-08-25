@@ -1,5 +1,8 @@
 import { ValidationError } from "../errors/validation-error";
+import { HookNames } from "../hooks/hook-names";
+import type { HookName } from "../hooks/hook-name";
 import type { Claim } from "./claim";
+import type { HookClaim } from "./hook-claim";
 import type { ClaimPreset } from "./claim-preset";
 import { ClaimVocabulary } from "./claim-vocabulary";
 import type { CollectionClaim } from "./collection-claim";
@@ -25,6 +28,12 @@ export class ClaimGrammar {
     `^collections:(\\*|${ClaimGrammar.IdSegment})\\/(\\*|${ClaimGrammar.IdSegment})\\/(\\*|${ClaimGrammar.IdSegment}):(.+)$`,
   );
 
+  /** The same three scope segments as a collection claim; only the prefix and
+   *  the trailing vocabulary differ (D34). */
+  private static readonly HookPattern = new RegExp(
+    `^hooks:(\\*|${ClaimGrammar.IdSegment})\\/(\\*|${ClaimGrammar.IdSegment})\\/(\\*|${ClaimGrammar.IdSegment}):(.+)$`,
+  );
+
   static collection(
     project: string,
     env: string,
@@ -32,6 +41,10 @@ export class ClaimGrammar {
     permission: CollectionPermission,
   ): CollectionClaim {
     return `collections:${project}/${env}/${name}:${permission}`;
+  }
+
+  static hook(project: string, env: string, collection: string, hook: HookName): HookClaim {
+    return `hooks:${project}/${env}/${collection}:${hook}`;
   }
 
   static isCollectionName(name: string): boolean {
@@ -63,6 +76,11 @@ export class ClaimGrammar {
         match[4] as CollectionPermission,
       );
     }
+
+    const hook = ClaimGrammar.HookPattern.exec(claim);
+    if (hook !== null && HookNames.isHookName(hook[4])) {
+      return ParsedClaim.fromHook(hook[1], hook[2], hook[3], hook[4]);
+    }
     throw new ValidationError(`unknown or invalid claim "${claim}"`);
   }
 
@@ -71,7 +89,12 @@ export class ClaimGrammar {
     if (Object.hasOwn(ClaimVocabulary.FixedClaims, claim)) return true;
 
     const match = ClaimGrammar.CollectionPattern.exec(claim);
-    return match !== null && Object.hasOwn(ClaimVocabulary.CollectionPermissions, match[4]);
+    if (match !== null && Object.hasOwn(ClaimVocabulary.CollectionPermissions, match[4])) {
+      return true;
+    }
+
+    const hook = ClaimGrammar.HookPattern.exec(claim);
+    return hook !== null && HookNames.isHookName(hook[4]);
   }
 
   static isPreset(value: string): value is ClaimPreset {

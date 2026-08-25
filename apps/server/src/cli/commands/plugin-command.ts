@@ -1,7 +1,9 @@
 import type { Config } from "../../config/config";
 import type { SiloService } from "../../core/services/silo-service";
 import { Logger } from "../../logging/logger";
-import { PluginLoader, PluginRegistry, ProviderRegistry } from "../../plugins";
+import { PluginGrantResolver, PluginLoader, PluginRegistry, ProviderRegistry } from "../../plugins";
+import { PluginGrantUtils } from "../../core/plugins/plugin-grant-utils";
+import { PluginGrantCommand } from "./plugin-grant-command";
 import { SiloVersion } from "../../version";
 
 /**
@@ -23,23 +25,66 @@ import { SiloVersion } from "../../version";
  * as `silo search reindex --check`.
  */
 export class PluginCommand {
-  static async run(config: Config, service: SiloService, positionals: string[]): Promise<void> {
+  static async run(
+    config: Config,
+    service: SiloService,
+    positionals: string[],
+    values: Record<string, unknown> = {}
+  ): Promise<void> {
     const sub = positionals[1] ?? "list";
 
     switch (sub) {
       case "list":
-        return await PluginCommand.list(config);
+        return await PluginCommand.list(config, service);
       case "info":
-        return await PluginCommand.info(config, positionals[2]);
+        return await PluginCommand.info(config, service, positionals[2]);
       case "doctor":
         return await PluginCommand.doctor(config, service);
+      case "grant":
+        return await PluginGrantCommand.grant(
+          config,
+          service,
+          positionals[2],
+          PluginCommand.claimsFlag(values)
+        );
+      case "revoke":
+        return await PluginGrantCommand.revoke(config, service, positionals[2]);
       default:
-        console.error(`usage: silo plugin list | info <name> | doctor | add <spec>`);
+        console.error(
+          `usage: silo plugin list | info <name> | grant <name> [--claims a,b] | ` +
+            `revoke <name> | doctor | add <spec>`
+        );
         process.exit(1);
     }
   }
 
-  private static async list(config: Config): Promise<void> {
+  /**
+   * `--claims a,b,c`, absent meaning "everything the manifest requested".
+   *
+   * Read from the parsed flags, never from the positionals: `--claims` is in
+   * `CliOptions.Flags` (it is `silo add`'s too), so `parseArgs` consumes it and
+   * it never appears there. Scanning the positionals found nothing, silently
+   * fell back to "grant everything requested", and made both a narrowed grant
+   * and a refused over-grant look like they had worked.
+   *
+   * Presence, not truthiness — `--claims ""` means "grant nothing", which is a
+   * coherent thing to ask for and must not read as "grant everything". D32
+   * learned the same lesson about `--integrity ""`.
+   */
+  private static claimsFlag(values: Record<string, unknown>): string[] | undefined {
+    const raw = values.claims;
+    if (raw === undefined) return undefined;
+    if (typeof raw !== "string") {
+      console.error(`silo: --claims needs a comma-separated list`);
+      process.exit(1);
+    }
+    return raw
+      .split(",")
+      .map((claim) => claim.trim())
+      .filter(Boolean);
+  }
+
+  private static async list(config: Config, service: SiloService): Promise<void> {
     const drivers = ProviderRegistry.withBuiltins().drivers();
     console.log(`storage drivers: ${drivers.storage.join(", ")}`);
     console.log(`blob drivers   : ${drivers.blob.join(", ")}`);
@@ -65,14 +110,30 @@ export class PluginCommand {
       } catch (caught: any) {
         summary = `ERROR: ${caught.message}`;
       }
-      console.log(`${index + 1}. ${pluginConfig.name}`);
+      const grant = await service.plugins.find(pluginConfig.name);
+      const stored = grant?.granted ?? [];
+      const effective = [...new Set([...pluginConfig.claims, ...stored])];
+
+      console.log(`${index + 1}. ${pluginConfig.name}  [${grant?.state ?? "pending"}]`);
       console.log(`   ${summary}`);
-      console.log(`   claims: ${pluginConfig.claims.length > 0 ? pluginConfig.claims.join(", ") : "(none)"}`);
+      console.log(`   claims: ${effective.length > 0 ? effective.join(", ") : "(none)"}`);
+      // Both halves named separately, because "why does it hold this?" has two
+      // possible answers and only one of them is withdrawable with `revoke`.
+      if (pluginConfig.claims.length > 0 && stored.length > 0) {
+        console.log(`     from silo.toml: ${pluginConfig.claims.length}, granted: ${stored.length}`);
+      }
       console.log(`   on_error: ${pluginConfig.on_error}, timeout: ${pluginConfig.timeout_ms}ms`);
+      if (effective.length === 0) {
+        console.log(`   → awaiting approval: silo plugin grant ${pluginConfig.name}`);
+      }
     }
   }
 
-  private static async info(config: Config, name: string | undefined): Promise<void> {
+  private static async info(
+    config: Config,
+    service: SiloService,
+    name: string | undefined
+  ): Promise<void> {
     if (!name) {
       console.error(`usage: silo plugin info <name>`);
       process.exit(1);
@@ -96,8 +157,18 @@ export class PluginCommand {
     } else {
       console.log(`provides  : ${manifest.provider!.port} driver "${manifest.provider!.driver}"`);
     }
-    console.log(`requests  : ${manifest.claims.length > 0 ? manifest.claims.join(", ") : "(no claims)"}`);
-    console.log(`granted   : ${pluginConfig.claims.length > 0 ? pluginConfig.claims.join(", ") : "(none)"}`);
+    // The full request, hook claims included — those are derived from the
+    // declared hooks rather than restated in the manifest (D34), so printing
+    // only `manifest.claims` would understate what is being asked for.
+    const requested = PluginGrantResolver.requested(manifest);
+    const grant = await service.plugins.find(pluginConfig.name);
+    const effective = [...new Set([...pluginConfig.claims, ...(grant?.granted ?? [])])].sort();
+
+    console.log(`state     : ${grant?.state ?? "pending"}`);
+    console.log(`requests  : ${requested.length > 0 ? requested.join(", ") : "(no claims)"}`);
+    console.log(`granted   : ${effective.length > 0 ? effective.join(", ") : "(none)"}`);
+    const missing = PluginGrantUtils.missing(requested, effective);
+    if (missing.length > 0) console.log(`not granted: ${missing.join(", ")}`);
     if (manifest.config !== undefined) {
       console.log(`config schema:\n${JSON.stringify(manifest.config, null, 2)}`);
       console.log(`config value:\n${JSON.stringify(pluginConfig.config, null, 2)}`);
@@ -119,10 +190,33 @@ export class PluginCommand {
     let registry: PluginRegistry | null = null;
     try {
       registry = await PluginRegistry.load(config, service, Logger.silent());
+
+      // Loading is no longer the whole question (D34). A plugin awaiting
+      // approval starts cleanly and receives nothing, which is exactly the
+      // "runs, looks healthy, does nothing" outcome §13.3 refuses to let pass
+      // silently — so `doctor` reports it and exits non-zero.
+      let unauthorized = 0;
       for (const runtime of registry.list()) {
-        console.log(`ok   ${runtime.name}  (${runtime.hooks.join(", ") || "no hooks"})`);
+        const { state } = runtime.authority;
+        const hooks = runtime.hooks.join(", ") || "no hooks";
+        if (state === "pending" || state === "revoked") {
+          unauthorized++;
+          console.log(`WARN ${runtime.name}  (${hooks}) — ${state}, receives nothing`);
+          console.log(`       silo plugin grant ${runtime.name}`);
+        } else if (state === "needs_review") {
+          unauthorized++;
+          console.log(`WARN ${runtime.name}  (${hooks}) — asks for more than was approved`);
+          console.log(`       not granted: ${runtime.authority.missing.join(", ")}`);
+        } else {
+          console.log(`ok   ${runtime.name}  (${hooks})`);
+        }
       }
+
       console.log(`\n${registry.list().length} plugin(s) loaded. serve would start.`);
+      if (unauthorized > 0) {
+        console.error(`${unauthorized} plugin(s) are not fully authorized and will not do their job.`);
+        process.exitCode = 1;
+      }
     } catch (caught: any) {
       console.error(`FAIL ${caught.message}`);
       console.error(`\nserve would refuse to start.`);

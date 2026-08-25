@@ -47,7 +47,9 @@ describe("a runaway plugin cannot take the server with it", () => {
     config.plugins = [
       {
         name: "hostile",
-        claims: [],
+        // Delivery is granted, never inferred (D34) — and this plugin has to be
+        // *reachable* for the timeout to be the thing under test.
+        claims: ["hooks:*/*/*:entry.beforeValidate"],
         // Short, so the test does not spend five seconds proving a timer works.
         timeout_ms: 700,
         on_error: "skip",

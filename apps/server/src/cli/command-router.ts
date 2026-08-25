@@ -143,7 +143,7 @@ export class CommandRouter {
         await runtime.plugins.stop();
         return;
       case "plugin":
-        return PluginCommand.run(config, service, positionals);
+        return PluginCommand.run(config, service, positionals, values);
       case "keys":
         return KeysCommand.run(service, store, positionals, values);
       case "export":

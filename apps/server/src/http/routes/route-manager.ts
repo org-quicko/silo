@@ -9,6 +9,7 @@ import { CopyRoutes } from "./copy-routes";
 import { SessionRoutes } from "./session-routes";
 import { SearchRoutes } from "./search-routes";
 import { PluginRoutes } from "./plugin-routes";
+import { ExtRoutes } from "./ext-routes";
 
 /**
  * Composes all route modules onto the app. Ordering matters for Hono's
@@ -25,6 +26,9 @@ export class RouteManager {
     // Reserved namespace (D31/§13.1), registered before the scoped param routes
     // for the same ordering reason the rest of this list exists.
     PluginRoutes.register(app);
+    // Reserved for plugin-contributed routes (D36), kept out of /api/plugins/
+    // so a plugin name can never collide with a management verb.
+    ExtRoutes.register(app);
     KeysRoutes.register(app, service);
     TransferRoutes.register(app, service);
     CopyRoutes.register(app, service);

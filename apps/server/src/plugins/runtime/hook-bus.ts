@@ -92,9 +92,17 @@ export class HookBus implements Hooks {
    * longer take its own worker down (which is exactly what the shipped `mirror`
    * fixture demonstrated), and the guard covers indirect loops the manual
    * check never could.
+   *
+   * The claim check (D34) is the other half, and it runs **here** rather than
+   * inside the worker or after the fact: an event that a plugin may not receive
+   * must not cross the boundary at all, or the check is an audit trail rather
+   * than a confidentiality boundary. Before D34 there was no check — a plugin
+   * granted nothing saw and could rewrite every write in the instance.
    */
   private shouldDispatch(runtime: PluginRuntime, hook: HookName, event: HookEvent): boolean {
-    return runtime.handles(hook) && !event.chain.includes(runtime.name);
+    if (!runtime.handles(hook)) return false;
+    if (event.chain.includes(runtime.name)) return false;
+    return runtime.mayReceive(hook, event.scope.project, event.scope.env, event.collection);
   }
 
   /**

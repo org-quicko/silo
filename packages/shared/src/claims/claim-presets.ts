@@ -51,9 +51,18 @@ export class ClaimPresets {
     ],
   };
 
-  /** The media claims each non-root preset carries alongside its collection
-   *  permissions. */
-  private static readonly Media: Record<
+  /**
+   * The unscoped claims each non-root preset carries alongside its collection
+   * permissions.
+   *
+   * `plugins:grant` and `plugins:enable` are in **no** preset but `root` (D34).
+   * Approving a plugin hands running code an authority set, and `canDelegate`
+   * means the approver can only hand over what it holds — so leaving them out
+   * of `manage` makes "who may empower a plugin" a deliberate grant rather than
+   * a side effect of picking the second-widest preset. `manage` still reads and
+   * configures, which is what an operator running an instance needs day to day.
+   */
+  private static readonly Fixed: Record<
     Exclude<ClaimPreset, "root">,
     readonly FixedClaim[]
   > = {
@@ -67,6 +76,8 @@ export class ClaimPresets {
       ClaimVocabulary.MediaRead,
       ClaimVocabulary.MediaCreate,
       ClaimVocabulary.MediaDelete,
+      ClaimVocabulary.PluginsRead,
+      ClaimVocabulary.PluginsConfigure,
     ],
   };
 
@@ -81,7 +92,7 @@ export class ClaimPresets {
   /** The unscoped claims `preset` grants regardless of its targets. */
   static fixedClaims(preset: ClaimPreset): readonly FixedClaim[] {
     if (preset === "root") return Object.keys(ClaimVocabulary.FixedClaims) as FixedClaim[];
-    return ClaimPresets.Media[preset];
+    return ClaimPresets.Fixed[preset];
   }
 
   /** Expands a preset into the claim list a key is minted with. */
@@ -92,12 +103,12 @@ export class ClaimPresets {
     // type on both tables — a new preset that forgets to say what it grants is a
     // compile error there. This only catches a caller that bypassed the types.
     const permissions = ClaimPresets.Permissions[preset];
-    const media = ClaimPresets.Media[preset];
-    if (permissions === undefined || media === undefined) {
+    const fixed = ClaimPresets.Fixed[preset];
+    if (permissions === undefined || fixed === undefined) {
       throw new ValidationError(`unhandled preset "${String(preset)}"`);
     }
 
-    const claims: Claim[] = [...media];
+    const claims: Claim[] = [...fixed];
     for (const target of targets) {
       const { project, env, collection } = ClaimPresets.parseTarget(target);
       for (const permission of permissions) {

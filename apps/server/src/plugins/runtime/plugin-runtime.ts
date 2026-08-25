@@ -1,8 +1,10 @@
+import { Claims } from "@silo/shared/claims";
 import type { HookName } from "../../core/hooks";
 import type { HookEvent } from "../../core/hooks";
 import type { PluginConfig } from "../../config/plugin-config";
 import type { PluginHost } from "../host";
 import type { ResolvedPlugin } from "../manifest";
+import type { ResolvedGrant } from "../registry/resolved-grant";
 
 /**
  * One loaded plugin: its manifest, its host, and the hooks it answers to (D31).
@@ -21,23 +23,43 @@ export class PluginRuntime {
   readonly config: PluginConfig;
   readonly hooks: readonly HookName[];
 
+  /** What the operator granted, and where it stands (D34). A plugin awaiting
+   *  approval holds an empty claim list, which is why `pending` needs no code
+   *  path of its own — every check already refuses it. */
+  readonly authority: ResolvedGrant;
+
   private readonly host: PluginHost;
 
   constructor(
     plugin: ResolvedPlugin,
     config: PluginConfig,
     host: PluginHost,
-    hooks: readonly HookName[]
+    hooks: readonly HookName[],
+    authority: ResolvedGrant
   ) {
     this.plugin = plugin;
     this.config = config;
     this.name = config.name;
     this.host = host;
     this.hooks = hooks;
+    this.authority = authority;
   }
 
   handles(hook: HookName): boolean {
     return this.hooks.includes(hook);
+  }
+
+  /**
+   * Whether this plugin may be **told** about `hook` for one collection (D34).
+   *
+   * Delivery is its own authority and not implied by any `entries:*`
+   * permission: a plugin handed `entry.beforeValidate` rewrites what is about
+   * to be stored, which no collection permission grants. Before D34 this was
+   * not checked at all, so a plugin granted nothing saw every write in the
+   * instance.
+   */
+  mayReceive(hook: HookName, project: string, env: string, collection: string): boolean {
+    return Claims.canDeliver(this.authority.claims, project, env, collection, hook);
   }
 
   async dispatch(hook: HookName, event: HookEvent): Promise<unknown> {

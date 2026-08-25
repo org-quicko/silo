@@ -10,4 +10,8 @@ export type FixedClaim =
   | "transfer:copy"
   | "media:read"
   | "media:create"
-  | "media:delete";
+  | "media:delete"
+  | "plugins:read"
+  | "plugins:configure"
+  | "plugins:grant"
+  | "plugins:enable";

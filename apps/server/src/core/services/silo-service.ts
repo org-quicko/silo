@@ -10,6 +10,7 @@ import { CollectionService } from "./collection-service";
 import { EntryService } from "./entry-service";
 import { KeyService } from "./key-service";
 import { MediaService } from "./media/media-service";
+import { PluginGrantService } from "./plugin-grant-service";
 import { ScopeService } from "./scope-service";
 import { SearchService } from "./search-service";
 import { SchemaRegistry } from "./support/schema-registry";
@@ -47,6 +48,8 @@ export class SiloService {
   readonly entries: EntryService;
   readonly search: SearchService;
   readonly keys: KeyService;
+  /** Plugin grants and their managed keys (D34). */
+  readonly plugins: PluginGrantService;
   readonly media: MediaService;
   readonly transfer: TransferService;
 
@@ -75,6 +78,7 @@ export class SiloService {
     this.entries = new EntryService(this.context, this.media);
     this.search = new SearchService(this.context);
     this.keys = new KeyService(this.context);
+    this.plugins = new PluginGrantService(this.context, this.keys);
     this.transfer = new TransferService(this.context);
   }
 

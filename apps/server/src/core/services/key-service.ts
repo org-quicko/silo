@@ -5,6 +5,7 @@ import type { Entry } from "../domain/entry";
 import { EntryUtils } from "../domain/entry-utils";
 import { Scope } from "../domain/scope";
 import type { KeyInfo } from "../keys/key-info";
+import type { KeyOwner } from "../keys/key-owner";
 import { KeyUtils } from "../keys/key-utils";
 import type { KeyView } from "./support/key-view";
 import type { ServiceContext } from "./support/service-context";
@@ -38,12 +39,20 @@ export class KeyService {
         typeof entry.created_at === "string"
           ? entry.created_at
           : entry.created_at.toISOString(),
+      // Disclosed, because a listing that showed a plugin's key as an ordinary
+      // one would invite an operator to revoke it by hand and then wonder why
+      // the plugin came back with a new one at the next start (D34).
+      ...(info.owner ? { owner: info.owner } : {}),
     };
   }
 
-  async create(label: string, claims: string[]): Promise<{ secret: string; entry: Entry }> {
+  async create(
+    label: string,
+    claims: string[],
+    owner?: KeyOwner
+  ): Promise<{ secret: string; entry: Entry }> {
     const keyLabel = typeof label === "string" && label.trim() ? label.trim() : "API key";
-    const { secret, info } = KeyUtils.generateKey(keyLabel, claims);
+    const { secret, info } = KeyUtils.generateKey(keyLabel, claims, owner);
 
     const now = EntryUtils.now();
     const entry: Entry = {
@@ -84,7 +93,29 @@ export class KeyService {
     });
   }
 
+  /**
+   * Revoke an ordinary key.
+   *
+   * A **managed** key is refused (D34): it belongs to a plugin, silo holds its
+   * secret, and it is re-minted at the next start — so revoking it by hand
+   * looks like it worked and undoes itself. The refusal names the command that
+   * actually withdraws the authority.
+   */
   async revoke(id: string): Promise<void> {
+    const entry = await this.context.store.get(Scope.System, KeyUtils.KeysCollection, id);
+    const info = entry.data as KeyInfo;
+    if (KeyUtils.isManaged(info)) {
+      throw new ValidationError(
+        `key "${id}" belongs to plugin "${info.owner!.name}" and is managed by silo. ` +
+          `Revoke the plugin's grant instead: silo plugin revoke ${info.owner!.name}`
+      );
+    }
+    await this.discard(id);
+  }
+
+  /** Revoke without the managed-key guard. For `PluginGrantService`, which is
+   *  the thing the guard exists to route callers towards. */
+  async discard(id: string): Promise<void> {
     await this.context.withWriteLock(() =>
       this.context.store.delete(Scope.System, KeyUtils.KeysCollection, id)
     );
@@ -108,10 +139,18 @@ export class KeyService {
     return { ...info, claims: Claims.normalize(info.claims) };
   }
 
-  /** Mints the first root key on an instance that has none. Returns the empty
-   *  string when keys already exist, so a restart announces nothing. */
+  /**
+   * Mints the first root key on an instance that has none. Returns the empty
+   * string when keys already exist, so a restart announces nothing.
+   *
+   * **Managed keys do not count** (D34). They are minted by silo for plugins
+   * and nobody holds their secrets, so an instance whose only keys were managed
+   * would have no way in at all — and would report itself as already
+   * bootstrapped, which is the worst version of that.
+   */
   async bootstrap(): Promise<string> {
-    if ((await this.list()).length > 0) return "";
+    const existing = await this.list();
+    if (existing.some((entry) => !KeyUtils.isManaged(entry.data as KeyInfo))) return "";
     const { secret } = await this.create("root", [Claims.Root]);
     return secret;
   }

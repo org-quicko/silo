@@ -6,6 +6,7 @@ import { SqliteStore } from "../../src/adapters/storage/sqlite/sqlite-store";
 import { FsStore } from "../../src/adapters/storage/fs/fs-store";
 import { Exporter } from "../../src/core/transfer/exporter";
 import { Importer } from "../../src/core/transfer/importer";
+import { SiloService } from "../../src/core/services/silo-service";
 import { FormatVersion } from "../../src/core/transfer/format-version";
 import { EntryUtils } from "../../src/core/domain/entry-utils";
 import { Scope } from "../../src/core/domain/scope";
@@ -437,6 +438,42 @@ describe("Export / Import Tests", () => {
 
       await expect(Importer.importDir(st, tempDir, { mode: "merge" })).rejects.toThrow(/format_version/);
       await st.close();
+    } finally {
+      await fs.rm(tempDir, { recursive: true, force: true }).catch(() => {});
+    }
+  });
+});
+
+/**
+ * A plugin's managed key is left out of every archive (D34).
+ *
+ * `--with-keys` exists so an instance can be cloned with its credentials
+ * intact, and a managed key is not one anybody holds: silo mints it, keeps the
+ * secret, and rotates it. Carried across, it would land in the destination as a
+ * record no `_plugins` grant points at, that the ordinary revoke path refuses
+ * to remove, and that nothing can ever authenticate as.
+ */
+describe("managed keys are not exportable", () => {
+  test("--with-keys carries ordinary keys and skips plugin-owned ones", async () => {
+    const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "silo-managed-export-"));
+    try {
+      const store = await SqliteStore.open(path.join(tempDir, "src.db"));
+      const service = new SiloService(store, { mediaDir: path.join(tempDir, "media") });
+      await service.scopes.initDefaults();
+
+      const { entry: ordinary } = await service.keys.create("mine", ["media:read"]);
+      await service.plugins.reconcile("acme", ["collections:*/*/*:entries:read"], []);
+      const grant = await service.plugins.grant("acme", ["collections:*/*/*:entries:read"], {});
+
+      const dest = path.join(tempDir, "out");
+      await Exporter.exportDir(store, dest, { withKeys: true });
+
+      const keysDir = path.join(dest, "projects", "_system", "_system", "content", "_keys");
+      const files = await fs.readdir(keysDir);
+      expect(files).toContain(`${ordinary.id}.json`);
+      expect(files).not.toContain(`${grant.key_id}.json`);
+
+      await store.close();
     } finally {
       await fs.rm(tempDir, { recursive: true, force: true }).catch(() => {});
     }

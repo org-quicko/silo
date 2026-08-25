@@ -12,6 +12,7 @@ import type { PluginConfig } from "../../src/config/plugin-config";
 import { Scaffold } from "../../../../packages/create-silo-plugin/src/scaffold";
 import { SiloRange } from "../../../../packages/create-silo-plugin/src/silo-range";
 import type { ScaffoldOptions } from "../../../../packages/create-silo-plugin/src/scaffold-options";
+import { TomlSnippet } from "../../../../packages/create-silo-plugin/src/render/toml-snippet";
 
 /**
  * A scaffolded plugin, loaded the way `serve` loads one: through
@@ -67,7 +68,10 @@ describe("a scaffolded plugin, loaded the way serve loads one", () => {
     await Scaffold.create(opts);
     const config = ConfigLoader.defaultConfig();
     config.storage.path = tempDir;
-    config.plugins = [pluginBlock];
+    // The claims the *printed* block grants, not a list this test made up: what
+    // is being asserted is that pasting that block yields a working plugin,
+    // which since D34 includes the `hooks:` claim each declared hook needs.
+    config.plugins = [{ ...pluginBlock, claims: TomlSnippet.requestedClaims(opts) }];
     registry = await PluginRegistry.load(config, service, Logger.silent());
     service.useHooks(registry.hooks());
     return registry;

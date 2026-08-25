@@ -12,14 +12,30 @@ import type { ScaffoldOptions } from "../scaffold-options";
  * decision on their behalf, in a file it did not create and cannot safely
  * reformat.
  *
- * `claims` is emitted as **exactly what the manifest requests**, because the
- * two are compared at load: a plugin granted less than it asked for refuses
- * the start, and a copy-pasteable block that refuses the start is worse than
- * no block at all.
+ * `claims` is emitted as **exactly what the manifest requests**, including the
+ * `hooks:` claim each declared hook needs (D34). A grant may be narrower than
+ * this — the scopes are `*&#47;*&#47;*` and an operator will often want one project —
+ * but it may not be *absent*: hook delivery is granted, never inferred, so a
+ * block without them scaffolds a plugin that loads and never fires. A
+ * copy-pasteable block that does nothing is worse than no block at all.
  */
 export class TomlSnippet {
+  /**
+   * The claim list the block grants, as values.
+   *
+   * Its own method so the end-to-end test can load a plugin with *exactly* what
+   * the printed block says, rather than restating it — the thing being asserted
+   * is that pasting the block works, and a test that computed the list its own
+   * way would pass while the printed one was wrong.
+   */
+  static requestedClaims(options: ScaffoldOptions): string[] {
+    return [...options.claims, ...options.hooks.map((hook) => `hooks:*/*/*:${hook}`)];
+  }
+
   static render(options: ScaffoldOptions): string {
-    const claims = options.claims.map((claim) => `"${claim}"`).join(", ");
+    const claims = TomlSnippet.requestedClaims(options)
+      .map((claim) => `"${claim}"`)
+      .join(", ");
 
     const lines = [
       `[[plugins]]`,

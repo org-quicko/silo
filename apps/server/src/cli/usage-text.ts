@@ -25,6 +25,8 @@ Usage:
   silo add [flags] <name|path|url>       install a plugin and list it in silo.toml
   silo plugin list                       configured plugins and what they attach to
   silo plugin info <name>                a plugin's manifest, claims and config schema
+  silo plugin grant <name> [--claims a,b]  approve what a plugin may do
+  silo plugin revoke <name>              withdraw a plugin's stored grant
   silo plugin doctor                     load every plugin, report failures, exit
   silo version
   silo help
