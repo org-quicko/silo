@@ -105,7 +105,7 @@ export class PluginLoader {
         plugin: config.name,
         hooks: hooks.join(","),
       });
-      runtimes.push(new PluginRuntime(resolved, config, host, context, hooks));
+      runtimes.push(new PluginRuntime(resolved, config, host, hooks));
     }
 
     return runtimes;

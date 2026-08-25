@@ -25,9 +25,11 @@ export class HookBus implements Hooks {
   /**
    * How many plugin-originated writes may nest.
    *
-   * Small on purpose: legitimate uses are one deep (a hook writes a derived
-   * entry) and two at a stretch. Anything deeper is a loop, and the value is
-   * low enough that the loop is caught while the stack is still readable.
+   * Since D33 a cycle is unrepresentable — `shouldDispatch` refuses a plugin
+   * already in the causal chain — so this is no longer what stops a loop. It
+   * caps how many *distinct* plugins may chain off one request, which is small
+   * on purpose: legitimate uses are one deep (a hook writes a derived entry)
+   * and two at a stretch.
    */
   static readonly MaxDepth = 4;
 
@@ -46,7 +48,7 @@ export class HookBus implements Hooks {
   async beforeValidate(event: BeforeValidateEvent): Promise<any> {
     let data = event.data;
     for (const runtime of this.runtimes) {
-      if (!runtime.handles("entry.beforeValidate")) continue;
+      if (!this.shouldDispatch(runtime, "entry.beforeValidate", event)) continue;
       const result = await this.run(runtime, "entry.beforeValidate", { ...event, data });
       if (result && typeof result === "object" && "data" in (result as any)) {
         data = (result as any).data;
@@ -73,8 +75,26 @@ export class HookBus implements Hooks {
 
   private async veto(hook: HookName, event: HookEvent): Promise<void> {
     for (const runtime of this.runtimes) {
-      if (runtime.handles(hook)) await this.run(runtime, hook, event);
+      if (this.shouldDispatch(runtime, hook, event)) await this.run(runtime, hook, event);
     }
+  }
+
+  /**
+   * Whether this plugin hears about this event (D33).
+   *
+   * A plugin already in the event's causal chain is **skipped**: it is being
+   * told about a write its own hook caused, and delivering that would re-enter
+   * it. Skipping makes a cycle unrepresentable rather than merely bounded —
+   * `A -> B -> A` cannot form, because A is in the chain by the time B writes.
+   *
+   * It is also what a well-behaved plugin already did by hand, by testing
+   * `origin` for its own name. Doing it here means a plugin that forgets can no
+   * longer take its own worker down (which is exactly what the shipped `mirror`
+   * fixture demonstrated), and the guard covers indirect loops the manual
+   * check never could.
+   */
+  private shouldDispatch(runtime: PluginRuntime, hook: HookName, event: HookEvent): boolean {
+    return runtime.handles(hook) && !event.chain.includes(runtime.name);
   }
 
   /**

@@ -4,6 +4,48 @@
 > The *current* state is [CONTEXT.md](../../CONTEXT.md); this is how it got
 > there.
 
+- **A hook that writes through `ctx` no longer deadlocks and kills its own
+  plugin (D33, 2026-08-25).** Plugin causality became a chain instead of a
+  counter, and the per-plugin dispatch lock is gone.
+  - **The bug.** `PluginRuntime` held an `AsyncMutex` for the length of a
+    dispatch so that `PluginContext.depth` — one mutable field serving
+    callbacks *during* a dispatch — could say which dispatch a callback
+    belonged to. A hook calling `ctx.entries.create` re-entered `EntryService`,
+    which dispatched `afterWrite` back into the **same** runtime, which blocked
+    on the lock its own caller was still holding while awaiting the worker.
+    The dispatch ended only at `timeout_ms`, and `WorkerHost` then killed the
+    worker with no restart (D31 chose that deliberately). So the first `ctx`
+    write from a hook was also the last: three entries created against the
+    `mirror` fixture produced **one** mirror.
+  - **Why the suite was green.** `EntryService` writes to the store before
+    dispatching `afterWrite`, so the entry the assertion looked for had already
+    landed. The only symptom was duration — 5.53 s against `timeout_ms: 5000`,
+    1.56 s against `timeout_ms: 1200`, tracking the budget exactly.
+  - **The fix.** `WriteContext` and `HookEventBase` carry `chain` — the plugins
+    whose hooks are above this write — and `HookBus` skips any plugin already
+    in it, so a plugin never hears about a write it caused and a cycle is
+    unrepresentable rather than bounded. The worker tags each callback with the
+    dispatch id it came from; `WorkerHost` looks the chain up in its own record
+    of that dispatch and hands it to `PluginContext.call`, which is now
+    stateless. The mutex is deleted rather than made re-entrant — a re-entrant
+    lock would have unblocked the direct case and still allowed `A -> B -> A`.
+  - **What plugins see.** Nothing new. The chain stays host-side and reaches a
+    plugin as `event.depth`, its length, so the drift-tested `silo:api`
+    declarations moved only in a doc comment: the advice to check `origin` for
+    your own writes became a description of what the host now does for you.
+    `MaxDepth` survives as a cap on how many *distinct* plugins may chain off
+    one request.
+  - **Tests.** The `mirror` fixture is now deliberately naive — its manual
+    `origin` guard is gone, because a fixture that guards tests the guard
+    rather than the host — and its test asserts three writes, three mirrors,
+    **and** an elapsed time under the timeout, since either alone would have
+    passed. A new `pinger`/`ponger` pair pins the indirect cycle no `origin`
+    check could ever catch. 635 tests pass.
+  - **Designed alongside it:** D34–D36 (plugins as granted principals with a
+    managed API key, `ctx` as the in-process HTTP API, contributions replacing
+    kinds, `/api/ext/` reserved for plugin routes). None of it is built; see
+    §13.11.
+
 - **The repository is restructured around a workspace layout (2026-08-25).**
   Nothing about silo's behaviour changed; where its code lives, and how much of
   it is in any one file, did. The full suite (634 tests) passes at every step

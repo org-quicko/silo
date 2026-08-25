@@ -10,6 +10,9 @@ interface Waiter {
   resolve: (value: unknown) => void;
   reject: (err: Error) => void;
   timer: ReturnType<typeof setTimeout>;
+  /** The dispatch's causal chain, kept so a callback arriving mid-dispatch can
+   *  be told which one it belongs to (D33). */
+  cause: readonly string[];
 }
 
 /**
@@ -131,7 +134,12 @@ export class WorkerHost implements PluginHost {
     const worker = this.worker;
     if (!worker) throw new Error(`plugin "${this.options.name}": not started`);
 
+    // The chain stays host-side and crosses as a count. A plugin needs to know
+    // how deeply nested it is; it has no business learning which *other*
+    // plugins are installed, which the chain would disclose on every event.
+    const { chain, ...payload } = event;
     const id = ++this.seq;
+
     return await new Promise<unknown>((resolve, reject) => {
       const timer = setTimeout(() => {
         this.waiters.delete(id);
@@ -140,8 +148,13 @@ export class WorkerHost implements PluginHost {
         reject(err);
       }, this.options.timeoutMs);
 
-      this.waiters.set(id, { resolve, reject, timer });
-      worker.postMessage({ t: "dispatch", id, hook, event });
+      this.waiters.set(id, { resolve, reject, timer, cause: chain });
+      worker.postMessage({
+        t: "dispatch",
+        id,
+        hook,
+        event: { ...payload, depth: chain.length },
+      });
     });
   }
 
@@ -168,9 +181,18 @@ export class WorkerHost implements PluginHost {
     }
   }
 
+  /**
+   * The chain comes from the waiter the worker correlated this call to, not
+   * from the message — a plugin that named its own nesting could hand itself an
+   * empty one and escape both the cycle skip and the depth bound (D33). An
+   * unknown dispatch id is an empty chain: a call from a timer or a future
+   * `activate()` is genuinely uncaused, and `PluginContext` still appends the
+   * plugin itself.
+   */
   private async serveRpc(msg: any): Promise<void> {
+    const cause = this.waiters.get(msg.dispatch)?.cause ?? [];
     try {
-      const value = await this.options.rpc.call(msg.method, msg.args ?? []);
+      const value = await this.options.rpc.call(msg.method, msg.args ?? [], cause);
       this.worker?.postMessage({ t: "rpc-result", id: msg.id, ok: true, value: value ?? null });
     } catch (caught) {
       this.worker?.postMessage({ t: "rpc-result", id: msg.id, ok: false, error: PluginError.toWire(caught) });

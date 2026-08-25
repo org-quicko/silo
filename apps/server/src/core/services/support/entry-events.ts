@@ -22,7 +22,7 @@ export class EntryEvents {
     return {
       op,
       origin: writeContext.origin,
-      depth: writeContext.depth,
+      chain: writeContext.chain,
       scope: { project: scope.project, env: scope.env },
       collection,
       ...(id === undefined ? {} : { id }),
@@ -35,7 +35,7 @@ export class EntryEvents {
     return {
       op,
       origin: writeContext.origin,
-      depth: writeContext.depth,
+      chain: writeContext.chain,
       scope: { project: entry.project, env: entry.env },
       collection: entry.collection,
       id: entry.id,
@@ -58,7 +58,7 @@ export class EntryEvents {
     return {
       op: "delete" as const,
       origin: writeContext.origin,
-      depth: writeContext.depth,
+      chain: writeContext.chain,
       scope: { project: entry.project, env: entry.env },
       collection: entry.collection,
       id: entry.id,
@@ -78,7 +78,7 @@ export class EntryEvents {
     return {
       op: "delete" as const,
       origin: writeContext.origin,
-      depth: writeContext.depth,
+      chain: writeContext.chain,
       scope: { project: scope.project, env: scope.env },
       collection,
       id,

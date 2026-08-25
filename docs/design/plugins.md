@@ -22,6 +22,15 @@ HTTP interceptors, plugin routes, plugin CLI subcommands, import/export format
 plugins, and admin-UI contributions. `/api/plugins/` is reserved and returns
 404; reserving it costs nothing now and cannot be done later.
 
+> **Being superseded (D34–D36).** The two-kind table above becomes a
+> `contributes` list, authorization moves from `[[plugins]] claims` into a
+> granted `_plugins` record with a managed API key, hook *delivery* becomes
+> claim-gated, `ctx` becomes the HTTP API dispatched in-process, and plugin
+> routes move to a reserved `/api/ext/{name}/*` so `/api/plugins/*` can be the
+> management surface. §13.11 sketches it; the decisions carry the reasoning.
+> Everything below this line describes what is **built today** except where it
+> says otherwise, and D33 (the causal chain) has already landed inside it.
+
 ### 13.2 The manifest is static
 
 Static metadata lives in `package.json#silo` and **must be readable without
@@ -155,9 +164,27 @@ Three rules, each inherited from an existing invariant:
   `rev`, `seq` or timestamps — D2 and the change-feed cursor are load-bearing
   for replication and unreachable from a third party.
 - **Nothing plugin-shaped is persisted.** Dispatch carries an `origin`
-  (`api` | `import` | `plugin:<name>`) so a plugin can ignore its own events,
-  but it is context only; writing it into the entry would change the on-disk
-  layout and force a `format_version` bump (D14) for a debugging convenience.
+  (`api` | `import` | `plugin:<name>`), but it is context only; writing it into
+  the entry would change the on-disk layout and force a `format_version` bump
+  (D14) for a debugging convenience.
+
+**A plugin never hears about a write it caused (D33).** Every write carries a
+`WriteContext` whose `chain` names the plugins whose hooks are above it —
+`[]` for a request, `["slugger"]` for a write slugger's hook made — and
+`HookBus` skips any plugin already in it. That makes a cycle *unrepresentable*
+rather than merely bounded: `A -> B -> A` cannot form, because A is in the chain
+by the time B writes. The chain stays host-side and reaches a plugin only as
+`event.depth`, its length: how deeply nested a dispatch is is the plugin's
+business, and which other plugins are installed is not.
+
+This replaces a convention with a mechanism. A plugin used to be told to check
+`origin` for its own name, which was easy to forget and — decisively — could
+never catch the indirect case, since two plugins writing into each other's
+collections each see only the *other's* name. It also could not be made safe by
+bounding it: the per-plugin dispatch lock that made the old depth counter sound
+deadlocked on the very first `ctx` write from a hook, and cost the plugin its
+worker. `HookBus.MaxDepth` survives as a cap on how many *distinct* plugins may
+chain off one request.
 
 Hooks are domain lifecycle events and **not** HTTP middleware because HTTP is
 not where the data enters. `silo import`, `ScopeCopier` (D22) and every CLI
@@ -372,9 +399,25 @@ and costs a `format_version` decision (D14).
   second one where `timeout_ms` was advisory would be a trap wearing the same
   interface, so the inline host written during M5 was removed rather than left
   unselected (D7).
-- Reentrancy is bounded by a depth counter on the context. A `ctx` write from
-  inside a hook increments it; past the limit the call is refused rather than
-  recursing.
+- Reentrancy is settled by the causal chain (§13.5, D33), not by a counter on
+  the context. A `ctx` write appends the writing plugin to the chain, and
+  `HookBus` will not dispatch back into a plugin already in it, so a cycle
+  cannot form. `MaxDepth` still refuses a chain of more than four *distinct*
+  plugins — refused, not truncated, because a silently un-run hook is the
+  failure this design exists to avoid.
+- **A plugin's dispatches are not serialised, and must not be.** They were,
+  so that a single mutable `depth` on the context could describe "the dispatch
+  currently being served" — and that lock deadlocked the case it protected. A
+  hook calling `ctx.entries.create` re-entered `EntryService`, which dispatched
+  `afterWrite` back into the same runtime, which blocked on the lock its own
+  caller still held while awaiting the worker. It ended only at `timeout_ms`,
+  and because there is no auto-restart the worker was then dead for the life of
+  the process: **the first `ctx` write from a hook was also the last.** The fix
+  is correlation rather than exclusion — the worker tags each callback with the
+  dispatch id it came from, and `WorkerHost` looks the chain up in its own
+  record of that dispatch. The chain is read host-side and never taken from the
+  message, because a plugin that could name its own causal chain could hand
+  itself an empty one and escape both the cycle skip and the depth bound.
 
 ### 13.10 Measured, not assumed
 
@@ -413,3 +456,96 @@ the *size*, and every extension plugin refused to load while providers were
 unaffected. 1.4.0 accepts it. The lesson is not the bug: it is that the
 bootstrap's size is load-bearing, so a host that grows one is a host to
 re-measure.
+
+**A second entry for the same reason (2026-08-25).** The per-plugin dispatch
+lock deadlocked every `ctx` write made from a hook, and the suite did not say
+so — it passed. What said so was the clock: the `mirror` test took **5.53 s**
+against `timeout_ms: 5000` and **1.56 s** against `timeout_ms: 1200`, tracking
+the budget exactly, which is what a dispatch that only ever ends by timing out
+looks like. The functional damage was invisible for a different reason —
+`EntryService` writes to the store *before* dispatching `afterWrite`, so the
+entry the assertion looked for had already landed, and `WorkerHost` had killed
+the worker with no restart by the time a second write arrived. Three entries
+produced **one** mirror. Both regressions are now pinned by the same test: the
+count *and* the elapsed time, because either alone would have passed.
+
+The lesson generalises past this bug. A test whose only symptom is its duration
+is a test that is not asserting the thing it is named for, and a suite that is
+allowed to take seconds per case cannot tell a slow path from a timed-out one.
+Where a plugin dispatch is involved, assert the clock.
+
+## 13.11 Where this is going (D34–D36)
+
+> **Designed, not built.** D33 has landed; the rest is phased below. This
+> section is the shape, not the specification — the decisions log carries the
+> reasoning, and each phase writes its own detail here as it lands.
+
+### The two holes this closes
+
+Neither is a missing feature; both are the shipped model not meaning what it
+says.
+
+1. **Hook delivery is not claim-checked.** `HookBus` dispatches to any runtime
+   that declared the hook, so a plugin granted *nothing* can see and rewrite
+   every entry write in the instance. The claim system governs `ctx` and not the
+   strictly more powerful capability beside it.
+2. **A grant may exceed the manifest.** `PluginLoader.assertGranted` requires
+   `requested ⊆ granted` and never the converse. Fine while a human types TOML;
+   wrong the moment a UI shows "this plugin requested X".
+
+### The shape
+
+```
+silo add <spec>          →  inert bytes under <data dir>/plugins/<name>/
+                            nothing runs, no key exists
+
+silo.toml [[plugins]]    →  which plugins load, and in what order
+                            (a loading concern: the operator's file)
+
+_system/_plugins         →  what each is allowed to do
+                            (runtime authority: revocable, audited, API-driven)
+      └── managed _keys record, secret host-side, rotated on restart
+                     │
+                     ▼
+              plugin Worker
+                     │
+                 ctx.fetch  ── in-memory app.fetch ── AuthMiddleware / RouteAuth
+                                                              │
+                                                        SiloService
+
+[storage] driver         →  a provider's grant, because it loads before the
+                            store exists and cannot be granted from inside it
+```
+
+The split in the middle is the load-bearing part. **If grants lived in config,
+revoking would need a restart; if registration lived in the database, whoever
+could write the database could execute code.**
+
+### Phases
+
+| Phase | Lands |
+| :--- | :--- |
+| 0 | **D33, done.** The causal chain, and the deadlock it fixes |
+| 1 | `_plugins`, managed keys, `hooks:` claims, `plugins:*` claims, `pending` state, offline `silo plugin grant`. **Reserve `/api/ext/`.** |
+| 2 | Management API and audit log |
+| 3 | `ctx.fetch` and the generated client. **Gated on the route-authority audit** |
+| 4 | Supervisor: live enable, disable, reorder, revoke |
+| 5 | Admin UI, inert `silo add`, `create-silo-plugin`, drift tests |
+| 6 | Plugin routes under `/api/ext/{name}/*` |
+
+### The acceptance test
+
+Install a package; confirm it executes nothing and holds no key. Approve a
+narrow schema/collection/entry grant; activate it; verify exactly those
+operations work through `ctx` and the neighbouring ones are refused. Revoke it
+live, and prove **both** `ctx` calls and hook delivery stop without a restart.
+
+### What is still not claimed
+
+Unchanged from D31, and worth restating because this design makes it easier to
+forget: a `Worker` bounds **faults, not malice**. These permissions govern
+silo's own APIs and the events the host chooses to deliver. Plugin code holds
+full Bun privileges and can read the database or open a socket regardless, so
+installing remains the trust boundary. A real hostile-plugin promise needs WASI
+or an OS-isolated runner, and providers are trusted by construction — a
+`Storage` implementation sees every byte by definition.

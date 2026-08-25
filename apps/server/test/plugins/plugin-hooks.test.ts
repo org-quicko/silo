@@ -149,27 +149,85 @@ describe("plugin hooks", () => {
     expect(entry.id).toBeTruthy();
   }, 30000);
 
-  test("ctx writes are claim-checked and carry a plugin origin", async () => {
+  /**
+   * Three writes, not one — the count is the whole point (D33).
+   *
+   * A hook writing through `ctx` used to re-enter its own runtime and block on
+   * the per-plugin mutex its own caller held, so the dispatch sat until
+   * `timeout_ms` and `WorkerHost` destroyed the worker; there is no restart, so
+   * the plugin was dead for the rest of the process. With one write the entry
+   * still landed (the store write precedes the hook), so the assertion passed
+   * and the deadlock was invisible — it showed only as a test that took exactly
+   * `timeout_ms` to pass. The second write is what exposes it.
+   */
+  test("a hook may write through ctx repeatedly without stalling or dying", async () => {
     await load([
       pluginConfig("mirror", {
         claims: ["collections:*/*/*:entries:create"],
         config: { into: "mirrors" },
+        timeout_ms: 2000,
       }),
     ]);
 
-    const entry = await service.entries.create(scope, "posts", { title: "source" });
-
-    // afterWrite is best-effort and dispatched after the write returns, so the
-    // mirror may not have landed yet. Poll rather than sleep a fixed amount.
-    let mirrors = { total: 0 } as { total: number };
-    for (let i = 0; i < 100 && mirrors.total === 0; i++) {
-      mirrors = await service.entries.list(scope, "mirrors", {});
-      if (mirrors.total === 0) await Bun.sleep(20);
+    const started = Bun.nanoseconds();
+    const entries = [];
+    for (const title of ["one", "two", "three"]) {
+      entries.push(await service.entries.create(scope, "posts", { title }));
     }
-    expect(mirrors.total).toBe(1);
 
-    const [mirror] = (await service.entries.list(scope, "mirrors", {})).items;
-    expect(mirror!.data.title).toBe(`copy of ${entry.id}`);
+    // afterWrite is best-effort and dispatched after the write returns, so a
+    // mirror may not have landed yet. Poll rather than sleep a fixed amount.
+    let mirrors = await service.entries.list(scope, "mirrors", {});
+    for (let i = 0; i < 100 && mirrors.total < 3; i++) {
+      await Bun.sleep(20);
+      mirrors = await service.entries.list(scope, "mirrors", {});
+    }
+
+    // Every write mirrored: the plugin survived its own first ctx call.
+    expect(mirrors.total).toBe(3);
+    expect(mirrors.items.map((m) => m.data.title).sort()).toEqual(
+      entries.map((e) => `copy of ${e.id}`).sort()
+    );
+
+    // And promptly. A deadlock resolved by the dispatch timeout would put this
+    // at or past `timeout_ms`, which is the shape the bug actually had.
+    const elapsedMs = (Bun.nanoseconds() - started) / 1_000_000;
+    expect(elapsedMs).toBeLessThan(2000);
+
+    // The mirror writes are themselves mirrored to nothing: the plugin is in
+    // its own causal chain by then, so the host does not dispatch back into it.
+    expect(mirrors.items.every((m) => !m.data.title.startsWith("copy of copy"))).toBe(true);
+  }, 30000);
+
+  /**
+   * The property the causal chain buys over the `origin` check it replaces:
+   * neither plugin here ever sees its own name on an event, because each is
+   * told about the *other's* write. A self-check cannot break this loop; only
+   * the chain can (D33).
+   */
+  test("two plugins cannot ping-pong writes at each other", async () => {
+    await service.collections.putSchema(scope, "pings", {
+      type: "object",
+      properties: { note: { type: "string" } },
+    });
+    await service.collections.putSchema(scope, "pongs", {
+      type: "object",
+      properties: { note: { type: "string" } },
+    });
+
+    await load([
+      pluginConfig("pinger", { claims: ["collections:*/*/*:entries:create"], timeout_ms: 2000 }),
+      pluginConfig("ponger", { claims: ["collections:*/*/*:entries:create"], timeout_ms: 2000 }),
+    ]);
+
+    await service.entries.create(scope, "pings", { note: "start" });
+    await Bun.sleep(600);
+
+    // One trip around and then stopped: the seed ping, pinger's pong, ponger's
+    // ping. That last ping reaches neither plugin — both are already in its
+    // chain — so nothing further is written.
+    expect((await service.entries.list(scope, "pings", {})).total).toBe(2);
+    expect((await service.entries.list(scope, "pongs", {})).total).toBe(1);
   }, 30000);
 
   test("a plugin cannot use a claim the operator did not grant", async () => {

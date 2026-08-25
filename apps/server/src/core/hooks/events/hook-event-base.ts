@@ -3,7 +3,7 @@ import type { HookOrigin } from "../hook-origin";
 import type { HookScope } from "../hook-scope";
 
 /**
- * What every hook event carries (D31/§13.5).
+ * What every hook event carries (D31/§13.5, D33).
  *
  * Every field is plain JSON. That is not a style preference: extension plugins
  * run in a `Worker`, so a payload crosses a structured-clone boundary and a
@@ -16,7 +16,13 @@ export interface HookEventBase {
   origin: HookOrigin;
   scope: HookScope;
   collection: string;
-  /** How many plugin-originated writes deep this dispatch is. Bounded by
-   *  `HookBus.MaxDepth` so a hook that writes cannot recurse forever. */
-  depth: number;
+
+  /**
+   * The plugins whose hooks caused this one, in order (see `WriteContext`).
+   *
+   * Host-side only: `WorkerHost` projects it to a `depth` count at the clone
+   * boundary, because a plugin needs to know how nested it is and has no
+   * business learning which *other* plugins are installed.
+   */
+  chain: readonly string[];
 }

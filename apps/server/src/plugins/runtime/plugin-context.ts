@@ -2,6 +2,7 @@ import { Claims } from "@silo/shared/claims";
 import type { CollectionPermission } from "@silo/shared/collection-permission";
 import { Scope } from "../../core/domain/scope";
 import { EntryUtils } from "../../core/domain/entry-utils";
+import type { WriteContext } from "../../core/hooks";
 import { ForbiddenError } from "../../core/errors/forbidden-error";
 import { ValidationError } from "@silo/shared/validation-error";
 import type { SiloService } from "../../core/services/silo-service";
@@ -22,16 +23,12 @@ import type { PluginRpc } from "../host";
  * this stops is a plugin *quietly* doing more than its manifest said, which is
  * the failure that actually happens. Containment is §13.4's business, and its
  * honest limit is stated there.
+ *
+ * It holds **no per-dispatch state** (D33). It used to hold a `depth`, which
+ * forced a runtime to serialise its own dispatches so that one number could
+ * describe them — and that lock deadlocked every hook that wrote through here.
  */
 export class PluginContext implements PluginRpc {
-  /**
-   * How many plugin-originated writes deep the dispatch currently being served
-   * is. Set by `PluginRuntime` around each dispatch, which is sound because a
-   * runtime serialises its own dispatches — without that, one field could not
-   * describe two interleaved ones.
-   */
-  depth = 0;
-
   private readonly name: string;
   private readonly claims: readonly string[];
   private readonly service: SiloService;
@@ -68,18 +65,30 @@ export class PluginContext implements PluginRpc {
     }
   }
 
-  async call(method: string, args: readonly unknown[]): Promise<unknown> {
+  /**
+   * Serve one callback.
+   *
+   * `cause` is the causal chain of the dispatch this call came out of, handed
+   * back by the host rather than remembered here: a context serves callbacks
+   * from every in-flight dispatch of its plugin at once, so a field could not
+   * say which one any given call belongs to (D33).
+   */
+  async call(
+    method: string,
+    args: readonly unknown[],
+    cause: readonly string[]
+  ): Promise<unknown> {
     switch (method) {
       case "entries.get":
         return await this.get(args);
       case "entries.list":
         return await this.list(args);
       case "entries.create":
-        return await this.create(args);
+        return await this.create(args, cause);
       case "entries.update":
-        return await this.update(args);
+        return await this.update(args, cause);
       case "entries.delete":
-        return await this.remove(args);
+        return await this.remove(args, cause);
       default:
         throw new Error(`plugin "${this.name}": unknown context method "${method}"`);
     }
@@ -102,13 +111,13 @@ export class PluginContext implements PluginRpc {
     };
   }
 
-  private async create(args: readonly unknown[]): Promise<unknown> {
+  private async create(args: readonly unknown[], cause: readonly string[]): Promise<unknown> {
     const { scope, collection } = this.target(args, "entries:create");
-    const entry = await this.service.entries.create(scope, collection, args[2], this.write());
+    const entry = await this.service.entries.create(scope, collection, args[2], this.write(cause));
     return EntryUtils.toApiResponse(entry);
   }
 
-  private async update(args: readonly unknown[]): Promise<unknown> {
+  private async update(args: readonly unknown[], cause: readonly string[]): Promise<unknown> {
     const { scope, collection } = this.target(args, "entries:update");
     const entry = await this.service.entries.update(
       scope,
@@ -116,33 +125,43 @@ export class PluginContext implements PluginRpc {
       this.id(args[2]),
       args[3],
       this.rev(args[4]),
-      this.write()
+      this.write(cause)
     );
     return EntryUtils.toApiResponse(entry);
   }
 
-  private async remove(args: readonly unknown[]): Promise<unknown> {
+  private async remove(args: readonly unknown[], cause: readonly string[]): Promise<unknown> {
     const { scope, collection } = this.target(args, "entries:delete");
-    await this.service.entries.delete(scope, collection, this.id(args[2]), this.rev(args[3]), this.write());
+    await this.service.entries.delete(
+      scope,
+      collection,
+      this.id(args[2]),
+      this.rev(args[3]),
+      this.write(cause)
+    );
     return null;
   }
 
   /**
-   * The write context a plugin-originated write carries.
+   * The write context a plugin-originated write carries: this plugin appended
+   * to the chain that caused it (D33).
    *
-   * Refused rather than truncated past the limit: a silently un-run hook is the
-   * failure this whole design exists to avoid, so the loop is broken with an
-   * error naming the plugin instead of by quietly not dispatching.
+   * The chain is what stops a cycle — `HookBus` will not dispatch back into a
+   * plugin already named in it — so this bound is only a cap on how many
+   * *distinct* plugins may chain off one request. Refused rather than
+   * truncated: a silently un-run hook is the failure this whole design exists
+   * to avoid, so a runaway fan-out is broken with an error naming the chain
+   * instead of by quietly not dispatching.
    */
-  private write(): { origin: `plugin:${string}`; depth: number } {
-    const depth = this.depth + 1;
-    if (depth > this.maxDepth) {
+  private write(cause: readonly string[]): WriteContext {
+    const chain = [...cause, this.name];
+    if (chain.length > this.maxDepth) {
       throw new ForbiddenError(
-        `plugin "${this.name}": write refused at hook depth ${depth} (limit ${this.maxDepth}) — ` +
-          `a hook is writing in a loop.`
+        `plugin "${this.name}": write refused at hook depth ${chain.length} ` +
+          `(limit ${this.maxDepth}) — the chain was ${chain.join(" -> ")}.`
       );
     }
-    return { origin: `plugin:${this.name}`, depth };
+    return { origin: `plugin:${this.name}`, chain };
   }
 
   /** The scope and collection an argument list names, once the plugin has been

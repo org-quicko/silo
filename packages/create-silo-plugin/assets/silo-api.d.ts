@@ -21,8 +21,9 @@ declare module "silo:api" {
   export interface SiloHookEvent {
     op: "create" | "update" | "delete";
     /** `api` for a request, or `plugin:<name>` for a write another plugin
-     *  made. Check it to ignore your own writes — two plugins that do not will
-     *  ping-pong invisibly. (`import` is reserved but never raised: the
+     *  made. Informational: silo does not deliver an event to a plugin already
+     *  in the chain that caused it, so you never see your own writes and two
+     *  plugins cannot ping-pong. (`import` is reserved but never raised: the
      *  transfer paths do not dispatch hooks.) */
     origin: string;
     scope: SiloScope;
