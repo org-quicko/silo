@@ -4,10 +4,7 @@ import { Claims } from '@silo/shared/claims'
 import type { ScopeRef } from '../../api/types/scope-ref'
 import { Button } from '../../components/buttons/Button'
 import { Breadcrumb } from '../../components/navigation/Breadcrumb'
-import { SmartSearch } from '../search/SmartSearch'
-import type { PaletteSeed } from '../search/palette-seed'
 import { TopBar } from '../shell/TopBar'
-import type { SessionBadge } from '../shell/session-badge'
 import { CollectionPicker } from './CollectionPicker'
 import { KeyRoles } from './key-roles'
 import { NewKeyCapabilities } from './NewKeyCapabilities'
@@ -19,18 +16,13 @@ import { useNewKeyForm } from './use-new-key-form'
 import styles from './NewKey.module.css'
 
 interface Props {
-  serverId: string
   url: string
   apiKey: string
   /** The settings scope, used only as the *default* reach — never as a hidden one. */
   scope: ScopeRef | null
-  smartCollections: readonly { name: string; count: number | null; schema?: any }[]
   ownClaims: string[]
   projects: string[]
-  session: SessionBadge
   keysUrl: string
-  onOpenPalette: (seed: PaletteSeed) => void
-  onNavigateToCollection: (name: string, q: string) => void
   onCancel: () => void
   onDone: () => void
 }
@@ -45,38 +37,22 @@ interface Props {
  * takes over when even those are not enough.
  */
 export function NewKeyView({
-  serverId,
   url,
   apiKey,
   scope,
-  smartCollections,
   ownClaims,
   projects,
-  session,
   keysUrl,
-  onOpenPalette,
-  onNavigateToCollection,
   onCancel,
   onDone,
 }: Props) {
   const form = useNewKeyForm(url, apiKey, ownClaims, scope)
   const [advancedOpen, setAdvancedOpen] = useState(false)
 
-  const search = (
-    <SmartSearch
-      serverId={serverId}
-      scope={scope}
-      collection={null}
-      collections={smartCollections}
-      onNavigateToCollection={onNavigateToCollection}
-      onOpenPalette={onOpenPalette}
-    />
-  )
-
   if (form.created) {
     return (
       <>
-        <TopBar search={search} session={session} />
+        <TopBar />
         <div className="content">
           <Breadcrumb crumbs={[{ label: 'API keys', to: keysUrl }, { label: 'Key created' }]} />
           <div className={styles.wrap}>
@@ -92,7 +68,7 @@ export function NewKeyView({
 
   return (
     <>
-      <TopBar search={search} session={session}>
+      <TopBar>
         <Button variant="secondary" onClick={onCancel}>
           Cancel
         </Button>

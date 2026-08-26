@@ -7,11 +7,8 @@ import { DangerConfirm } from '../../../components/modal/DangerConfirm'
 import { api } from '../../../api/silo-api'
 import { Routes } from '../../../router/routes'
 import { TopBar } from '../../shell/TopBar'
-import { SmartSearch } from '../../search/SmartSearch'
-import type { PaletteSeed } from '../../search/palette-seed'
 import type { Server } from '../../servers/server'
 import styles from '../SettingsView.module.css'
-import type { SessionBadge } from '../../shell/session-badge'
 
 /**
  * What a project *is* on this instance, and the one irreversible thing you can
@@ -24,20 +21,12 @@ export function ProjectGeneralPage({
   project,
   environments,
   claims,
-  session,
-  smartCollections,
-  onOpenPalette,
-  onNavigateToCollection,
   onDeleted,
 }: {
   server: Server
   project: string
   environments: string[]
   claims: string[]
-  session: SessionBadge
-  smartCollections: readonly { name: string; count: number | null; schema?: any }[]
-  onOpenPalette: (seed: PaletteSeed) => void
-  onNavigateToCollection: (name: string, q: string) => void
   onDeleted: () => void
 }) {
   const [confirming, setConfirming] = useState(false)
@@ -63,19 +52,7 @@ export function ProjectGeneralPage({
 
   return (
     <>
-      <TopBar
-        search={
-          <SmartSearch
-            serverId={server.id}
-            scope={null}
-            collection={null}
-            collections={smartCollections}
-            onNavigateToCollection={onNavigateToCollection}
-            onOpenPalette={onOpenPalette}
-          />
-        }
-        session={session}
-      />
+      <TopBar />
 
       <div className="content">
         <Breadcrumb

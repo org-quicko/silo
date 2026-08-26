@@ -11,11 +11,8 @@ import type { ScopeRef } from '../../../api/types/scope-ref'
 import { router } from '../../../router/router'
 import { Routes } from '../../../router/routes'
 import { TopBar } from '../../shell/TopBar'
-import { SmartSearch } from '../../search/SmartSearch'
-import type { PaletteSeed } from '../../search/palette-seed'
 import type { Server } from '../../servers/server'
 import styles from '../SettingsView.module.css'
-import type { SessionBadge } from '../../shell/session-badge'
 
 /**
  * One environment: what it holds, how to address it, and how to delete it.
@@ -27,20 +24,12 @@ export function EnvGeneralPage({
   scope,
   collections,
   claims,
-  session,
-  smartCollections,
-  onOpenPalette,
-  onNavigateToCollection,
   onDeleted,
 }: {
   server: Server
   scope: ScopeRef
   collections: Collection[]
   claims: string[]
-  session: SessionBadge
-  smartCollections: readonly { name: string; count: number | null; schema?: any }[]
-  onOpenPalette: (seed: PaletteSeed) => void
-  onNavigateToCollection: (name: string, q: string) => void
   onDeleted: () => void
 }) {
   const [confirming, setConfirming] = useState(false)
@@ -73,27 +62,7 @@ export function EnvGeneralPage({
 
   return (
     <>
-      <TopBar
-        search={
-          <SmartSearch
-            serverId={server.id}
-            scope={scope}
-            collection={null}
-            collections={smartCollections}
-            onNavigateToCollection={onNavigateToCollection}
-            onOpenPalette={onOpenPalette}
-          />
-        }
-        session={session}
-      >
-        <Button
-          variant="secondary"
-          onClick={() => router.navigate(Routes.collections(server.id, scope.project, scope.env))}
-        >
-          <ExternalLink size={14} />
-          <span>Open workspace</span>
-        </Button>
-      </TopBar>
+      <TopBar />
 
       <div className="content">
         <Breadcrumb
@@ -110,6 +79,15 @@ export function EnvGeneralPage({
               An environment of <b>{scope.project}</b>. Its collections and entries are entirely its own —
               nothing is shared with the project's other environments.
             </span>
+          </div>
+          <div className="head-actions">
+            <Button
+              variant="secondary"
+              onClick={() => router.navigate(Routes.collections(server.id, scope.project, scope.env))}
+            >
+              <ExternalLink size={14} />
+              <span>Open workspace</span>
+            </Button>
           </div>
         </div>
 

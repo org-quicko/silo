@@ -32,7 +32,7 @@ textarea {
 }
 
 ::selection {
-  background: rgba(124, 134, 255, 0.3);
+  background: color-mix(in oklab, var(--accent) 30%, transparent);
 }
 
 *::-webkit-scrollbar {

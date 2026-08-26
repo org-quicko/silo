@@ -8,12 +8,9 @@ import { Routes } from '../../../router/routes'
 import type { ScopeRef } from '../../../api/types/scope-ref'
 import { useScopeCopy } from './use-scope-copy'
 import { TopBar } from '../../shell/TopBar'
-import { SmartSearch } from '../../search/SmartSearch'
-import type { PaletteSeed } from '../../search/palette-seed'
 import type { Server } from '../../servers/server'
 import settings from '../SettingsView.module.css'
 import styles from './EnvTransferPage.module.css'
-import type { SessionBadge } from '../../shell/session-badge'
 
 type Mode = 'merge' | 'replace'
 type Prefer = '' | 'local' | 'remote'
@@ -31,39 +28,19 @@ export function EnvTransferPage({
   scope,
   projects,
   claims,
-  session,
-  smartCollections,
-  onOpenPalette,
-  onNavigateToCollection,
 }: {
   server: Server
   /** The destination — the environment whose settings these are. */
   scope: ScopeRef
   projects: string[]
   claims: string[]
-  session: SessionBadge
-  smartCollections: readonly { name: string; count: number | null; schema?: any }[]
-  onOpenPalette: (seed: PaletteSeed) => void
-  onNavigateToCollection: (name: string, q: string) => void
 }) {
   const copy = useScopeCopy(server, scope, claims)
 
 
   return (
     <>
-      <TopBar
-        search={
-          <SmartSearch
-            serverId={server.id}
-            scope={scope}
-            collection={null}
-            collections={smartCollections}
-            onNavigateToCollection={onNavigateToCollection}
-            onOpenPalette={onOpenPalette}
-          />
-        }
-        session={session}
-      />
+      <TopBar />
 
       <div className="content">
         <Breadcrumb

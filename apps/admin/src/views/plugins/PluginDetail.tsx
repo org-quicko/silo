@@ -6,11 +6,7 @@ import { Button } from '../../components/buttons/Button'
 import { Breadcrumb } from '../../components/navigation/Breadcrumb'
 import { Routes } from '../../router/routes'
 import type { PluginView } from '../../api/types/plugin-view'
-import type { ScopeRef } from '../../api/types/scope-ref'
 import { TopBar } from '../shell/TopBar'
-import { SmartSearch } from '../search/SmartSearch'
-import type { PaletteSeed } from '../search/palette-seed'
-import type { SessionBadge } from '../shell/session-badge'
 import { PluginActivityCard } from './PluginActivityCard'
 import { PluginConfigCard } from './PluginConfigCard'
 import { PluginGrantCard } from './PluginGrantCard'
@@ -36,25 +32,15 @@ export function PluginDetailView({
   name,
   url,
   apiKey,
-  scope,
   projects,
-  smartCollections,
   claims,
-  session,
-  onOpenPalette,
-  onNavigateToCollection,
 }: {
   serverId: string
   name: string
   url: string
   apiKey: string
-  scope: ScopeRef | null
   projects: string[]
-  smartCollections: readonly { name: string; count: number | null; schema?: any }[]
   claims: string[]
-  session: SessionBadge
-  onOpenPalette: (seed: PaletteSeed) => void
-  onNavigateToCollection: (name: string, q: string) => void
 }) {
   const { plugin, loading, error, apply, reload } = usePlugin(url, apiKey, name)
   const [busy, setBusy] = useState(false)
@@ -103,19 +89,7 @@ export function PluginDetailView({
 
   return (
     <>
-      <TopBar
-        search={
-          <SmartSearch
-            serverId={serverId}
-            scope={scope}
-            collection={null}
-            collections={smartCollections}
-            onNavigateToCollection={onNavigateToCollection}
-            onOpenPalette={onOpenPalette}
-          />
-        }
-        session={session}
-      >
+      <TopBar>
         {plugin && canEnable && PluginContributionWords.runsInWorker(plugin.contributes) && (
           <Button
             variant="secondary"

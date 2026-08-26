@@ -9,11 +9,7 @@ import { Link } from '../../router/Link'
 import { Routes } from '../../router/routes'
 import type { PluginView } from '../../api/types/plugin-view'
 import type { RescanReport } from '../../api/types/rescan-report'
-import type { ScopeRef } from '../../api/types/scope-ref'
 import { TopBar } from '../shell/TopBar'
-import { SmartSearch } from '../search/SmartSearch'
-import type { PaletteSeed } from '../search/palette-seed'
-import type { SessionBadge } from '../shell/session-badge'
 import { PluginGrantPlan } from './plugin-grant-plan'
 import { PluginRuntimePill } from './PluginRuntimePill'
 import { PluginContributionWords } from './plugin-contribution-words'
@@ -55,22 +51,12 @@ export function PluginsView({
   serverId,
   url,
   apiKey,
-  scope,
-  smartCollections,
   claims,
-  session,
-  onOpenPalette,
-  onNavigateToCollection,
 }: {
   serverId: string
   url: string
   apiKey: string
-  scope: ScopeRef | null
-  smartCollections: readonly { name: string; count: number | null; schema?: any }[]
   claims: string[]
-  session: SessionBadge
-  onOpenPalette: (seed: PaletteSeed) => void
-  onNavigateToCollection: (name: string, q: string) => void
 }) {
   const { plugins, loading, error, reload } = usePlugins(url, apiKey)
   const [report, setReport] = useState<RescanReport | null>(null)
@@ -98,25 +84,7 @@ export function PluginsView({
 
   return (
     <>
-      <TopBar
-        search={
-          <SmartSearch
-            serverId={serverId}
-            scope={scope}
-            collection={null}
-            collections={smartCollections}
-            onNavigateToCollection={onNavigateToCollection}
-            onOpenPalette={onOpenPalette}
-          />
-        }
-        session={session}
-      >
-        {canRescan && (
-          <Button variant="secondary" onClick={rescan} disabled={rescanning}>
-            <RefreshCw size={14} /> {rescanning ? 'Re-reading…' : 'Re-read silo.toml'}
-          </Button>
-        )}
-      </TopBar>
+      <TopBar />
 
       <div className="content">
         <Breadcrumb crumbs={[{ label: 'Admin' }, { label: 'Plugins' }]} />
@@ -128,6 +96,13 @@ export function PluginsView({
               and withdrawing one takes effect immediately.
             </span>
           </div>
+          {canRescan && (
+            <div className="head-actions">
+              <Button variant="secondary" onClick={rescan} disabled={rescanning}>
+                <RefreshCw size={14} /> {rescanning ? 'Re-reading…' : 'Re-read silo.toml'}
+              </Button>
+            </div>
+          )}
         </div>
 
         {error && (

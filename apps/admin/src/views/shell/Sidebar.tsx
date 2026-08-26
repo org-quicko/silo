@@ -1,10 +1,11 @@
 import { useState, useMemo, useCallback, useRef, useEffect } from 'react'
-import { Plus, Image, ChevronsUpDown, Settings, Search, SlidersHorizontal, X } from 'lucide-react'
+import { Plus, Image, ChevronsUpDown, Settings, Search, X, Shield } from 'lucide-react'
 import { Claims } from '@silo/shared/claims'
 import { SiloMark } from '../../components/brand/SiloMark'
 import { Link } from '../../router/Link'
 import { Routes } from '../../router/routes'
 import type { ScopeRef } from '../../api/types/scope-ref'
+import { ACCESS_TEXT, type SessionBadge } from './session-badge'
 import styles from './Sidebar.module.css'
 
 const DEFAULT_WIDTH = 248
@@ -25,7 +26,7 @@ export function Sidebar({
   claims,
   version,
   instanceLabel,
-  totalEntries,
+  session,
   scope,
   onOpenServerBrowser,
 }: {
@@ -36,7 +37,7 @@ export function Sidebar({
   claims: string[]
   version: string
   instanceLabel: string
-  totalEntries: number | null
+  session: SessionBadge
   url: string
   apiKey: string
   scope: ScopeRef
@@ -164,13 +165,13 @@ export function Sidebar({
           onClick={onOpenServerBrowser}
           title="Switch server, project, or environment"
         >
-          <div className={styles.instanceHeader}>
+          <div className={styles.instanceText}>
             <span className={styles.instanceName}>{instanceLabel}</span>
-            <ChevronsUpDown size={13} className={styles.instanceChevron} />
+            <span className={styles.instanceSubtitle}>
+              {scope.project} · {scope.env}
+            </span>
           </div>
-          <span className={styles.instanceSubtitle}>
-            {scope.project} · {scope.env}
-          </span>
+          <ChevronsUpDown size={13} className={styles.instanceChevron} />
         </button>
       </div>
 
@@ -188,20 +189,11 @@ export function Sidebar({
               // filter would close it and then immediately reopen it.
               onMouseDown={(event) => event.preventDefault()}
               onClick={() => (filterOpen ? closeFilter() : setFilterOpen(true))}
-              title="Filter collections (⌥F)"
-              aria-label="Filter collections"
+              title="Search collections (⌥F)"
+              aria-label="Search collections"
             >
-              <SlidersHorizontal size={12} />
+              <Search size={15} />
             </button>
-          )}
-          {canCreateCollection && (
-            <Link
-              to={Routes.schema(serverId, scope.project, scope.env, null)}
-              className={styles.groupIcon}
-              title="New collection"
-            >
-              <Plus size={13} />
-            </Link>
           )}
         </div>
 
@@ -212,7 +204,7 @@ export function Sidebar({
               ref={filterInput}
               type="text"
               className={styles.searchInput}
-              placeholder="Filter collections…"
+              placeholder="Search collections…"
               value={search}
               onChange={(event) => setSearch(event.target.value)}
               onKeyDown={(event) => {
@@ -223,7 +215,7 @@ export function Sidebar({
                 // still reading should not vanish out from under them.
                 if (!search) setFilterOpen(false)
               }}
-              aria-label="Filter collections"
+              aria-label="Search collections"
             />
             {search && (
               <button
@@ -237,6 +229,16 @@ export function Sidebar({
               </button>
             )}
           </div>
+        )}
+
+        {canCreateCollection && (
+          <Link
+            to={Routes.schema(serverId, scope.project, scope.env, null)}
+            className={styles.newCollectionBtn}
+          >
+            <Plus size={13} />
+            New collection
+          </Link>
         )}
 
         <div className={styles.list}>
@@ -265,44 +267,42 @@ export function Sidebar({
         </div>
       </div>
 
-      {showMedia && (
-        <>
-          <div className={styles.divider} />
-          <div className={`${styles.list} ${styles.panelList}`}>
-            <Link
-              to={Routes.media(serverId, scope.project, scope.env)}
-              className={`${styles.item} ${activePanel === 'media' ? styles.active : ''}`}
-            >
-              <span className={styles.itemIcon}><Image size={15} /></span>
-              <span className={styles.itemName}>Media Library</span>
-            </Link>
-          </div>
-        </>
-      )}
-
-      <div className={styles.admin}>
-        <div className={styles.divider} />
-        <span className={`${styles.groupLabel} ${styles.adminLabel}`}>
-          ADMIN
-        </span>
-        <div className={styles.list}>
+      <div className={styles.divider} />
+      <div className={`${styles.list} ${styles.panelList}`}>
+        {showMedia && (
           <Link
-            to={Routes.projectSettings(serverId, scope.project, 'general')}
-            className={styles.item}
+            to={Routes.media(serverId, scope.project, scope.env)}
+            className={`${styles.item} ${activePanel === 'media' ? styles.active : ''}`}
           >
-            <span className={styles.itemIcon}>
-              <Settings size={15} />
-            </span>
-            <span className={styles.itemName}>Settings</span>
+            <span className={styles.itemIcon}><Image size={15} /></span>
+            <span className={styles.itemName}>Media Library</span>
           </Link>
-        </div>
+        )}
+        <Link
+          to={Routes.projectSettings(serverId, scope.project, 'general')}
+          className={styles.item}
+        >
+          <span className={styles.itemIcon}>
+            <Settings size={15} />
+          </span>
+          <span className={styles.itemName}>Settings</span>
+        </Link>
       </div>
 
+      <div className={styles.divider} />
+
+      {/* Not a control — states what the connected key can do here and
+          which server it's talking to. No affordance implies a click that
+          does nothing, so this is a plain row, not a button. */}
       <div className={styles.footer}>
-        <span className={styles.connection}>
-          <span className={styles.pulse} /> connected
+        <span className={styles.accountIcon}>
+          <Shield size={14} />
+          <span className={`${styles.presenceDot} ${styles[session.level]}`} />
         </span>
-        {totalEntries != null && <span className={styles.entryCount}>{totalEntries} entries</span>}
+        <span className={styles.accountCopy}>
+          <span className={styles.accountPrimary}>{ACCESS_TEXT[session.level]}</span>
+          <span className={styles.accountSecondary}>Connected · {instanceLabel}</span>
+        </span>
       </div>
 
       <div

@@ -6,42 +6,26 @@ import { StatTile } from '../../components/data/StatTile'
 import { Upload, Download, Check, RefreshCw, X } from 'lucide-react'
 import { Claims } from '@silo/shared/claims'
 import { useArchiveTransfer } from './use-archive-transfer'
-import type { ScopeRef } from '../../api/types/scope-ref'
 import { Toggle } from '../../components/controls/Toggle'
 import { TopBar } from '../shell/TopBar'
-import { SmartSearch } from '../search/SmartSearch'
-import type { PaletteSeed } from '../search/palette-seed'
 import { CopyServerPanel } from './CopyServer'
 import styles from './Transfer.module.css'
-import type { SessionBadge } from '../shell/session-badge'
 
 type Mode = 'merge' | 'replace'
 type Prefer = '' | 'local' | 'remote'
 
 export function ExportImportView({
-  serverId,
   url: serverUrl,
   apiKey,
-  scope,
-  smartCollections,
   claims,
-  session,
   collectionCount,
-  onOpenPalette,
-  onNavigateToCollection,
   onImported,
   onDestinationKeyChanged,
 }: {
-  serverId: string
   url: string
   apiKey: string
-  scope: ScopeRef | null
-  smartCollections: readonly { name: string; count: number | null; schema?: any }[]
   claims: string[]
-  session: SessionBadge
   collectionCount: number
-  onOpenPalette: (seed: PaletteSeed) => void
-  onNavigateToCollection: (name: string, q: string) => void
   onImported: () => void
   onDestinationKeyChanged: (key: string) => void
 }) {
@@ -62,19 +46,7 @@ export function ExportImportView({
 
   return (
     <>
-      <TopBar
-        search={
-          <SmartSearch
-            serverId={serverId}
-            scope={scope}
-            collection={null}
-            collections={smartCollections}
-            onNavigateToCollection={onNavigateToCollection}
-            onOpenPalette={onOpenPalette}
-          />
-        }
-        session={session}
-      />
+      <TopBar />
 
       <div className="content">
         <Breadcrumb crumbs={[{ label: 'Admin' }, { label: 'Data transfer' }]} />

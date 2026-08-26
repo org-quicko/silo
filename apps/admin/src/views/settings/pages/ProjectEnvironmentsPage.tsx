@@ -7,11 +7,8 @@ import { api } from '../../../api/silo-api'
 import { Link } from '../../../router/Link'
 import { Routes } from '../../../router/routes'
 import { TopBar } from '../../shell/TopBar'
-import { SmartSearch } from '../../search/SmartSearch'
-import type { PaletteSeed } from '../../search/palette-seed'
 import type { Server } from '../../servers/server'
 import styles from '../SettingsView.module.css'
-import type { SessionBadge } from '../../shell/session-badge'
 
 /**
  * The environments of one project. The project is named by the URL, so this
@@ -24,10 +21,6 @@ export function ProjectEnvironmentsPage({
   environments,
   loading,
   claims,
-  session,
-  smartCollections,
-  onOpenPalette,
-  onNavigateToCollection,
   onChanged,
 }: {
   server: Server
@@ -35,10 +28,6 @@ export function ProjectEnvironmentsPage({
   environments: string[]
   loading: boolean
   claims: string[]
-  session: SessionBadge
-  smartCollections: readonly { name: string; count: number | null; schema?: any }[]
-  onOpenPalette: (seed: PaletteSeed) => void
-  onNavigateToCollection: (name: string, q: string) => void
   onChanged: () => void
 }) {
   const [isAdding, setIsAdding] = useState(false)
@@ -72,26 +61,7 @@ export function ProjectEnvironmentsPage({
 
   return (
     <>
-      <TopBar
-        search={
-          <SmartSearch
-            serverId={server.id}
-            scope={null}
-            collection={null}
-            collections={smartCollections}
-            onNavigateToCollection={onNavigateToCollection}
-            onOpenPalette={onOpenPalette}
-          />
-        }
-        session={session}
-      >
-        {canCreate && !isAdding && (
-          <Button variant="primary" onClick={() => setIsAdding(true)}>
-            <Plus size={14} />
-            <span>New environment</span>
-          </Button>
-        )}
-      </TopBar>
+      <TopBar />
 
       <div className="content">
         <Breadcrumb
@@ -108,6 +78,14 @@ export function ProjectEnvironmentsPage({
               dev. Nothing is shared between them except the server itself.
             </span>
           </div>
+          {canCreate && !isAdding && (
+            <div className="head-actions">
+              <Button variant="primary" onClick={() => setIsAdding(true)}>
+                <Plus size={14} />
+                <span>New environment</span>
+              </Button>
+            </div>
+          )}
         </div>
 
         {error && (

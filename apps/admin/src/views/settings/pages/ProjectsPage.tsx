@@ -7,12 +7,8 @@ import { api } from '../../../api/silo-api'
 import { Link } from '../../../router/Link'
 import { Routes } from '../../../router/routes'
 import { TopBar } from '../../shell/TopBar'
-import { SmartSearch } from '../../search/SmartSearch'
-import type { PaletteSeed } from '../../search/palette-seed'
-import type { ScopeRef } from '../../../api/types/scope-ref'
 import type { Server } from '../../servers/server'
 import styles from '../SettingsView.module.css'
-import type { SessionBadge } from '../../shell/session-badge'
 
 /**
  * Every project on this instance, and creating one.
@@ -25,25 +21,15 @@ import type { SessionBadge } from '../../shell/session-badge'
  */
 export function ProjectsPage({
   server,
-  scope,
-  smartCollections,
   projects,
   loading,
   claims,
-  session,
-  onOpenPalette,
-  onNavigateToCollection,
   onChanged,
 }: {
   server: Server
-  scope: ScopeRef | null
-  smartCollections: readonly { name: string; count: number | null; schema?: any }[]
   projects: string[]
   loading: boolean
   claims: string[]
-  session: SessionBadge
-  onOpenPalette: (seed: PaletteSeed) => void
-  onNavigateToCollection: (name: string, q: string) => void
   onChanged: () => void
 }) {
   const [isAdding, setIsAdding] = useState(false)
@@ -77,26 +63,7 @@ export function ProjectsPage({
 
   return (
     <>
-      <TopBar
-        search={
-          <SmartSearch
-            serverId={server.id}
-            scope={scope}
-            collection={null}
-            collections={smartCollections}
-            onNavigateToCollection={onNavigateToCollection}
-            onOpenPalette={onOpenPalette}
-          />
-        }
-        session={session}
-      >
-        {canCreate && !isAdding && (
-          <Button variant="primary" onClick={() => setIsAdding(true)}>
-            <Plus size={14} />
-            <span>New project</span>
-          </Button>
-        )}
-      </TopBar>
+      <TopBar />
 
       <div className="content">
         <Breadcrumb crumbs={[{ label: 'Projects' }]} />
@@ -108,6 +75,14 @@ export function ProjectsPage({
               collections and entries.
             </span>
           </div>
+          {canCreate && !isAdding && (
+            <div className="head-actions">
+              <Button variant="primary" onClick={() => setIsAdding(true)}>
+                <Plus size={14} />
+                <span>New project</span>
+              </Button>
+            </div>
+          )}
         </div>
 
         {error && (

@@ -26,7 +26,7 @@
 }
 
 .primary:hover:not(:disabled) {
-  background: #8f98ff;
+  filter: brightness(1.08);
 }
 
 .secondary {

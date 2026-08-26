@@ -3,6 +3,7 @@ import { api } from '../../api/silo-api'
 import { ApiError } from '../../api/api-error'
 import type { MediaAsset } from '../../api/types/media-asset'
 import type { MediaInUse } from '../../api/types/media-usage'
+import { MediaPath } from './media-path'
 
 /** How many assets one page of the grid holds. */
 export const MediaPageSize = 48
@@ -10,9 +11,11 @@ export const MediaPageSize = 48
 /**
  * The library's contents and the operations that change them.
  *
- * Searching a folder is recursive: picking "/marketing" and seeing nothing
- * because everything sits in "/marketing/launch" reads as a broken filter, not
- * as a precise one.
+ * `folder` is where the browser currently is, one level at a time — a
+ * directory, not a filter. Listing it is non-recursive: what dropped the
+ * subtree-wide search (D23's original "no broken filter" reasoning) is that
+ * subfolders now render as their own tiles here rather than disappearing, so
+ * a folder's *own* files are exactly what "inside it" should show.
  */
 export function useMediaLibrary(url: string, apiKey: string, initialQuery: string) {
   const [assets, setAssets] = useState<MediaAsset[]>([])
@@ -20,6 +23,9 @@ export function useMediaLibrary(url: string, apiKey: string, initialQuery: strin
   const [offset, setOffset] = useState(0)
   const [folders, setFolders] = useState<string[]>([])
   const [folder, setFolder] = useState('')
+  /** Item count per visible subfolder — direct children only, fetched only
+   *  for the folders on screen, not the whole tree. */
+  const [folderCounts, setFolderCounts] = useState<Record<string, number>>({})
   const [search, setSearch] = useState(initialQuery)
   const [query, setQuery] = useState(initialQuery)
   const [loading, setLoading] = useState(true)
@@ -34,7 +40,7 @@ export function useMediaLibrary(url: string, apiKey: string, initialQuery: strin
       api.media.list(url, apiKey, {
         q: query || undefined,
         folder,
-        recursive: true,
+        recursive: false,
         limit: MediaPageSize,
         offset,
       }),
@@ -73,6 +79,30 @@ export function useMediaLibrary(url: string, apiKey: string, initialQuery: strin
     return () => clearTimeout(timer)
   }, [search])
 
+  const subfolders = MediaPath.children(folders, folder)
+
+  // One count-only request per subfolder on screen (limit 0 — just the
+  // total), plus each subfolder's own subfolder count read straight off the
+  // list already fetched. Never the whole tree, only what's rendered here.
+  useEffect(() => {
+    const visible = MediaPath.children(folders, folder)
+    if (visible.length === 0) return
+    let alive = true
+    Promise.all(
+      visible.map((path) =>
+        api.media
+          .list(url, apiKey, { folder: path, recursive: false, limit: 0 })
+          .then((page): [string, number] => [path, page.total + MediaPath.children(folders, path).length])
+          .catch((): [string, number] => [path, MediaPath.children(folders, path).length]),
+      ),
+    ).then((entries) => {
+      if (alive) setFolderCounts(Object.fromEntries(entries))
+    })
+    return () => {
+      alive = false
+    }
+  }, [url, apiKey, folders, folder])
+
   const selectFolder = (next: string) => {
     setFolder(next)
     setOffset(0)
@@ -83,11 +113,10 @@ export function useMediaLibrary(url: string, apiKey: string, initialQuery: strin
     total,
     offset,
     setOffset,
-    folders,
     folder,
+    subfolders,
+    folderCounts,
     selectFolder,
-    search,
-    setSearch,
     query,
     loading,
     uploading,

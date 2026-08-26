@@ -47,7 +47,7 @@ PROJECTS
       General                                    scope, collections, open workspace, delete behind a typed-name confirmation
       Data Transfer                              copy from another environment (D22)
 APPLICATION
-  Appearance                                     fonts, accent
+  Appearance                                     colour mode, theme, fonts, accent
 ```
 
 | Group | URL |
@@ -88,3 +88,5 @@ server connection is not — it destroys nothing on the instance — and takes a
 plain confirmation.
 
 `x-silo-ui` extension keys map to RJSF `uiSchema` (widget selection, field order, help text).
+
+**Appearance** is client-only state — `ThemeManager` persists it to `localStorage`, never to a server, so the choice follows the browser rather than the instance. Three things compose: a **colour mode** (light/dark/system, the last resolved live against `prefers-color-scheme`), a **theme** (an accent paired with the sidebar tint it was designed alongside — `--sidebar`/`--sidebar-hover`, distinct from the main content's `--panel`/`--panel-2` so a theme can read as more than a hue swap), and a **font**. Dark mode's per-theme sidebar hex applies as-is; light mode instead washes the sidebar from whatever accent is active, because hand-tuning a light-mode pair for every theme would double the palette for no visual gain light mode doesn't already get by deriving it. Picking a custom accent hex keeps the last theme's sidebar and labels the bundle `Custom`, matching how picking a font or a mode leaves the other two alone. The theme gallery groups **Featured** (duotone hero bundles), **Single colour**, and **Vision assistive** (colour-blind-safe accent/sidebar pairs) — the grouping is presentation only, every entry is the same `ThemePreset` shape.

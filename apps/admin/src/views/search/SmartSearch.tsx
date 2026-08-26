@@ -211,7 +211,7 @@ export function SmartSearch({
   }
 
   const active = text.trim() !== ''
-  const placeholder = chip ? `Search entries in ${chip}…` : 'Search everywhere…'
+  const placeholder = chip ? `Search entries in ${chip}…` : 'Search collections, entries, media, etc…'
 
   return (
     <div className={`${styles.wrap} ${focused ? styles.focused : ''}`}>

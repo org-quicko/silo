@@ -84,10 +84,6 @@ export function useWorkspaceSession(
     }
   }, [url, apiKey, refreshCollections, onDisconnect])
 
-  const totalEntries = collections.length
-    ? collections.reduce((sum, collection) => sum + (counts[collection.name] ?? 0), 0)
-    : null
-
   return {
     ready,
     sessionInfo,
@@ -95,7 +91,6 @@ export function useWorkspaceSession(
     version,
     collections,
     counts,
-    totalEntries,
     refreshCollections,
     refreshCounts: () => loadCounts(collections),
   }
