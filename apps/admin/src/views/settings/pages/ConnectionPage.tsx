@@ -19,41 +19,27 @@ import { ModalIcon } from '../../../components/modal/ModalIcon'
 import { Pill } from '../../../components/feedback/Pill'
 import { Breadcrumb } from '../../../components/navigation/Breadcrumb'
 import { TopBar } from '../../shell/TopBar'
-import { SmartSearch } from '../../search/SmartSearch'
-import type { PaletteSeed } from '../../search/palette-seed'
-import type { ScopeRef } from '../../../api/types/scope-ref'
 import type { Server } from '../../servers/server'
 import passwordStyles from '../../../components/controls/PasswordInput.module.css'
 import styles from '../SettingsView.module.css'
-import type { SessionBadge } from '../../shell/session-badge'
 import { useConnectionForm } from './use-connection-form'
 
 interface ConnectionPageProps {
   server: Server
-  session: SessionBadge
   claims: string[]
   sessionLabel: string
   keyPrefix: string
   version: string
-  scope: ScopeRef | null
-  smartCollections: readonly { name: string; count: number | null; schema?: any }[]
-  onOpenPalette: (seed: PaletteSeed) => void
-  onNavigateToCollection: (name: string, q: string) => void
   onUpdateServer: (patch: Partial<Server>) => void
   onDeleteServer: () => void
 }
 
 export function ConnectionPage({
   server,
-  session,
   claims: initialClaims,
   sessionLabel: initialSessionLabel,
   keyPrefix: initialKeyPrefix,
   version: initialVersion,
-  scope,
-  smartCollections,
-  onOpenPalette,
-  onNavigateToCollection,
   onUpdateServer,
   onDeleteServer,
 }: ConnectionPageProps) {
@@ -73,19 +59,7 @@ export function ConnectionPage({
 
   return (
     <>
-      <TopBar
-        search={
-          <SmartSearch
-            serverId={server.id}
-            scope={scope}
-            collection={null}
-            collections={smartCollections}
-            onNavigateToCollection={onNavigateToCollection}
-            onOpenPalette={onOpenPalette}
-          />
-        }
-        session={session}
-      />
+      <TopBar />
 
       <div className="content">
         <Breadcrumb crumbs={[{ label: server.name }, { label: 'Connection' }]} />

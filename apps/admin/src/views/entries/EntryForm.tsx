@@ -26,7 +26,6 @@ import { TopBar } from '../shell/TopBar'
 import { SmartSearch } from '../search/SmartSearch'
 import type { PaletteSeed } from '../search/palette-seed'
 import styles from './EntryForm.module.css'
-import type { SessionBadge } from '../shell/session-badge'
 
 // Convert server ValidationDetails (JSON Pointer paths) into RJSF extraErrors.
 function toExtraErrors(details?: ValidationDetail[]): any {
@@ -57,7 +56,6 @@ interface Props {
   apiKey: string
   scope: ScopeRef
   claims: string[]
-  session: SessionBadge
   /** URL of the collection's entry list — the breadcrumbs link back to it. */
   backTo: string
   onSaved: () => void
@@ -76,7 +74,6 @@ export function EntryForm({
   apiKey,
   scope,
   claims,
-  session,
   backTo,
   onSaved,
   onCancel,
@@ -168,7 +165,6 @@ export function EntryForm({
             onOpenPalette={onOpenPalette}
           />
         }
-        session={session}
       >
         {dirty && (
           <span className={styles.unsaved}>

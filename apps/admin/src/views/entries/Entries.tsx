@@ -28,7 +28,6 @@ import { EntryLabels } from './entry-labels'
 import { useEntriesData } from './use-entries-data'
 import { useMediaColumns } from './use-media-columns'
 import styles from './Entries.module.css'
-import type { SessionBadge } from '../shell/session-badge'
 
 const PAGE_SIZE = 50
 
@@ -41,7 +40,6 @@ interface Props {
   apiKey: string
   scope: ScopeRef
   claims: string[]
-  session: SessionBadge
   /** Text, filter, sort, page and column selection live in the URL, so a view is linkable. */
   query: ListQuery
   onQueryChange: (next: ListQuery, replace?: boolean) => void
@@ -61,7 +59,6 @@ export function EntriesView({
   apiKey,
   scope,
   claims,
-  session,
   query,
   onQueryChange,
   onEditSchema,
@@ -194,7 +191,6 @@ export function EntriesView({
             onOpenPalette={onOpenPalette}
           />
         }
-        session={session}
       />
 
       <div className="content">

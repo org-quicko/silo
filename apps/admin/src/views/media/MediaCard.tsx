@@ -1,5 +1,4 @@
 import { FileText, Link, Pencil, Trash2 } from 'lucide-react'
-import { MediaRef } from '@silo/shared/media-ref'
 import type { MediaAsset } from '../../api/types/media-asset'
 import { Button } from '../../components/buttons/Button'
 import { ByteSize } from '../../utils/byte-size'
@@ -16,7 +15,8 @@ interface Props {
   onDelete: () => void
 }
 
-/** One asset in the grid: preview, facts, and the four things you can do to it. */
+/** One asset in the grid: a preview, its facts, and — revealed on hover so
+ *  the tile stays quiet at rest — what you can do to it. */
 export function MediaCard({ asset, baseUrl, canEdit, canDelete, onEdit, onDelete }: Props) {
   const fileUrl = `${baseUrl}${asset.url}`
   const used = asset.usage_count || 0
@@ -51,27 +51,17 @@ export function MediaCard({ asset, baseUrl, canEdit, canDelete, onEdit, onDelete
             {MediaUsageBadge.label(asset)}
           </span>
         </div>
-        {asset.folder && <span className={styles.folderTag}>{asset.folder}</span>}
       </div>
 
       <div className={styles.actions}>
         <Button
           variant="secondary"
           size="sm"
-          className={styles.copyAction}
-          title="Copy the reference to paste into an entry"
-          onClick={() => navigator.clipboard.writeText(MediaRef.url(asset.id))}
-        >
-          <Link size={11} /> Ref
-        </Button>
-        <Button
-          variant="secondary"
-          size="sm"
-          className={styles.copyAction}
+          className={styles.iconAction}
           title="Copy the public URL"
           onClick={() => navigator.clipboard.writeText(fileUrl)}
         >
-          <Link size={11} /> URL
+          <Link size={11} />
         </Button>
         {canEdit && (
           <Button

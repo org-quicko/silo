@@ -6,7 +6,7 @@
   align-items: center;
   gap: 7px;
   padding: 0 4px 0 10px;
-  border: 1px solid rgba(124, 134, 255, 0.35);
+  border: 1px solid color-mix(in oklab, var(--accent) 35%, transparent);
   border-radius: 999px;
   background: var(--accent-soft);
   font-size: 12px;
@@ -38,11 +38,11 @@
   border: 0;
   border-radius: 99px;
   background: transparent;
-  color: #c2c7ff;
+  color: var(--accent);
   cursor: pointer;
 }
 
-.chipRemove:hover { background: rgba(124, 134, 255, 0.22); }
+.chipRemove:hover { background: color-mix(in oklab, var(--accent) 22%, transparent); }
 
 .addChip {
   height: 30px;

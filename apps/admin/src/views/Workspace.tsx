@@ -60,7 +60,7 @@ export function Workspace({
   }, [serverId, scope.project, scope.env])
 
   const session = useWorkspaceSession(url, apiKey, scope, onDisconnect)
-  const { ready, sessionInfo, claims, version, collections, counts, totalEntries } = session
+  const { ready, sessionInfo, claims, version, collections, counts } = session
 
   useRouteGuard(ready, route, claims, collections, serverId, scope)
 
@@ -116,7 +116,7 @@ export function Workspace({
         claims={claims}
         version={version}
         instanceLabel={server.name}
-        totalEntries={totalEntries}
+        session={sessionBadge}
         url={url}
         apiKey={apiKey}
         scope={scope}
@@ -131,7 +131,6 @@ export function Workspace({
             collections={smartCollections}
             url={url}
             apiKey={apiKey}
-            session={sessionBadge}
             claims={claims}
             initialQuery={route.q}
             onOpenPalette={setPalette}
@@ -153,7 +152,6 @@ export function Workspace({
               apiKey={apiKey}
               scope={scope}
               claims={claims}
-              session={sessionBadge}
               backTo={backTo}
               entryCount={activeCollection ? counts[activeCollection.name] ?? null : null}
               onOpenPalette={setPalette}
@@ -185,7 +183,6 @@ export function Workspace({
             scope={scope}
             entry={entry}
             claims={claims}
-            session={sessionBadge}
             backTo={Routes.entries(serverId, scope.project, scope.env, activeCollection.name)}
             onOpenPalette={setPalette}
             onNavigateToCollection={goToCollectionSearch}
@@ -215,7 +212,6 @@ export function Workspace({
             apiKey={apiKey}
             scope={scope}
             claims={claims}
-            session={sessionBadge}
             query={route.query}
             onQueryChange={(next: ListQuery, replace?: boolean) =>
               router.navigate(Routes.entries(serverId, scope.project, scope.env, activeCollection.name, next), { replace })
@@ -242,7 +238,6 @@ export function Workspace({
                   onOpenPalette={setPalette}
                 />
               }
-              session={sessionBadge}
             />
             <div className="content">
               <div className={`center-wrap ${styles.emptyCollections}`}>

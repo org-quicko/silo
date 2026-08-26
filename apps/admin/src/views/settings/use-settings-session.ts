@@ -63,11 +63,5 @@ export function useSettingsSession(url: string, apiKey: string, scope: ScopeRef 
     keyPrefix,
     version,
     collections,
-    /** What every `SmartSearch` on these pages offers its `@`-mention popup. */
-    smartCollections: collections.map((collection) => ({
-      name: collection.name,
-      count: null,
-      schema: collection.schema,
-    })),
   }
 }

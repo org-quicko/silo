@@ -1,23 +1,32 @@
 import { useRef, useState } from 'react'
-import { Image, Plus, RefreshCw, Search, X } from 'lucide-react'
+import { Folder, FolderPlus, LayoutGrid, List, Plus, X } from 'lucide-react'
 import { Claims } from '@silo/shared/claims'
 import type { MediaAsset } from '../../api/types/media-asset'
 import type { MediaInUse } from '../../api/types/media-usage'
 import type { ScopeRef } from '../../api/types/scope-ref'
 import { Button } from '../../components/buttons/Button'
+import { Segmented } from '../../components/controls/Segmented'
 import { Breadcrumb } from '../../components/navigation/Breadcrumb'
 import { SmartSearch } from '../search/SmartSearch'
 import type { PaletteSeed } from '../search/palette-seed'
 import { TopBar } from '../shell/TopBar'
-import type { SessionBadge } from '../shell/session-badge'
 import { AssetInUseDialog } from './AssetInUseDialog'
 import { DeleteAssetDialog } from './DeleteAssetDialog'
-import { FolderRail } from './FolderRail'
+import { FolderRow } from './FolderRow'
+import { FolderTile } from './FolderTile'
 import { MediaCard } from './MediaCard'
+import { MediaPath } from './media-path'
+import { MediaRow } from './MediaRow'
 import { RenameAssetDialog } from './RenameAssetDialog'
 import { UploadZone } from './UploadZone'
 import { MediaPageSize, useMediaLibrary } from './use-media-library'
+import table from '../../components/data/DataTable.module.css'
 import styles from './MediaLibrary.module.css'
+
+type LibraryView = 'grid' | 'list'
+
+const VIEW_KEY = 'silo_media_view'
+const LIST_COLS = 'minmax(0, 1fr) 100px 100px 140px 96px'
 
 interface Props {
   serverId: string
@@ -25,7 +34,6 @@ interface Props {
   collections: readonly { name: string; count: number | null; schema?: any }[]
   url: string
   apiKey: string
-  session: SessionBadge
   claims: string[]
   /** A search carried in by the URL — the command palette links assets this way. */
   initialQuery?: string
@@ -34,8 +42,10 @@ interface Props {
 }
 
 /**
- * The media library: one instance-global catalog (D23), browsed by folder and
- * searched server-side.
+ * The media library: one instance-global catalog (D23), browsed one folder
+ * at a time like a directory tree — folders and files share the same grid at
+ * whatever level you're at, and clicking a folder navigates into it rather
+ * than just filtering the current view.
  *
  * The contents and every operation on them live in `useMediaLibrary`; this file
  * is the page.
@@ -46,7 +56,6 @@ export function MediaLibraryView({
   collections,
   url,
   apiKey,
-  session,
   claims,
   initialQuery = '',
   onOpenPalette,
@@ -56,6 +65,9 @@ export function MediaLibraryView({
   const [editing, setEditing] = useState<MediaAsset | null>(null)
   const [toDelete, setToDelete] = useState<MediaAsset | null>(null)
   const [inUse, setInUse] = useState<MediaInUse | null>(null)
+  const [view, setView] = useState<LibraryView>(
+    () => (localStorage.getItem(VIEW_KEY) as LibraryView | null) || 'grid',
+  )
   const fileInput = useRef<HTMLInputElement>(null)
 
   const canUpload = Claims.has(claims, Claims.MediaCreate)
@@ -64,9 +76,15 @@ export function MediaLibraryView({
 
   const browse = () => fileInput.current?.click()
 
+  const changeView = (next: LibraryView) => {
+    setView(next)
+    localStorage.setItem(VIEW_KEY, next)
+  }
+
   const createFolder = () => {
-    const path = prompt('New folder path', library.folder ? `${library.folder}/` : '/')
-    if (path) library.createFolder(path)
+    const name = prompt('New folder name')?.trim()
+    if (!name) return
+    library.createFolder(library.folder ? `${library.folder}/${name}` : `/${name}`)
   }
 
   const confirmDelete = async () => {
@@ -81,6 +99,14 @@ export function MediaLibraryView({
     setToDelete(null)
   }
 
+  const pathSegments = MediaPath.segments(library.folder)
+  const hasQuery = library.query.trim() !== ''
+  const nothingHere = library.subfolders.length === 0 && library.assets.length === 0
+  // The empty state doubles as the upload invitation, so it only makes that
+  // offer when the folder is genuinely empty — a filter hiding real content
+  // gets told about the filter instead, never "drop a file here".
+  const genuinelyEmpty = nothingHere && !hasQuery
+
   return (
     <>
       <TopBar
@@ -94,17 +120,10 @@ export function MediaLibraryView({
             onOpenPalette={onOpenPalette}
           />
         }
-        session={session}
-      >
-        {canUpload && (
-          <Button variant="primary" onClick={browse} disabled={library.uploading}>
-            <Plus size={15} /> Upload
-          </Button>
-        )}
-      </TopBar>
+      />
 
       <div className="content">
-        <Breadcrumb crumbs={[{ label: 'Library' }, { label: 'Media' }]} />
+        <Breadcrumb crumbs={[{ label: 'Admin' }, { label: 'Media Library' }]} />
         <input
           ref={fileInput}
           type="file"
@@ -115,20 +134,23 @@ export function MediaLibraryView({
 
         <div className={`page-head ${styles.pageHeader}`}>
           <div className="page-title-group">
-            <h2 className="page-title">Media</h2>
+            <h2 className="page-title">Media Library</h2>
             <span className="page-sub">
-              One library for the whole instance. Entries reference files by id.
+              One library for the whole instance. Collections reference these files by ID,
+              <br />
+              so a file can be reused across entries.
             </span>
           </div>
-          <Button
-            variant="secondary"
-            size="sm"
-            className={styles.refresh}
-            onClick={library.reload}
-            disabled={library.loading}
-          >
-            <RefreshCw size={13} /> Refresh
-          </Button>
+          {canUpload && (
+            <div className="head-actions">
+              <Button variant="secondary" onClick={createFolder}>
+                <FolderPlus size={14} /> New folder
+              </Button>
+              <Button variant="primary" onClick={browse} disabled={library.uploading}>
+                <Plus size={14} /> Upload files
+              </Button>
+            </div>
+          )}
         </div>
 
         {library.error && (
@@ -149,93 +171,164 @@ export function MediaLibraryView({
           </div>
         )}
 
+        <div className={styles.pathRow}>
+          <nav className={styles.pathTrail} aria-label="Folder path">
+            {library.folder === '' ? (
+              <span className={styles.pathCurrent}>All files</span>
+            ) : (
+              <button type="button" className={styles.pathCrumb} onClick={() => library.selectFolder('')}>
+                All files
+              </button>
+            )}
+            {pathSegments.map((segment, index) => (
+              <span key={segment.path} className={styles.pathSegment}>
+                <span className={styles.pathSep}>/</span>
+                {index === pathSegments.length - 1 ? (
+                  <span className={styles.pathCurrent}>{segment.name}</span>
+                ) : (
+                  <button
+                    type="button"
+                    className={styles.pathCrumb}
+                    onClick={() => library.selectFolder(segment.path)}
+                  >
+                    {segment.name}
+                  </button>
+                )}
+              </span>
+            ))}
+          </nav>
+        </div>
+
         <div className={styles.toolbar}>
-          <div className={styles.searchBox}>
-            <Search size={14} />
-            <input
-              placeholder="Search files…"
-              value={library.search}
-              onChange={(event) => library.setSearch(event.target.value)}
-            />
-          </div>
           <span className={styles.count}>
             {library.total} file{library.total === 1 ? '' : 's'}
-            {library.folder ? ` in ${library.folder}` : ''}
           </span>
-        </div>
-
-        <div className={styles.layout}>
-          <FolderRail
-            folders={library.folders}
-            selected={library.folder}
-            canCreate={canUpload}
-            onSelect={library.selectFolder}
-            onCreate={createFolder}
+          <Segmented
+            value={view}
+            onChange={changeView}
+            variant="compact"
+            options={[
+              { value: 'grid', label: <LayoutGrid size={14} /> },
+              { value: 'list', label: <List size={14} /> },
+            ]}
           />
-
-          <div className={styles.main}>
-            {canUpload && (
-              <UploadZone
-                folder={library.folder}
-                uploading={library.uploading}
-                onFiles={library.upload}
-                onBrowse={browse}
-              />
-            )}
-
-            {library.loading && library.assets.length === 0 ? (
-              <div className={`center-wrap ${styles.loading}`}>Loading media library…</div>
-            ) : library.assets.length === 0 ? (
-              <div className={`center-wrap ${styles.empty}`}>
-                <Image size={32} strokeWidth={1.5} />
-                <span>
-                  {library.query
-                    ? `Nothing matches “${library.query}”.`
-                    : 'No media files here yet.'}
-                </span>
-              </div>
-            ) : (
-              <div className={styles.grid}>
-                {library.assets.map((asset) => (
-                  <MediaCard
-                    key={asset.id}
-                    asset={asset}
-                    baseUrl={baseUrl}
-                    canEdit={canUpload}
-                    canDelete={canDelete}
-                    onEdit={() => setEditing(asset)}
-                    onDelete={() => setToDelete(asset)}
-                  />
-                ))}
-              </div>
-            )}
-
-            {library.total > MediaPageSize && (
-              <div className={styles.pager}>
-                <Button
-                  variant="secondary"
-                  size="sm"
-                  disabled={library.offset === 0}
-                  onClick={() => library.setOffset(Math.max(0, library.offset - MediaPageSize))}
-                >
-                  Previous
-                </Button>
-                <span>
-                  {library.offset + 1}–{Math.min(library.offset + MediaPageSize, library.total)} of{' '}
-                  {library.total}
-                </span>
-                <Button
-                  variant="secondary"
-                  size="sm"
-                  disabled={library.offset + MediaPageSize >= library.total}
-                  onClick={() => library.setOffset(library.offset + MediaPageSize)}
-                >
-                  Next
-                </Button>
-              </div>
-            )}
-          </div>
         </div>
+
+        {genuinelyEmpty ? (
+          canUpload ? (
+            <UploadZone
+              folder={library.folder}
+              uploading={library.uploading}
+              onFiles={library.upload}
+              onBrowse={browse}
+            />
+          ) : (
+            <div className={`center-wrap ${styles.empty}`}>
+              <Folder size={32} strokeWidth={1.5} />
+              <span>This folder is empty.</span>
+            </div>
+          )
+        ) : library.loading && nothingHere ? (
+          <div className={`center-wrap ${styles.loading}`}>Loading media library…</div>
+        ) : nothingHere ? (
+          <div className={`center-wrap ${styles.empty}`}>
+            <Folder size={32} strokeWidth={1.5} />
+            <span>No files match “{library.query}”.</span>
+          </div>
+        ) : view === 'grid' ? (
+          <>
+            <div className={styles.grid}>
+              {library.subfolders.map((path) => (
+                <FolderTile
+                  key={path}
+                  path={path}
+                  itemCount={library.folderCounts[path]}
+                  onOpen={() => library.selectFolder(path)}
+                />
+              ))}
+              {library.assets.map((asset) => (
+                <MediaCard
+                  key={asset.id}
+                  asset={asset}
+                  baseUrl={baseUrl}
+                  canEdit={canUpload}
+                  canDelete={canDelete}
+                  onEdit={() => setEditing(asset)}
+                  onDelete={() => setToDelete(asset)}
+                />
+              ))}
+            </div>
+
+            {library.assets.length === 0 && hasQuery && (
+              <p className={styles.noMatchNote}>No files match these filters.</p>
+            )}
+          </>
+        ) : (
+          <>
+            <div className="card">
+              <div
+                className={`${table.header} ${table.table}`}
+                style={{ ['--cols' as any]: LIST_COLS }}
+              >
+                <span>Name</span>
+                <span>Size</span>
+                <span>Modified</span>
+                <span>Status</span>
+                <span />
+              </div>
+              {library.subfolders.map((path) => (
+                <FolderRow
+                  key={path}
+                  path={path}
+                  itemCount={library.folderCounts[path]}
+                  gridCols={LIST_COLS}
+                  onOpen={() => library.selectFolder(path)}
+                />
+              ))}
+              {library.assets.map((asset) => (
+                <MediaRow
+                  key={asset.id}
+                  asset={asset}
+                  baseUrl={baseUrl}
+                  canEdit={canUpload}
+                  canDelete={canDelete}
+                  gridCols={LIST_COLS}
+                  onEdit={() => setEditing(asset)}
+                  onDelete={() => setToDelete(asset)}
+                />
+              ))}
+            </div>
+
+            {library.assets.length === 0 && hasQuery && (
+              <p className={styles.noMatchNote}>No files match these filters.</p>
+            )}
+          </>
+        )}
+
+        {library.total > MediaPageSize && (
+          <div className={styles.pager}>
+            <Button
+              variant="secondary"
+              size="sm"
+              disabled={library.offset === 0}
+              onClick={() => library.setOffset(Math.max(0, library.offset - MediaPageSize))}
+            >
+              Previous
+            </Button>
+            <span>
+              {library.offset + 1}–{Math.min(library.offset + MediaPageSize, library.total)} of{' '}
+              {library.total}
+            </span>
+            <Button
+              variant="secondary"
+              size="sm"
+              disabled={library.offset + MediaPageSize >= library.total}
+              onClick={() => library.setOffset(library.offset + MediaPageSize)}
+            >
+              Next
+            </Button>
+          </div>
+        )}
       </div>
 
       {editing && (

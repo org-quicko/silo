@@ -1,6 +1,5 @@
 .hiddenInput { display: none; }
 .pageHeader { margin-bottom: 12px; }
-.refresh { align-self: flex-start; }
 
 .uploadZone {
   display: flex;
@@ -108,6 +107,8 @@
   font-size: 11px;
 }
 
+/* Hidden until the card is hovered or one of its own buttons has focus (so a
+   keyboard user tabbing to Delete can still see what they landed on). */
 .actions {
   display: flex;
   gap: 6px;
@@ -115,15 +116,28 @@
   padding: 8px 12px;
   border-top: 1px solid var(--line);
   background: var(--panel-2);
+  opacity: 0;
+  transition: opacity 0.12s;
 }
 
-.copyAction {
-  flex: 1;
-  gap: 4px;
-  padding: 4px;
+.card:hover .actions,
+.card:focus-within .actions {
+  opacity: 1;
 }
 
-.deleteAction { padding: 4px; }
+/* Same hover-reveal, without the card's footer strip look — a table cell
+   already sits inside the row's own border and background. */
+.rowActions {
+  display: flex;
+  gap: 6px;
+  opacity: 0;
+  transition: opacity 0.12s;
+}
+
+.fileRow:hover .rowActions,
+.fileRow:focus-within .rowActions {
+  opacity: 1;
+}
 
 /* ---- Catalog layout (D23): a folder rail beside the grid ---- */
 
@@ -145,39 +159,7 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 12px;
   margin-bottom: 12px;
-}
-
-.searchBox {
-  position: relative;
-  display: flex;
-  min-width: 0;
-  max-width: 320px;
-  flex: 1;
-  align-items: center;
-}
-
-.searchIcon {
-  position: absolute;
-  left: 9px;
-  color: var(--text-3);
-  pointer-events: none;
-}
-
-.searchBox input {
-  width: 100%;
-  padding: 6px 10px 6px 28px;
-  border: 1px solid var(--line);
-  border-radius: var(--radius-sm);
-  background: var(--panel);
-  color: var(--text);
-  font-size: 13px;
-}
-
-.searchBox input:focus {
-  border-color: var(--accent);
-  outline: none;
 }
 
 .count {
@@ -186,67 +168,129 @@
   white-space: nowrap;
 }
 
-.layout {
-  display: grid;
-  align-items: start;
-  gap: 20px;
-  grid-template-columns: 190px minmax(0, 1fr);
-}
-
-.rail {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  padding: 8px;
-  border: 1px solid var(--line);
-  border-radius: var(--radius-sm);
-  background: var(--panel);
-}
-
-.railHead {
+.pathRow {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 2px 4px 6px;
-  color: var(--text-3);
-  font-size: 11px;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
+  gap: 12px;
+  margin-bottom: 14px;
 }
 
-.railItem {
+.pathTrail {
   display: flex;
-  overflow: hidden;
+  min-width: 0;
   align-items: center;
-  gap: 6px;
-  padding: 5px 10px;
-  border: none;
-  border-radius: var(--radius-sm);
+  gap: 3px;
+  overflow: hidden;
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.pathSegment {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  overflow: hidden;
+}
+
+.pathSep { flex: none; color: var(--text-3); }
+
+.pathCrumb {
+  overflow: hidden;
+  padding: 2px 5px;
+  border: 0;
+  border-radius: 5px;
   background: none;
-  color: var(--text-2);
+  color: var(--text-3);
   cursor: pointer;
-  font-size: 12.5px;
-  text-align: left;
+  font: inherit;
+  font-weight: 600;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.railItem:hover { background: var(--panel-2); }
-
-.railItemActive {
+.pathCrumb:hover {
   background: var(--panel-2);
   color: var(--text);
-  font-weight: 500;
 }
 
-.main { min-width: 0; }
-
-.folderTag {
+.pathCurrent {
   overflow: hidden;
-  color: var(--text-3);
-  font-size: 10.5px;
+  padding: 2px 5px;
+  color: var(--text);
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+/* Resets <button> defaults on top of .card's shared shell — border,
+   background, and radius all come from .card; only what a button adds
+   (padding, font, text alignment) needs undoing here. */
+.folderCard {
+  display: flex;
+  width: 100%;
+  flex-direction: column;
+  padding: 0;
+  color: inherit;
+  cursor: pointer;
+  font: inherit;
+  text-align: left;
+}
+
+.folderCard:hover {
+  border-color: color-mix(in oklab, var(--accent) 40%, var(--line));
+}
+
+.folderPreview {
+  display: flex;
+  height: 120px;
+  align-items: center;
+  justify-content: center;
+  border-bottom: 1px solid var(--line);
+  background: color-mix(in oklab, var(--accent) 10%, var(--panel-2));
+  color: var(--accent);
+}
+
+.noMatchNote {
+  margin: 14px 0 0;
+  color: var(--text-3);
+  font-size: 12.5px;
+}
+
+/* List view — folders and files as DataTable rows instead of tiles. */
+.fileRow {}
+
+/* Resets <button> defaults on a folder row without touching table.row's
+   grid/border/hover, the same way .folderCard does for the tile shell. */
+.rowReset {
+  width: 100%;
+  padding: 0;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+}
+
+.rowName {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.rowIcon {
+  display: flex;
+  width: 22px;
+  height: 22px;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  border-radius: 4px;
+  color: var(--text-3);
+}
+
+.rowIcon img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
 }
 
 /* The one piece of state that decides whether a delete will be refused. */
@@ -327,11 +371,6 @@
   color: var(--text-3);
   font-size: 11.5px;
   font-style: italic;
-}
-
-@media (max-width: 720px) {
-  .layout { grid-template-columns: minmax(0, 1fr); }
-  .rail { flex-direction: row; overflow-x: auto; }
 }
 
 /* A staged-but-undeleted asset (D23): recoverable, and the notice says how. */

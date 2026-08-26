@@ -18,7 +18,6 @@ import type { PaletteSeed } from '../search/palette-seed'
 import { CollectionRail } from './CollectionRail'
 import { FieldList } from './FieldList'
 import styles from './SchemaEditor.module.css'
-import type { SessionBadge } from '../shell/session-badge'
 import { useSchemaDraft, type SchemaEditorMode } from './use-schema-draft'
 
 interface Props {
@@ -29,7 +28,6 @@ interface Props {
   apiKey: string
   scope: ScopeRef
   claims: string[]
-  session: SessionBadge
   /** URL to return to on cancel — the breadcrumbs link back to it. */
   backTo: string
   entryCount: number | null
@@ -48,7 +46,6 @@ export function SchemaEditorView({
   apiKey,
   scope,
   claims,
-  session,
   backTo,
   entryCount,
   onSaved,
@@ -151,7 +148,6 @@ export function SchemaEditorView({
             onOpenPalette={onOpenPalette}
           />
         }
-        session={session}
       >
         <Button variant="secondary" onClick={onCancel}>
           Cancel

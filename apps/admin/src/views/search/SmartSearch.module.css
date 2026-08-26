@@ -17,7 +17,7 @@
 .focused {
   border-color: var(--accent);
   background: var(--panel);
-  box-shadow: 0 0 0 3px rgba(124, 134, 255, 0.12);
+  box-shadow: 0 0 0 3px color-mix(in oklab, var(--accent) 12%, transparent);
 }
 
 .icon { flex: none; color: var(--text-3); stroke-width: 2; }
@@ -32,10 +32,10 @@
   align-items: center;
   gap: 4px;
   padding: 3px 5px 3px 8px;
-  border: 1px solid rgba(124, 134, 255, 0.35);
+  border: 1px solid color-mix(in oklab, var(--accent) 35%, transparent);
   border-radius: 999px;
   background: var(--accent-soft);
-  color: #c2c7ff;
+  color: var(--accent);
   font-family: var(--font-mono);
   font-size: 11px;
 }

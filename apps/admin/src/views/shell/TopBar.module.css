@@ -1,8 +1,11 @@
+/* Three tracks so the search bar centres on the bar itself regardless of
+   what page-specific actions sit in the third column — an empty first
+   column balances whatever width the third one takes. */
 .topbar {
-  display: flex;
-  height: 56px;
-  flex: none;
+  display: grid;
+  grid-template-columns: 1fr minmax(0, 560px) 1fr;
   align-items: center;
+  height: 56px;
   gap: 16px;
   padding: 0 20px;
   border-bottom: 1px solid var(--line);
@@ -12,54 +15,15 @@
 .searchSlot {
   display: flex;
   min-width: 0;
-  max-width: 560px;
-  flex: 1;
+  grid-column: 2;
+  justify-self: center;
+  width: 100%;
 }
 
 .right {
   display: flex;
-  flex: none;
   align-items: center;
   gap: 12px;
-  margin-left: auto;
+  grid-column: 3;
+  justify-self: end;
 }
-
-/*
- * The session pill states what the current key can do *in the scope on
- * screen* — see build-session-badge.ts for why that rather than the key's
- * label. `--session-tone` lets the level colour the dot without a rule per
- * level, and the text stays --text-2 throughout: this is a standing fact about
- * the session, not an alert, so only the dot is tinted.
- */
-.session {
-  display: flex;
-  align-items: center;
-  gap: 7px;
-  padding: 5px 10px;
-  border: 1px solid var(--line);
-  border-radius: 6px;
-  color: var(--text-2);
-  font-size: 12px;
-  cursor: default;
-}
-
-.sessionDot {
-  width: 6px;
-  height: 6px;
-  flex: none;
-  border-radius: 99px;
-  background: var(--session-tone, var(--ok));
-}
-
-/* Writing is the ordinary case, so it gets the unremarkable colour; read-only
-   is muted rather than warned about, and no access is the only genuine fault. */
-.root { --session-tone: var(--accent); }
-.write { --session-tone: var(--ok); }
-.read { --session-tone: var(--text-3); }
-
-.none {
-  --session-tone: var(--bad);
-  border-color: color-mix(in oklab, var(--bad) 35%, transparent);
-  color: var(--text-2);
-}
-

@@ -15,13 +15,8 @@ import { ModalCopy } from '../../components/modal/ModalCopy'
 import { ModalHeader } from '../../components/modal/ModalHeader'
 import { ModalIcon } from '../../components/modal/ModalIcon'
 import { TopBar } from '../shell/TopBar'
-import { SmartSearch } from '../search/SmartSearch'
-import type { PaletteSeed } from '../search/palette-seed'
 import table from '../../components/data/DataTable.module.css'
 import styles from './Keys.module.css'
-
-import type { ScopeRef } from '../../api/types/scope-ref'
-import type { SessionBadge } from '../shell/session-badge'
 
 class KeyClaimSummary {
   static render(claims: string[]) {
@@ -34,26 +29,14 @@ class KeyClaimSummary {
 }
 
 export function KeysView({
-  serverId,
   url,
   apiKey,
-  scope,
-  smartCollections,
   claims,
-  session,
-  onOpenPalette,
-  onNavigateToCollection,
   onCreate,
 }: {
-  serverId: string
   url: string
   apiKey: string
-  scope: ScopeRef | null
-  smartCollections: readonly { name: string; count: number | null; schema?: any }[]
   claims: string[]
-  session: SessionBadge
-  onOpenPalette: (seed: PaletteSeed) => void
-  onNavigateToCollection: (name: string, q: string) => void
   onCreate: () => void
 }) {
   const [keys, setKeys] = useState<KeyView[]>([])
@@ -104,21 +87,7 @@ export function KeysView({
 
   return (
     <>
-      <TopBar
-        search={
-          <SmartSearch
-            serverId={serverId}
-            scope={scope}
-            collection={null}
-            collections={smartCollections}
-            onNavigateToCollection={onNavigateToCollection}
-            onOpenPalette={onOpenPalette}
-          />
-        }
-        session={session}
-      >
-        {canCreate && <Button variant="primary" onClick={onCreate}><Plus size={14} /> Create key</Button>}
-      </TopBar>
+      <TopBar />
       <div className="content">
         <Breadcrumb crumbs={[{ label: 'Admin' }, { label: 'API keys' }]} />
         <div className="page-head">
@@ -126,6 +95,11 @@ export function KeysView({
             <h2 className="page-title">API keys</h2>
             <span className="page-sub">Claims grant explicit capabilities. Secrets are shown once and only their SHA-256 hashes are stored.</span>
           </div>
+          {canCreate && (
+            <div className="head-actions">
+              <Button variant="primary" onClick={onCreate}><Plus size={14} /> Create key</Button>
+            </div>
+          )}
         </div>
         {loadError && <div className="banner banner-bad"><span>{loadError}</span><Button variant="secondary" size="sm" onClick={load}>Retry</Button></div>}
         <div className="card">

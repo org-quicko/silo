@@ -1,6 +1,9 @@
 export interface ThemeSettings {
   font: string
   accent: string
+  theme: string
+  sidebar: string
+  sidebarHover: string
 }
 
 export interface FontPreset {
@@ -8,9 +11,15 @@ export interface FontPreset {
   category: 'Sans-Serif' | 'Serif' | 'Display' | 'Monospace'
 }
 
-export interface ColorPreset {
+/** A theme bundles an accent with the sidebar tint it was designed alongside,
+ *  so picking one visibly retints the sidebar rather than only the accent. */
+export interface ThemePreset {
   name: string
-  value: string
+  description?: string
+  group: 'Theme' | 'Vision assistive'
+  accent: string
+  sidebar: string
+  sidebarHover: string
 }
 
 export class ThemeManager {
@@ -20,6 +29,11 @@ export class ThemeManager {
 
   public static readonly DEFAULT_FONT = 'Hanken Grotesk'
   public static readonly DEFAULT_ACCENT = '#7c86ff'
+  public static readonly DEFAULT_THEME = 'Silo Indigo'
+  // Matches the shipped --panel/--panel-2 values, so the default theme
+  // repaints the sidebar to exactly what it already looked like.
+  public static readonly DEFAULT_SIDEBAR = '#14171f'
+  public static readonly DEFAULT_SIDEBAR_HOVER = '#1c202a'
 
   public static readonly FONT_PRESETS: FontPreset[] = [
     { name: 'Hanken Grotesk', category: 'Sans-Serif' },
@@ -43,71 +57,94 @@ export class ThemeManager {
     { name: 'Fira Code', category: 'Monospace' },
   ]
 
-  public static readonly COLOR_PRESETS: ColorPreset[] = [
-    { name: 'Silo Indigo', value: '#7c86ff' },
-    { name: 'Electric Violet', value: '#8b5cf6' },
-    { name: 'Sky Blue', value: '#0ea5e9' },
-    { name: 'Cyan Glow', value: '#06b6d4' },
-    { name: 'Emerald', value: '#10b981' },
-    { name: 'Teal', value: '#14b8a6' },
-    { name: 'Amber Gold', value: '#f59e0b' },
-    { name: 'Warm Coral', value: '#ff6b6b' },
-    { name: 'Rose Pink', value: '#f43f5e' },
-    { name: 'Magenta Pulse', value: '#d946ef' },
-    { name: 'Sunset Orange', value: '#f97316' },
-    { name: 'Lime Volt', value: '#84cc16' },
+  // Curated to a spread of visually distinct hues rather than every shade —
+  // near-duplicates (Cyan Glow beside Sky Blue, Teal beside Emerald, Magenta
+  // Pulse beside Electric Violet, Sunset Orange beside Amber Gold, Lime Volt
+  // beside Emerald) added variety without adding a meaningfully different
+  // choice, so they're gone rather than kept for the sake of a bigger grid.
+  public static readonly THEME_PRESETS: ThemePreset[] = [
+    { name: 'Silo Indigo', description: 'Default', group: 'Theme', accent: ThemeManager.DEFAULT_ACCENT, sidebar: ThemeManager.DEFAULT_SIDEBAR, sidebarHover: ThemeManager.DEFAULT_SIDEBAR_HOVER },
+    { name: 'Electric Violet', group: 'Theme', accent: '#8b5cf6', sidebar: '#1d1630', sidebarHover: '#2a2040' },
+    { name: 'Sky Blue', group: 'Theme', accent: '#38bdf8', sidebar: '#101d2b', sidebarHover: '#19293b' },
+    { name: 'Emerald', group: 'Theme', accent: '#34d399', sidebar: '#0f1f1a', sidebarHover: '#172c25' },
+    { name: 'Amber Gold', group: 'Theme', accent: '#f59e0b', sidebar: '#221a10', sidebarHover: '#302617' },
+    { name: 'Rose Pink', group: 'Theme', accent: '#f43f5e', sidebar: '#26121a', sidebarHover: '#351b26' },
+    // Vision assistive — colour-blind-safe accent/sidebar pairs.
+    { name: 'Tritanopia', description: 'Blue / red safe', group: 'Vision assistive', accent: '#2f81f7', sidebar: '#12161c', sidebarHover: '#1d242e' },
+    { name: 'Protanopia & Deuteranopia', description: 'Blue / yellow safe', group: 'Vision assistive', accent: '#4c8df6', sidebar: '#171224', sidebarHover: '#231a33' },
   ]
 
   public static getSettings(): ThemeSettings {
+    const defaults: ThemeSettings = {
+      font: ThemeManager.DEFAULT_FONT,
+      accent: ThemeManager.DEFAULT_ACCENT,
+      theme: ThemeManager.DEFAULT_THEME,
+      sidebar: ThemeManager.DEFAULT_SIDEBAR,
+      sidebarHover: ThemeManager.DEFAULT_SIDEBAR_HOVER,
+    }
     try {
       const raw = localStorage.getItem(ThemeManager.STORAGE_KEY)
       if (raw) {
         const parsed = JSON.parse(raw)
         return {
-          font: parsed.font || ThemeManager.DEFAULT_FONT,
-          accent: parsed.accent || ThemeManager.DEFAULT_ACCENT,
+          font: parsed.font || defaults.font,
+          accent: parsed.accent || defaults.accent,
+          theme: parsed.theme || defaults.theme,
+          sidebar: parsed.sidebar || defaults.sidebar,
+          sidebarHover: parsed.sidebarHover || defaults.sidebarHover,
         }
       }
     } catch {
       /* ignore storage failure */
     }
-    return {
-      font: ThemeManager.DEFAULT_FONT,
-      accent: ThemeManager.DEFAULT_ACCENT,
-    }
+    return defaults
   }
 
   public static setFont(fontName: string): void {
     const trimmed = fontName.trim() || ThemeManager.DEFAULT_FONT
-    const current = ThemeManager.getSettings()
-    const updated = { ...current, font: trimmed }
-    ThemeManager.saveSettings(updated)
+    ThemeManager.saveSettings({ ...ThemeManager.getSettings(), font: trimmed })
     ThemeManager.applyFont(trimmed)
+  }
+
+  public static setTheme(themeName: string): void {
+    const preset = ThemeManager.THEME_PRESETS.find((t) => t.name === themeName)
+    if (!preset) return
+    const updated: ThemeSettings = {
+      ...ThemeManager.getSettings(),
+      theme: preset.name,
+      accent: preset.accent,
+      sidebar: preset.sidebar,
+      sidebarHover: preset.sidebarHover,
+    }
+    ThemeManager.saveSettings(updated)
+    ThemeManager.repaint(updated)
   }
 
   public static setAccent(colorHex: string): void {
     const formatted = ThemeManager.formatHex(colorHex) || ThemeManager.DEFAULT_ACCENT
-    const current = ThemeManager.getSettings()
-    const updated = { ...current, accent: formatted }
+    const updated: ThemeSettings = { ...ThemeManager.getSettings(), accent: formatted, theme: 'Custom' }
     ThemeManager.saveSettings(updated)
-    ThemeManager.applyAccent(formatted)
+    ThemeManager.repaint(updated)
   }
 
   public static reset(): ThemeSettings {
     const defaults: ThemeSettings = {
       font: ThemeManager.DEFAULT_FONT,
       accent: ThemeManager.DEFAULT_ACCENT,
+      theme: ThemeManager.DEFAULT_THEME,
+      sidebar: ThemeManager.DEFAULT_SIDEBAR,
+      sidebarHover: ThemeManager.DEFAULT_SIDEBAR_HOVER,
     }
     ThemeManager.saveSettings(defaults)
     ThemeManager.applyFont(defaults.font)
-    ThemeManager.applyAccent(defaults.accent)
+    ThemeManager.repaint(defaults)
     return defaults
   }
 
   public static init(): void {
     const settings = ThemeManager.getSettings()
     ThemeManager.applyFont(settings.font)
-    ThemeManager.applyAccent(settings.accent)
+    ThemeManager.repaint(settings)
     ThemeManager.loadPresetFonts()
   }
 
@@ -124,6 +161,15 @@ export class ThemeManager {
       link.href = `https://fonts.googleapis.com/css2?${query}&display=swap`
       document.head.appendChild(link)
     }
+  }
+
+  /** Applies accent and sidebar tint together — every setter above funnels
+   *  through this so the two never drift out of sync. */
+  private static repaint(settings: ThemeSettings): void {
+    if (typeof document === 'undefined') return
+    ThemeManager.applyAccent(settings.accent)
+    document.documentElement.style.setProperty('--sidebar', settings.sidebar)
+    document.documentElement.style.setProperty('--sidebar-hover', settings.sidebarHover)
   }
 
   private static applyFont(fontName: string): void {

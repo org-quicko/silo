@@ -4,6 +4,28 @@
 > The *current* state is [CONTEXT.md](../../CONTEXT.md); this is how it got
 > there.
 
+- **Appearance settings gained colour mode and a themed sidebar; silo's first
+  light mode (2026-08-26).** `Settings → Appearance` was fonts plus a flat
+  accent-colour grid; it is now a light/dark/system toggle and a grouped theme
+  gallery (Featured, Single colour, Vision assistive) where each entry bundles
+  an accent with the sidebar tint it ships with — new `--sidebar`,
+  `--sidebar-hover`, `--sidebar-text`, `--sidebar-dim` tokens, wired into
+  `Sidebar.module.css` in place of the generic `--panel`/`--text` tokens it
+  used before, so a theme now visibly retints the sidebar rather than only the
+  accent. Light mode is new: `tokens.css` gained a `[data-theme='light']`
+  block, `ThemeManager` resolves `system` against `prefers-color-scheme` live,
+  and dark mode's per-theme sidebar hex gives way in light mode to a wash of
+  the current accent (hand-tuning a light pair per theme would double the
+  palette for a difference light mode already gets for free). Five CSS Modules
+  had hardcoded a literal copy of the default accent's hex instead of reading
+  `var(--accent)`/`var(--accent-soft)` — exactly the spots a custom accent or a
+  light background would expose — and are fixed. Landed alongside it:
+  `--text-3` (dark mode's "muted" text token) was ~3.5–4.1:1 against
+  `--bg`/`--panel`/`--panel-2`, under WCAG AA's 4.5:1 for normal text; it is
+  now `#8890a0` (~5–6:1). Light mode's own `--ok`/`--warn`/`--bad` are darkened
+  from their dark-mode values for the same reason — the originals read under
+  3:1 on white. See §9 in [../design/admin-ui.md](../design/admin-ui.md).
+
 - **Contributions replace kinds, and every claim carries a reason (D36, completed,
   2026-08-25).** The rest of D36 — the half phase 6 deliberately left — plus
   D37's F6, which was parked on it. §13.19 in

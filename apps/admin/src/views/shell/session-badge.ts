@@ -14,3 +14,16 @@ export interface SessionBadge {
   level: AccessLevel
   detail: string
 }
+
+/**
+ * Phrased from the reader's side ("what can I do here"), not the claim
+ * grammar's — the claims themselves are on the Keys page. Shared by the top
+ * bar's session pill and the sidebar's account row, so the two never say it
+ * two different ways.
+ */
+export const ACCESS_TEXT: Record<AccessLevel, string> = {
+  root: 'Full access',
+  write: 'Read & write',
+  read: 'Read-only',
+  none: 'No access',
+}

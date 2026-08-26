@@ -17,7 +17,7 @@ can be cloned with one command.
 
 ## Where things stand
 
-*Last updated: 2026-08-25*
+*Last updated: 2026-08-26*
 
 Everything through M5 is built and shipping: collections and JSON Schema
 validation, entry CRUD with optimistic concurrency, the query AST and search
@@ -26,7 +26,26 @@ keys with claims (D12/D21), export/import and scope-to-scope copy, the admin
 UI, single-binary releases with Homebrew and RPM, and plugins with an installer
 (D31/D32/D33).
 
-**The most recent change completes the plugin redesign (D36, 2026-08-25).** Two
+**The most recent change reworked the admin UI's Appearance settings
+(2026-08-26).** It was fonts and a flat accent-colour grid; it is now a
+colour-mode toggle (light/dark/system, the system option resolved live against
+`prefers-color-scheme`) plus a grouped theme gallery — Featured, Single
+colour, and Vision assistive (colour-blind-safe) — where each entry bundles an
+accent with the sidebar tint it was designed alongside, so switching themes
+now visibly retints the sidebar rather than only the accent. This is also
+silo's first light mode: `tokens.css` gained a `[data-theme='light']` block,
+and the handful of CSS Modules that had hardcoded a copy of the default
+accent's hex (rather than reading `var(--accent)`) were fixed, since those are
+exactly the spots a custom accent or a light background would have exposed.
+Landed alongside it: `--text-3`, the dark-mode "muted" text token, was too low
+a contrast against `--bg`/`--panel`/`--panel-2` to clear WCAG AA for normal
+text (~3.5–4.1:1) and is now `#8890a0` (~5–6:1); light mode's own status
+colours (`--ok`/`--warn`/`--bad`) are darkened shades of their dark-mode
+values for the same reason — the originals fall under 3:1 against white.
+Appearance settings remain client-only, in `localStorage`, never sent to a
+server. See §9 in [docs/design/admin-ui.md](docs/design/admin-ui.md).
+
+**Before that, the plugin redesign completed (D36, 2026-08-25).** Two
 manifest fields replace two, and the pair is what a grant screen is made of:
 `contributes` is **what a package will do** and `permissions` is **what it needs
 in order to do it**. `kind` is gone — an enum has one value, so it forced a

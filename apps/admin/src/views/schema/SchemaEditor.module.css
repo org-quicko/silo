@@ -239,7 +239,7 @@
 .codeEditor { background: var(--ink-2); }
 .codeEditor :global(.cm-editor) { background: var(--ink-2); font-family: var(--font-mono); font-size: 12.5px; }
 .codeEditor :global(.cm-editor.cm-focused) { outline: none; }
-.codeEditor :global(.cm-gutters) { border-right: 1px solid var(--line); background: #080a0e; color: var(--text-3); }
+.codeEditor :global(.cm-gutters) { border-right: 1px solid var(--line); background: var(--bg); color: var(--text-3); }
 .codeEditor :global(.cm-scroller) { line-height: 1.72; }
 
 @media (max-width: 920px) {

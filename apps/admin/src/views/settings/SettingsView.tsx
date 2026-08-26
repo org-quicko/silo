@@ -1,13 +1,9 @@
-import { useState } from 'react'
 import { Claims } from '@silo/shared/claims'
 import { api } from '../../api/silo-api'
 import { router } from '../../router/router'
 import { Routes } from '../../router/routes'
-import { DEFAULT_LIST_QUERY } from '../../router/list-query'
 import type { SettingsRoute } from '../../router/route'
 import type { Server } from '../servers/server'
-import { CommandPalette } from '../search/CommandPalette'
-import type { PaletteSeed } from '../search/palette-seed'
 import { KeysView } from '../keys/Keys'
 import { PluginsView } from '../plugins/Plugins'
 import { PluginDetailView } from '../plugins/PluginDetail'
@@ -24,7 +20,6 @@ import { ProjectEnvironmentsPage } from './pages/ProjectEnvironmentsPage'
 import { ProjectGeneralPage } from './pages/ProjectGeneralPage'
 import { ProjectsPage } from './pages/ProjectsPage'
 import styles from './SettingsView.module.css'
-import { buildSessionBadge } from '../shell/build-session-badge'
 
 interface SettingsViewProps {
   server: Server
@@ -40,7 +35,6 @@ interface SettingsViewProps {
  */
 export function SettingsView({ server, route, onUpdateServer, onDeleteServer, onBack }: SettingsViewProps) {
   const { id: serverId, url, apiKey } = server
-  const [palette, setPalette] = useState<PaletteSeed | null>(null)
 
   const {
     scope,
@@ -52,19 +46,10 @@ export function SettingsView({ server, route, onUpdateServer, onDeleteServer, on
     reloadEnvironments,
   } = useSettingsScope(url, apiKey, serverId, route)
 
-  const { claims, label, keyPrefix, version, collections, smartCollections } =
-    useSettingsSession(url, apiKey, scope)
+  const { claims, label, keyPrefix, version, collections } = useSettingsSession(url, apiKey, scope)
 
-
-
-  const session = buildSessionBadge({ label, prefix: keyPrefix, claims }, scope)
   const projectSection = route.view === 'project-settings' ? route.section : null
   const envSection = route.view === 'env-settings' ? route.section : null
-
-  const goToCollectionSearch = (name: string, q: string) => {
-    if (!scope) return
-    router.navigate(Routes.entries(serverId, scope.project, scope.env, name, { ...DEFAULT_LIST_QUERY, q }))
-  }
 
   // Picking a scope shows you that scope's settings, keeping the section you
   // were already on where it still exists at the new depth.
@@ -124,10 +109,6 @@ export function SettingsView({ server, route, onUpdateServer, onDeleteServer, on
             project={route.project}
             environments={environments}
             claims={claims}
-            session={session}
-            smartCollections={smartCollections}
-            onOpenPalette={setPalette}
-            onNavigateToCollection={goToCollectionSearch}
             onDeleted={() => {
               reloadProjects()
               router.navigate(Routes.servers())
@@ -143,10 +124,6 @@ export function SettingsView({ server, route, onUpdateServer, onDeleteServer, on
             environments={environments}
             loading={loadingEnvironments}
             claims={claims}
-            session={session}
-            smartCollections={smartCollections}
-            onOpenPalette={setPalette}
-            onNavigateToCollection={goToCollectionSearch}
             onChanged={reloadEnvironments}
           />
         )}
@@ -157,11 +134,7 @@ export function SettingsView({ server, route, onUpdateServer, onDeleteServer, on
             server={server}
             scope={{ project: route.project, env: route.env }}
             collections={collections}
-            session={session}
             claims={claims}
-            smartCollections={smartCollections}
-            onOpenPalette={setPalette}
-            onNavigateToCollection={goToCollectionSearch}
             onDeleted={() => {
               reloadEnvironments()
               router.navigate(Routes.projectSettings(serverId, route.project, 'environments'))
@@ -176,10 +149,6 @@ export function SettingsView({ server, route, onUpdateServer, onDeleteServer, on
             scope={{ project: route.project, env: route.env }}
             projects={projects}
             claims={claims}
-            session={session}
-            smartCollections={smartCollections}
-            onOpenPalette={setPalette}
-            onNavigateToCollection={goToCollectionSearch}
           />
         )}
 
@@ -189,34 +158,21 @@ export function SettingsView({ server, route, onUpdateServer, onDeleteServer, on
             projects={projects}
             loading={loadingProjects}
             claims={claims}
-            session={session}
-            smartCollections={smartCollections}
-            scope={scope}
-            onOpenPalette={setPalette}
-            onNavigateToCollection={goToCollectionSearch}
             onChanged={reloadProjects}
           />
         )}
 
         {route.view === 'server-settings' && route.section === 'keys' && (
           <KeysView
-            serverId={serverId}
-            scope={scope}
-            smartCollections={smartCollections}
             url={url}
             apiKey={apiKey}
             claims={claims}
-            session={session}
-            onOpenPalette={setPalette}
-            onNavigateToCollection={goToCollectionSearch}
             onCreate={() => router.navigate(Routes.serverSettings(serverId, 'key-new'))}
           />
         )}
 
         {route.view === 'server-settings' && route.section === 'key-new' && (
           <NewKeyView
-            serverId={serverId}
-            smartCollections={smartCollections}
             url={url}
             apiKey={apiKey}
             // The resolved scope is only the *default* reach now — the form
@@ -225,10 +181,7 @@ export function SettingsView({ server, route, onUpdateServer, onDeleteServer, on
             scope={scope}
             ownClaims={claims}
             projects={projects}
-            session={session}
             keysUrl={Routes.serverSettings(serverId, 'keys')}
-            onOpenPalette={setPalette}
-            onNavigateToCollection={goToCollectionSearch}
             onCancel={() => router.navigate(Routes.serverSettings(serverId, 'keys'))}
             onDone={() => router.navigate(Routes.serverSettings(serverId, 'keys'))}
           />
@@ -237,14 +190,9 @@ export function SettingsView({ server, route, onUpdateServer, onDeleteServer, on
         {route.view === 'server-settings' && route.section === 'plugins' && (
           <PluginsView
             serverId={serverId}
-            scope={scope}
-            smartCollections={smartCollections}
             url={url}
             apiKey={apiKey}
             claims={claims}
-            session={session}
-            onOpenPalette={setPalette}
-            onNavigateToCollection={goToCollectionSearch}
           />
         )}
 
@@ -258,30 +206,19 @@ export function SettingsView({ server, route, onUpdateServer, onDeleteServer, on
             key={route.plugin}
             serverId={serverId}
             name={route.plugin}
-            scope={scope}
             projects={projects}
-            smartCollections={smartCollections}
             url={url}
             apiKey={apiKey}
             claims={claims}
-            session={session}
-            onOpenPalette={setPalette}
-            onNavigateToCollection={goToCollectionSearch}
           />
         )}
 
         {route.view === 'server-settings' && route.section === 'transfer' && (
           <ExportImportView
-            serverId={serverId}
-            scope={scope}
-            smartCollections={smartCollections}
             url={url}
             apiKey={apiKey}
             claims={claims}
-            session={session}
             collectionCount={collections.length}
-            onOpenPalette={setPalette}
-            onNavigateToCollection={goToCollectionSearch}
             onImported={() => {
               reloadProjects()
               reloadEnvironments()
@@ -293,49 +230,19 @@ export function SettingsView({ server, route, onUpdateServer, onDeleteServer, on
         {route.view === 'server-settings' && route.section === 'connection' && (
           <ConnectionPage
             server={server}
-            session={session}
             claims={claims}
             sessionLabel={label}
             keyPrefix={keyPrefix}
             version={version}
-            scope={scope}
-            smartCollections={smartCollections}
-            onOpenPalette={setPalette}
-            onNavigateToCollection={goToCollectionSearch}
             onUpdateServer={onUpdateServer}
             onDeleteServer={onDeleteServer}
           />
         )}
 
         {route.view === 'server-settings' && route.section === 'appearance' && (
-          <AppearancePage
-            serverId={serverId}
-            scope={scope}
-            smartCollections={smartCollections}
-            session={session}
-            onOpenPalette={setPalette}
-            onNavigateToCollection={goToCollectionSearch}
-          />
+          <AppearancePage />
         )}
       </div>
-
-      {palette && (
-        <CommandPalette
-          serverId={serverId}
-          url={url}
-          apiKey={apiKey}
-          // No settings page has a scope of its own to fall back on when none
-          // is resolved yet; an empty one never matches a real hit, so every
-          // result still carries its own project/env tag rather than one of
-          // them going unexplained.
-          scope={scope ?? { project: '', env: '' }}
-          claims={claims}
-          initialQuery={palette.q}
-          reach={palette.collection ? { collection: palette.collection } : undefined}
-          onNavigate={(href) => router.navigate(href)}
-          onClose={() => setPalette(null)}
-        />
-      )}
     </div>
   )
 }
