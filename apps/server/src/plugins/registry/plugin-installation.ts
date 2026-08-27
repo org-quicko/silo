@@ -3,6 +3,7 @@ import type { Claim } from "@silo/shared/claim";
 import { ValidationError } from "@silo/shared/validation-error";
 import type { Config } from "../../config/config";
 import type { PluginConfig } from "../../config/plugin-config";
+import { ConfigScaffold } from "../../config/config-scaffold";
 import { PluginBlockWriter } from "../../config/plugin-block-writer";
 import { ForbiddenError } from "../../core/errors/forbidden-error";
 import type { PluginGrantRecord } from "../../core/plugins/plugin-grant-record";
@@ -234,6 +235,14 @@ export class PluginInstallation {
    * happened. A plugin running but unlisted comes back at the next start as one
    * that is installed and granted but not loaded — recoverable, and reported. A
    * plugin listed but unrunnable does not come back at all.
+   *
+   * A named config file that does not exist yet is **created**, because the
+   * alternative was an install that reported success and evaporated at the next
+   * start. It is safe to create unasked precisely because `ConfigScaffold` writes
+   * silo's own defaults: flags and `SILO_*` env vars still outrank the file, so a
+   * fresh one changes nothing about the instance except that it now names a
+   * plugin. What is *not* invented is the path — a process handed no config file
+   * has nowhere to write, and that is still reported rather than guessed at.
    */
   private static async list(
     options: PluginInstallationOptions,
@@ -243,18 +252,13 @@ export class PluginInstallation {
     if (!options.configPath) {
       return (
         `this process was not started from a config file, so ${name} is running but not ` +
-        `listed — it will not come back at the next start.`
-      );
-    }
-    if (!(await PluginBlockWriter.exists(options.configPath))) {
-      return (
-        `there is no ${options.configPath} to list ${name} in, so it will not come back at ` +
-        `the next start.`
+        `listed. It will not come back at the next start.`
       );
     }
     if (await PluginBlockWriter.names(options.configPath, name)) return null;
 
     try {
+      const created = await ConfigScaffold.create(options.configPath);
       await PluginBlockWriter.append(
         options.configPath,
         PluginBlockWriter.render(
@@ -263,7 +267,7 @@ export class PluginInstallation {
             `see GET /api/plugins/${name}.`
         )
       );
-      return null;
+      return created ? `${options.configPath} did not exist, so it was created.` : null;
     } catch (caught) {
       return (
         `${name} is running, but ${options.configPath} could not be written ` +

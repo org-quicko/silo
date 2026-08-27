@@ -5,6 +5,7 @@ import fs from 'fs/promises'
 import os from 'os'
 import path from 'path'
 import { ImportPlans } from './import-plan'
+import { SiloNames } from './silo-names'
 import { MediaLibrary } from './media-library'
 import { MultipartBody } from './multipart-body'
 import { SourceStore } from './source-store'
@@ -241,7 +242,7 @@ describe('reading a Strapi export', () => {
     expect(() => StrapiDatabase.open(path.join(tempDir, 'nope.db'))).toThrow(/could not be opened/)
   })
 
-  test('the proposed plan names the component, not the wrapper single type', () => {
+  test('the proposed plan names the component whole, not the wrapper single type', () => {
     const source = StrapiDatabase.open(file)
     try {
       const inventory = StrapiInventory.read(source, 'published')
@@ -252,9 +253,10 @@ describe('reading a Strapi export', () => {
         mediaBaseUrl: '',
         mediaFolder: 'strapi',
       })
-      // `payment_entity`, from `org-quicko.payment-entity` — the thing being
-      // imported — rather than from the single type Strapi wraps it in.
-      expect(plan.steps[0]!.collection).toBe('strapi_payment_entity')
+      // `org-quicko-payment-entity` — the thing being imported — rather than the
+      // single type Strapi wraps it in, and with its namespace kept: `bank` and
+      // `payment_entity` are the names every other Strapi export also proposes.
+      expect(plan.steps[0]!.collection).toBe('strapi_org-quicko-payment-entity')
       // `append`, because a plan that defaults to deleting is a plan somebody
       // runs once without reading.
       expect(plan.steps[0]!.mode).toBe('append')
@@ -300,6 +302,13 @@ describe('reading a Strapi export', () => {
         expect(() =>
           ImportPlans.read({ ...plan, steps: [{ ...plan.steps[0]!, collection: 'Not Valid' }] }, inventory)
         ).toThrow(/not a usable name/)
+
+        // The hyphens the proposal now carries are silo's to accept, so the plan
+        // that comes back unedited has to pass the same check.
+        expect(plan.steps[0]!.collection).toContain('-')
+        expect(ImportPlans.read(plan, inventory).steps[0]!.collection).toBe(
+          plan.steps[0]!.collection
+        )
 
         expect(() =>
           ImportPlans.read({ ...plan, steps: [{ ...plan.steps[0]!, include: false }] }, inventory)
@@ -699,5 +708,41 @@ describe('media becoming silo media', () => {
     const result = library.result()
     expect(result.stopped).toMatch(/media:create/)
     expect(result).toMatchObject({ uploaded: 0, matched: 0, kept: 3 })
+  })
+})
+
+/**
+ * The proposed name, on its own.
+ *
+ * `nameFor` is the one part of a plan nobody re-reads before running it: an
+ * operator scans the column and hits import. So the thing pinned here is that a
+ * suggestion carries the *whole* source name, because a short one silently
+ * proposes the collection the next import will also want.
+ */
+describe('the proposed collection name', () => {
+  const listFor = (fields: { component?: string; contentType?: string }) =>
+    ({
+      component: fields.component ?? null,
+      contentType: fields.contentType ?? 'api::thing.thing',
+    }) as unknown as Parameters<typeof SiloNames.forList>[0]
+
+  test('carries the component uid whole, namespace included', () => {
+    expect(SiloNames.forList(listFor({ component: 'org-quicko.bank' }))).toBe('org-quicko-bank')
+    expect(SiloNames.forList(listFor({ component: 'org-quicko.state-code' }))).toBe(
+      'org-quicko-state-code',
+    )
+  })
+
+  test('drops "api::" and a segment that only repeats the one before it', () => {
+    expect(SiloNames.forList(listFor({ contentType: 'api::article.article' }))).toBe('article')
+    expect(SiloNames.forList(listFor({ contentType: 'api::blog.article' }))).toBe('blog-article')
+  })
+
+  test('a name silo would refuse is never proposed', () => {
+    // Leading digits, spaces, and a uid longer than an id may be.
+    expect(SiloNames.forList(listFor({ component: '2024.Some Thing!' }))).toBe('some-thing')
+    expect(SiloNames.forList(listFor({ component: `ns.${'x'.repeat(200)}` }))).toMatch(
+      /^[a-z][a-z0-9_-]{0,63}$/,
+    )
   })
 })

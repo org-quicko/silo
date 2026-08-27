@@ -1,21 +1,13 @@
 import fs from "fs/promises";
-import path from "path";
-import type { Config } from "../../config/config";
-import { ConfigLoader } from "../../config/config-loader";
+import { ConfigScaffold } from "../../config/config-scaffold";
 
 /**
  * `silo init` — scaffolds a `silo.toml` holding silo's default settings.
  *
- * The values are rendered from `ConfigLoader.defaultConfig()` rather than
- * written out by hand, so the scaffold cannot drift from what silo actually
- * does when no file is present: an untouched `silo init` file is a no-op, and
- * `server/test/cli/init-command.test.ts` pins that by loading it back.
- *
- * Keys silo has no default for — the s3 credentials, the fs media dir, and the
- * log file — are emitted **commented out**, not filled in. `[blob_storage] path` is the
- * one that matters: unset means "follow the data dir", so `--data <dir>` keeps
- * uploads at `<dir>/media`; a literal path here is indistinguishable from a
- * path the user chose and would silently pin media in place (§10).
+ * The file itself is `ConfigScaffold`'s, because an install with no config file
+ * to list a plugin in writes the same one (§13.21). What is `init`'s alone is
+ * the refusal: a file that already exists is somebody's settings, and only
+ * `--force` overwrites it.
  *
  * Runs before any storage is opened — writing a config file must not create a
  * data dir as a side effect, and `--config` naming a file that does not exist
@@ -27,12 +19,7 @@ export class InitCommand {
       throw new Error(`${configPath} already exists — pass --force to overwrite it`);
     }
 
-    const dir = path.dirname(configPath);
-    if (dir && dir !== ".") {
-      await fs.mkdir(dir, { recursive: true });
-    }
-    await fs.writeFile(configPath, InitCommand.render(ConfigLoader.defaultConfig()), "utf8");
-
+    await ConfigScaffold.write(configPath);
     console.log(`wrote default config: ${configPath}`);
   }
 
@@ -43,64 +30,5 @@ export class InitCommand {
     } catch {
       return false;
     }
-  }
-
-  /** Renders a config as annotated TOML. Every key silo reads appears, set to
-   *  its default or commented with the alternatives it accepts. */
-  static render(config: Config): string {
-    const s = (v: string) => JSON.stringify(v); // TOML basic strings are JSON strings
-
-    return `# silo.toml — every key is optional; the values below are silo's defaults.
-# Precedence: flags > SILO_* env vars > this file > defaults.
-
-listen          = ${s(config.listen)}     # host:port to bind; ":8090" means every interface
-default_project = ${s(config.default_project)}   # created on startup if missing
-default_env     = ${s(config.default_env)}      # created on startup if missing
-
-[storage]
-driver = ${s(config.storage.driver)}       # "sqlite" (indexed, fast) | "fs" (plain JSON files, git/rsync friendly)
-path   = ${s(config.storage.path)}  # data dir; the sqlite database lives at <path>/silo.db
-
-[blob_storage]
-driver = ${s(config.blob_storage.driver)}           # "fs" (local directory) | "s3" (S3 or S3-compatible)
-# path = "/srv/silo-media"  # fs driver. Unset = <storage.path>/media, so --data moves media too; setting it pins media here.
-#
-# s3 driver:
-# bucket            = "silo-media"   # required
-# region            = "ap-south-1"
-# endpoint          = "https://..."  # S3-compatible providers only; omit for AWS
-# access_key_id     = "..."          # prefer SILO_BLOB_S3_ACCESS_KEY_ID — this file is not a secret store
-# secret_access_key = "..."          # prefer SILO_BLOB_S3_SECRET_ACCESS_KEY
-# force_path_style  = false          # true for MinIO and other path-style endpoints
-
-[auth]
-disabled = ${config.auth.disabled}   # dev only: true treats every request as root, ignoring API keys
-
-[schema]
-allow_remote_refs = ${config.schema.allow_remote_refs}  # true fetches http(s) $refs during validation (non-deterministic writes)
-
-[search]
-enabled             = ${config.search.enabled}     # false keeps no index; search falls back to a full scan
-tokenizer           = ${s(config.search.tokenizer)}  # "unicode61" (words) | "trigram" (substrings; required for CJK)
-max_entry_bytes     = ${config.search.max_entry_bytes}    # per-entry cap on indexed text
-scan_limit          = ${config.search.scan_limit}    # entries one un-indexed scan may visit before truncating
-scan_time_budget_ms = ${config.search.scan_time_budget_ms}     # ...and how long, whichever comes first
-# Changing the tokenizer rebuilds the index on the next start.
-
-[log]
-level       = ${s(config.log.level)}   # "debug" | "info" | "warn" | "error" | "silent"
-format      = ${s(config.log.format)}   # "text" (human) | "json" (one object per line, for a log shipper)
-requests    = ${config.log.requests}     # one line per HTTP request; its own switch because it is high volume
-max_size_mb = ${config.log.max_size_mb}       # rotate past this size; 0 never rotates
-max_files   = ${config.log.max_files}        # rotated files kept as silo.log.1 … silo.log.<n>
-# file = "/var/log/silo.log"  # unset = the console. "serve --detach" uses <storage.path>/silo.log unless this names one.
-
-# Plugins. An *ordered* array — the order is hook dispatch order. None by
-# default: a plugin is a directory under <storage.path>/plugins/ that this
-# file names. See the "Plugins" section of the README.
-# [[plugins]]
-# name   = "silo-plugin-slug"
-# claims = ["collections:*/*/*:entries:read"]
-`;
   }
 }

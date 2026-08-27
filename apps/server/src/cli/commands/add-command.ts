@@ -1,5 +1,6 @@
 import { Claims } from "@silo/shared/claims";
 import type { Config } from "../../config/config";
+import { ConfigScaffold } from "../../config/config-scaffold";
 import { PluginBlockWriter } from "../../config/plugin-block-writer";
 import type { PluginConfig } from "../../config/plugin-config";
 import { PluginContributionUtils, PluginInstaller, PluginPermissionUtils, PluginRegistry } from "../../plugins";
@@ -79,6 +80,12 @@ export class AddCommand {
    *
    * Every path that declines to write ends by printing the block, so "silo did
    * not do this for you" and "you now cannot do it" stay different outcomes.
+   *
+   * A missing `silo.toml` is written rather than made into the operator's
+   * errand: `ConfigScaffold` emits silo's own defaults, so the file this creates
+   * is the `silo init` file plus the one block that was asked for. It is created
+   * after the claims are confirmed, not before, because a declined grant must
+   * leave the filesystem where it found it.
    */
   private static async register(
     configPath: string,
@@ -90,12 +97,6 @@ export class AddCommand {
 
     if (options["no-register"]) return AddCommand.printBlock(block, `not listed, as asked.`);
 
-    if (!(await PluginBlockWriter.exists(configPath))) {
-      return AddCommand.printBlock(
-        block,
-        `no ${configPath} to add it to — run "silo init" first, then add this block:`
-      );
-    }
     if (await PluginBlockWriter.names(configPath, result.name)) {
       console.log(`\n${configPath} already lists ${result.name} — left it alone.`);
       console.log(`Its existing entry decides the claims and dispatch order.`);
@@ -105,6 +106,9 @@ export class AddCommand {
       return AddCommand.printBlock(block, `not listed. To run it, add this block to ${configPath}:`);
     }
 
+    if (await ConfigScaffold.create(configPath)) {
+      console.log(`\nwrote default config: ${configPath}`);
+    }
     await PluginBlockWriter.append(configPath, block);
     console.log(`\nlisted in ${configPath}. It dispatches last, after the plugins above it.`);
     // Never "it is now running". `add` writes files and a config block; loading

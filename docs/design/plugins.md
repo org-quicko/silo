@@ -2326,6 +2326,27 @@ and the response says it will not come back at the next start. That direction is
 recoverable and the other is not, which is the same asymmetry `enable` and
 `disable` order their halves around.
 
+It also **creates the file** when the path this process was started with names
+one that is not there. Before that, a first install into a directory with no
+`silo.toml` was the failure the soft path was built to survive doing nothing
+about: the package was fetched, the worker started, the grant minted, the
+response said `201`, and the whole thing evaporated at the next start with a
+warning nobody could act on except by writing the file by hand and repeating the
+install. Creating it is safe for one specific reason — `ConfigScaffold` writes
+silo's **own defaults**, and file values sit below flags and `SILO_*` env vars
+(§10), so a file created behind the operator's back decides nothing the run had
+not already decided. It differs from the `silo init` file by exactly the block
+that was asked for.
+
+What is still refused is *inventing the path*. A process handed no config file at
+all — `SiloServer` built without a supervisor, an embedded host — has nowhere to
+write, and guessing `./silo.toml` from a working directory nobody chose is a file
+appearing in somebody's repository. That case keeps the warning it had.
+
+`silo add` creates it on the same terms, one step later in its own sequence: the
+claims are confirmed first, because a declined grant must leave the filesystem
+where it found it.
+
 A `--force` install is the one case with no clean undo: the previous directory is
 already gone, so a later refusal leaves the replacement on disk, stopped and
 unlisted, rather than leaving the operator with neither version.
@@ -2432,7 +2453,8 @@ Two guards, because that is the failure worth being paranoid about:
   own explanation of the array, which sits directly above the first entry.
 
 Line endings survive: the file is split on `"
-"` only, so a `""` stays
+"` only, so a `"
+"` stays
 attached to the line it came from and a CRLF config is not quietly rewritten.
 
 ### What it does not do
