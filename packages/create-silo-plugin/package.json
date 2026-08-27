@@ -1,6 +1,6 @@
 {
   "name": "create-silo-plugin",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "Scaffold a silo plugin — manifest, hook stubs, and the silo:api types — in one command",
   "keywords": ["silo", "cms", "headless-cms", "plugin", "scaffold", "create"],
   "homepage": "https://github.com/org-quicko/silo#plugins",
