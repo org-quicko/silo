@@ -29,7 +29,16 @@ export class TomlSnippet {
    * way would pass while the printed one was wrong.
    */
   static requestedClaims(options: ScaffoldOptions): string[] {
-    return [...options.claims, ...options.hooks.map((hook) => `hooks:*/*/*:${hook}`)];
+    return [
+      ...options.claims,
+      ...options.hooks.map((hook) => `hooks:*/*/*:${hook}`),
+      // `http:route` is derived from declared routes exactly as a `hooks:` claim
+      // is derived from a declared hook (D36/§13.19), and it is not optional: a
+      // plugin whose every route answers 403 is running, healthy, and not doing
+      // the thing it was installed for, which the start refuses rather than
+      // leaving to a caller to discover.
+      ...(options.routes.length > 0 ? ["http:route"] : []),
+    ];
   }
 
   static render(options: ScaffoldOptions): string {

@@ -1,6 +1,7 @@
 import { HookNames } from "../../core/hooks";
 import type { HookName } from "../../core/hooks";
 import { ManifestRoutesReader } from "./manifest-routes-reader";
+import { ManifestUiReader } from "./manifest-ui-reader";
 import type { PluginContributions } from "./plugin-contributions";
 import { PluginContributionUtils } from "./plugin-contribution-utils";
 import type { PluginProvider } from "./plugin-provider";
@@ -36,6 +37,7 @@ export class ManifestContributionsReader {
       routes: ManifestRoutesReader.read(name, block.routes),
       runtime: ManifestContributionsReader.runtime(name, block.runtime),
       providers: ManifestContributionsReader.providers(name, block.providers),
+      ui: ManifestUiReader.read(name, block.ui),
     };
 
     if (PluginContributionUtils.declaresNothing(contributes)) {

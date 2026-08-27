@@ -58,6 +58,40 @@ export class PluginRoutes {
       return c.json({ items });
     });
 
+    /**
+     * One plugin's declared admin panel (D41).
+     *
+     * Registered before `/:name` for the same reason `rescan` is, and behind
+     * `plugins:read` because that is already the claim for looking at a plugin —
+     * a panel is a *rendering* of what this surface reports, not new reach.
+     *
+     * **The headers are the security property, not decoration.** The API and the
+     * admin SPA are served from one origin (D26 embeds the SPA in the binary),
+     * and the admin keeps `silo_servers` in that origin's `localStorage` — an API
+     * key for every instance the operator has configured. A plugin's HTML
+     * rendered as a document here would therefore be able to read a credential
+     * for every silo the operator has ever connected to, which is a strictly
+     * larger authority than anything a plugin can be granted. So the bytes leave
+     * as JSON, `nosniff` forbids a browser inferring otherwise, and the CSP is
+     * there for the case this is opened directly with a client that ignores both.
+     * Only the admin turns a panel into a document, in a sandboxed iframe with no
+     * origin of its own.
+     */
+    app.get("/api/plugins/:name/ui", async (c: Context) => {
+      RouteAuth.requireClaim(c, Claims.PluginsRead);
+      const name = c.req.param("name") || "";
+      // The record is required first, so a package with a panel but no record
+      // answers the same "has never been loaded" message every other verb gives
+      // rather than rendering a screen for a plugin the instance has not adopted.
+      await PluginRoutes.require(service, name);
+      const panel = await supervisor.panel(name);
+
+      c.header("X-Content-Type-Options", "nosniff");
+      c.header("Content-Security-Policy", "default-src 'none'; sandbox");
+      c.header("Cache-Control", "no-store");
+      return c.json(panel);
+    });
+
     app.get("/api/plugins/:name", async (c: Context) => {
       RouteAuth.requireClaim(c, Claims.PluginsRead);
       const record = await PluginRoutes.require(service, c.req.param("name") || "");

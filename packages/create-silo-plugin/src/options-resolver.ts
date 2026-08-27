@@ -5,6 +5,8 @@ import { SiloRange } from "./silo-range";
 import { Style } from "./style";
 import type { ArgumentValues } from "./arguments";
 import type { HookName, PluginKind, ProviderPort } from "./plugin-contract";
+import { ScaffoldRoutes } from "./plugin-routes";
+import type { ScaffoldRoute } from "./plugin-routes";
 import type { ScaffoldOptions } from "./scaffold-options";
 
 /**
@@ -81,6 +83,9 @@ export class OptionsResolver {
       kind,
       siloRange,
       hooks: [],
+      routes: [],
+      runtime: false,
+      panel: false,
       claims: await OptionsResolver.claims(values, prompter),
       withConfig: await OptionsResolver.withConfig(values, prompter, kind),
       force: values.force,
@@ -88,12 +93,94 @@ export class OptionsResolver {
 
     if (kind === "extension") {
       options.hooks = await OptionsResolver.hooks(values, prompter);
+      options.routes = await OptionsResolver.routes(values, prompter);
+      options.panel = await OptionsResolver.panel(values, prompter, options.routes);
+      options.runtime = await OptionsResolver.runtime(values, prompter);
+      OptionsResolver.assertSomethingCallsIt(options);
     } else {
       options.port = await OptionsResolver.port(values, prompter);
       options.driver = await OptionsResolver.driver(values, prompter, name);
     }
 
     return options;
+  }
+
+  /**
+   * `ManifestReader`'s actual rule, applied here so the author hears it while
+   * they can still answer.
+   *
+   * The rule is **not** "an extension declares a hook" — that was true before
+   * D36 and is what made this tool require one. It is "something would call
+   * it", and since D41 a panel counts, so hooks, routes, a runtime and a panel
+   * are four ways to satisfy it.
+   */
+  private static assertSomethingCallsIt(options: ScaffoldOptions): void {
+    if (
+      options.hooks.length > 0 ||
+      options.routes.length > 0 ||
+      options.runtime ||
+      options.panel
+    ) {
+      return;
+    }
+    throw new Error(
+      `a plugin that contributes nothing would never be called. Declare at least one hook ` +
+        `(--hooks), a route (--routes), a runtime (--runtime), or a panel (--panel).`
+    );
+  }
+
+  /**
+   * Routes, and the reason the prompt offers an example rather than a menu:
+   * unlike hooks there is no closed list to pick from, so the useful help is
+   * the grammar.
+   */
+  private static async routes(
+    values: ArgumentValues,
+    prompter: Prompter | null
+  ): Promise<ScaffoldRoute[]> {
+    if (values.routes !== undefined) return values.routes;
+    if (!prompter) return [];
+
+    const typed = await prompter.text(
+      'Routes, e.g. "GET /status, POST /upload+bytes:8" (blank for none)',
+      ""
+    );
+    return typed.trim().length === 0 ? [] : ScaffoldRoutes.parse(typed);
+  }
+
+  /**
+   * A panel is offered only when there is a route to reach.
+   *
+   * Not a restriction — `contributes.ui` on its own is legal — but a panel with
+   * no routes can only display what it shipped with, because its one capability
+   * is asking the admin to call **this plugin's** routes. Offering it before
+   * there is anything to call would be offering a blank screen.
+   */
+  private static async panel(
+    values: ArgumentValues,
+    prompter: Prompter | null,
+    routes: readonly ScaffoldRoute[]
+  ): Promise<boolean> {
+    if (values.panel !== undefined) return values.panel;
+    if (!prompter || routes.length === 0) return false;
+    return await prompter.confirm(
+      "Add an admin panel, so an operator can drive those routes from a screen?",
+      true
+    );
+  }
+
+  /** A runtime is implied by a panel: something has to be ready before the
+   *  first request the panel makes, and `activate` is where that goes. */
+  private static async runtime(
+    values: ArgumentValues,
+    prompter: Prompter | null
+  ): Promise<boolean> {
+    if (values.runtime !== undefined) return values.runtime;
+    if (!prompter) return false;
+    return await prompter.confirm(
+      "Run code of its own on activation (activate/deactivate)?",
+      false
+    );
   }
 
   /**
@@ -146,15 +233,25 @@ export class OptionsResolver {
   }
 
   /**
-   * Extensions only, and never empty: `ManifestReader` refuses an extension
-   * that declares no hooks, because nothing would ever call it. Refused here
-   * with the same reasoning, so the author hears it while they can still
-   * answer rather than at the first `silo plugin doctor`.
+   * Extensions only, and it may now be empty.
+   *
+   * The old refusal lived here and was the wrong rule in the wrong place — see
+   * `assertSomethingCallsIt`, which asks the question `ManifestReader` actually
+   * asks. An author scaffolding a routes-only plugin used to have to name a hook
+   * they did not want, which is exactly what D36 objected to about `kind`.
    */
   private static async hooks(
     values: ArgumentValues,
     prompter: Prompter | null
   ): Promise<HookName[]> {
+    // The unattended default is a hook only when the author asked for nothing
+    // else. `--yes --routes "GET /status"` means a routes plugin, and adding a
+    // `entry.beforeValidate` to it would hand them a claim to grant, a stub to
+    // delete, and an authority over every write in the instance they never
+    // asked for — which is the largest of the three.
+    const askedForSomethingElse =
+      (values.routes?.length ?? 0) > 0 || values.runtime === true || values.panel === true;
+
     const chosen =
       values.hooks ??
       (await prompter?.chooseMany<HookName>(
@@ -166,13 +263,7 @@ export class OptionsResolver {
         })),
         ["entry.beforeValidate"]
       )) ??
-      ["entry.beforeValidate"];
-
-    if (chosen.length === 0) {
-      throw new Error(
-        `an extension plugin with no hooks would never be called. Pick at least one of: ${PluginContract.Hooks.join(", ")}`
-      );
-    }
+      (askedForSomethingElse ? [] : ["entry.beforeValidate"]);
 
     // Sorted into lifecycle order rather than the order they were typed, so
     // the manifest and the generated module read top-to-bottom the way the

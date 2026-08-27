@@ -1,5 +1,7 @@
 import { PluginContract } from "../plugin-contract";
 import type { HookName } from "../plugin-contract";
+import { ScaffoldRoutes } from "../plugin-routes";
+import type { ScaffoldRoute } from "../plugin-routes";
 import type { ScaffoldOptions } from "../scaffold-options";
 
 /**
@@ -19,7 +21,11 @@ export class ExtensionModule {
     // the stubs read identically, which is the point of having the guard at all.
     const target = options.withConfig ? "ctx.config.collection" : "Collection";
 
-    const bodies = options.hooks.map((hook) => ExtensionModule.hook(hook, target));
+    const bodies = [
+      ...(options.runtime ? [ExtensionModule.runtime(options)] : []),
+      ...options.hooks.map((hook) => ExtensionModule.hook(hook, target)),
+      ...options.routes.map((route) => ExtensionModule.route(route)),
+    ];
 
     return `${ExtensionModule.header(options)}
 
@@ -29,16 +35,95 @@ ${bodies.join("\n\n")}
 `;
   }
 
+  /**
+   * `activate` / `deactivate` (D36).
+   *
+   * First in the file, because it is the only one that runs unprompted and so
+   * the only one whose failure refuses the start.
+   */
+  private static runtime(options: ScaffoldOptions): string {
+    return `  /**
+   * Called once when this plugin becomes live, before silo accepts its first
+   * request. This is where a plugin does something of its own accord — a timer, a
+   * warm cache, a one-off migration — rather than only answering a hook or a
+   * route. A throw here refuses the start, so setup that must succeed belongs in it.
+   *
+   * It grants nothing: \`ctx\` is the same claim-checked surface a hook gets.
+   */
+  activate(ctx) {
+    ctx.log.info("${options.name} is up");
+  },
+
+  /** Called once before the worker is torn down. Best-effort and bounded by
+   *  \`timeout_ms\`: the decision to stop has already been taken. */
+  deactivate(ctx) {
+    ctx.log.info("${options.name} is going away");
+  },`;
+  }
+
+  /**
+   * One route stub, keyed exactly as the manifest declares it (§13.18).
+   *
+   * A handler returns a **value**, never a status code: nothing is a 204, a
+   * string is text, any other object is JSON, and `{ status, headers, body }` or
+   * `{ json }` sets one explicitly. Throwing `ValidationError` or
+   * `ForbiddenError` answers 400 or 403 through the same mapping a hook's
+   * refusal gets.
+   */
+  private static route(route: ScaffoldRoute): string {
+    const key = ScaffoldRoutes.key(route);
+    const parameters = route.path
+      .split("/")
+      .filter((segment) => segment.startsWith(":"))
+      .map((segment) => segment.slice(1));
+    const mounted = route.path === "/" ? "" : route.path;
+
+    const lines: string[] = [
+      `  /** Served at \`/api/ext/<name>${mounted}\`, behind the \`http:route\` claim. */`,
+      `  "${key}"(request, ctx) {`,
+      `    // A handler runs with **this plugin's** authority and never the caller's,`,
+      `    // which is what a plugin route is for — and why exposing one is a decision`,
+      `    // the operator makes. \`request.caller\` is who called, minus their credential.`,
+    ];
+
+    if (route.body) {
+      const mib = route.body.max_bytes / (1024 * 1024);
+      lines.push(
+        `    // This route declares \`"body": { "kind": "bytes" }\`, so the payload arrives`,
+        `    // undecoded in \`request.bytes\` and \`request.body\` is null. ${mib} MiB is the`,
+        `    // cap the manifest asks for, and the operator sees it beside the route.`,
+        `    const bytes = request.bytes;`,
+        `    if (!bytes) throw new ValidationError("send the file as the request body");`,
+        `    return { json: { received: bytes.byteLength } };`
+      );
+    } else if (parameters.length > 0) {
+      const fields = parameters.map((name) => `${name}: request.params.${name}`).join(", ");
+      lines.push(`    return { json: { ${fields} } };`);
+    } else {
+      lines.push(`    return { json: { ok: true, caller: request.caller?.label ?? null } };`);
+    }
+
+    lines.push(`  },`);
+    return lines.join("\n");
+  }
+
   private static header(options: ScaffoldOptions): string {
     // Only what the stubs actually use: an unused `ValidationError` in a file
     // whose first job is to be read is a wrong signal about which hooks reject.
     const observes = ["entry.afterWrite", "entry.afterDelete", "collection.afterDelete"];
-    const rejects = options.hooks.some((hook) => !observes.includes(hook));
+    const rejects =
+      options.hooks.some((hook) => !observes.includes(hook)) ||
+      options.routes.some((route) => route.body !== undefined);
     const imported = rejects ? "defineSiloPlugin, ValidationError" : "defineSiloPlugin";
 
-    const constant = options.withConfig
-      ? ""
-      : `\n/** The collection this plugin acts on. Change it, or add a \`config\` schema\n *  to the manifest and let the operator set it in \`silo.toml\`. */\nconst Collection = "posts";\n`;
+    // Only when a hook reads it. Every stub opens by asking "is this the
+    // collection I care about?", so a routes-only or panel-only scaffold has
+    // nothing to compare against — and a constant nothing reads is the first
+    // thing an author deletes wondering what it was for.
+    const constant =
+      options.withConfig || options.hooks.length === 0
+        ? ""
+        : `\n/** The collection this plugin acts on. Change it, or add a \`config\` schema\n *  to the manifest and let the operator set it in \`silo.toml\`. */\nconst Collection = "posts";\n`;
 
     return `import { ${imported} } from "silo:api";
 ${constant}

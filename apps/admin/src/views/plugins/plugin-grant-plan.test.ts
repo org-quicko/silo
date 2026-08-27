@@ -21,7 +21,7 @@ const plugin = (patch: Partial<PluginView> = {}): PluginView => ({
   runtime: { state: 'running', hooks: [], detail: null },
   config: {},
   config_source: 'silo.toml',
-  contributes: { hooks: [], routes: [], runtime: false, providers: [] },
+  contributes: { hooks: [], routes: [], runtime: false, providers: [], ui: null },
   reasons: {},
   config_schema: null,
   ...patch,

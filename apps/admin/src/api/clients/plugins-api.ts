@@ -1,7 +1,7 @@
+import type { PluginPanelSource, PluginView } from '../types/plugin-view'
 import type { PluginStatus } from '../types/plugin-status'
-import type { PluginView } from '../types/plugin-view'
 import type { RescanReport } from '../types/rescan-report'
-import type { HttpTransport } from '../transport/http-transport'
+import { HttpTransport } from '../transport/http-transport'
 
 /**
  * Plugin grants and lifecycle (D38, D39). Everything here acts on the
@@ -28,6 +28,67 @@ export class PluginsApi {
 
   get(url: string, key: string, name: string): Promise<PluginView> {
     return this.transport.request<PluginView>(url, key, PluginsApi.path(name))
+  }
+
+  /**
+   * Relay one request from a plugin panel to that plugin's own routes (D41).
+   *
+   * Raw on purpose: it returns the status and the bytes rather than a decoded
+   * body, because a panel is entitled to see what its own route answered — a
+   * 400 with a validation list is a result the panel renders, not an exception
+   * the admin should be swallowing on its way past. That also keeps the 401
+   * handler out of the path, which matters: a panel route answering 401 is a
+   * fact about the plugin's grant, and bouncing the operator to the welcome gate
+   * over it would be the wrong conclusion drawn from the right status.
+   *
+   * **This method authorizes nothing.** The path has already been checked
+   * against the panel's own namespace by `readPanelMessage`, which is where that
+   * rule belongs — it is the security boundary, and it is pure so it can be
+   * tested without a DOM. Here the only job is to attach the operator's key, and
+   * that is exactly the thing a panel cannot do for itself.
+   */
+  async relay(
+    url: string,
+    key: string,
+    request: {
+      method: string
+      path: string
+      headers: Record<string, string>
+      body: string | Uint8Array | null
+    },
+  ): Promise<{ status: number; ok: boolean; headers: Record<string, string>; bytes: Uint8Array }> {
+    const response = await this.transport.fetchRaw(url, request.path, {
+      method: request.method,
+      // The panel's headers first, so a panel cannot displace the credential by
+      // spelling the header itself — `readPanelMessage` already drops every name
+      // outside its allowlist, and this is the ordering that makes that
+      // belt-and-braces rather than load-bearing.
+      headers: { ...request.headers, ...HttpTransport.authHeaders(key) },
+      ...(request.body === null ? {} : { body: request.body as any }),
+    })
+
+    const headers: Record<string, string> = {}
+    response.headers.forEach((value, name) => {
+      headers[name] = value
+    })
+    return {
+      status: response.status,
+      ok: response.ok,
+      headers,
+      bytes: new Uint8Array(await response.arrayBuffer()),
+    }
+  }
+
+  /**
+   * The HTML of a plugin's declared admin panel (D41).
+   *
+   * Its own call and not a field on `PluginView`, because a panel is kilobytes
+   * of markup and the view is fetched for every plugin in the list. Re-fetched
+   * rather than cached: an operator opening the screen is the only thing that
+   * asks for it, and a stale panel after an upgrade has nothing to invalidate it.
+   */
+  panel(url: string, key: string, name: string): Promise<PluginPanelSource> {
+    return this.transport.request<PluginPanelSource>(url, key, `${PluginsApi.path(name)}/ui`)
   }
 
   /**

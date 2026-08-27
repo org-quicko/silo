@@ -9,6 +9,8 @@ export { PluginLifecycle } from "./plugin-lifecycle";
 export { PluginLoader } from "./plugin-loader";
 export type { ExtensionLoadOptions } from "./plugin-loader";
 export type { PluginLoadContext } from "./plugin-load-context";
+export { PluginPanel } from "./plugin-panel";
+export type { PluginPanelSource } from "./plugin-panel";
 export { PluginRegistry } from "./plugin-registry";
 export { PluginRescan } from "./plugin-rescan";
 export type { PluginStatus } from "./plugin-status";

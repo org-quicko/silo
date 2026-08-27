@@ -2,6 +2,7 @@ import crypto from "crypto";
 import { Claims } from "@silo/shared/claims";
 import { ValidationError } from "@silo/shared/validation-error";
 import type { Claim } from "@silo/shared/claim";
+import type { PluginRoute } from "../../plugins/manifest/plugin-route";
 import type { PluginGrant } from "./plugin-grant";
 
 /** The reserved collection, the digest, and the two set comparisons every
@@ -13,11 +14,17 @@ export class PluginGrantUtils {
    * A stable digest of what a manifest **asks for**, not of the whole package.
    *
    * Only the fields an operator is approving go in: the requested claims, which
-   * of them are required, and the hooks. A version bump that changes none of
-   * those is not a new decision and must not re-prompt, and a package that
-   * silently adds a hook — or silently promotes an optional claim to required, so
-   * that a default grant would now approve it — is one even if its version did
-   * not move.
+   * of them are required, the hooks, and the routes. A version bump that changes
+   * none of those is not a new decision and must not re-prompt, and a package
+   * that silently adds a hook — or silently promotes an optional claim to
+   * required, so that a default grant would now approve it — is one even if its
+   * version did not move.
+   *
+   * `routes` joined it in D41, and the case for it is the sharpest of the four.
+   * `http:route` is one claim however many routes there are, so the claim list
+   * cannot see the route surface change: a package could add `"auth": "public"`
+   * to a route in a patch release and publish everything it was granted at an
+   * unauthenticated URL, against an approval nobody was asked to reconsider.
    *
    * The `reason` strings are deliberately **out**. They are what an operator
    * reads while deciding, so including them is tempting, but a package fixing a
@@ -28,14 +35,58 @@ export class PluginGrantUtils {
   static digest(
     requested: readonly string[],
     required: readonly string[],
-    hooks: readonly string[]
+    hooks: readonly string[],
+    routes: readonly string[] = []
   ): string {
     const canonical = JSON.stringify({
       claims: [...requested].sort(),
       required: [...required].sort(),
       hooks: [...hooks].sort(),
+      // Defaulted and omitted when empty, so every record written before D41 for
+      // a plugin with no routes keeps the digest it already has. A plugin *with*
+      // routes moves to `needs_review` once, which is the decision it never had.
+      ...(routes.length > 0 ? { routes: [...routes].sort() } : {}),
     });
     return crypto.createHash("sha256").update(canonical).digest("hex");
+  }
+
+  /**
+   * One route, as the record stores it and the digest reads it (D41).
+   *
+   * A string rather than the object, for the same reason `hooks` is a list of
+   * strings: the record is an ordinary queryable document, and a stored shape
+   * that mirrors a manifest type is a second copy of that type to keep in step.
+   * Readable rather than hashed, because an operator diffing a `needs_review`
+   * record should be able to see *which* route changed.
+   *
+   * `auth` and the body contract are in it and nothing else is — they are the
+   * two properties of a route an operator is deciding about. The method and path
+   * are identity; `auth` decides whether a stranger can reach the plugin's grant;
+   * the body decides how much the host allocates for them when they do.
+   */
+  static routeLine(route: PluginRoute): string {
+    return (
+      `${route.method} ${route.path} auth=${route.auth} ` +
+      `body=${route.body.kind}:${route.body.max_bytes}`
+    );
+  }
+
+  static routeLines(routes: readonly PluginRoute[]): string[] {
+    return routes.map((route) => PluginGrantUtils.routeLine(route));
+  }
+
+  /**
+   * A record's approved route surface (D41).
+   *
+   * Absent in a record written before D41, and the honest reading of one is the
+   * empty list: whatever routes the package had, they were not part of what was
+   * approved. `requiredOf` reads a legacy field the other way round — as
+   * *everything* — and the difference is not inconsistency: there, the field
+   * being absent meant the distinction did not exist yet and every claim was
+   * required; here, it meant the surface was never reviewed.
+   */
+  static routesOf(grant: Pick<PluginGrant, "routes">): string[] {
+    return grant.routes ?? [];
   }
 
   /**

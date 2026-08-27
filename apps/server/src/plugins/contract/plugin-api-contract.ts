@@ -127,7 +127,9 @@ export class PluginApiContract {
       path: "/api/projects",
       parameters: [],
       returns: "SiloItemPage",
-      summary: "The projects the grant can see, each with its environments.",
+      summary:
+        "The project ids the grant can see, as `items` — names, not objects. " +
+        "Environments are a call of their own: `GET {project}/environments`.",
     },
     {
       name: "media.list",

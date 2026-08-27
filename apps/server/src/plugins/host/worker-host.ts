@@ -281,14 +281,26 @@ export class WorkerHost implements PluginHost {
    * bound (D33), and a plugin that named its own deadline could hand itself an
    * unbounded one (D35).
    *
-   * An unknown dispatch id is an empty chain and the full budget: a call from a
-   * timer or a future `activate()` is genuinely uncaused and has no deadline
-   * over it, so it gets one of its own rather than none at all.
+   * An unknown dispatch id is **this plugin's own chain** and the full budget: a
+   * call from a timer, from `activate`, or from work that outlived the route
+   * that started it is genuinely uncaused, so it has no deadline over it and
+   * gets one of its own rather than none at all.
+   *
+   * The chain is `[name]` and not empty, and that is D41 fixing a hole D33
+   * promised was closed (§13.20). D33's guarantee is unconditional — *"a plugin
+   * never hears about a write it caused"* — but it was implemented by copying the
+   * chain off the **waiter**, and a waiter only exists while the dispatch that
+   * created it is still open. So a plugin that started background work and also
+   * declared a hook was delivered its own writes the moment that work outlived
+   * its dispatch: `A -> A`, which is exactly the shape D33 made unrepresentable
+   * for every other path. Naming the plugin itself is what the equivalent
+   * hook-caused write already carries, so this is the general case of an existing
+   * rule rather than a new one.
    */
   private async serveRpc(msg: any): Promise<void> {
     const waiter = this.waiters.get(msg.dispatch);
     const dispatch = {
-      cause: waiter?.cause ?? [],
+      cause: waiter?.cause ?? [this.options.name],
       budgetMs: waiter ? waiter.deadline - Date.now() : this.options.timeoutMs,
     };
     try {

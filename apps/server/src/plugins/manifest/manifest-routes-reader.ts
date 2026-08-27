@@ -1,4 +1,6 @@
 import type { PluginRoute } from "./plugin-route";
+import type { PluginRouteBody } from "./plugin-route-body";
+import { PluginRouteBodies } from "./plugin-route-bodies";
 import { PluginRoutes } from "./plugin-routes";
 
 /**
@@ -15,6 +17,10 @@ import { PluginRoutes } from "./plugin-routes";
  * manifest and has nothing to do with the rest of the block.
  */
 export class ManifestRoutesReader {
+  /** Methods `ExtRequest` reads no body from, so declaring one for them says
+   *  nothing that could ever take effect. */
+  private static readonly Bodiless: readonly string[] = ["GET"];
+
   static read(name: string, raw: unknown): PluginRoute[] {
     if (raw === undefined) return [];
     if (!Array.isArray(raw)) {
@@ -48,6 +54,7 @@ export class ManifestRoutesReader {
         method: entry.method,
         path: ManifestRoutesReader.path(name, entry.path),
         auth,
+        body: ManifestRoutesReader.body(name, entry),
       };
       const key = PluginRoutes.key(route);
       if (seen.has(key)) {
@@ -57,6 +64,54 @@ export class ManifestRoutesReader {
       routes.push(route);
     }
     return routes;
+  }
+
+  /**
+   * What the route accepts as a body, defaulted to D36's behaviour (D41).
+   *
+   * Refused on a method that has no body rather than ignored, because the two
+   * outcomes are indistinguishable to the author and only one of them is what
+   * they meant: a `GET` declaring `bytes` is a mistake about how the route works,
+   * and silently accepting it would leave them debugging a handler that is always
+   * handed nothing.
+   */
+  private static body(name: string, entry: any): PluginRouteBody {
+    const raw = entry.body;
+    const at = (why: string) =>
+      new Error(`plugin "${name}": route "${entry.method} ${entry.path}" ${why}.`);
+
+    if (raw === undefined) return PluginRouteBodies.Default;
+    if (raw === null || typeof raw !== "object" || Array.isArray(raw)) {
+      throw at(
+        'has a "body" that is not an object; want { "kind": "text" | "bytes", "max_bytes": <n> }'
+      );
+    }
+    if (ManifestRoutesReader.Bodiless.includes(entry.method)) {
+      throw at(`declares a "body", but ${entry.method} carries none — remove it`);
+    }
+
+    const kind = raw.kind === undefined ? PluginRouteBodies.Default.kind : raw.kind;
+    if (!PluginRouteBodies.isKind(kind)) {
+      throw at(
+        `has "body.kind": ${JSON.stringify(raw.kind)}; it must be one of ` +
+          `${PluginRouteBodies.Kinds.join(", ")}`
+      );
+    }
+
+    const max = raw.max_bytes === undefined ? PluginRouteBodies.DefaultMaxBytes : raw.max_bytes;
+    if (typeof max !== "number" || !Number.isInteger(max) || max < 1) {
+      throw at(
+        `has "body.max_bytes": ${JSON.stringify(raw.max_bytes)}; it must be a positive integer`
+      );
+    }
+    if (max > PluginRouteBodies.Ceiling) {
+      throw at(
+        `asks for a ${PluginRouteBodies.size(max)} body; silo accepts at most ` +
+          `${PluginRouteBodies.size(PluginRouteBodies.Ceiling)} on a plugin route, because the ` +
+          `body crosses to the worker as one value and there is no back-pressure to be had`
+      );
+    }
+    return { kind, max_bytes: max };
   }
 
   /** One route path, or a refusal naming what is wrong with it. */

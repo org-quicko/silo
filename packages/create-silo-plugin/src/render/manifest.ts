@@ -24,6 +24,9 @@ export class Manifest {
     // treats an absent key and an empty one identically.
     const contributes: Record<string, unknown> = {};
     if (options.hooks.length > 0) contributes.hooks = options.hooks;
+    if (options.routes.length > 0) contributes.routes = options.routes;
+    if (options.runtime) contributes.runtime = true;
+    if (options.panel) contributes.ui = { entry: "./panel.html", title: options.name };
     if (options.kind === "provider") {
       contributes.providers = [
         { port: options.port, driver: options.driver, entry: "./index.ts" },
@@ -83,10 +86,21 @@ export class Manifest {
     };
   }
 
+  /** What the package says it is, from what it actually contributes — so a
+   *  routes-only or panel-only plugin does not describe itself by an empty hook
+   *  list. */
   private static description(options: ScaffoldOptions): string {
     if (options.kind === "provider") {
       return `A silo ${options.port} provider registering the "${options.driver}" driver`;
     }
-    return `A silo plugin (${options.hooks.join(", ")})`;
+
+    const parts: string[] = [];
+    if (options.hooks.length > 0) parts.push(options.hooks.join(", "));
+    if (options.routes.length > 0) {
+      parts.push(`${options.routes.length} route${options.routes.length === 1 ? "" : "s"}`);
+    }
+    if (options.runtime) parts.push("a runtime");
+    if (options.panel) parts.push("an admin panel");
+    return parts.length === 0 ? "A silo plugin" : `A silo plugin (${parts.join(", ")})`;
   }
 }

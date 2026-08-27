@@ -14,6 +14,7 @@ silo/
 │  ├─ shared/                 @silo/shared — runtime-neutral logic both sides need
 │  └─ create-silo-plugin/     the published plugin scaffolder
 ├─ plugins/                   first-party plugins, one workspace package each
+│  └─ silo-plugin-strapi-import/  a Strapi 5 SQLite import, with its own admin panel (D41)
 ├─ tools/                     build, packaging, seeding and version tooling
 ├─ packaging/                 Homebrew formula template and RPM inputs
 └─ docs/                      context/ (what is) and design/ (why)
@@ -53,7 +54,7 @@ script.
 | `adapters/http/` | The outbound client used by server-to-server copy |
 | `http/` | `SiloServer` builds the Hono app; `routes/` is one class per route group — including `ExtRoutes`, the single handler every plugin route is matched and dispatched through (D36) — `auth/` the claim helpers and the injected-principal slot a plugin dispatch arrives in (D35), `middleware/` logging and auth |
 | `logging/` | `Logger`, the level union, the `LogSink` port and its console/file implementations, and the two read-side helpers. Nothing here knows about HTTP or storage |
-| `plugins/` | Six submodules with an index each — `manifest/` reads what a plugin declares without running it: since D36 that is a `contributes` block (hooks, routes, a `runtime`, providers — none of them exclusive) and a `permissions` block splitting `required` from `optional` with a reason for each, read by one small reader per block so no file owns two grammars — `contract/` describes the client a plugin is handed and emits both halves of it (D35), `host/` executes it, `runtime/` is what it can see and do, plus the `PluginApiDispatcher` its `ctx.fetch` lands in and the `PluginRouteTable` a request is matched against (D36), `registry/` is the single wiring site and, since D39, the live one — `PluginRegistry` is a mutable ordered set that only `PluginSupervisor` mutates, with `PluginLifecycle`, `PluginConfigurator`, `PluginRescan` and the read-only `PluginInspector` beside it — and `install/` acquires it. Import from `plugins`, never a file inside |
+| `plugins/` | Six submodules with an index each — `manifest/` reads what a plugin declares without running it: since D36 that is a `contributes` block (hooks, routes, a `runtime`, providers — none of them exclusive) and a `permissions` block splitting `required` from `optional` with a reason for each, read by one small reader per block so no file owns two grammars — `contract/` describes the client a plugin is handed and emits both halves of it (D35), `host/` executes it, `runtime/` is what it can see and do, plus the `PluginApiDispatcher` its `ctx.fetch` lands in and the `PluginRouteTable` a request is matched against (D36), `registry/` is the single wiring site and, since D39, the live one — `PluginRegistry` is a mutable ordered set that only `PluginSupervisor` mutates, with `PluginLifecycle`, `PluginConfigurator`, `PluginRescan` and the read-only `PluginInspector` beside it — and `install/` acquires it. `manifest/` also owns D41's two additions — a route's declared `body` contract, and `contributes.ui`, whose panel `registry/plugin-panel.ts` reads off disk for the one route that serves it. Import from `plugins`, never a file inside |
 | `runtime/` | Process lifecycle: the run file that records a live server, the daemon mechanics, the listen-address grammar, and the process title |
 
 ## `apps/admin/src/`
@@ -69,7 +70,7 @@ script.
 | `schema/` | `SchemaDraft` (a JSON Schema document ↔ the visual builder's field list), `SiloRefs` |
 | `styles/` | The intentionally global CSS foundation |
 | `utils/` | `Formatters`, `ThemeManager`, `ScopeMemory`, `CollectionVisits`, `ByteSize` |
-| `views/` | One directory per feature: `shell/`, `servers/`, `entries/`, `search/`, `schema/`, `keys/`, `media/`, `plugins/`, `transfer/`, `settings/`. `plugins/` (D40) holds the list, one plugin's page, and `PluginGrantPlan` — the pure half of the grant form, so the rules a grant screen must get right are testable without a DOM. `claims/` beside it turns claim strings into words, with the claim *families* derived from its own catalogue rather than listed (D36) |
+| `views/` | One directory per feature: `shell/`, `servers/`, `entries/`, `search/`, `schema/`, `keys/`, `media/`, `plugins/`, `transfer/`, `settings/`. `plugins/` (D40) holds the list, one plugin's page, and `PluginGrantPlan` — the pure half of the grant form, so the rules a grant screen must get right are testable without a DOM. `claims/` beside it turns claim strings into words, with the claim *families* derived from its own catalogue rather than listed (D36). `plugins/panel/` (D41) is the iframe contract: `plugin-panel-protocol.ts` is the whole boundary and is pure so it can be tested without a DOM, `plugin-panel-preamble.ts` generates the `window.silo` client and theme tokens injected into a panel's `srcdoc`, and `PluginPanelFrame` is the parent half of the relay |
 
 ## `packages/`
 
@@ -77,7 +78,7 @@ script.
 |------|------------|
 | `packages/shared/src/claims/` | The claim protocol: `Claims` is the facade over `ClaimVocabulary`, `ClaimGrammar`, `ClaimPresets`, `ClaimAuthorizer` and `ClaimSummary`. Both the server and the UI evaluate claims through it and nothing else |
 | `packages/shared/src/` (rest) | `errors/`, `hooks/`, `json/`, `keys/`, `media/`, `query/`, `schema/`. `json/` holds `MergePatch` (RFC 7396), which lives here because the server *applies* a config patch and the admin UI has to *produce* one — two implementations either side of one endpoint agree until a nested key is deleted. `hooks/` holds the `HookName` vocabulary, which moved here when hook delivery became a claim (D34) — the grammar validates it and the UI renders it, so neither side may own a second copy; D36 added the collection-level `collection.afterDelete` to it. Something belongs here when both sides need it *or* when shared itself must produce it; anything importing `bun:*`, node builtins, `hono` or React does not |
-| `create-silo-plugin/src/` | The plugin scaffolder, published on its own. Nothing here may import from `apps/` or `packages/shared`, and nothing may use a `Bun.*` global — it runs under Node, and the facts it needs from silo are copied and drift-tested rather than imported. `render/` holds one class per generated file |
+| `create-silo-plugin/src/` | The plugin scaffolder, published on its own. Nothing here may import from `apps/` or `packages/shared`, and nothing may use a `Bun.*` global — it runs under Node, and the facts it needs from silo are copied and drift-tested rather than imported. `render/` holds one class per generated file, and `plugin-routes.ts` holds the `--routes` grammar and the body ceiling it refuses against (D41) |
 
 ## `tools/`
 

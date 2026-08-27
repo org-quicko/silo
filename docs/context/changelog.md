@@ -4,6 +4,70 @@
 > The *current* state is [CONTEXT.md](../../CONTEXT.md); this is how it got
 > there.
 
+- **Plugins gained byte bodies, admin panels, and silo's first first-party
+  plugin (D41, 2026-08-27).** §13.20 in
+  [../design/plugins.md](../design/plugins.md). Not a phase — §13.11 was
+  complete — but what writing a real plugin found.
+  [`plugins/silo-plugin-strapi-import`](../../plugins/silo-plugin-strapi-import)
+  imports a Strapi 5 SQLite export into silo collections from a screen in the
+  admin, and three of these exist because it could not be written without them.
+  **Breaking, once:** a plugin that declares routes moves to `needs_review` on
+  the first start after this, because its route surface has joined the digest and
+  had never been part of an approval.
+  - **A route may be handed bytes.** `ExtRequest` decoded every body as UTF-8 and
+    capped every route at one global mebibyte, and `ctx.media` is metadata only —
+    so a plugin whose job is ingesting a file was **impossible**, not merely
+    awkward. A route now declares `"body": { "kind": "bytes", "max_bytes": n }`,
+    `SiloRequest` gained `bytes` beside `body` with at most one ever filled, and
+    the cap is the author's to state and silo's to bound at
+    `PluginRouteBodies.Ceiling` (64 MiB). A route that declares nothing gets
+    D36's behaviour exactly, so nothing already written changed.
+  - **The route surface joins the manifest digest.** `http:route` is one claim
+    however many routes there are, so the claim list could not see the surface
+    change — a package could add `"auth": "public"` to a route in a patch release
+    and publish everything it was granted at an unauthenticated URL against an
+    approval nobody was asked to reconsider. `routes` now sits in the `_plugins`
+    record beside `hooks`, canonicalised as
+    `POST /source auth=key body=bytes:67108864` so a `needs_review` diff says
+    *which* route changed.
+  - **`contributes.ui`: the iframe contract §12.8 deferred.** A package declares
+    one inlined HTML file; `GET /api/plugins/{name}/ui` serves it as **JSON**
+    behind `plugins:read` with `nosniff` and a `default-src 'none'` CSP, and the
+    admin makes it a document inside `sandbox="allow-scripts"` with no
+    `allow-same-origin`. Serving it as a document was measured, not assumed, to
+    be a credential-exfiltration primitive: the API shares an origin with the
+    admin SPA, which keeps an API key per configured server in that origin's
+    `localStorage`. A panel's only capability is asking the admin to call **its
+    own plugin's** routes with the operator's key — so the panel spends the
+    operator's authority and the handler spends the plugin's, and no route here
+    needs `auth: "public"`. `readPanelMessage` is that whole boundary, pure and
+    tested without a DOM; paths are normalised before they are checked, because
+    `/api/ext/x/../../keys` starts with the prefix and resolves to `/api/keys`.
+  - **D33's guarantee had a hole.** "A plugin never hears about a write it
+    caused" was implemented by copying the causal chain off the *waiter*, which
+    exists only while its dispatch is open — so a plugin doing background work
+    and declaring a hook was delivered its own writes once that work outlived the
+    dispatch. `WorkerHost.serveRpc` now gives an uncorrelated call
+    `cause: [name]` rather than `[]`, which is what an equivalent hook-caused
+    write already carried.
+  - **Three reporting fixes the plugin surfaced.** `POST /collections` is an
+    upsert answering 201 either way, so the importer's "created, therefore empty"
+    inference made `skip` and `replace` both degrade into `append` and every
+    re-import overwrite the schema — existence is now asked through the
+    `schema:read` claim the manifest already requested for it. `silo plugin
+    doctor` printed hooks and nothing else, so a routes+runtime+panel package
+    read as `(no hooks)`. And `PluginApiContract`'s summary for `projects.list`
+    promised "each with its environments" where the route answers bare ids —
+    wrong in the `silo:api` declarations every plugin author reads, and caught by
+    the contract's own drift test.
+  - **`create-silo-plugin` can scaffold all of it.** It refused an extension with
+    no hooks — `ManifestReader`'s rule before D36, three phases stale — so a
+    routes-only plugin was unscaffoldable and an author had to name a hook they
+    did not want. It now enforces the real rule ("would anything call it?") and
+    emits routes, a runtime and a panel: `--routes "POST /source+bytes:64"`,
+    `--runtime`, `--panel`. The body ceiling and the route methods it copies are
+    drift-tested against silo's own like every other fact it holds.
+
 - **Appearance settings gained colour mode and a themed sidebar; silo's first
   light mode (2026-08-26).** `Settings → Appearance` was fonts plus a flat
   accent-colour grid; it is now a light/dark/system toggle and a grouped theme

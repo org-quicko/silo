@@ -39,6 +39,10 @@ export class Assets {
     { asset: "gitignore", target: ".gitignore" },
   ];
 
+  /** Written only when the author asked for a panel (D41), so it is not in
+   *  `Files` — every entry there goes into every scaffold. */
+  static readonly Panel = { asset: "panel.html", target: "panel.html" } as const;
+
   static async read(asset: string): Promise<string> {
     return await fs.readFile(path.join(Assets.dir, asset), "utf8");
   }

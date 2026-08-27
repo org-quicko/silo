@@ -1,3 +1,5 @@
+import type { PluginRouteBody } from "./plugin-route-body";
+
 /** The HTTP methods a plugin route may claim. */
 export type PluginRouteMethod = "GET" | "POST" | "PUT" | "PATCH" | "DELETE";
 
@@ -46,4 +48,15 @@ export interface PluginRoute {
    * part of the approval rather than a detail of the package.
    */
   auth: PluginRouteAuth;
+
+  /**
+   * What this route accepts as a body, and how much of it (D41).
+   *
+   * Always present after the reader has run — a manifest that says nothing gets
+   * `PluginRouteBodies.Default`, which is D36's behaviour exactly. Present rather
+   * than optional because every reader downstream would otherwise repeat the
+   * same defaulting, and one of those readers is the grant screen: a cap that
+   * renders as blank when it was merely unstated is a cap nobody reads.
+   */
+  body: PluginRouteBody;
 }

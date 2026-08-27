@@ -164,7 +164,7 @@ declare module "silo:api" {
       schema(scope: SiloScope, collection: string): Promise<any>;
     };
     projects: {
-      /** The projects the grant can see, each with its environments. */
+      /** The project ids the grant can see, as `items` — names, not objects. Environments are a call of their own: `GET {project}/environments`. */
       list(): Promise<SiloItemPage>;
     };
     media: {
@@ -194,8 +194,25 @@ declare module "silo:api" {
     query: Record<string, string>;
     /** Lowercased. `authorization`, `x-api-key` and `cookie` are withheld. */
     headers: Record<string, string>;
-    /** Text, or `null`. Parse it yourself: only the route knows what it is. */
+    /**
+     * Text, or `null`. Parse it yourself: only the route knows what it is.
+     *
+     * Always `null` on a route whose manifest declares `"body": { "kind":
+     * "bytes" }` — that route is handed `bytes` instead.
+     */
     body: string | null;
+    /**
+     * The raw bytes, or `null` — filled only on a route whose manifest declares
+     * `"body": { "kind": "bytes", "max_bytes": <n> }`.
+     *
+     * This is how a plugin receives a *file*. Both fields are nullable and at
+     * most one is ever filled, so a handler reads the one its own route asked
+     * for and never narrows a union. `max_bytes` is the route's own cap, capped
+     * in turn by silo: a body crosses to the worker as one value, so the number
+     * a manifest declares is a standing instruction to allocate and an operator
+     * approves it beside the route.
+     */
+    bytes: Uint8Array | null;
     caller: SiloRequestCaller | null;
   }
 

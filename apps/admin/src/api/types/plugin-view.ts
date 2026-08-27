@@ -68,6 +68,18 @@ export interface PluginContributions {
    *  accord, not only in answer to a hook or a request. */
   runtime: boolean
   providers: PluginProvider[]
+  /** An admin panel this package ships, or `null` (D41). Its HTML is fetched
+   *  separately — see `PluginsApi.panel` — because a panel is measured in
+   *  kilobytes and this view is on every list response. */
+  ui: PluginUi | null
+}
+
+/** A panel a package contributes, as the manifest declares it (D41). */
+export interface PluginUi {
+  /** The HTML file inside the package. Shown so an operator can see *what* is
+   *  being rendered in their admin. */
+  entry: string
+  title?: string
 }
 
 /** One storage or blob driver a package registers (D36). */
@@ -83,4 +95,27 @@ export interface PluginRoute {
   /** Relative to `/api/ext/{name}`, and may name `:params`. */
   path: string
   auth: "key" | "public"
+  /** What the route accepts as a body, and how much (D41). Part of what an
+   *  operator approves: it is how much the host allocates for whoever reaches
+   *  the route. */
+  body: PluginRouteBody
+}
+
+/** A route's declared body contract (D41). */
+export interface PluginRouteBody {
+  kind: 'text' | 'bytes'
+  max_bytes: number
+}
+
+/** One plugin's panel, as `GET /api/plugins/{name}/ui` answers it (D41).
+ *
+ *  `html` is **data**, not a document: the server sends it with `nosniff` and a
+ *  content type no browser renders, because the API shares an origin with this
+ *  app and this app keeps an API key per configured server in that origin's
+ *  `localStorage`. It becomes a document only inside a sandboxed iframe with no
+ *  origin of its own — see `PluginPanelFrame`. */
+export interface PluginPanelSource {
+  title: string
+  entry: string
+  html: string
 }

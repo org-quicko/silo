@@ -40,6 +40,9 @@ describe("create-silo-plugin output", () => {
     kind: "extension",
     siloRange: SiloRange.default(),
     hooks: ["entry.beforeValidate"],
+    routes: [],
+    runtime: false,
+    panel: false,
     claims: [],
     withConfig: true,
     force: false,
@@ -204,18 +207,42 @@ describe("create-silo-plugin output", () => {
       kind: "extension",
       siloRange: SiloRange.default(),
       hooks: ["entry.beforeValidate"],
+      routes: [],
+      runtime: false,
+      panel: false,
       claims: [],
       withConfig: true,
       force: false,
     });
   });
 
-  test("an extension with no hooks is refused where the author can still answer", async () => {
-    // `ManifestReader` refuses it at startup; refusing it here means hearing
-    // about it in the shell rather than at the first `silo plugin doctor`.
+  /**
+   * The rule is "something would call it", not "it declares a hook" (D36, D41).
+   *
+   * This test used to assert the second, because that is what the tool enforced
+   * and what `ManifestReader` enforced before D36 — so a routes-only plugin was
+   * unscaffoldable and an author had to name a hook they did not want. Which is
+   * exactly D36's complaint about `kind`, surviving in the tool three phases
+   * after the manifest stopped agreeing with it.
+   */
+  test("a plugin that contributes nothing at all is refused, and a routes-only one is not", async () => {
     await expect(
       OptionsResolver.resolve(Arguments.parse(["silo-plugin-empty", "--yes", "--hooks", ""]))
-    ).rejects.toThrow(/no hooks would never be called/);
+    ).rejects.toThrow(/contributes nothing would never be called/);
+
+    const routesOnly = await OptionsResolver.resolve(
+      Arguments.parse(["silo-plugin-routes", "--yes", "--hooks", "", "--routes", "GET /status"])
+    );
+    expect(routesOnly.hooks).toEqual([]);
+    expect(routesOnly.routes).toEqual([{ method: "GET", path: "/status" }]);
+
+    // And asking for a route with nothing else does not quietly add a hook: an
+    // unattended default that granted authority over every write in the instance
+    // is the largest thing this tool could do behind an author's back.
+    const unattended = await OptionsResolver.resolve(
+      Arguments.parse(["silo-plugin-routes", "--yes", "--routes", "GET /status"])
+    );
+    expect(unattended.hooks).toEqual([]);
   });
 
   test("--config against a provider says so rather than doing nothing", async () => {

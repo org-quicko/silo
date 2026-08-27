@@ -1933,3 +1933,216 @@ surface reading the wrong one of two sources, the question to ask next is which
 - **It does not enforce a reason.** Nothing checks that a plugin uses a claim for
   the reason it gave. The reason is documentation on a decision, and treating it
   as a constraint would be promising an analysis silo does not perform.
+
+## 13.20 Bytes, panels, and the first first-party plugin (D41)
+
+> **Built.** §13.11 had nothing outstanding after §13.19, so this is not a phase —
+> it is what writing a real plugin found. `plugins/silo-plugin-strapi-import` is
+> silo's first first-party plugin, and three of the four things below exist
+> because it could not be written without them.
+
+### A plugin could not be handed a file
+
+`ExtRequest` decoded every route body as UTF-8 and capped every route at one
+global mebibyte. `ctx.media.get` is metadata only — §13.6 says the bytes are not
+reachable through `ctx` — so there was no second door. A plugin whose whole
+purpose is ingesting a file was therefore not awkward to write but
+**impossible**, and that class of plugin is not marginal: a database export, an
+archive, a spreadsheet, a font.
+
+A route now declares what it takes:
+
+```jsonc
+{ "method": "POST", "path": "/source", "body": { "kind": "bytes", "max_bytes": 67108864 } }
+```
+
+Four things about that shape, and each is a decision rather than a default.
+
+- **Declared, not sniffed.** Guessing from `content-type` would make the host
+  responsible for a question only the route knows the answer to — the same
+  argument `PluginServeRequest.body` already carries about who parses a body.
+- **`body` and `bytes` are two nullable fields, exactly one ever filled.** A
+  union reads better and travels worse: a handler written against one has to
+  narrow, and the narrowing is on a value that already crossed a
+  structured-clone boundary, where a string and a `Uint8Array` are the same kind
+  of plain data and nothing but the route's own declaration tells them apart.
+- **The cap is the author's to state and silo's to bound.** `max_bytes` is how
+  much the host will allocate for whoever reaches the route, so it belongs where
+  an operator approving `http:route` can read it — and behind a ceiling
+  (`PluginRouteBodies.Ceiling`, 64 MiB) an author cannot raise, because
+  "installing is the trust boundary" is an argument about *code* and not a reason
+  to let a manifest name any integer. The honest way past the ceiling is a
+  streaming body, which §13.18 rules out for reasons a number cannot fix.
+- **The default is D36's behaviour, exactly.** A route that declares nothing gets
+  text and one mebibyte, so this changed no existing plugin and no existing
+  manifest's meaning.
+
+### The route surface was outside the digest
+
+`http:route` is **one** claim however many routes a manifest declares, so the
+claim list could not see the route surface change at all. Three changes therefore
+passed a standing approval untouched: adding a route, raising the body cap D41
+had just made declarable, and — the serious one — adding `"auth": "public"` to an
+existing route, which publishes everything the plugin was granted at a URL anyone
+who can reach the port may call. None of them moved a claim, so none of them
+moved the digest, so none of them moved the record to `needs_review`.
+
+`routes` now sits in the `_plugins` record beside `hooks` and joins the digest,
+canonicalised by `PluginGrantUtils.routeLine` as
+`POST /source auth=key body=bytes:67108864` — readable rather than hashed, so an
+operator diffing a `needs_review` record can see *which* route changed. It is in
+the record and not read from disk because that is D38's rule for this whole
+surface, and it is why `hooks` was already there.
+
+A record written before D41 carries no `routes`, and `PluginGrantUtils.routesOf`
+reads one as the empty list. That moves a plugin **with** routes to
+`needs_review` once, which is correct rather than unfortunate: its route surface
+had never been part of an approval, so there is a decision outstanding. Note this
+reads a legacy field the opposite way from `requiredOf`, which reads an absent
+`required` as *everything* — and the difference is not inconsistency. There, the
+field's absence meant the distinction did not exist yet and every claim was
+required; here, it meant the surface was never reviewed.
+
+### A panel, and why it is served as data
+
+§12.8 held custom panels back for a stated reason — *"only once an iframe message
+contract is designed"* — because the admin SPA is content-hashed and embedded at
+build time (D26), so a plugin cannot ship React into it. What made the contract
+designable was a plugin that could not work without one, and what made it *safe*
+was measuring the alternative.
+
+**The alternative is a credential-exfiltration primitive.** The API and the admin
+SPA are served from one origin, and the admin keeps `silo_servers` in that
+origin's `localStorage` — holding an API key for **every** instance the operator
+has ever configured. Plugin HTML rendered as a document from any `/api/` URL
+could read all of them, which is strictly more authority than a plugin can be
+granted at all. So:
+
+- **A panel is declared** as `contributes.ui: { entry, title }`, one inlined HTML
+  file. Not a directory: a directory means a static asset server inside the API —
+  a path grammar, a content-type table, a traversal check per request — and every
+  one of those is another way for plugin-authored bytes to be served from silo's
+  own origin.
+- **It is served as JSON**, by `GET /api/plugins/{name}/ui` behind
+  `plugins:read`, with `nosniff` and a `default-src 'none'; sandbox` CSP. The
+  bytes leave as data and nothing renders them on silo's origin.
+- **The admin makes it a document**, in an iframe with `sandbox="allow-scripts"`
+  and **no** `allow-same-origin`, mounted through `srcdoc`. That gives it an
+  opaque origin: `localStorage` throws, `document.cookie` is empty, the parent is
+  unreachable except by `postMessage`, and nothing it fetches carries a
+  credential.
+- **`..` in `entry` is refused at the manifest**, and the hazard is not the plugin
+  reading its own files — a worker holds full Bun privileges and may already
+  (§13.4). It is that *silo* reads that path and returns the contents over the
+  API, so a climb would make the management API read whatever a manifest names.
+
+### The contract, and which authority a panel spends
+
+A panel's only capability is asking the admin to call a route of **its own
+plugin**, and `readPanelMessage` is the whole of that boundary — pure, and tested
+without a DOM, because a security check that needs a browser to exercise is one
+nobody exercises.
+
+The authority is the part worth stating, because it runs the opposite way from a
+route's and both are right:
+
+| | Acts as |
+| :--- | :--- |
+| The panel, asking | the **operator**, whose key the admin attaches |
+| The handler, answering | the **plugin**, per §13.18 |
+
+That is why no route here needs `auth: "public"`. A human is present, it is their
+session, and the plugin's own grant is what the far side spends — so the panel
+needs no authority of its own, and giving it one would be a second grant nobody
+approved. The containment rule is what makes the relay safe to build: without
+"only `/api/ext/<this plugin>/`", a panel would be a way to spend the operator's
+full claim set on any endpoint, which is worse than the public-route hazard
+`contributes.ui` exists to avoid.
+
+**Paths are normalised before they are checked**, not after. `new URL` is what the
+eventual `fetch` does with a relative path anyway, so a check against the raw
+string checks a different value than the one that gets requested —
+`/api/ext/x/../../keys` starts with the prefix and resolves to `/api/keys`. It
+cuts both ways, which is the tell that it is the right check: `//..` resolves back
+inside the namespace and is allowed, where a "contains `..`" rejection would have
+refused a legal path.
+
+Headers are an **allowlist** (`content-type`, `accept`), not a denylist. The value
+being protected is the operator's `Authorization`, and a denylist would have to
+name every spelling a panel might reach for and be wrong the first time one is
+added — the same rule `ExtRequest.Withheld` states from the other side, chosen the
+safer way round.
+
+The panel-side half of the contract is **generated** by the admin
+(`pluginPanelDocument`) rather than documented for authors to reimplement, and
+that is the difference between a contract and a convention: every panel writing
+its own `postMessage` correlation would get the same three things wrong, and
+`PANEL_PROTOCOL` can only mean something while silo is the wire format's one
+client.
+
+### D33's guarantee had a hole, and background work fell in it
+
+D33 says a plugin never hears about a write it caused, and says it without
+qualification. It was implemented by copying the causal chain off the **waiter** —
+and a waiter exists only while the dispatch that created it is open. So
+`WorkerHost.serveRpc` gave an uncorrelated call `cause: []`, and a plugin that did
+background work *and* declared a hook was delivered its own writes the moment that
+work outlived its dispatch: `A -> A`, the exact shape D33 made unrepresentable
+everywhere else.
+
+§13.19 had looked at this code and reasoned about the **budget** — "genuinely
+uncaused work has no deadline over it, so it gets one" — which is right, and the
+same line drops the chain. The fix is `cause: [name]`: the plugin's own name,
+which is what an equivalent hook-caused write already carries, so this is the
+general case of an existing rule rather than a new one. Worth recording as a
+pattern: when a guarantee is stated unconditionally and implemented from a
+per-dispatch value, the question to ask is what happens once the dispatch is gone.
+
+### What the plugin itself found
+
+Two of these are about silo and two are about reporting, and all four were only
+visible from a live run.
+
+- **`POST /collections` is an upsert.** It answers 201 whether the collection was
+  new or not, and replaces the schema either way. The importer read that status as
+  "created, therefore empty" — so `skip` and `replace` both silently degraded into
+  `append`, and every re-import overwrote a schema the operator may have edited.
+  Two failures from one wrong inference, neither visible in the result. Existence
+  is now *asked*, through the `schema:read` claim the manifest already requested
+  for exactly that.
+- **`projects.list`'s contract summary was wrong**, and `PluginTypesSource` emits
+  it into the `silo:api` declarations every plugin author reads: it promised
+  "each with its environments" where the route answers bare ids. Caught by the
+  contract's own drift test the moment the summary was corrected, which is that
+  test working as designed.
+- **`silo plugin doctor` reported hooks and nothing else**, so a package
+  contributing routes, a runtime and a panel read as `(no hooks)` — a report that
+  sounds like a fault about a plugin doing exactly what it declared. D36's
+  complaint about `kind`, in the one surface D36 did not revisit.
+- **`create-silo-plugin` could not scaffold a routes-only plugin.** It refused an
+  extension with no hooks, which was `ManifestReader`'s rule before D36 and stopped
+  being it three phases ago — so an author had to name a hook they did not want, in
+  the tool whose whole job is a correct first manifest. It now enforces the real
+  rule ("would anything call it?") and can emit routes, a runtime and a panel;
+  `--routes "POST /source+bytes:64"` is the grammar, and the ceiling it refuses
+  against is drift-tested with the rest.
+
+### What D41 does not do
+
+- **It does not stream a body.** Unchanged from §13.18 and unchanged by a bigger
+  number: a request crosses the worker boundary as one value, so there is no
+  back-pressure to be had. The ceiling is the honest form of that limit.
+- **It does not give a panel authority of its own.** It spends the operator's,
+  over one plugin's routes. A panel that wanted more would be asking for a grant
+  nobody approved.
+- **It does not serve plugin assets.** One HTML file, inlined, because every step
+  toward a directory is a step toward third-party bytes on silo's origin.
+- **It does not let a panel reach another plugin.** Plugin-to-plugin calls exist
+  through `ctx` and are the plugin's own business (§13.18); a panel is a screen in
+  somebody's session, and cross-plugin reach from one would be the confused deputy
+  with a human's authority behind it.
+- **It does not make a `Worker` a security boundary.** Unchanged since D31. The
+  *iframe* is a real boundary — it has no origin and no credential — and that
+  asymmetry is worth stating plainly: silo trusts plugin code and does not trust
+  plugin markup, because the markup runs in the operator's browser next to the
+  operator's keys.

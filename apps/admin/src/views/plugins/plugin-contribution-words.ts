@@ -32,6 +32,7 @@ export class PluginContributionWords {
     if (contributes.routes.length > 0) parts.push('routes')
     if (contributes.runtime) parts.push('runtime')
     if (contributes.providers.length > 0) parts.push('provider')
+    if (contributes.ui) parts.push('panel')
     return parts.length > 0 ? parts.join(' · ') : 'contributes nothing'
   }
 
@@ -53,6 +54,7 @@ export class PluginContributionWords {
     for (const provider of contributes.providers) {
       parts.push(`providing the ${provider.port} driver “${provider.driver}”`)
     }
+    if (contributes.ui) parts.push('bringing its own admin panel')
 
     if (parts.length === 0) return 'This package contributes nothing.'
     return `Contributes: ${PluginContributionWords.list(parts)}.`

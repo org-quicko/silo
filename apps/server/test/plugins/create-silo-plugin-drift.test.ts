@@ -2,10 +2,11 @@ import { describe, test, expect } from "bun:test";
 import fs from "fs/promises";
 import path from "path";
 import { HookNames } from "../../src/core/hooks";
-import { ProviderRegistry } from "../../src/plugins";
+import { ProviderRegistry, PluginRouteBodies, PluginRoutes } from "../../src/plugins";
 import { Assets } from "../../../../packages/create-silo-plugin/src/assets";
 import { PluginContract } from "../../../../packages/create-silo-plugin/src/plugin-contract";
 import { ProviderPorts } from "../../../../packages/create-silo-plugin/src/provider-ports";
+import { ScaffoldRoutes } from "../../../../packages/create-silo-plugin/src/plugin-routes";
 
 const Root = path.resolve(import.meta.dir, "../../../..");
 
@@ -34,6 +35,23 @@ describe("create-silo-plugin does not drift from silo's contract", () => {
     const shipped = await fs.readFile(Assets.path("silo-api.d.ts"), "utf8");
 
     expect(shipped).toBe(original);
+  });
+
+  test("it offers exactly the route methods silo serves", () => {
+    // `--routes "PATCH /x"` has to be a method `ManifestRoutesReader` accepts, and
+    // a method silo added that this did not know about would be one an author
+    // could not scaffold.
+    expect([...ScaffoldRoutes.Methods]).toEqual([...PluginRoutes.Methods]);
+  });
+
+  test("the body cap it refuses is the one silo refuses (D41)", () => {
+    // Both numbers, because the tool uses each for a different refusal: the
+    // ceiling is what `--routes "+bytes:65"` is turned down against, and the
+    // default is what its help and its README call the size of a route that
+    // declares no body. A ceiling this tool read as larger than silo's would
+    // scaffold a manifest that refuses the start.
+    expect(ScaffoldRoutes.MaxBodyMib * 1024 * 1024).toBe(PluginRouteBodies.Ceiling);
+    expect(ScaffoldRoutes.DefaultBodyBytes).toBe(PluginRouteBodies.DefaultMaxBytes);
   });
 
   test("it offers exactly silo's five hooks", () => {

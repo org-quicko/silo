@@ -1,4 +1,5 @@
 import type { HookName, PluginKind, ProviderPort } from "./plugin-contract";
+import type { ScaffoldRoute } from "./plugin-routes";
 
 /**
  * A fully resolved answer to every question the scaffolder asks.
@@ -21,9 +22,28 @@ export interface ScaffoldOptions {
   /** `package.json#silo.silo` — the whole compatibility gate (§13.2). */
   siloRange: string;
 
-  /** Extension only, and never empty for one: `ManifestReader` refuses an
-   *  extension that declares no hooks, since nothing would ever call it. */
+  /**
+   * Extension only, and it may be empty.
+   *
+   * It could not be before: `ManifestReader` refused an extension declaring no
+   * hooks, so this tool required one. Since D36 the manifest asks whether
+   * *anything* would ever call the package — a hook, a route, a runtime, a
+   * panel — so a routes-only or panel-only plugin is a legitimate scaffold and
+   * `OptionsResolver` enforces the real rule instead of the old proxy for it.
+   */
   hooks: HookName[];
+
+  /** Routes served under `/api/ext/<name>/*`, behind `http:route` (§13.18). */
+  routes: ScaffoldRoute[];
+
+  /** Whether the module exports `activate(ctx)` / `deactivate(ctx)` (D36) —
+   *  what a plugin that does something of its own accord needs. */
+  runtime: boolean;
+
+  /** Whether to emit `panel.html` and declare `contributes.ui` (D41): a screen
+   *  the admin renders in a sandboxed frame, which reaches this plugin's own
+   *  routes and nothing else. */
+  panel: boolean;
 
   /** What the manifest *requests*. The operator grants the same strings in
    *  `silo.toml`, and a plugin asking for more than it was granted refuses the

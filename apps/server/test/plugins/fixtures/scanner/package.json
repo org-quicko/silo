@@ -1,0 +1,29 @@
+{
+  "name": "scanner",
+  "version": "1.0.0",
+  "type": "module",
+  "main": "index.ts",
+  "silo": {
+    "silo": "*",
+    "contributes": {
+      "runtime": true,
+      "hooks": ["entry.afterWrite"],
+      "ui": { "entry": "./panel.html", "title": "Scanner" },
+      "routes": [
+        { "method": "POST", "path": "/bytes", "body": { "kind": "bytes", "max_bytes": 4194304 } },
+        { "method": "POST", "path": "/small", "body": { "kind": "bytes", "max_bytes": 8 } },
+        { "method": "POST", "path": "/text" },
+        { "method": "POST", "path": "/later" },
+        { "method": "GET", "path": "/seen" }
+      ]
+    },
+    "permissions": {
+      "required": [
+        {
+          "claim": "collections:*/*/*:entries:create",
+          "reason": "Fixture: writes an entry from work that outlives its dispatch."
+        }
+      ]
+    }
+  }
+}

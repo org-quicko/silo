@@ -13,6 +13,8 @@ import { PluginConfigurator } from "./plugin-configurator";
 import type { PluginFacts } from "./plugin-facts";
 import { PluginInspector } from "./plugin-inspector";
 import { PluginLifecycle } from "./plugin-lifecycle";
+import { PluginPanel } from "./plugin-panel";
+import type { PluginPanelSource } from "./plugin-panel";
 import type { PluginRegistry } from "./plugin-registry";
 import { PluginRescan } from "./plugin-rescan";
 import type { PluginStatus } from "./plugin-status";
@@ -248,6 +250,20 @@ export class PluginSupervisor {
   /** What a plugin is doing, as opposed to what its record says. */
   async status(name: string, record: PluginGrantRecord | null): Promise<PluginStatus> {
     return await PluginInspector.status(this.config, this.registry, name, record);
+  }
+
+  /**
+   * A plugin's declared admin panel (D41).
+   *
+   * Through the supervisor because it is the holder of the config in force, and
+   * a rescan replaces that — so a panel added to `silo.toml` becomes readable at
+   * the same moment its routes do. Deliberately **not** gated on the plugin
+   * running: a panel whose plugin is stopped still renders, and what it renders
+   * is its own routes failing, which is more useful than a blank screen beside a
+   * runtime pill that already says `stopped`.
+   */
+  async panel(name: string): Promise<PluginPanelSource> {
+    return await PluginPanel.read(this.config, name);
   }
 
   /**

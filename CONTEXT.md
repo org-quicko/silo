@@ -17,16 +17,49 @@ can be cloned with one command.
 
 ## Where things stand
 
-*Last updated: 2026-08-26*
+*Last updated: 2026-08-27*
 
 Everything through M5 is built and shipping: collections and JSON Schema
 validation, entry CRUD with optimistic concurrency, the query AST and search
 (D29/D30), the media catalog (D23), projects and environments (D18–D22), API
 keys with claims (D12/D21), export/import and scope-to-scope copy, the admin
 UI, single-binary releases with Homebrew and RPM, and plugins with an installer
-(D31/D32/D33).
+(D31/D32/D33). Plugins now also take byte bodies and contribute admin
+panels, and there is a first-party plugin using both (D41).
 
-**The most recent change reworked the admin UI's Appearance settings
+**The most recent change is silo's first first-party plugin, and the three
+things in the plugin system it needed (D41, 2026-08-27).**
+[`plugins/silo-plugin-strapi-import`](plugins/silo-plugin-strapi-import) imports
+a Strapi 5 SQLite export into silo collections from a screen inside the admin,
+and writing it found that two of its three requirements were **impossible**
+rather than awkward. A plugin route decoded every body as UTF-8 and capped every
+route at one global mebibyte, and `ctx.media` is metadata only — so a plugin
+whose job is ingesting a file could not be handed one. A route now declares
+`"body": { "kind": "bytes", "max_bytes": n }`, `SiloRequest` gained `bytes`
+beside `body` with at most one ever filled, and the number is the author's to
+state and silo's to bound at 64 MiB, because it is how much the host allocates
+for whoever reaches the route. That made the second gap visible: `http:route` is
+**one** claim however many routes exist, so a package could add `"auth":
+"public"` to a route in a patch release and publish everything it was granted at
+an unauthenticated URL against an approval nobody re-read — `routes` now joins
+the `_plugins` record and the manifest digest, which moves a plugin *with* routes
+to `needs_review` once. Third, `contributes.ui` is the **iframe contract §12.8
+deferred**: a package declares one inlined HTML file, `GET
+/api/plugins/{name}/ui` serves it as *JSON* with `nosniff`, and the admin makes
+it a document in `sandbox="allow-scripts"` with no `allow-same-origin`. That is
+not caution — serving it as a document was measured to be a
+credential-exfiltration primitive, since the API shares an origin with the admin
+SPA and the SPA keeps an API key per configured server in that origin's
+`localStorage`. A panel's one capability is asking the admin to call **its own
+plugin's** routes with the operator's key, so the panel spends the operator's
+authority and the handler spends the plugin's, and no route needs to be public.
+Along the way, **D33's guarantee turned out to have a hole**: "a plugin never
+hears about a write it caused" was implemented from the *waiter*, which exists
+only while its dispatch is open, so background work that outlived its dispatch
+was delivered the plugin's own writes. See §13.20 in
+[docs/design/plugins.md](docs/design/plugins.md).
+
+**Before that, the admin UI's Appearance settings were reworked
 (2026-08-26).** It was fonts and a flat accent-colour grid; it is now a
 colour-mode toggle (light/dark/system, the system option resolved live against
 `prefers-color-scheme`) plus a grouped theme gallery — Featured, Single

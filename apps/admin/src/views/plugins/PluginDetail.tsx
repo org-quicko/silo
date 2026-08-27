@@ -5,11 +5,13 @@ import { api } from '../../api/silo-api'
 import { Button } from '../../components/buttons/Button'
 import { Breadcrumb } from '../../components/navigation/Breadcrumb'
 import { Routes } from '../../router/routes'
+import { ScopeMemory } from '../../utils/scope-memory'
 import type { PluginView } from '../../api/types/plugin-view'
 import { TopBar } from '../shell/TopBar'
 import { PluginActivityCard } from './PluginActivityCard'
 import { PluginConfigCard } from './PluginConfigCard'
 import { PluginGrantCard } from './PluginGrantCard'
+import { PluginPanelCard } from './PluginPanelCard'
 import { PluginContributionWords } from './plugin-contribution-words'
 import { PluginLifecycleCard } from './PluginLifecycleCard'
 import { PluginRoutesCard } from './PluginRoutesCard'
@@ -51,6 +53,18 @@ export function PluginDetailView({
   const canConfigure = Claims.has(claims, Claims.PluginsConfigure)
   const canReadAudit = Claims.has(claims, Claims.AuditRead)
   const back = Routes.serverSettings(serverId, 'plugins')
+
+  /**
+   * The scope a panel is told the operator is working in (D41).
+   *
+   * From `ScopeMemory` rather than the route, because this page is deliberately
+   * unscoped — a plugin's grant belongs to the instance — so there is no project
+   * in the URL to read. It is a **hint** and nothing rests on it: a panel that
+   * needs to know which scopes exist asks its own plugin, which can see them
+   * through `ctx.projects`. Passing the operator's last-used scope only saves
+   * them re-picking it in a form.
+   */
+  const scope = ScopeMemory.get(serverId)
 
   /**
    * Run one mutation and install what it answers with.
@@ -164,6 +178,8 @@ export function PluginDetailView({
             />
 
             <PluginRoutesCard plugin={plugin} />
+
+            <PluginPanelCard plugin={plugin} url={url} apiKey={apiKey} scope={scope} />
 
             <PluginConfigCard
               key={`config-${plugin.rev}`}

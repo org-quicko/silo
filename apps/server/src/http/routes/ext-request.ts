@@ -1,7 +1,8 @@
 import type { Context } from "hono";
 import { ValidationError } from "@silo/shared/validation-error";
 import type { AuthenticatedKey } from "../../core/keys/authenticated-key";
-import type { PluginRouteMatch, PluginServeRequest } from "../../plugins";
+import { PluginRouteBodies } from "../../plugins";
+import type { PluginRoute, PluginRouteMatch, PluginServeRequest } from "../../plugins";
 
 /**
  * Turns one HTTP request into the JSON a plugin route handler receives (D36,
@@ -28,14 +29,20 @@ export class ExtRequest {
    */
   private static readonly Withheld = new Set(["authorization", "x-api-key", "cookie"]);
 
-  /** The maximum request body a plugin route accepts, in bytes.
+  /**
+   * The body bound is now the route's own, declared in the manifest (D41).
    *
-   *  A bound rather than a stream because the payload crosses a
-   *  structured-clone boundary as one value: there is no back-pressure to be
-   *  had, so an unbounded body is a way to make the host allocate whatever a
-   *  caller sends. Media uploads have their own route and do not come through
-   *  here. */
-  static readonly MaxBodyBytes = 1024 * 1024;
+   * It was one constant for the instance, which made a plugin that ingests a file
+   * impossible to write — see `PluginRouteBody`. What has not changed is *why*
+   * there is a bound at all: the payload crosses a structured-clone boundary as
+   * one value, so there is no back-pressure to be had and an unbounded body is a
+   * way to make the host allocate whatever a caller sends. A route that declares
+   * nothing still gets exactly this number, which is what kept the change from
+   * being a behaviour change for anything already written.
+   *
+   * Media uploads have their own route and do not come through here.
+   */
+  static readonly DefaultMaxBodyBytes = PluginRouteBodies.DefaultMaxBytes;
 
   static async of(
     c: Context,
@@ -49,7 +56,7 @@ export class ExtRequest {
       params: matched.params,
       query: Object.fromEntries(url.searchParams.entries()),
       headers: ExtRequest.headers(c),
-      body: await ExtRequest.body(c),
+      ...(await ExtRequest.payload(c, matched.route)),
       // Claims included so a plugin can be stricter than the route's `auth`
       // said; the secret and its hash are not, because there is nothing a
       // plugin could correctly do with them.
@@ -72,24 +79,38 @@ export class ExtRequest {
   }
 
   /**
-   * Text, or `null` for a request that carried no body.
+   * `body` and `bytes`, one of them non-null at most, as the **route** declared
+   * (D41).
    *
-   * Past `MaxBodyBytes` this **refuses** rather than truncating or quietly
-   * passing `null`. Both of those would reach the handler as a smaller request
-   * than the one that was sent, and a plugin cannot tell a body it was not given
-   * from one that was never there — so the caller would get a 200 describing
-   * work that was done on the wrong input.
+   * One method returning both rather than two returning one each, because the
+   * invariant is about the pair: the route asked for text or for bytes, so
+   * exactly one field is filled and the other is `null`. Two methods would let a
+   * future caller fill both by reading the request twice — which is also a bug,
+   * since the stream is consumed once.
+   *
+   * Past the route's `max_bytes` this **refuses** rather than truncating or
+   * quietly passing `null`. Both of those would reach the handler as a smaller
+   * request than the one that was sent, and a plugin cannot tell a body it was
+   * not given from one that was never there — so the caller would get a 200
+   * describing work that was done on the wrong input.
    */
-  private static async body(c: Context): Promise<string | null> {
-    if (c.req.method === "GET" || c.req.method === "HEAD") return null;
+  private static async payload(
+    c: Context,
+    route: PluginRoute
+  ): Promise<{ body: string | null; bytes: Uint8Array | null }> {
+    const empty = { body: null, bytes: null };
+    if (c.req.method === "GET" || c.req.method === "HEAD") return empty;
+
     const buffer = await c.req.arrayBuffer();
-    if (buffer.byteLength === 0) return null;
-    if (buffer.byteLength > ExtRequest.MaxBodyBytes) {
+    if (buffer.byteLength === 0) return empty;
+    if (buffer.byteLength > route.body.max_bytes) {
       throw new ValidationError(
-        `request body is ${buffer.byteLength} bytes; a plugin route accepts at most ` +
-          `${ExtRequest.MaxBodyBytes}`
+        `request body is ${buffer.byteLength} bytes; the plugin route ` +
+          `"${route.method} ${route.path}" accepts at most ${route.body.max_bytes}`
       );
     }
-    return new TextDecoder().decode(buffer);
+
+    if (route.body.kind === "bytes") return { body: null, bytes: new Uint8Array(buffer) };
+    return { body: new TextDecoder().decode(buffer), bytes: null };
   }
 }

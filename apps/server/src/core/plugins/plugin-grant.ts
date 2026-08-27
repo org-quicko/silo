@@ -42,6 +42,34 @@ export interface PluginGrant {
    *  did not — so it is stored beside them rather than re-read from disk. */
   hooks: string[];
 
+  /**
+   * The routes the manifest declares, canonicalised (D41).
+   *
+   * Here for exactly the reason `hooks` is: it is part of what an operator
+   * approves, and it joins the manifest digest, and D38's rule says the
+   * management API acts on the record and never on the filesystem — so the
+   * digest `grant` recomputes has to find it here.
+   *
+   * `http:route` is **one** claim covering every route, so before this the claim
+   * list could not detect a change in the route surface at all. Three changes
+   * slipped through a standing approval: adding a route, flipping one to
+   * `"auth": "public"` — which publishes whatever the plugin was granted at a
+   * URL anyone can reach — and, once D41 made a body cap declarable, raising the
+   * number that says how much the host will allocate for whoever reaches it.
+   * None of them moved a claim, so none of them moved the digest.
+   *
+   * `PluginGrantUtils.routeLine` is the canonicalisation, and it carries `auth`
+   * and the body contract rather than only the method and path, because those
+   * are the two properties an operator is deciding about.
+   *
+   * Absent in a record written before D41. `PluginGrantUtils.routesOf` reads one
+   * as the empty list, which makes the first start after the upgrade move a
+   * plugin **with** routes to `needs_review` — correct rather than unfortunate:
+   * its route surface had never been part of an approval, so there is a decision
+   * outstanding. A plugin with no routes is unaffected.
+   */
+  routes?: string[];
+
   /** What the operator actually allowed. Always a subset of `requested`, and
    *  always within the granting key's own authority. */
   granted: string[];

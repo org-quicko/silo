@@ -36,7 +36,8 @@ export class PluginGrantCommand {
       pluginConfig.name,
       request.claims,
       manifest.contributes.hooks,
-      request.required
+      request.required,
+      PluginGrantUtils.routeLines(manifest.contributes.routes)
     );
 
     // No `--claims` means "everything it says it requires" (D36). It used to mean

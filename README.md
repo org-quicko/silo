@@ -698,6 +698,7 @@ thing:
 | `hooks` | Reacts to the entry and collection lifecycle | In a `Worker`, one per plugin |
 | `routes` | Serves HTTP under `/api/ext/<name>/` | In the same `Worker` |
 | `runtime` | Runs `activate(ctx)` at startup and `deactivate(ctx)` on the way out | In the same `Worker` |
+| `ui` | Ships an admin panel, rendered in a sandboxed frame with no origin | In the operator's browser |
 | `providers` | Implements the storage or blob-storage port, adding a driver name | In-process, before storage opens |
 
 None of them is exclusive: a storage provider may register the hook that keeps
@@ -763,7 +764,8 @@ runs.
 |-----|---------|
 | `silo` | The version range of silo this plugin supports, checked at startup. There is no separate plugin API version — a breaking change to a hook payload is a major version of silo. |
 | `contributes.hooks` | Which hooks to dispatch. A hook the module exports but does not declare here is never called. |
-| `contributes.routes` | The HTTP routes this plugin serves, each `{ "method", "path", "auth" }`. Served under `/api/ext/<name>/`. Declaring any of them asks for the `http:route` claim automatically. |
+| `contributes.routes` | The HTTP routes this plugin serves, each `{ "method", "path", "auth", "body" }`. Served under `/api/ext/<name>/`. Declaring any of them asks for the `http:route` claim automatically. `body` is `{ "kind": "text" \| "bytes", "max_bytes" }` and defaults to text at 1 MiB. |
+| `contributes.ui` | An admin panel: `{ "entry": "./panel.html", "title" }`, one inlined HTML file. |
 | `contributes.runtime` | `true` when the module exports `activate(ctx)` and `deactivate(ctx)`. Declaring it and not exporting them refuses the start. |
 | `contributes.providers` | Storage or blob drivers, each `{ "port", "driver", "entry" }`. `entry` is required: a provider is imported before storage exists, so it cannot share the module the worker half runs from. |
 | `permissions.required` | What the plugin does not work without. **This is what a default grant approves.** Each entry is `{ "claim", "reason" }`, and the reason is not optional — it is what an operator reads while deciding. |
@@ -1062,8 +1064,54 @@ and that its routes come and go with `enable`, `disable`, `grant`, `revoke` and
 `rescan` without a restart, like its hooks.
 
 `HEAD` reaches a declared `GET`. A handler that misses `timeout_ms` answers `504`
-and the plugin is left `failed` until `POST /api/plugins/<name>/restart`. Request
-bodies are capped at 1 MiB.
+and the plugin is left `failed` until `POST /api/plugins/<name>/restart`.
+
+**A route says what body it takes.** The default is text, capped at 1 MiB. A route
+that receives a *file* declares bytes instead, and is handed `request.bytes`
+undecoded while `request.body` stays `null`:
+
+```json
+{ "method": "POST", "path": "/source", "body": { "kind": "bytes", "max_bytes": 67108864 } }
+```
+
+The cap is yours to declare and silo's to bound, at 64 MiB. It is in the manifest
+because it is how much the host will allocate for whoever reaches the route — so
+an operator reads the number beside the route when they approve `http:route`, and
+raising it in a later release asks them again. Past it, a request is **refused**
+rather than truncated: a plugin cannot tell a body it was not given from one that
+was never sent, so the alternative is a `200` describing work done on the wrong
+input.
+
+### Shipping a screen
+
+A plugin can bring its own page in the admin. Declare one inlined HTML file:
+
+```json
+"silo": { "contributes": { "ui": { "entry": "./panel.html", "title": "Import from Strapi" } } }
+```
+
+It appears under **Settings → Plugins → your plugin**, below the grant, and it
+runs in an iframe with `sandbox="allow-scripts"` and **no** `allow-same-origin` —
+so it has no origin of its own. `localStorage` throws, `document.cookie` is empty,
+and nothing it fetches carries a credential. That is not belt-and-braces: the
+admin keeps an API key for every server you have configured, and a panel able to
+read them would hold more than any plugin can be granted.
+
+Its one capability is `window.silo`, which the admin injects:
+
+```html
+<script>
+  const source = await silo.json('/source')          // → /api/ext/<name>/source
+  await silo.fetch('/source', { method: 'POST', body: await file.arrayBuffer() })
+</script>
+```
+
+Those reach **your plugin's routes and nothing else**, with the operator's key
+attached by the admin. So a panel spends the operator's authority over your
+routes, and your handlers spend the plugin's grant — which is why none of your
+routes has to be `public` for a screen to work. The admin's theme arrives as CSS
+custom properties, so `var(--text)` and `var(--accent)` follow whatever the
+operator has on.
 
 ### What a plugin is allowed to do
 

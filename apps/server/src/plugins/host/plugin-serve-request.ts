@@ -41,10 +41,30 @@ export interface PluginServeRequest {
 
   headers: Record<string, string>;
 
-  /** Text, or `null` for a request that carried no body. A plugin parses it —
-   *  guessing from `content-type` here would make the host responsible for a
-   *  decision only the route knows the answer to. */
+  /**
+   * Text, or `null` — for a request that carried no body, **or** for a route
+   * that declared `body.kind: "bytes"`. A plugin parses it: guessing from
+   * `content-type` here would make the host responsible for a decision only the
+   * route knows the answer to.
+   */
   body: string | null;
+
+  /**
+   * The raw bytes, or `null` — on a route that declared `body.kind: "bytes"`
+   * (D41).
+   *
+   * Two fields, exactly one of them ever non-null, rather than one field of a
+   * union type. The union reads better and travels worse: a handler written
+   * against it has to narrow before it can do anything, and the narrowing is on a
+   * value that already crossed a structured-clone boundary — where a `string` and
+   * a `Uint8Array` are the same kind of plain data and nothing but the route's own
+   * declaration distinguishes them. Two nullable fields say which one the route
+   * asked for in the shape itself.
+   *
+   * A `Uint8Array` survives structured clone, so this needs nothing of the
+   * transport that `body` did not already need.
+   */
+  bytes: Uint8Array | null;
 
   caller: PluginRequestCaller | null;
 }

@@ -1,7 +1,29 @@
-import { Globe, Lock, Route as RouteIcon, TriangleAlert } from 'lucide-react'
+import { ArrowUpFromLine, Globe, Lock, Route as RouteIcon, TriangleAlert } from 'lucide-react'
 import { Claims } from '@silo/shared/claims'
-import type { PluginView } from '../../api/types/plugin-view'
+import type { PluginRoute, PluginView } from '../../api/types/plugin-view'
 import styles from './PluginDetail.module.css'
+
+/** D36's one global mebibyte, which is still what a route that declares no body
+ *  gets — so a cap equal to it is the default and says nothing worth showing. */
+const DEFAULT_MAX_BYTES = 1024 * 1024
+
+/**
+ * What this route accepts, when it is not the default (D41).
+ *
+ * Shown because it is the one property of a route that costs the **operator**
+ * something rather than the caller: `max_bytes` is how much the host will
+ * allocate for whoever reaches it, and a manifest may declare far more than
+ * D36's mebibyte. `auth` says who can knock; this says how large a thing they
+ * may push through the door.
+ */
+function bodyPhrase(route: PluginRoute): string | null {
+  const body = route.body
+  if (!body) return null
+  if (body.kind === 'text' && body.max_bytes === DEFAULT_MAX_BYTES) return null
+  const mib = body.max_bytes / (1024 * 1024)
+  const size = Number.isInteger(mib) ? `${mib} MiB` : `${body.max_bytes} bytes`
+  return `${body.kind === 'bytes' ? 'accepts a file' : 'accepts text'}, up to ${size}`
+}
 
 /**
  * What a plugin serves under `/api/ext/{name}/*`, and what reaching it means
@@ -79,6 +101,11 @@ export function PluginRoutesCard({ plugin }: { plugin: PluginView }) {
                 ) : (
                   <span className={styles.claimBlockedWhy}>
                     <Lock size={12} /> any authenticated key
+                  </span>
+                )}
+                {bodyPhrase(route) && (
+                  <span className={styles.claimBlockedWhy}>
+                    <ArrowUpFromLine size={12} /> {bodyPhrase(route)}
                   </span>
                 )}
               </span>

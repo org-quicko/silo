@@ -256,7 +256,8 @@ export class PluginCommand {
       let unauthorized = 0;
       for (const runtime of registry.list()) {
         const { state } = runtime.authority;
-        const hooks = runtime.hooks.join(", ") || "no hooks";
+        // Every contribution, not just the hooks — see `PluginContributionUtils.label`.
+        const hooks = PluginContributionUtils.label(runtime.plugin.manifest.contributes);
         if (state === "pending" || state === "revoked") {
           unauthorized++;
           console.log(`WARN ${runtime.name}  (${hooks}) — ${state}, receives nothing`);

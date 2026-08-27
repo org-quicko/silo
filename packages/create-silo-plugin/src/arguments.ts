@@ -1,5 +1,7 @@
 import { PluginContract } from "./plugin-contract";
 import type { HookName, PluginKind, ProviderPort } from "./plugin-contract";
+import { ScaffoldRoutes } from "./plugin-routes";
+import type { ScaffoldRoute } from "./plugin-routes";
 
 /**
  * What `Arguments.parse` hands back: every answer the author supplied on the
@@ -17,6 +19,9 @@ export interface ArgumentValues {
   kind?: PluginKind;
   siloRange?: string;
   hooks?: HookName[];
+  routes?: ScaffoldRoute[];
+  runtime?: boolean;
+  panel?: boolean;
   claims?: string[];
   port?: ProviderPort;
   driver?: string;
@@ -78,6 +83,12 @@ export class Arguments {
         case "--kind": values.kind = Arguments.kind(next()); break;
         case "--port": values.port = Arguments.port(next()); break;
         case "--hooks": values.hooks = Arguments.hooks(next()); break;
+        case "--routes": values.routes = ScaffoldRoutes.parse(next()); break;
+        case "--no-routes": values.routes = []; break;
+        case "--runtime": values.runtime = true; break;
+        case "--no-runtime": values.runtime = false; break;
+        case "--panel": values.panel = true; break;
+        case "--no-panel": values.panel = false; break;
         case "--claims": values.claims = Arguments.list(next()); break;
         default: throw new Error(`unknown option "${flag}" — run with --help`);
       }
@@ -104,13 +115,19 @@ export class Arguments {
     const names = Arguments.list(value);
     for (const name of names) {
       if (!PluginContract.isHook(name)) {
-        throw new Error(`unknown hook "${name}". silo has five: ${PluginContract.Hooks.join(", ")}`);
+        throw new Error(
+          `unknown hook "${name}". silo has ${PluginContract.Hooks.length}: ` +
+            PluginContract.Hooks.join(", ")
+        );
       }
     }
     // Deduped, order preserved: the manifest's `hooks` array is a set, and a
     // repeat there reads as a mistake in a file an operator is meant to audit.
     return [...new Set(names as HookName[])];
   }
+
+  /** An empty `--hooks ""` is an explicit "none", which is now expressible: a
+   *  package contributing routes or a panel needs no hook at all. */
 
   /** `a,b , c` → `["a", "b", "c"]`, empties dropped — so `--claims ""` is an
    *  explicit "none" rather than a claim named the empty string. */

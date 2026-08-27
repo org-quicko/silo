@@ -83,14 +83,19 @@ export class PluginGrantService {
    * `required` defaults to `requested`, which is what the whole request meant
    * before D36 split it: there was no optional, so everything asked for was
    * needed. A caller with a manifest in hand passes both.
+   *
+   * `routes` defaults to none for the same kind of reason (D41): a caller that
+   * has no manifest has nothing to say about the route surface, and saying
+   * "none" is the reading that cannot accidentally approve one.
    */
   async reconcile(
     name: string,
     requested: readonly string[],
     hooks: readonly string[],
-    required: readonly string[] = requested
+    required: readonly string[] = requested,
+    routes: readonly string[] = []
   ): Promise<PluginGrantRecord> {
-    const digest = PluginGrantUtils.digest(requested, required, hooks);
+    const digest = PluginGrantUtils.digest(requested, required, hooks, routes);
     const existing = await this.findEntry(name);
 
     if (!existing) {
@@ -99,6 +104,7 @@ export class PluginGrantService {
         requested: [...requested],
         required: [...required],
         hooks: [...hooks],
+        routes: [...routes],
         granted: [],
         state: "pending",
         manifest_digest: digest,
@@ -112,6 +118,7 @@ export class PluginGrantService {
       requested: [...requested],
       required: [...required],
       hooks: [...hooks],
+      routes: [...routes],
       state: PluginGrantUtils.stateFor(grant, digest),
     };
 
@@ -197,7 +204,8 @@ export class PluginGrantService {
           manifest_digest: PluginGrantUtils.digest(
             grant.requested,
             PluginGrantUtils.requiredOf(grant),
-            grant.hooks
+            grant.hooks,
+            PluginGrantUtils.routesOf(grant)
           ),
           key_id: keyEntry.id,
           granted_by: PluginGrantService.actorKey(request.actor),

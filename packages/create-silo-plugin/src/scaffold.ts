@@ -43,6 +43,9 @@ export class Scaffold {
     for (const file of Assets.Files) {
       await write(file.target, await Assets.read(file.asset));
     }
+    if (options.panel) {
+      await write(Assets.Panel.target, await Assets.read(Assets.Panel.asset));
+    }
 
     return written;
   }

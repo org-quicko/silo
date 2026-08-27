@@ -37,6 +37,7 @@ block:
 SERVER
   API Keys                                       list, revoke, and a creation page
   Data Transfer                                  whole-instance archive and direct server copy
+  Plugins                                        every plugin with a record; one page each (D40)
   Connection                                     endpoint, live diagnostics, forget this server
 PROJECTS
   Projects                                       every project on the instance, and creating one
@@ -90,3 +91,45 @@ plain confirmation.
 `x-silo-ui` extension keys map to RJSF `uiSchema` (widget selection, field order, help text).
 
 **Appearance** is client-only state — `ThemeManager` persists it to `localStorage`, never to a server, so the choice follows the browser rather than the instance. Three things compose: a **colour mode** (light/dark/system, the last resolved live against `prefers-color-scheme`), a **theme** (an accent paired with the sidebar tint it was designed alongside — `--sidebar`/`--sidebar-hover`, distinct from the main content's `--panel`/`--panel-2` so a theme can read as more than a hue swap), and a **font**. Dark mode's per-theme sidebar hex applies as-is; light mode instead washes the sidebar from whatever accent is active, because hand-tuning a light-mode pair for every theme would double the palette for no visual gain light mode doesn't already get by deriving it. Picking a custom accent hex keeps the last theme's sidebar and labels the bundle `Custom`, matching how picking a font or a mode leaves the other two alone. The theme gallery groups **Featured** (duotone hero bundles), **Single colour**, and **Vision assistive** (colour-blind-safe accent/sidebar pairs) — the grouping is presentation only, every entry is the same `ThemePreset` shape.
+
+## 10. Plugin panels (D41)
+
+A plugin may ship its own screen. `contributes.ui` names one inlined HTML file,
+and `PluginPanelCard` renders it below the grant and the route list on that
+plugin's page — **after** them, deliberately: a panel is a screen for spending
+whatever the plugin was granted, so an operator who scrolls to it has already read
+what that is.
+
+It is fetched only when opened. It is third-party markup measured in kilobytes,
+and an operator who came here to revoke a grant should not have the package's own
+screen render itself on the way — a `needs_review` plugin being exactly the case
+where that is least welcome.
+
+**The isolation is the feature, and it is three attributes.** The iframe is
+`sandbox="allow-scripts"` with **no** `allow-same-origin`, mounted through
+`srcdoc` and never `src`. That gives the panel an opaque origin, which matters
+concretely rather than theoretically: this app keeps `silo_servers` in
+`localStorage`, holding an API key for **every** instance the operator has
+configured, so a panel with same-origin access would hold more authority than any
+plugin can be granted. Identity is established by comparing `event.source` with
+the frame's own `contentWindow`, because an opaque origin posts as `"null"` and
+every sandboxed frame on the page shares that.
+
+A panel's one capability is asking this app to call **its own plugin's** routes,
+with the operator's key. `plugin-panel-protocol.ts` is that boundary and nothing
+else is — it is pure, and tested without a DOM, because a security check that
+needs a browser to exercise is one nobody exercises. `plugin-panel-preamble.ts`
+generates the other half: a `window.silo` client over `postMessage`, and the
+admin's own resolved theme tokens as CSS custom properties, so a panel follows a
+custom accent or light mode without knowing which is on. Both are generated here
+rather than left to plugin authors, which is what makes the wire format a
+contract with one client instead of a convention with many.
+
+Theme tokens are read once per mount rather than per render: rebuilding `srcdoc`
+reloads the panel, which would lose whatever the operator had typed into it. A
+theme change therefore does not retint an open panel — the right trade, since
+reloading a form under somebody's hands to correct a colour is worse than the
+colour. Height is a request the panel makes and this app clamps, because an
+unclamped one could push every other card off the screen, including the grant that
+would let an operator turn it off. §13.20 in
+[plugins.md](plugins.md) has the contract.

@@ -5,6 +5,7 @@ import { OptionsResolver } from "./options-resolver";
 import { Scaffold } from "./scaffold";
 import { SiloRange } from "./silo-range";
 import { Style } from "./style";
+import { ScaffoldRoutes } from "./plugin-routes";
 import { TomlSnippet } from "./render/toml-snippet";
 import { PluginName } from "./plugin-name";
 import type { ScaffoldOptions } from "./scaffold-options";
@@ -59,6 +60,9 @@ export class Cli {
     "index.ts": "your plugin; no build step, no dependencies",
     "silo-api.d.ts": "types for the silo:api virtual module (runtime contribution: none)",
     "README.md": "where this directory goes, and the [[plugins]] block",
+    "panel.html": "the screen the admin renders for this plugin, in a sandboxed frame",
+    "tsconfig.json": "editor support only — a plugin has no build step",
+    ".gitignore": "node_modules, dist, logs",
   };
 
   private static report(options: ScaffoldOptions, written: readonly string[]): void {
@@ -104,7 +108,14 @@ export class Cli {
     ];
 
     if (options.kind === "extension") {
-      rows.push(["hooks", options.hooks.join(", ")]);
+      // Every contribution, and only the ones there are. An empty "hooks" row on
+      // a routes-only plugin reads as something missing.
+      if (options.hooks.length > 0) rows.push(["hooks", options.hooks.join(", ")]);
+      if (options.routes.length > 0) {
+        rows.push(["routes", options.routes.map((route) => ScaffoldRoutes.key(route)).join(", ")]);
+      }
+      if (options.runtime) rows.push(["runtime", "activate / deactivate"]);
+      if (options.panel) rows.push(["panel", "panel.html"]);
     } else {
       rows.push(["provides", `${options.port} driver "${options.driver}"`]);
     }

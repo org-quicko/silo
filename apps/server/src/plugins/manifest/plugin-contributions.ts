@@ -1,6 +1,7 @@
 import type { HookName } from "../../core/hooks";
 import type { PluginProvider } from "./plugin-provider";
 import type { PluginRoute } from "./plugin-route";
+import type { PluginUi } from "./plugin-ui";
 
 /**
  * Everything a package contributes to a running silo (D36).
@@ -39,4 +40,21 @@ export interface PluginContributions {
 
   /** Storage or blob drivers, each naming its own entry module (§13.7). */
   providers: readonly PluginProvider[];
+
+  /**
+   * An admin panel, or `null` (D41).
+   *
+   * `null` rather than optional because every reader downstream is a *reporting*
+   * surface — the CLI summary, `/api/plugins`, the grant screen — and an absent
+   * field and a declared-then-removed one must not render differently.
+   *
+   * It costs no claim, and unlike `activate` that needs an argument rather than
+   * an analogy. A panel is served to whoever already holds `plugins:read`, which
+   * is the claim for looking at plugins; it runs in the *operator's* browser with
+   * no origin and no credential; and everything it can actually do it does by
+   * asking the admin to call a route of this plugin's own, which is already
+   * behind `http:route` and already the plugin's grant. There is no new reach
+   * here to gate — only a new surface on which existing reach is spent.
+   */
+  ui: PluginUi | null;
 }

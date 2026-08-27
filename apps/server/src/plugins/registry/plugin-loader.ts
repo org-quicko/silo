@@ -164,7 +164,8 @@ export class PluginLoader {
       config.name,
       request.claims,
       resolved.manifest.contributes.hooks,
-      request.required
+      request.required,
+      PluginGrantUtils.routeLines(resolved.manifest.contributes.routes)
     );
     return { resolved, grant };
   }

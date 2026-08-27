@@ -21,6 +21,7 @@ scaffold that asks nothing.
 silo-plugin-slugs/
 ├── package.json      the manifest — silo reads package.json#silo without running anything
 ├── index.ts          your plugin: no build step, no dependencies
+├── panel.html        --panel only: the screen the admin renders, in a sandboxed frame
 ├── silo-api.d.ts     types for the silo:api virtual module (contributes nothing at runtime)
 ├── tsconfig.json     editor support only
 ├── README.md         where the directory goes, and the [[plugins]] block to paste
@@ -76,7 +77,10 @@ which refuse the start rather than degrading:
 | `--name <name>` | npm package name; also how `[[plugins]] name` addresses it |
 | `-d, --dir <path>` | where to write it (default: the name, unscoped) |
 | `--kind <kind>` | `extension` or `provider` (default: `extension`) |
-| `--hooks <a,b>` | extension only, comma-separated |
+| `--hooks <a,b>` | extension only, comma-separated; `""` for none |
+| `--routes <a,b>` | `"GET /status, POST /source+bytes:64"` — see below |
+| `--runtime` | export `activate(ctx)` / `deactivate(ctx)` |
+| `--panel` | ship `panel.html` and declare `silo.contributes.ui` |
 | `--claims <a,b>` | what the manifest requests (default: none) |
 | `--port <port>` | provider only: `storage` or `blob` |
 | `--driver <name>` | provider only: the driver name `silo.toml` selects |
@@ -84,6 +88,47 @@ which refuse the start rather than degrading:
 | `--config` / `--no-config` | emit a config schema (extensions; on by default) |
 | `-y, --yes` | take every default, ask nothing |
 | `-f, --force` | write into a non-empty directory |
+
+### Routes, and `+bytes`
+
+A route is `"<METHOD> </path>"`, with `:params` and no wildcards, served under
+`/api/ext/<name>/` behind the `http:route` claim — which the generated
+`[[plugins]]` block grants, because a plugin whose every route answers 403 is
+running, healthy, and not doing what it was installed for.
+
+```sh
+--routes "GET /status, GET /notes/:id, DELETE /notes/:id"
+```
+
+Append `+bytes` to a route that receives a **file**, and the payload arrives
+undecoded in `request.bytes` instead of `request.body`:
+
+```sh
+--routes "POST /source+bytes:64"
+```
+
+The size is in MiB, up to silo's ceiling of 64. It is declared in the manifest
+rather than assumed, because it is how much the host will allocate for whoever
+reaches that route — so an operator sees the number beside the route when they
+approve it, and it joins the manifest digest, so raising it in a later release
+asks them again.
+
+### Panels
+
+`--panel` writes `panel.html` and declares it. The admin renders it inside an
+iframe with `sandbox="allow-scripts"` and no `allow-same-origin`, so a panel has
+no origin of its own: it cannot read the admin's stored API keys, and nothing it
+fetches carries a credential.
+
+Its one capability is `window.silo`, which the admin injects. `silo.fetch(path)`
+and `silo.json(path)` ask the admin to call **your plugin's own routes** — nothing
+else — with the operator's key. So a panel spends the operator's authority over
+your routes, and your handlers spend the plugin's grant; both halves are approved
+and neither is implicit.
+
+There is no static asset server: a panel is one inlined file, so its CSS and its
+script go in it. The admin's theme arrives as CSS custom properties, so
+`var(--text)` and `var(--accent)` follow whatever the operator has on.
 
 ### The `silo` range
 
@@ -107,9 +152,10 @@ bun run build      # dist/cli.js, Node-compatible
 ```
 
 It lives in the silo repository so its copies of silo's contract can be checked
-against the originals: `server/test/plugins/create-silo-plugin-drift.test.ts`
+against the originals: `apps/server/test/plugins/create-silo-plugin-drift.test.ts`
 fails silo's own suite the moment a hook, a reserved driver name, a provider
-port or the `silo:api` declarations diverge.
+port, a route method, the byte-body ceiling or the `silo:api` declarations
+diverge.
 
 ## Licence
 

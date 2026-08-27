@@ -1,0 +1,27 @@
+{
+  // Editor support only. A silo plugin has no build step — silo transpiles
+  // `index.ts` itself — so nothing here is ever compiled, and `noEmit` keeps a
+  // stray `tsc` from littering a .js file beside the source silo actually runs.
+  //
+  // `silo-api.d.ts` is picked up by the include below; it is what makes
+  // `import { defineSiloPlugin } from "silo:api"` resolve in an editor even
+  // though the module has no file on disk.
+  //
+  // `types: ["bun"]` is this plugin's own addition to what `create-silo-plugin`
+  // emits, and it is **editor support only**: this plugin reads a SQLite file, so
+  // it uses `bun:sqlite` and node's `fs`. That is not a runtime dependency — a
+  // plugin runs inside silo's own Bun worker and holds its privileges (§13.4) —
+  // but TypeScript still has to be told those modules exist.
+  "compilerOptions": {
+    "types": ["bun"],
+    "lib": ["ESNext", "DOM"],
+    "module": "ESNext",
+    "target": "ESNext",
+    "moduleResolution": "bundler",
+    "moduleDetection": "force",
+    "strict": true,
+    "skipLibCheck": true,
+    "noEmit": true
+  },
+  "include": ["./*.ts"]
+}
