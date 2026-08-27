@@ -4,6 +4,31 @@
 > The *current* state is [CONTEXT.md](../../CONTEXT.md); this is how it got
 > there.
 
+- **Plugins uninstall from the API and the admin (D43, 2026-08-27).**
+  `DELETE /api/plugins/{name}` removes a plugin's `[[plugins]]` entry, worker, record, managed key
+  and package, behind `plugins:enable`. New:
+  `apps/server/src/plugins/registry/plugin-uninstallation.ts`,
+  `apps/admin/src/views/plugins/UninstallPluginModal.tsx`,
+  `apps/admin/src/api/types/plugin-uninstall.ts`. `PluginBlockWriter` gains `remove` (text edit,
+  parsed before it is written, takes its own `AddedNote` comment with the block and never an
+  operator's), `PluginGrantService` gains `forget`, `PluginInstaller` gains `installed`,
+  `RouteAuth` gains `findExpectedRev`, and `plugin.uninstall` joins the audit vocabulary.
+  The order is D42's reversed, on the same rule: un-list first and fail hard (a block naming a
+  package that is gone fails the *process*, not the plugin), stop the worker, forget the record so
+  a re-install comes back approved for nothing, delete the files last and forgive it. The audit
+  entry outlives the record. §13.22 in `docs/design/plugins.md`.
+
+- **A plugin's page is a summary plus four sheets, and its panel gets the page (D44, 2026-08-27).**
+  The grant, routes, config and trail sections moved into a new right-hand `Sheet`
+  (`apps/admin/src/components/modal/Sheet.tsx`), opened from `PluginSectionButton`s that carry each
+  section's state. `PluginGrantCard`/`PluginRoutesCard`/`PluginConfigCard`/`PluginActivityCard`
+  became `Plugin*Section` and lost their card chrome. Three panel bugs fixed in
+  `plugin-panel-preamble.ts`: the height was measured from `documentElement.scrollHeight`, which is
+  at least the viewport, so a panel could only grow; the frame's canvas was white behind a
+  transparent document; and the `ResizeObserver` was never retained, so it was collected and
+  stopped reporting. `PluginPanelFrame` gains a `fill` mode for full screen. §10/§10a in
+  `docs/design/admin-ui.md`.
+
 - **Plugins install from the API and the admin, and the block they get carries no claims (D42, 2026-08-27).**
   `POST /api/plugins/install` acquires a package — npm spec, git URL, HTTPS tarball, local path, or
   an uploaded `.tgz` — checks it, starts it, grants it and appends its `[[plugins]]` block, behind

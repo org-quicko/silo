@@ -36,7 +36,7 @@ export function RescanResult({ report, onDismiss }: { report: RescanReport; onDi
         <span>{lines.length > 0 ? lines.join(' · ') : 'Nothing changed.'}</span>
         {report.failed.map((failure) => (
           <span key={failure.name} className={styles.rescanFailure}>
-            {failure.name} did not load — {failure.error}
+            {failure.name} did not load: {failure.error}
           </span>
         ))}
       </div>

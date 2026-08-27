@@ -95,10 +95,12 @@ plain confirmation.
 ## 10. Plugin panels (D41)
 
 A plugin may ship its own screen. `contributes.ui` names one inlined HTML file,
-and `PluginPanelCard` renders it below the grant and the route list on that
-plugin's page — **after** them, deliberately: a panel is a screen for spending
-whatever the plugin was granted, so an operator who scrolls to it has already read
-what that is.
+and `PluginPanelCard` renders it on that plugin's page, below the summary of what
+the plugin is allowed to do. It used to sit below the grant, the route list and
+the config *open* on the page, on the argument that a panel is a screen for
+spending whatever the plugin was granted, so an operator who scrolls to it has
+already read what that is. The order was right and the cost was wrong; §10a is
+what replaced it.
 
 It is fetched only when opened. It is third-party markup measured in kilobytes,
 and an operator who came here to revoke a grant should not have the package's own
@@ -131,5 +133,48 @@ theme change therefore does not retint an open panel — the right trade, since
 reloading a form under somebody's hands to correct a colour is worse than the
 colour. Height is a request the panel makes and this app clamps, because an
 unclamped one could push every other card off the screen, including the grant that
-would let an operator turn it off. §13.20 in
+would let an operator turn it off. A panel with more to show than the clamp allows
+takes **full screen** instead, where it gets the viewport and scrolls inside
+itself rather than growing the page under it. §13.20 in
 [plugins.md](plugins.md) has the contract.
+
+**Measuring a panel is three mistakes deep, and D44 fixed them.** The panel posts
+a height and the admin clamps it, so the measurement has to be of the *content*:
+`documentElement.scrollHeight` is at least the viewport, which is the height the
+admin just granted, so measuring it reported back whatever was last asked for and
+a panel could only ever grow — content that collapsed left a band of the frame's
+own canvas below it. It measures `document.body` now. That canvas was **white**,
+because a frame's base colour is white and a transparent document does not reveal
+what is behind the frame but that, so the panel document paints `html` with the
+admin's own `--panel`. And the `ResizeObserver` was created without being
+retained, so it was collectable and stopped reporting with no sign that it had,
+which a panel rendering after a fetch — most of them — hit every time. A zero
+measurement is retried on a timer rather than reported: a sandboxed frame reports
+zero at `DOMContentLoaded` *and* at `load`, because an opaque-origin frame has not
+been through a rendering lifecycle by then, and a timer runs where a frame
+callback does not.
+
+## 10a. One plugin's page (D44)
+
+Four sections — the grant, the routes, the config, the trail — used to be open on
+that page at once. Measured on a real package that is eight claims, eleven routes,
+a generated form and an audit trail, stacked above the panel, so an operator
+arriving to *use* a plugin scrolled past all of it. Each is now a right-hand
+`Sheet`, and what stays on the page is the button that opens it, carrying **that
+section's state**: `4 of 8 claims`, `11 routes · 2 public`, `overridden here`,
+warn-toned when something is outstanding. That is the constraint the split had to
+respect: D40's property is that this page answers *is anything waiting on me*
+without being opened, so the decision moved behind a click and the fact that there
+is one to make did not.
+
+`Sheet` is the second overlay in this app and answers a different question from
+`Modal`. A modal asks something: small, centred, two buttons, one answer. A sheet
+holds a section of the page you were already on: tall, scrolling, no single
+answer. The body is the only thing that scrolls, because a section tall enough to
+need the whole viewport is what moved these off the page to begin with.
+
+Uninstalling lives on this page and nowhere else, behind a typed-name
+`DangerConfirm`, which is the same rule projects and environments are held to:
+reserved for actions no undo exists for. It qualifies twice, since the package
+leaves the disk and the grant leaves with it. Not a row action in the list, for
+the same reason deleting a project is not.

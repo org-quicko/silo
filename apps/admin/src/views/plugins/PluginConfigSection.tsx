@@ -1,10 +1,9 @@
 import { useState } from 'react'
 import Form from '@rjsf/core'
 import validator from '@rjsf/validator-ajv8'
-import { SlidersHorizontal, Undo2 } from 'lucide-react'
+import { Undo2 } from 'lucide-react'
 import { MergePatch } from '@silo/shared/merge-patch'
 import { Button } from '../../components/buttons/Button'
-import { Pill } from '../../components/feedback/Pill'
 import { slateFields, slateTemplates, slateWidgets } from '../../forms/theme'
 import type { PluginView } from '../../api/types/plugin-view'
 import styles from './PluginDetail.module.css'
@@ -23,7 +22,7 @@ import styles from './PluginDetail.module.css'
  * force. Sending the edited document instead looks right and cannot express a
  * deletion, so a key the operator cleared would silently survive.
  */
-export function PluginConfigCard({
+export function PluginConfigSection({
   plugin,
   canConfigure,
   busy,
@@ -61,21 +60,12 @@ export function PluginConfigCard({
   }
 
   return (
-    <section className={styles.card}>
-      <div className={styles.cardHeader}>
-        <div className={styles.sectionTitle}>
-          <SlidersHorizontal size={16} />
-          <h2>Configuration</h2>
-          <Pill tone={overridden ? 'warn' : 'muted'}>
-            {overridden ? 'overridden here' : 'from silo.toml'}
-          </Pill>
-        </div>
-        <p>
-          {overridden
-            ? 'A stored override replaces the block in silo.toml whole. Clearing it is the way back to the file.'
-            : 'Saving pins an override that replaces this plugin’s silo.toml block until it is cleared.'}
-        </p>
-      </div>
+    <div className={styles.section}>
+      <p className={styles.lead}>
+        {overridden
+          ? 'A stored override replaces the block in silo.toml whole. Clearing it is the way back to the file.'
+          : 'Saving pins an override that replaces this plugin’s silo.toml block until it is cleared.'}
+      </p>
 
       {schema ? (
         <div className={styles.form}>
@@ -133,6 +123,6 @@ export function PluginConfigCard({
           )}
         </>
       )}
-    </section>
+    </div>
   )
 }

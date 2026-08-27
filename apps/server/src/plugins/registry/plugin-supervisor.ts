@@ -14,6 +14,8 @@ import type { PluginFacts } from "./plugin-facts";
 import { PluginInspector } from "./plugin-inspector";
 import { PluginInstallation } from "./plugin-installation";
 import type { PluginInstallOptions, PluginInstallOutcome } from "./plugin-installation";
+import { PluginUninstallation } from "./plugin-uninstallation";
+import type { PluginUninstallOutcome } from "./plugin-uninstallation";
 import { PluginLifecycle } from "./plugin-lifecycle";
 import { PluginPanel } from "./plugin-panel";
 import type { PluginPanelSource } from "./plugin-panel";
@@ -38,7 +40,8 @@ export interface PluginSupervisorOptions {
 }
 
 /**
- * Live install, enable, disable, revoke, reconfigure and rescan (D39, phase 4).
+ * Live install, uninstall, enable, disable, revoke, reconfigure and rescan
+ * (D39, phase 4).
  *
  * Before this, every management verb ended in "restart to find out". A grant was
  * resolved once at load and held in two places, so `DELETE .../grant` destroyed
@@ -273,6 +276,32 @@ export class PluginSupervisor {
         config: this.config,
         configPath: this.configPath,
         install: options,
+        request,
+      });
+      this.config = outcome.config;
+      return outcome;
+    });
+  }
+
+  /**
+   * Take a plugin off this instance — see `PluginUninstallation`, which owns
+   * the order and the reasons for it (D43).
+   *
+   * Serialized like everything else here, and this is the verb where that
+   * matters most: it edits `silo.toml` *and* mutates the running set *and*
+   * deletes a record, so one interleaved with a `rescan` would have the rescan
+   * re-start a plugin from a file the uninstall had already half-rewritten.
+   */
+  async uninstall(name: string, request: GrantRequest): Promise<PluginUninstallOutcome> {
+    return await this.serialized(async () => {
+      const outcome = await PluginUninstallation.run({
+        lifecycle: this.lifecycle,
+        registry: this.registry,
+        service: this.service,
+        logger: this.logger,
+        config: this.config,
+        configPath: this.configPath,
+        name,
         request,
       });
       this.config = outcome.config;

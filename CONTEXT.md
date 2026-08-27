@@ -26,9 +26,44 @@ keys with claims (D12/D21), export/import and scope-to-scope copy, the admin
 UI, single-binary releases with Homebrew and RPM, and plugins with an installer
 (D31/D32/D33). Plugins now also take byte bodies and contribute admin
 panels, and there is a first-party plugin using both to import a Strapi 5 export,
-media included (D41). Plugins install from the API and the admin (D42).
+media included (D41). Plugins install *and uninstall* from the API and the admin
+(D42/D43), and a plugin's page is a summary with its sections behind sheets so
+the plugin's own panel has room (D44).
 
-**The most recent change lets a plugin be installed without a shell (D42, 2026-08-27).**
+**The most recent change lets a plugin be uninstalled without a shell, and
+rebuilds the page it is uninstalled from (D43/D44, 2026-08-27).**
+`DELETE /api/plugins/{name}` takes a plugin off an instance whole: its
+`[[plugins]]` entry, its worker, its record, its managed key and its package.
+Same claim as install (`plugins:enable`), and `If-Match` fenced wherever there is
+a record to fence — a package that never got one has no revision to send, and
+demanding one would make it unremovable through the API that installed it. **The
+order is D42's read backwards**, on the same rule: un-list first and fail hard if
+that cannot be done, because a block naming a package that is gone does not fail
+that plugin but the whole process; then stop the worker; then forget the record,
+which discards the managed key, so a re-installed package comes back approved for
+nothing; then delete the files, forgiving a failure. `PluginBlockWriter.remove`
+edits the file as text like `append` does and parses the result before writing
+it, because a span one table short re-parents a `[plugins.config]` onto the next
+plugin. The audit entry outlives the record, since `withdrawn` is the only place
+what the plugin could do is written down once the record is gone.
+
+The plugin's page was rebuilt around it (D44). Its four sections — grant, routes,
+config, trail — were all open at once, which on a real package is eight claims,
+eleven routes, a generated form and an audit trail stacked above the plugin's own
+panel, so an operator arriving to *use* one scrolled past all of it. Each is now
+a right-hand `Sheet` opened from a button carrying that section's state
+(`4 of 8 claims`, `11 routes · 2 public`), which keeps D40's property that the
+page answers *is anything waiting on me* unopened. The panel gets the page and a
+full-screen mode. Three panel bugs surfaced doing it: the height measurement read
+`documentElement.scrollHeight`, which is at least the viewport and therefore the
+height the admin had just granted, so a panel could only ever grow and a
+collapsed one left a **white** band below it — white because a frame's base
+canvas is, and the panel document painted nothing; and the `ResizeObserver` was
+never retained, so it was collected and stopped reporting silently. See §13.22 in
+[docs/design/plugins.md](docs/design/plugins.md) and §10/§10a in
+[docs/design/admin-ui.md](docs/design/admin-ui.md).
+
+**Before that, a plugin became installable without a shell (D42, 2026-08-27).**
 `POST /api/plugins/install` acquires a package — npm spec, git URL, HTTPS tarball,
 local path, or an uploaded `.tgz` — checks it, starts it, grants it and appends
 its `[[plugins]]` block, behind `plugins:enable`. The admin gets an Install

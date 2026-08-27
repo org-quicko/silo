@@ -8,9 +8,12 @@
   font-family: var(--font-ui);
 }
 
+/* The same height as the top bar beside it, so the rule under this one and the
+   rule under that one are a single line across the app rather than a 4px step
+   at the seam. */
 .navHeader {
   display: flex;
-  height: 52px;
+  height: 56px;
   align-items: center;
   justify-content: space-between;
   padding: 0 16px;

@@ -17,6 +17,7 @@ export interface AuditEvent {
     | 'key.revoke'
     | 'plugin.grant'
     | 'plugin.revoke'
+    | 'plugin.uninstall'
     | 'plugin.enable'
     | 'plugin.disable'
     | 'plugin.configure'

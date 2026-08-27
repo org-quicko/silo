@@ -22,6 +22,17 @@ export type AuditAction =
   | "plugin.grant"
   /** A plugin's stored grant was withdrawn. */
   | "plugin.revoke"
+  /**
+   * A plugin's record was destroyed, package and all (D43).
+   *
+   * Distinct from `plugin.revoke`, which leaves a plugin listed, installed and
+   * approved for nothing. This is the end of the record, so it is the last
+   * entry the trail will ever hold about that name — and the trail outlives it,
+   * which is the point: `detail.withdrawn` is what the plugin could do at the
+   * moment it was taken away, and nothing else records that once the record is
+   * gone.
+   */
+  | "plugin.uninstall"
   /** A plugin was started or stopped. Since phase 4 that happens immediately
    *  rather than at the next load (D39). */
   | "plugin.enable"

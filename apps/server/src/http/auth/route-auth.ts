@@ -194,11 +194,31 @@ export class RouteAuth {
   }
 
   static getExpectedRev(c: Context): number {
-    let value = (c.req.header("If-Match") || "").trim().replace(/"/g, "");
-    if (!value) value = c.req.query("rev") || "";
-    if (!value) {
+    const revision = RouteAuth.findExpectedRev(c);
+    if (revision === undefined) {
       throw new ValidationError('missing expected rev: send If-Match: "<rev>" or ?rev=<rev>');
     }
+    return revision;
+  }
+
+  /**
+   * The same revision, when the caller may legitimately not have one.
+   *
+   * One caller: `DELETE /api/plugins/:name`, which acts on up to four things —
+   * a `silo.toml` entry, a record, a worker and a directory — of which only the
+   * record has a revision. A package that never got one (a provider-only
+   * install, §13.7) would otherwise be demanded an `If-Match` that does not
+   * exist, and be impossible to remove through the API that installed it. The
+   * fence is applied where the record is known to be there, which is the only
+   * place that can tell the two cases apart.
+   *
+   * A malformed value is still refused: absent and wrong are different answers.
+   */
+  static findExpectedRev(c: Context): number | undefined {
+    let value = (c.req.header("If-Match") || "").trim().replace(/"/g, "");
+    if (!value) value = c.req.query("rev") || "";
+    if (!value) return undefined;
+
     const revision = parseInt(value, 10);
     if (isNaN(revision) || revision < 1) {
       throw new ValidationError(`invalid rev "${value}"`);

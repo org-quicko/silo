@@ -66,6 +66,11 @@ export function pluginPanelDocument(options: {
 const PANEL_BASE_CSS = `
 * { box-sizing: border-box; }
 html, body { margin: 0; padding: 0; }
+/* Painted, not transparent. A frame's canvas has a base colour of white and a
+   transparent document does not reveal what is behind the frame — it reveals
+   that. Any pixel the panel does not cover was therefore a white band across a
+   dark admin, most visibly in the moment after a panel's content shrinks. */
+html { background: var(--panel); }
 body {
   background: transparent;
   color: var(--text);
@@ -115,6 +120,7 @@ const PANEL_CLIENT_JS = `
   var context = window.__siloPanelContext;
   var pending = new Map();
   var counter = 0;
+  var lastHeight = -1;
 
   window.addEventListener('message', function (event) {
     // Only the admin that created this frame can be event.source here: a
@@ -200,24 +206,83 @@ const PANEL_CLIENT_JS = `
     },
 
     /** Tell the admin how tall this panel wants to be. Called automatically
-     *  while the document resizes, because a panel cannot see the frame. */
+     *  while the document resizes, because a panel cannot see the frame.
+     *
+     *  Repeats are dropped here rather than in the admin: measuring runs on
+     *  every reflow, and a panel that posted the same number sixty times a
+     *  second would have the admin re-render for each one. */
     height: function (value) {
-      post({ kind: 'height', height: Math.ceil(value) });
+      var wanted = Math.ceil(value);
+      if (wanted === lastHeight) return;
+      lastHeight = wanted;
+      post({ kind: 'height', height: wanted });
     },
   };
 
   window.silo = silo;
 
+  // The body, never documentElement. documentElement.scrollHeight is at least
+  // the viewport, and the viewport is the height the admin just granted — so
+  // measuring it reports back whatever was last asked for and a panel can only
+  // ever grow. Measured: a panel that had been tall stayed tall after its
+  // content collapsed, leaving the frame's own canvas showing under it.
+  //
+  // Margins are added because scrollHeight excludes the body's own, and a panel
+  // that set one would have it clipped.
+  // A body with children and no height has not been laid out yet — which is
+  // what a sandboxed frame reports at DOMContentLoaded *and* again at load,
+  // because an opaque-origin frame has not been through a rendering lifecycle
+  // by then. Reporting that zero snapped the frame to its minimum; ignoring it
+  // outright risked a panel pinned there if no later reflow ever came. So it
+  // asks again, on a timer rather than a frame callback, because a frame the
+  // browser is not painting runs the first and not the second. Bounded: a panel
+  // that is genuinely empty stops asking.
+  var settling = 0;
+
   function measure() {
-    silo.height(Math.max(document.documentElement.scrollHeight, document.body.scrollHeight));
+    var body = document.body;
+    if (!body) return;
+    var height = body.scrollHeight;
+
+    if (height === 0 && body.children.length > 0) {
+      if (settling < 40) {
+        settling++;
+        setTimeout(measure, 50);
+      }
+      return;
+    }
+
+    settling = 0;
+    var style = window.getComputedStyle(body);
+    var margins = (parseFloat(style.marginTop) || 0) + (parseFloat(style.marginBottom) || 0);
+    silo.height(height + margins);
   }
-  if (typeof ResizeObserver === 'function') {
-    new ResizeObserver(measure).observe(document.documentElement);
+
+  // Held in a variable, and that is load-bearing rather than tidy: an observer
+  // nothing references is collectable, and a collected one stops reporting
+  // without any sign that it has. Measured — a panel that renders after a fetch
+  // (which is most of them) measured an empty body at DOMContentLoaded, posted
+  // that, and never posted again.
+  var sizes = null;
+
+  function observe() {
+    if (!document.body) return;
+    if (typeof ResizeObserver === 'function') {
+      sizes = new ResizeObserver(measure);
+      // The body for content that arrives late, documentElement for a width
+      // change from the parent: the frame resizes, the body reflows, and the
+      // height is re-measured from the reflow rather than from the resize.
+      // Measuring the body from both is what keeps this shrinking.
+      sizes.observe(document.body);
+      sizes.observe(document.documentElement);
+    }
+    measure();
   }
+
   window.addEventListener('load', measure);
   document.addEventListener('DOMContentLoaded', function () {
     post({ kind: 'ready' });
-    measure();
+    observe();
   });
 })();
 `

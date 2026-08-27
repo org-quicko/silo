@@ -150,6 +150,22 @@ export class PluginInstaller {
   }
 
   /**
+   * Whether a package of this name is in the plugins directory.
+   *
+   * Asked before an uninstall rather than inferred from the config or the
+   * record, because the three disagree in every interesting case: a package can
+   * be listed and missing, present and unlisted, or recorded and long gone. An
+   * uninstall has to act on whichever of them are true.
+   */
+  static async installed(pluginsDir: string, name: string): Promise<boolean> {
+    try {
+      return (await fs.stat(PluginInstaller.target(pluginsDir, name))).isDirectory();
+    } catch {
+      return false;
+    }
+  }
+
+  /**
    * A digest the operator supplied has to be used, or it has to say why not.
    *
    * `--integrity` was accepted and then silently dropped for every source but

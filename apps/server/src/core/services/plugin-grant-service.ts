@@ -298,6 +298,59 @@ export class PluginGrantService {
   }
 
   /**
+   * Destroy the record, managed key and all (D43).
+   *
+   * The one verb here that ends a record rather than changing one, and it is
+   * `PluginUninstallation` that may call it — nothing else, because a record
+   * outliving its package is recoverable while a package outliving its record
+   * quietly re-grants itself at the next start through `reconcile`.
+   *
+   * The key goes first and the entry second, which is the same order `revoke`
+   * takes and for the same reason: between the two writes the plugin holds a
+   * key id that no longer resolves, which fails closed. The other order would
+   * leave a live key behind no record at all — a credential nothing names, and
+   * therefore nothing can revoke.
+   *
+   * The audit entry is written **last and deliberately survives the record**.
+   * `detail.withdrawn` is what the plugin was able to do at the moment it was
+   * taken away, and once the entry is deleted the trail is the only place that
+   * answer exists.
+   */
+  async forget(name: string, request: GrantRequest): Promise<PluginGrantRecord> {
+    const entry = await this.requireEntry(name);
+    const grant = entry.data as PluginGrant;
+    PluginGrantService.assertRev(name, entry.rev, request.expectedRev);
+
+    if (grant.key_id) {
+      await this.keys.discard(grant.key_id).catch(() => {});
+      await this.audit.record("key.revoke", request.actor, grant.key_id, {
+        label: `plugin:${name}`,
+        reason: "the plugin was uninstalled",
+        cascaded: [],
+      });
+    }
+
+    await this.context.withWriteLock(async () => {
+      // Re-read under the lock, like `write` does: the caller's copy was read
+      // outside it, so this is the revision the delete is actually made against.
+      const current = await this.findEntry(name);
+      if (!current) return;
+      PluginGrantService.assertRev(name, current.rev, request.expectedRev);
+      await this.context.store.delete(
+        Scope.System,
+        PluginGrantUtils.PluginsCollection,
+        current.id
+      );
+    });
+
+    await this.audit.record("plugin.uninstall", request.actor, name, {
+      withdrawn: grant.granted,
+      key_id: grant.key_id ?? null,
+    });
+    return { ...grant, rev: entry.rev };
+  }
+
+  /**
    * Turn a plugin off, or back on, for the next load (D38).
    *
    * Orthogonal to the grant: a disabled plugin keeps its claims and its managed

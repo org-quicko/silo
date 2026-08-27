@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react'
-import { ShieldCheck, ShieldOff } from 'lucide-react'
+import { ShieldOff } from 'lucide-react'
 import { Button } from '../../components/buttons/Button'
 import { Pill } from '../../components/feedback/Pill'
 import { ClaimGroups } from '../../claims/claim-groups'
@@ -11,7 +11,7 @@ import styles from './PluginDetail.module.css'
 
 /**
  * The grant: what the package asked for, what it holds, and the decision
- * between them (D34, phase 5).
+ * between them (D34, phase 5) — the contents of the Permissions sheet (D44).
  *
  * Two things make this more than a checkbox list. **Hook delivery is in it** —
  * a plugin handed `entry.beforeValidate` rewrites everything written to a
@@ -21,7 +21,7 @@ import styles from './PluginDetail.module.css'
  * someone can catch a mistake in it, and nobody proofreads forty monospace
  * strings.
  */
-export function PluginGrantCard({
+export function PluginGrantSection({
   plugin,
   url,
   apiKey,
@@ -65,17 +65,11 @@ export function PluginGrantCard({
   const unmet = rows.filter((row) => row.required && row.held === 'none')
 
   return (
-    <section className={styles.card}>
-      <div className={styles.cardHeader}>
-        <div className={styles.sectionTitle}>
-          <ShieldCheck size={16} />
-          <h2>Permissions</h2>
-        </div>
-        <p>
-          What <b>{plugin.name}</b> asked for, and what you allow. A grant takes effect on the next
-          hook and the next call it makes — nothing restarts.
-        </p>
-      </div>
+    <div className={styles.section}>
+      <p className={styles.lead}>
+        What <b>{plugin.name}</b> asked for, and what you allow. A grant takes effect on the next
+        hook and the next call it makes. Nothing restarts.
+      </p>
 
       {plugin.state === 'needs_review' && (
         <div className="banner banner-warn">
@@ -91,7 +85,7 @@ export function PluginGrantCard({
           <span>
             <b>{plugin.name}</b> holds less than it says it needs:{' '}
             {unmet.map((claim) => claim.claim).join(', ')}. It is running, and whatever those
-            permissions were for will not work. That is a normal thing to have chosen — this says so
+            permissions were for will not work. That is a normal thing to have chosen. This says so
             because a deliberate narrowing and an accidental one look identical otherwise.
           </span>
         </div>
@@ -103,7 +97,7 @@ export function PluginGrantCard({
           from <code>silo.toml</code></b>
           <span>
             Effective authority is the file and this record together. Revoking here clears only what
-            is stored — the file&apos;s claims survive it, and editing them is a file edit followed by
+            is stored. The file&apos;s claims survive it, and editing them is a file edit followed by
             a re-read.
           </span>
           <div className={styles.codeList}>
@@ -137,7 +131,7 @@ export function PluginGrantCard({
               size="sm"
               disabled={locked}
               onClick={() => setChosen(required)}
-              title="What the package says it cannot work without — and what the API grants when no claims are named"
+              title="What the package says it cannot work without, and what the API grants when no claims are named"
             >
               Only what it requires
             </Button>
@@ -193,6 +187,6 @@ export function PluginGrantCard({
           </Button>
         </div>
       )}
-    </section>
+    </div>
   )
 }

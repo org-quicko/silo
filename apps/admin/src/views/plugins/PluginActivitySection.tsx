@@ -1,5 +1,4 @@
 import { useEffect, useState } from 'react'
-import { History } from 'lucide-react'
 import { api } from '../../api/silo-api'
 import { Formatters } from '../../utils/formatters'
 import type { AuditEvent } from '../../api/types/audit-event'
@@ -12,6 +11,7 @@ const ACTION_TEXT: Record<AuditEvent['action'], string> = {
   'key.revoke': 'revoked the managed key',
   'plugin.grant': 'approved a grant',
   'plugin.revoke': 'withdrew the grant',
+  'plugin.uninstall': 'uninstalled it',
   'plugin.enable': 'enabled it',
   'plugin.disable': 'disabled it',
   'plugin.configure': 'changed its configuration',
@@ -42,6 +42,7 @@ function list(value: unknown, empty: string): string {
 const DETAIL: Partial<Record<AuditEvent['action'], (detail: Record<string, unknown>) => string>> = {
   'plugin.grant': (detail) => list(detail.granted, 'nothing'),
   'plugin.revoke': (detail) => list(detail.withdrawn, 'nothing'),
+  'plugin.uninstall': (detail) => list(detail.withdrawn, 'nothing'),
   'plugin.configure': (detail) =>
     detail.cleared === true ? 'back to silo.toml' : list(detail.keys, 'no settings'),
   'key.create': (detail) => list(detail.claims, 'nothing'),
@@ -56,7 +57,7 @@ const DETAIL: Partial<Record<AuditEvent['action'], (detail: Record<string, unkno
  * facts, and showing the first for the second would be a lie about the
  * instance.
  */
-export function PluginActivityCard({
+export function PluginActivitySection({
   url,
   apiKey,
   name,
@@ -83,15 +84,11 @@ export function PluginActivityCard({
     }
   }, [url, apiKey, name, rev])
 
+  // No lead paragraph: the sheet's own subtitle says what this list is, and a
+  // second sentence restating it in different words is what a section header
+  // becomes when it is moved into a container that already has one.
   return (
-    <section className={styles.card}>
-      <div className={styles.cardHeader}>
-        <div className={styles.sectionTitle}>
-          <History size={16} />
-          <h2>Activity</h2>
-        </div>
-        <p>Authority decisions only, newest first. Changes made with the offline CLI are in it too.</p>
-      </div>
+    <div className={styles.section}>
 
       {error && <div className="banner banner-bad"><span>{error}</span></div>}
 
@@ -115,6 +112,6 @@ export function PluginActivityCard({
           })}
         </ol>
       )}
-    </section>
+    </div>
   )
 }

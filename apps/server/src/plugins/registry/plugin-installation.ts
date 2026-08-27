@@ -259,8 +259,8 @@ export class PluginInstallation {
         options.configPath,
         PluginBlockWriter.render(
           declared,
-          `Added by POST /api/plugins/install. Its claims live in the plugins record, not ` +
-            `here — see GET /api/plugins/${name}.`
+          `${PluginBlockWriter.AddedNote}. Its claims live in the plugins record, not here — ` +
+            `see GET /api/plugins/${name}.`
         )
       );
       return null;

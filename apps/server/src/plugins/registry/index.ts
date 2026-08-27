@@ -22,6 +22,11 @@ export { PluginRescan } from "./plugin-rescan";
 export type { PluginStatus } from "./plugin-status";
 export { PluginSupervisor } from "./plugin-supervisor";
 export type { PluginSupervisorOptions } from "./plugin-supervisor";
+export { PluginUninstallation } from "./plugin-uninstallation";
+export type {
+  PluginUninstallationOptions,
+  PluginUninstallOutcome,
+} from "./plugin-uninstallation";
 export { ProviderRegistry } from "./provider-registry";
 export type { RescanReport } from "./rescan-report";
 export type { ResolvedGrant } from "./resolved-grant";

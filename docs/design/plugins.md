@@ -2336,11 +2336,14 @@ unlisted, rather than leaving the operator with neither version.
   claim that decides whether plugin code runs. It does not add a narrower one,
   because a second claim would suggest a boundary between "start listed code" and
   "list code" that the file's own semantics do not support.
-- **It does not remove a plugin.** Uninstalling means editing `silo.toml`, which
-  `PluginBlockWriter` cannot do without re-serialising a file that is mostly
-  comments — and a record with a key attached needs a decision about the key, not
-  a file edit. `DELETE .../grant` and `POST .../disable` already stop a plugin
-  doing anything.
+- **It did not remove a plugin.** That was the one item on this list that was a
+  gap rather than a boundary, and D43 closed it: see §13.22. The objection was
+  that uninstalling means editing `silo.toml`, which `PluginBlockWriter` could
+  not do without re-serialising a file that is mostly comments, and that a record
+  with a key attached needs a decision about the key rather than a file edit.
+  Both turned out to be answerable — the first by removing a span of text and
+  parsing the result before writing it, the second by discarding the key with the
+  record.
 - **It does not ask for consent.** `silo add` shows the claims and waits, because
   a terminal is a place to wait. The API's caller *is* the operator and its
   authority is checked; the admin shows the grant on the plugin's own screen
@@ -2351,3 +2354,93 @@ unlisted, rather than leaving the operator with neither version.
   capped at 64 MiB — checked from `Content-Length` before the body is read and
   from the part's own size after, because the first is a claim and the second is
   what arrived.
+
+
+## 13.22 Uninstalling, and why the order is the reverse of installing (D43)
+
+`DELETE /api/plugins/{name}` takes a plugin off an instance whole: its
+`[[plugins]]` entry, its worker, its record, its managed key and its package.
+`PluginUninstallation` owns it, the way `PluginInstallation` owns the other
+direction, and `PluginSupervisor.uninstall` is a thin delegate under the same
+mutex — an operation that edits the config file *and* mutates the running set
+*and* deletes a record must not interleave with a `rescan` that is reading all
+three.
+
+### The claim is the same one
+
+`plugins:enable`, not a new claim and not `plugins:grant` as well. §13.21 argued
+that `plugins:enable` already *is* the primitive that decides whether plugin
+code runs; stopping code from running for good is squarely inside that. A grant
+is destroyed here, but the direction `assertGrantable` and `canDelegate` exist to
+bound is the other one: uninstalling only ever reduces what a plugin holds.
+
+### The fence is conditional, and that is not a weakening
+
+Every other mutation on this surface demands `If-Match`. This one demands it
+**wherever there is a record to demand it about**. A package with no record —
+one contributing only providers (§13.7), or listed and never loaded — has no
+revision anybody could send, and requiring one would make it unremovable through
+the API that installed it. `RouteAuth.findExpectedRev` reads the header
+optionally; `PluginUninstallation` refuses without it the moment it finds a
+record. The check is in the one place that can tell the two cases apart.
+
+### The order
+
+`PluginSupervisor`'s rule still decides it — *the record must never describe a
+state the next `serve` cannot reach* — and read backwards it puts the steps here:
+
+1. **Refuse on the revision first.** A stale `If-Match` must not cost a managed
+   key on its way to a 409.
+2. **Un-list it, and fail hard if that cannot be done.** This is the step the
+   whole ordering exists for. A `[[plugins]]` block naming a package that is no
+   longer on disk does not fail that plugin; it fails the **process**, because
+   `PluginLoader.loadExtensions` has no per-plugin rescue. An uninstall that
+   could not edit the file is an uninstall that must not proceed. Every later
+   step is survivable.
+3. Stop the worker.
+4. **Forget the record**, which discards the managed key with it. After this, a
+   re-installed package starts `pending` and unapproved. That is what makes
+   uninstall a remedy rather than a tidy-up: what comes back does not come back
+   holding what it held.
+5. **Delete the package last, and forgive it.** A directory nothing lists and
+   nothing has a record for is inert; on Windows it is also the step most likely
+   to lose to a file handle the worker has not released yet. Reported as a
+   warning rather than raised as a failure.
+
+The audit entry is written last and **outlives the record**. `plugin.uninstall`
+carries `detail.withdrawn` — what the plugin was able to do at the moment it was
+taken away — and once the entry is deleted the trail is the only place that
+answer exists.
+
+### Removing a block without re-serialising the file
+
+`PluginBlockWriter.remove` edits text, for the same reason `append` does: a round
+trip through a TOML writer destroys every comment in a file `silo init` writes as
+mostly comments. The span it removes is the header, the entry's keys, and **any
+of its own sub-tables** — `[plugins.config]` belongs to the block above it, so a
+span one table too short re-parents an operator's settings onto the *next*
+plugin, which is a silent misconfiguration discovered at the next start.
+
+Two guards, because that is the failure worth being paranoid about:
+
+- The result is **parsed before it is written**, and the write is abandoned
+  unless the remaining entries are exactly the ones that were there minus this
+  one.
+- Only silo's own note goes with the block, recognised by
+  `PluginBlockWriter.AddedNote`, which `PluginInstallation` renders. An
+  operator's comment is never this function's to delete — including `silo init`'s
+  own explanation of the array, which sits directly above the first entry.
+
+Line endings survive: the file is split on `"
+"` only, so a `""` stays
+attached to the line it came from and a CRLF config is not quietly rewritten.
+
+### What it does not do
+
+- **There is no `keep_files` option.** The half-way state it would create — a
+  package on disk that no config lists — is precisely what `rescan` cannot see,
+  and what an operator would later find and re-list without a record explaining
+  why it was taken out.
+- **It does not touch what the plugin wrote.** Collections and entries a plugin
+  created are data the instance owns; only the plugin goes. The confirmation says
+  so, because that is the question somebody asks before pressing it.

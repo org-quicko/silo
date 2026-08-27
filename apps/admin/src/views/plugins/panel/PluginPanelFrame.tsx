@@ -29,10 +29,12 @@ const THEME_TOKENS = [
   '--radius-sm',
 ] as const
 
-/** How tall a panel may ask to be. A panel measures its own content and the
- *  admin owns the page, so an unclamped request is a panel that can push every
- *  other card off the screen — including the grant that would let an operator
- *  turn it off. */
+/** How tall a panel may ask to be *on the page*. A panel measures its own
+ *  content and the admin owns the page, so an unclamped request is a panel that
+ *  can push every other control off the screen — including the grant that would
+ *  let an operator turn it off. A panel with more to show than this is what
+ *  `fill` is for: it gets the viewport and scrolls inside itself, which costs
+ *  the page nothing. */
 const MIN_HEIGHT = 160
 const MAX_HEIGHT = 2400
 
@@ -60,12 +62,18 @@ export function PluginPanelFrame({
   apiKey,
   panel,
   scope,
+  fill = false,
 }: {
   plugin: string
   url: string
   apiKey: string
   panel: PluginPanelSource
   scope: { project: string; env: string } | null
+  /** Take the height of whatever contains this instead of the height the panel
+   *  asked for. The maximised case: the container is the viewport, so the
+   *  panel's own scrollbar is the only one and the request is ignored rather
+   *  than clamped. */
+  fill?: boolean
 }) {
   const frame = useRef<HTMLIFrameElement>(null)
   const [height, setHeight] = useState(MIN_HEIGHT)
@@ -169,7 +177,7 @@ export function PluginPanelFrame({
         srcDoc={document_}
         sandbox="allow-scripts"
         referrerPolicy="no-referrer"
-        style={{ width: '100%', height, border: 0, display: 'block' }}
+        style={{ width: '100%', height: fill ? '100%' : height, border: 0, display: 'block' }}
       />
     </>
   )

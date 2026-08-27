@@ -18,7 +18,7 @@ const STATE_TONE: Record<PluginState, 'ok' | 'warn' | 'muted'> = {
 }
 
 const STATE_WHY: Record<PluginState, string> = {
-  pending: 'Installed and loaded, approved for nothing — so it is running and doing nothing.',
+  pending: 'Installed and loaded, approved for nothing, so it is running and doing nothing.',
   granted: 'Approved for exactly what its manifest asked for when it was approved.',
   needs_review:
     'An upgrade asked for more than it holds. The extra was not granted, and it keeps running on what it had.',

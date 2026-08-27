@@ -387,14 +387,54 @@ silo plugin revoke silo-plugin-slugger
 silo plugin doctor
 ```
 
+### Uninstalling a Plugin
+
+Uninstalling removes the plugin from the instance whole, and it needs neither a
+shell nor a restart.
+
+```bash
+# HTTP: the rev comes from GET /api/plugins/<name>
+curl -X DELETE http://localhost:8080/api/plugins/silo-plugin-slugger   -H "Authorization: Bearer $SILO_KEY"   -H 'If-Match: "3"'
+```
+
+In the admin, the **Uninstall** button is on the plugin's own page and asks you
+to type the plugin's name back before it arms.
+
+Five things go, in this order:
+
+1. Its `[[plugins]]` block leaves `silo.toml`. This happens **first** and a
+   failure here stops the whole operation, because a block naming a package that
+   is no longer on disk stops the next `silo serve` from starting at all.
+2. Its worker stops.
+3. Its `_plugins` record is deleted.
+4. Its managed key is destroyed. Installing the same package again therefore
+   starts it approved for nothing.
+5. Its directory leaves `<data-dir>/plugins/`. If a file is still locked, the
+   response says so as a warning; nothing loads the leftover.
+
+The audit trail keeps the entry, including what the plugin was allowed to do at
+the moment it was taken away. Collections and entries the plugin created are
+untouched: only the plugin goes.
+
+`plugins:enable` — the same claim as install, because it is the same decision.
+`If-Match` is required whenever the plugin has a record, which is every plugin
+that has ever loaded.
+
 ### Managing via Admin UI & Live Supervisor
 Silo features a dynamic **Supervisor**. You don't have to restart the server to manage plugins!
 In the Admin Dashboard (`/admin/#/plugins`) or via API, you can live:
+* **Install** a package and **Uninstall** one.
 * **Enable / Disable** any plugin.
 * **Approve / Narrow / Revoke** grants instantly.
 * **Reconfigure** plugin settings on the fly.
 * **Restart** a failed worker.
 * **Rescan** `silo.toml` to pick up newly added packages.
+
+A plugin's page in the admin opens as a summary: its state, its enable switch,
+and four buttons — **Permissions**, **Routes**, **Configuration** and
+**Activity** — each showing that section's state and opening it in a panel over
+the page. Below them is the plugin's own screen, if it ships one, which can be
+taken full screen.
 
 ---
 

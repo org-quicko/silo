@@ -27,10 +27,10 @@ export function PluginLifecycleCard({
       <div className={styles.enableRow}>
         <div>
           <b>{plugin.enabled ? 'Enabled' : 'Disabled'}</b>
-          <span>
-            Pausing a plugin is not the same decision as un-approving it: a disabled plugin keeps
-            its claims and its key, and starts again the moment it is enabled.
-          </span>
+          {/* Short on purpose: pausing and un-approving being different
+              decisions is the *reason* this control is separate from the grant,
+              not something an operator has to read to use it. */}
+          <span>Off keeps its claims and its key. It starts again when you turn it back on.</span>
         </div>
         <Toggle
           on={plugin.enabled}
@@ -44,8 +44,8 @@ export function PluginLifecycleCard({
         <div className={styles.keyRow}>
           <KeyRound size={13} />
           <span>
-            Acting as managed key <code>{plugin.key_id}</code>. silo holds its secret and rotates it
-            on restart, so the plugin never has a token to leak.
+            Acting as managed key <code>{plugin.key_id}</code>. silo holds the secret and rotates it
+            on restart.
           </span>
         </div>
       )}

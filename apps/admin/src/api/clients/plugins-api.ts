@@ -1,5 +1,6 @@
 import type { PluginPanelSource, PluginView } from '../types/plugin-view'
 import type { PluginInstallRequest, PluginInstallResponse } from '../types/plugin-install'
+import type { PluginUninstallResponse } from '../types/plugin-uninstall'
 import type { PluginStatus } from '../types/plugin-status'
 import type { RescanReport } from '../types/rescan-report'
 import { HttpTransport } from '../transport/http-transport'
@@ -198,6 +199,25 @@ export class PluginsApi {
     })
     if (!response.ok) throw await this.transport.fail(response)
     return (await response.json()) as PluginInstallResponse
+  }
+
+  /**
+   * Take a plugin off the instance entirely — listing, record, key and package
+   * (D43).
+   *
+   * `rev` for the same reason every other write here carries one, and with more
+   * to lose: this destroys the grant rather than narrowing it, so the revision
+   * is what says the grant being destroyed is the one the operator read.
+   *
+   * It answers an outcome rather than a plugin view, because there is no plugin
+   * left to view — which is also why it is the one call here that does not go
+   * through `write`.
+   */
+  uninstall(url: string, key: string, name: string, rev: number): Promise<PluginUninstallResponse> {
+    return this.transport.request<PluginUninstallResponse>(url, key, PluginsApi.path(name), {
+      method: 'DELETE',
+      headers: { 'If-Match': `"${rev}"` },
+    })
   }
 
   private write(

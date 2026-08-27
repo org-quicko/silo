@@ -20,9 +20,10 @@ import { PluginViews } from "./plugin-view";
  * `/api/plugins/*` — the management surface D31 reserved this namespace for,
  * D34 redirected it to, D38 built and D39 made take effect.
  *
- * It manages **grants and lifecycle**, and — since D42 — packages. Most verbs
- * here read and write the `_plugins` record only. `rescan` re-reads the
- * operator's *own* `silo.toml`, and `install` writes to it.
+ * It manages **grants and lifecycle**, and — since D42 and D43 — packages. Most
+ * verbs here read and write the `_plugins` record only. `rescan` re-reads the
+ * operator's *own* `silo.toml`; `install` appends to it and `DELETE /:name`
+ * takes an entry back out.
  *
  * D34 declined to write that file from an API, on the argument that doing so is
  * a code-execution primitive wearing a management claim. The argument was
@@ -150,6 +151,43 @@ export class PluginRoutes {
       const view = await PluginRoutes.view(supervisor, record);
       c.header("ETag", `"${view.rev}"`);
       return c.json(view);
+    });
+
+    /**
+     * Take a plugin off this instance entirely (D43).
+     *
+     * `plugins:enable`, the same claim `install` takes, because it is the same
+     * decision read the other way round: that claim is already "may this caller
+     * decide whether plugin code runs", and stopping code from running for good
+     * is squarely inside it. It is not given `plugins:grant` as well even though
+     * a grant is destroyed here, because uninstalling only ever *reduces* what a
+     * plugin holds — the direction `assertGrantable` and `canDelegate` exist to
+     * bound is the other one.
+     *
+     * `If-Match` fenced like every other write to a record, and here that is
+     * closer to load-bearing than ceremony: the revision is what says the record
+     * being destroyed is the one the operator read. A package whose request
+     * changed since — an upgrade landing mid-decision — is exactly the
+     * substitution the fence exists to catch.
+     *
+     * `DELETE` and not `POST .../uninstall`: it is the removal of the thing at
+     * this URL, and afterwards `GET` of it answers 404.
+     */
+    app.delete("/api/plugins/:name", async (c: Context) => {
+      const caller = RouteAuth.requireClaim(c, Claims.PluginsEnable);
+      const name = c.req.param("name") || "";
+      // The one mutation here that reads the revision *optionally*. Uninstall
+      // acts on four things and only one of them has a revision, so a package
+      // that never got a record — a provider-only install (§13.7) — has no
+      // `If-Match` to send. `PluginUninstallation` demands one wherever there is
+      // a record to demand it about, which is where the two cases are
+      // distinguishable.
+      const request: GrantRequest = {
+        claims: caller.claims,
+        actor: PluginRoutes.actor(caller),
+        expectedRev: RouteAuth.findExpectedRev(c),
+      };
+      return c.json(await supervisor.uninstall(name, request));
     });
 
     /**

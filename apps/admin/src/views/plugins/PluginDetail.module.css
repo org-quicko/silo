@@ -17,6 +17,69 @@
 .sectionTitle { display: flex; align-items: center; gap: 8px; color: var(--text); }
 .sectionTitle h2 { margin: 0; font-size: 15px; font-weight: 600; }
 
+/* A section's contents, inside a sheet. No chrome of its own: the sheet is
+   already a surface, and a card drawn inside one reads as a box in a box. */
+.section { display: flex; flex-direction: column; gap: 16px; }
+
+/* The section's own decision, set off from the list above it. Not sticky: a
+   bar pinned inside a scroll area whose padding it does not know is a strip of
+   content showing under it, and the sheet is a short scroll either way. */
+.section .cardActions { padding-top: 14px; border-top: 1px solid var(--line); }
+.lead { margin: 0; color: var(--text-3); font-size: 12.5px; line-height: 1.6; }
+.lead b { color: var(--text-2); }
+.lead code { font-family: var(--font-mono); font-size: 11.5px; }
+
+/* The closed sections, on the page. The bottom margin is the same 16px every
+   card on this page carries, so the grid sits in the page's rhythm rather than
+   against whatever follows it. */
+.sections {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+  margin-bottom: 16px;
+}
+
+.sectionButton {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  padding: 14px 16px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: var(--panel);
+  color: inherit;
+  font-family: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.sectionButton:hover { border-color: var(--line-2); background: var(--panel-2); }
+.sectionButton:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+
+.sectionIcon {
+  display: flex;
+  width: 30px;
+  height: 30px;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  border-radius: 8px;
+  background: var(--panel-2);
+  color: var(--text-2);
+}
+
+.sectionButton:hover .sectionIcon { background: var(--panel); }
+.sectionCopy { display: flex; min-width: 0; flex: 1; flex-direction: column; gap: 3px; }
+.sectionTop { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }
+.sectionTop b { color: var(--text); font-size: 13px; font-weight: 600; }
+.sectionSummary { color: var(--text-3); font-size: 12px; line-height: 1.5; }
+.sectionChevron { flex: none; color: var(--text-3); }
+
+@media (max-width: 900px) {
+  .sections { grid-template-columns: minmax(0, 1fr); }
+}
+
 .cardActions { display: flex; align-items: center; justify-content: flex-end; gap: 10px; }
 .form { display: flex; flex-direction: column; gap: 16px; }
 .empty { padding: 8px 0; color: var(--text-3); font-size: 12.5px; }
@@ -151,3 +214,57 @@
 .trailWhat { color: var(--text-2); font-size: 12.5px; }
 .trailWhat b { color: var(--text); font-weight: 500; }
 .trailDetail { grid-column: 2; color: var(--text-3); font-family: var(--font-mono); font-size: 11px; word-break: break-all; }
+
+/* The plugin's own panel */
+.panelCard {
+  display: flex;
+  flex-direction: column;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: var(--panel);
+  margin-bottom: 16px;
+  overflow: hidden;
+}
+
+.panelHead {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 18px 20px;
+}
+
+.panelHead p { margin: 4px 0 0; color: var(--text-3); font-size: 12.5px; line-height: 1.6; }
+.panelHeadActions { display: flex; align-items: center; gap: 8px; flex: none; }
+
+/* The frame's own surround. `--panel` and not transparent on purpose: a
+   sandboxed document paints its canvas with the frame's base colour, which is
+   white, so the panel document is given the same value to paint and the seam
+   between the two disappears. */
+.panelStage {
+  border-top: 1px solid var(--line);
+  background: var(--panel);
+}
+
+/* Padded on all four sides. The line above it says where silo's explanation
+   stops and a third party's screen starts; the space keeps the panel's own
+   first element from reading as the last paragraph of that explanation. */
+.panelBody { padding: 18px 20px 20px; }
+.panelEmpty { padding: 18px 20px 20px; color: var(--text-3); font-size: 12.5px; }
+
+/* Maximised: the panel gets the viewport, and scrolls inside itself rather
+   than growing the page under it. */
+.panelFull {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  display: flex;
+  flex-direction: column;
+  margin: 0;
+  border: 0;
+  border-radius: 0;
+  background: var(--bg);
+}
+
+.panelFull .panelStage { flex: 1; min-height: 0; display: flex; }
+.panelFull .panelBody { flex: 1; min-height: 0; display: flex; padding: 0; }

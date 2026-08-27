@@ -119,7 +119,7 @@ export function InstallPluginModal({
           <ModalCopy>
             <h3>Install a plugin</h3>
             <ModalBody>
-              The package is fetched, checked and started here — no restart, no terminal. It is
+              The package is fetched, checked and started here. No restart, no terminal. It is
               listed in <code>silo.toml</code> and granted the claims its manifest says it
               requires, which you can narrow or withdraw afterwards.
             </ModalBody>
