@@ -14,7 +14,7 @@ silo/
 │  ├─ shared/                 @silo/shared — runtime-neutral logic both sides need
 │  └─ create-silo-plugin/     the published plugin scaffolder
 ├─ plugins/                   first-party plugins, one workspace package each
-│  └─ silo-plugin-strapi-import/  a Strapi 5 SQLite import, with its own admin panel (D41)
+│  └─ silo-plugin-strapi-import/  a Strapi 5 SQLite import — entries and media — with its own admin panel (D41)
 ├─ tools/                     build, packaging, seeding and version tooling
 ├─ packaging/                 Homebrew formula template and RPM inputs
 └─ docs/                      context/ (what is) and design/ (why)

@@ -92,9 +92,38 @@
     </div>
   </section>
 
-  <!-- 2. the plan -->
+  <!-- 2. the uploads -->
+  <section id="files-box" class="box hidden">
+    <div class="step-head">
+      <span class="num">2</span><h3>The uploads</h3>
+      <span id="files-pill" class="pill"></span>
+    </div>
+    <p class="dim" style="margin-top: 6px">
+      The database carries Strapi's file <i>catalog</i> and never the files. Point this at your
+      Strapi's <code>public/uploads</code> folder and they import into silo's media library;
+      skip it and every media field keeps its Strapi URL instead.
+    </p>
+
+    <div class="row" style="margin: 10px 0">
+      <button id="pick-folder">Choose the uploads folder</button>
+      <button id="pick-files">Choose files</button>
+      <button id="forget-files" class="hidden">Remove staged files</button>
+      <span class="dim grow" id="files-note"></span>
+    </div>
+
+    <!-- Two inputs rather than one, because `webkitdirectory` turns the native
+         dialog into a folder chooser and there is no way to offer both from one
+         element. Both land in the same handler. -->
+    <input id="folder-input" type="file" multiple webkitdirectory class="hidden">
+    <input id="files-input" type="file" multiple class="hidden">
+
+    <div class="bar" id="files-bar" style="margin: 4px 0 8px"><i style="width:0%"></i></div>
+    <div id="files-missing"></div>
+  </section>
+
+  <!-- 3. the plan -->
   <section id="plan-box" class="box hidden">
-    <div class="step-head"><span class="num">2</span><h3>The plan</h3></div>
+    <div class="step-head"><span class="num">3</span><h3>The plan</h3></div>
     <p class="dim" style="margin-top: 6px">
       One collection per Strapi list, one entry per row. Rename anything, untick what you do not
       want, and choose what happens to a collection that already has entries.
@@ -126,12 +155,13 @@
     </div>
   </section>
 
-  <!-- 3. the run -->
+  <!-- 4. the run -->
   <section id="run-box" class="box hidden">
     <div class="step-head">
-      <span class="num">3</span><h3>Import</h3>
+      <span class="num">4</span><h3>Import</h3>
       <span id="run-state" class="pill"></span>
     </div>
+    <div id="run-media" class="hidden"></div>
     <div id="run-steps" style="margin-top: 10px"></div>
   </section>
 </div>
@@ -152,7 +182,7 @@
     node.textContent = message
   }
 
-  const state = { source: null, inventory: null, plan: null, targets: null, job: null, timer: null }
+  const state = { source: null, inventory: null, files: null, plan: null, targets: null, job: null, timer: null }
 
   function bytes(n) {
     if (n < 1024) return n + ' B'
@@ -226,16 +256,172 @@
     }
     state.source = null
     state.inventory = null
+    state.files = null
     state.plan = null
     render()
   })
 
+  /* --------------------------------------------------------------- uploads */
+
+  $('pick-folder').addEventListener('click', () => $('folder-input').click())
+  $('pick-files').addEventListener('click', () => $('files-input').click())
+  for (const id of ['folder-input', 'files-input']) {
+    $(id).addEventListener('change', (event) => {
+      const chosen = [...(event.target.files || [])]
+      // Cleared, so choosing the same folder twice fires `change` both times.
+      event.target.value = ''
+      if (chosen.length > 0) sendFiles(chosen)
+    })
+  }
+
+  $('forget-files').addEventListener('click', async () => {
+    alert_('')
+    try {
+      await silo.fetch('/files', { method: 'DELETE' })
+      await loadFiles()
+    } catch (caught) {
+      alert_(caught.message || String(caught))
+    }
+    render()
+  })
+
+  async function loadFiles() {
+    state.files = await silo.json('/files')
+  }
+
+  /**
+   * Send the files the import actually wants.
+   *
+   * Matched by name against the catalog before anything is transferred, which is
+   * the difference between "send a folder" and "send 4000 files including every
+   * thumbnail Strapi generated": a `public/uploads` directory holds derivatives
+   * and orphans nothing references, and only the names in `/files` will be read.
+   *
+   * Sequential. A directory of a few hundred small files is seconds either way,
+   * and one at a time is what makes the counter on screen true — a parallel
+   * uploader that reported 40 of 300 could not say which 40.
+   */
+  async function sendFiles(chosen) {
+    alert_('')
+    const wanted = new Map()
+    for (const file of state.files.files) {
+      if (!file.staged) wanted.set(file.name, file)
+    }
+
+    const queue = []
+    let skipped = 0
+    for (const file of chosen) {
+      if (wanted.has(file.name)) queue.push(file)
+      else skipped++
+    }
+
+    if (queue.length === 0) {
+      alert_(
+        chosen.length +
+          ' file' + (chosen.length === 1 ? '' : 's') + ' chosen, none of which this import is ' +
+          'missing. Strapi writes hashed filenames, so the names in the export have to be the ' +
+          'names in the folder — check you picked the uploads directory itself.',
+        'warn',
+      )
+      return
+    }
+
+    setBusy(true)
+    let sent = 0
+    let failed = 0
+    try {
+      for (const file of queue) {
+        $('files-note').textContent =
+          'Sending ' + (sent + failed + 1) + ' of ' + queue.length + ' · ' + file.name
+        $('files-bar').firstElementChild.style.width =
+          Math.round(((sent + failed) / queue.length) * 100) + '%'
+        try {
+          const buffer = await file.arrayBuffer()
+          const answer = await silo.fetch('/files?name=' + encodeURIComponent(file.name), {
+            method: 'POST',
+            headers: { 'content-type': 'application/octet-stream' },
+            body: buffer,
+          })
+          if (!answer.ok) throw new Error((answer.json() || {}).error?.message || 'refused')
+          sent++
+        } catch (caught) {
+          failed++
+          if (failed === 1) alert_(file.name + ': ' + (caught.message || String(caught)))
+        }
+      }
+      await loadFiles()
+    } finally {
+      setBusy(false)
+      render()
+      $('files-note').textContent =
+        sent + ' sent' +
+        (failed > 0 ? ' · ' + failed + ' failed' : '') +
+        (skipped > 0 ? ' · ' + skipped + ' not needed' : '')
+    }
+  }
+
+  function setBusy(busy) {
+    for (const id of ['pick-folder', 'pick-files', 'forget-files', 'run']) $(id).disabled = busy
+  }
+
+  function renderFiles() {
+    const totals = state.files.totals
+    const pill = $('files-pill')
+    if (totals.wanted === 0) {
+      pill.className = 'pill'
+      pill.textContent = 'no media'
+    } else if (totals.missing === 0) {
+      pill.className = 'pill ok'
+      pill.textContent = 'all ' + totals.wanted + ' here'
+    } else {
+      pill.className = 'pill'
+      pill.textContent = totals.staged + ' of ' + totals.wanted
+    }
+
+    const share = totals.wanted === 0 ? 0 : Math.round((totals.staged / totals.wanted) * 100)
+    $('files-bar').className = 'bar' + (totals.missing === 0 && totals.wanted > 0 ? ' ok' : '')
+    $('files-bar').firstElementChild.style.width = share + '%'
+    $('forget-files').className = totals.staged > 0 ? '' : 'hidden'
+
+    const missing = state.files.files.filter((file) => !file.staged)
+    const host = $('files-missing')
+    if (missing.length === 0) {
+      host.innerHTML =
+        totals.wanted === 0
+          ? '<div class="dim">Nothing in this export attaches a file.</div>'
+          : '<div class="dim">Every file this import needs is staged (' +
+            bytes(totals.bytes) + '). They will land in silo’s media library' +
+            (state.files.folder ? ' under <code>' + text(state.files.folder) + '</code>' : '') +
+            '.</div>'
+      return
+    }
+
+    host.innerHTML =
+      '<div class="warn">' + missing.length + ' file' + (missing.length === 1 ? '' : 's') +
+      ' still missing (' + bytes(missing.reduce((sum, file) => sum + (file.bytes || 0), 0)) +
+      ' by Strapi’s own count). Those fields will hold ' +
+      (state.files.baseUrl
+        ? 'a URL at <code>' + text(state.files.baseUrl) + '</code>'
+        : 'the relative <code>/uploads/…</code> path Strapi recorded, which nothing serves — ' +
+          'set <code>media_base_url</code> if you are leaving them as links') +
+      '.</div>' +
+      '<ul class="notes">' +
+      missing.slice(0, 8).map((file) => '<li><code>' + text(file.name) + '</code></li>').join('') +
+      (missing.length > 8 ? '<li>… and ' + (missing.length - 8) + ' more</li>' : '') +
+      '</ul>'
+  }
+
   /* ------------------------------------------------------------------ plan */
 
   async function loadPlan() {
-    const [plan, targets] = await Promise.all([silo.json('/plan'), silo.json('/targets')])
+    const [plan, targets, files] = await Promise.all([
+      silo.json('/plan'),
+      silo.json('/targets'),
+      silo.json('/files'),
+    ])
     state.plan = plan.plan
     state.targets = targets
+    state.files = files
   }
 
   function listOf(id) {
@@ -367,6 +553,7 @@
           env: $('env').value,
           version: state.plan.version,
           mediaBaseUrl: state.plan.mediaBaseUrl,
+          mediaFolder: state.plan.mediaFolder,
           steps: state.plan.steps,
         },
       })
@@ -403,9 +590,48 @@
     return 'pill'
   }
 
+  /**
+   * What became of the media, said once for the run.
+   *
+   * Its own block rather than a line per step, because the tally is per job: one
+   * uploaded file serves however many rows and collections point at it, so a
+   * per-step count would either double-count it or hide it.
+   */
+  function renderMedia() {
+    const media = state.job.media
+    const host = $('run-media')
+    const total = media.uploaded + media.matched + media.reused + media.kept + media.empty
+    if (total === 0 && !media.stopped) {
+      host.className = 'hidden'
+      return
+    }
+
+    const parts = []
+    if (media.uploaded > 0) {
+      parts.push(
+        '<b>' + media.uploaded + '</b> file' + (media.uploaded === 1 ? '' : 's') +
+          ' into silo’s media library (' + bytes(media.bytes) + ')',
+      )
+    }
+    if (media.matched > 0) parts.push(media.matched + ' already in the library, byte for byte')
+    if (media.reused > 0) parts.push(media.reused + ' more field' + (media.reused === 1 ? '' : 's') + ' pointing at them')
+    if (media.kept > 0) parts.push(media.kept + ' kept a Strapi URL')
+    if (media.empty > 0) parts.push(media.empty + ' left empty')
+
+    host.className = media.stopped ? 'warn' : 'dim'
+    host.style.margin = '8px 0 0'
+    host.innerHTML =
+      (parts.length > 0 ? parts.join(' · ') : 'No media on these rows.') +
+      (media.stopped ? '<div style="margin-top:6px">' + text(media.stopped) + '</div>' : '') +
+      (media.notes.length > 0
+        ? '<ul class="notes">' + media.notes.map((note) => '<li>' + text(note) + '</li>').join('') + '</ul>'
+        : '')
+  }
+
   function renderRun() {
     $('run-state').className = pillOf(state.job.state)
     $('run-state').textContent = state.job.state
+    renderMedia()
     const host = $('run-steps')
     host.innerHTML = ''
 
@@ -459,12 +685,6 @@
         (inventory.lists.length === 1 ? '' : 's') + ' · reading the <b>' +
         text(inventory.version) + '</b> version · ' + inventory.media.files +
         ' files in the catalog</div>' +
-        (inventory.media.attached > 0
-          ? '<div class="warn" style="margin-top:8px">Media imports as <b>URLs</b>. A database ' +
-            'export carries the file catalog and never the uploads themselves — set ' +
-            '<code>media_base_url</code> in this plugin’s settings so the URLs point at the ' +
-            'Strapi instance still serving them.</div>'
-          : '') +
         (inventory.skipped.length > 0
           ? '<ul class="notes">' +
             inventory.skipped
@@ -473,6 +693,9 @@
             '</ul>'
           : '')
     }
+
+    $('files-box').className = state.files ? 'box' : 'box hidden'
+    if (state.files) renderFiles()
 
     const planned = Boolean(state.plan && state.inventory)
     $('plan-box').className = planned ? 'box' : 'box hidden'

@@ -25,7 +25,8 @@ validation, entry CRUD with optimistic concurrency, the query AST and search
 keys with claims (D12/D21), export/import and scope-to-scope copy, the admin
 UI, single-binary releases with Homebrew and RPM, and plugins with an installer
 (D31/D32/D33). Plugins now also take byte bodies and contribute admin
-panels, and there is a first-party plugin using both (D41).
+panels, and there is a first-party plugin using both to import a Strapi 5 export,
+media included (D41).
 
 **The most recent change is silo's first first-party plugin, and the three
 things in the plugin system it needed (D41, 2026-08-27).**
@@ -56,8 +57,30 @@ authority and the handler spends the plugin's, and no route needs to be public.
 Along the way, **D33's guarantee turned out to have a hole**: "a plugin never
 hears about a write it caused" was implemented from the *waiter*, which exists
 only while its dispatch is open, so background work that outlived its dispatch
-was delivered the plugin's own writes. See §13.20 in
-[docs/design/plugins.md](docs/design/plugins.md).
+was delivered the plugin's own writes.
+
+The importer's **media** half was then designed twice, and the second time found
+something about silo. A Strapi export carries the file *catalog* and never the
+uploads, and the first version imported a media field as an object mirroring
+Strapi's own — which validated, read back correctly, and was **inert**: silo's
+media type is `x-silo-type: "media"` on a *string* (D23) and every behaviour keys
+off that keyword, so the admin picker, `MediaRefs`' usage guard and the read-time
+URL rewrite all passed it by while nothing failed. A media field is now that
+string, holding `silo://media/<id>` where the operator supplied the bytes and the
+absolute Strapi URL where they did not — same schema either way, so "import now,
+send the files later" is a re-import rather than a migration. The bytes arrive
+**one file per request**, because the 64 MiB ceiling caps *one request* and a real
+`public/uploads` is routinely larger, so the obvious zip route could not carry the
+case it exists for. Two things came out of running it: bytes going *into* silo were
+reachable through `ctx` all along (`POST /api/media` is inside `/api/` and takes a
+multipart body — only *reading* `/media/{id}` is confined away), and `POST
+/api/media` **deduplicates nothing**, so a `replace` re-import doubled the media
+library until the plugin started matching silo's own sha256 before uploading.
+Whether silo should dedupe on `hash` itself is left open. Nothing of Strapi's
+identity is carried now — `strapi_id` and the forced `document_id` are both gone,
+because silo mints its own (D2) and nothing on either side resolves a Strapi one.
+
+See §13.20 in [docs/design/plugins.md](docs/design/plugins.md).
 
 **Before that, the admin UI's Appearance settings were reworked
 (2026-08-26).** It was fonts and a flat accent-colour grid; it is now a

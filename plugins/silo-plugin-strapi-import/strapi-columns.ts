@@ -17,8 +17,9 @@ export class StrapiColumns {
    * Columns silo never sees.
    *
    * `id` goes because silo mints its own (D2) and a plugin may not set an
-   * envelope field — the source id survives as `strapi_id` on the entry, which
-   * is provenance rather than identity. The rest are Strapi's own bookkeeping.
+   * envelope field. It is not carried under another name either: a Strapi id in a
+   * silo entry is a field nothing on either side resolves. The rest are Strapi's
+   * own bookkeeping.
    */
   static readonly Ignored: readonly string[] = [
     'id',

@@ -1,9 +1,12 @@
 import type { SiloContext } from 'silo:api'
+import type { MediaOutcome } from './media-library'
+import { MediaLibrary } from './media-library'
 import type { ImportPlan, ImportStep } from './import-plan'
 import type { StrapiInventory, StrapiList } from './strapi-inventory'
 import { StrapiInventory as Inventory } from './strapi-inventory'
 import { StrapiRows } from './strapi-rows'
 import { StrapiDatabase } from './strapi-database'
+import type { UploadStore } from './upload-store'
 
 export type ImportState = 'running' | 'done' | 'failed'
 
@@ -32,6 +35,10 @@ export interface ImportProgress {
   finishedAt: string | null
   plan: ImportPlan
   steps: ImportStepProgress[]
+  /** What became of the media of the whole run. One tally rather than one per
+   *  step, because one uploaded file commonly serves several collections and the
+   *  cache that makes that true is per job. */
+  media: MediaOutcome
   /** Set when the whole run failed rather than one step. */
   error: string | null
 }
@@ -59,12 +66,18 @@ export interface ImportProgress {
  * is — an operator watching a screen — and the alternative, a silo collection of
  * job records, would mean this plugin writing its own bookkeeping into the
  * instance it is importing into.
+ *
+ * A run writes **media as well as entries**, which is why `MediaLibrary` is built
+ * here and not per step: a supplied upload becomes one asset in silo's library
+ * however many rows and collections point at it, and the cache that makes that
+ * true has to outlive a step to be worth having.
  */
 export class ImportJob {
   readonly id: string
   private readonly plan: ImportPlan
   private readonly sourcePath: string
   private readonly ctx: SiloContext
+  private readonly media: MediaLibrary
   private readonly progress: ImportProgress
 
   constructor(options: {
@@ -72,18 +85,28 @@ export class ImportJob {
     plan: ImportPlan
     sourcePath: string
     inventory: StrapiInventory
+    uploads: UploadStore
     ctx: SiloContext
   }) {
     this.id = options.id
     this.plan = options.plan
     this.sourcePath = options.sourcePath
     this.ctx = options.ctx
+    // One library for the whole run, so a flag on 251 rows is one asset in silo's
+    // media library rather than 251 identical blobs.
+    this.media = new MediaLibrary({
+      ctx: options.ctx,
+      uploads: options.uploads,
+      folder: options.plan.mediaFolder,
+      baseUrl: options.plan.mediaBaseUrl,
+    })
     this.progress = {
       id: options.id,
       state: 'running',
       startedAt: new Date().toISOString(),
       finishedAt: null,
       error: null,
+      media: this.media.result(),
       plan: options.plan,
       steps: options.plan.steps.map((step) => {
         const list = options.inventory.lists.find((candidate) => candidate.id === step.list)!
@@ -106,6 +129,9 @@ export class ImportJob {
   /** A snapshot the panel polls. Copied, so a poll mid-write cannot observe a
    *  half-updated step. */
   snapshot(): ImportProgress {
+    // Read rather than mirrored on every row: `MediaLibrary` owns the tally, and
+    // a copy updated per attachment would be a second place for it to be wrong.
+    this.progress.media = this.media.result()
     return structuredClone(this.progress)
   }
 
@@ -147,6 +173,7 @@ export class ImportJob {
       this.progress.error = caught?.message ?? String(caught)
     } finally {
       source.close()
+      this.progress.media = this.media.result()
       this.progress.finishedAt = new Date().toISOString()
     }
   }
@@ -163,12 +190,17 @@ export class ImportJob {
       const existing = await this.prepare(scope, step, list)
       if (existing === 'skip') return
 
-      const rows = StrapiRows.read(source, list, this.plan.version, this.plan.mediaBaseUrl)
+      const rows = StrapiRows.read(source, list, this.plan.version)
       step.total = rows.length
 
       for (let at = 0; at < rows.length; at++) {
         try {
-          await this.ctx.entries.create(scope, step.collection, rows[at]!)
+          const row = rows[at]!
+          // Media first, and per row rather than per list: an upload that answers
+          // 403 has to stop the *uploading* without stopping the import, and the
+          // entry that follows holds whatever value the file actually got.
+          await this.media.attach(row.entry, list, row.media)
+          await this.ctx.entries.create(scope, step.collection, row.entry)
           step.written++
         } catch (caught: any) {
           step.failed++

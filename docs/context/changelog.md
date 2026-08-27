@@ -4,6 +4,73 @@
 > The *current* state is [CONTEXT.md](../../CONTEXT.md); this is how it got
 > there.
 
+- **The Strapi importer carries media as silo media, and the uploads reach it one
+  file at a time (2026-08-27).** §13.20 in
+  [../design/plugins.md](../design/plugins.md), under "Media, and the transport a
+  database export cannot carry". All of it inside
+  [`plugins/silo-plugin-strapi-import`](../../plugins/silo-plugin-strapi-import) —
+  silo itself is unchanged — but two of the findings are silo's.
+  - **A media field is now `x-silo-type: "media"` on a string**, which is silo's
+    media type (D23) rather than a shape resembling it. It previously imported as
+    an object mirroring Strapi's own — `{ url, name, mime, width, height, size,
+    alt }` — and that **validated, read back correctly and was inert**: every
+    behaviour silo has for media keys off the keyword, so the admin rendered a
+    nested form instead of the picker, `MediaRefs.extract` found no reference and
+    counted no usage against a delete, and a read never rewrote the URL. Nothing
+    failed. Caught by asking what silo would *do* with the value rather than
+    whether the value was faithful.
+  - **`strapi_id` is gone, and so is the special case that forced `document_id`
+    in beside it.** Both were carried as provenance; silo mints its own id (D2) and
+    nothing on either side resolves a Strapi one, so both were fields that looked
+    like keys and were not.
+  - **The uploads arrive one file per request** — `GET /files` lists what the
+    import references and what has arrived, `POST /files?name=` takes one file's
+    bytes, `DELETE /files` clears them. The obvious alternative was a zip of
+    `public/uploads` through the same bytes route the `.db` uses, and it fails on
+    the number that decides it: `PluginRouteBodies.Ceiling` caps **one request** at
+    64 MiB and a real uploads directory is routinely larger, so an archive route
+    could not carry the case it exists for. Per file the cap is 64 MiB *per file* —
+    the unit silo's media library stores in — with no archive reader inside a
+    plugin, and progress, retry and resume fall out of `/files` saying what is
+    still missing. Matched by **filename**, because Strapi hashes an upload's name
+    and writes it flat, so the basename of the `url` column and the name in the
+    operator's folder are the same string; the panel offers a directory picker and
+    sends only the names the import wants, which is what keeps Strapi's generated
+    thumbnails out of silo.
+  - **Bytes going *into* silo were reachable through `ctx` all along.** §13.20 said
+    "§13.6 puts media bytes out of `ctx`'s reach" as part of why a plugin could not
+    be handed a file, and that is true only of *reading*: `/media/{id}` is one of
+    the two routes §13.13 confines `ctx` away from, while `POST /api/media` is
+    inside `/api/` and takes a multipart body. The asymmetry is right — reading
+    that route is unauthenticated, writing is `media:create` — but the sentence
+    read as absolute and is now stated precisely. `MultipartBody` encodes the form
+    by hand because `ctx.fetch` takes `string | Uint8Array` and nothing else, which
+    is the property that keeps a plugin's request a structured-cloneable value.
+  - **`POST /api/media` deduplicates nothing.** It mints a new id per request, so a
+    `replace` re-import — the thing `replace` exists to let an operator do —
+    doubled the media library and left the previous copies as unreferenced assets
+    only `silo media reconcile` would ever mention. Measured on a live re-run. The
+    plugin now asks whether silo already holds those exact bytes before uploading,
+    matched on silo's own **sha256** and not on the filename: Strapi's content hash
+    in a name is a convention, a digest is a fact, and the digest is already in the
+    catalog record. Whether silo should dedupe on `hash` itself is deliberately
+    left open — a plugin cannot decide that two operators uploading the same logo
+    want one asset.
+  - **Two new optional claims**, each with what its absence costs. `media:create`
+    puts the uploads in the library; without it every media field keeps its Strapi
+    URL, and a 403 is read as an *answer* — stop uploading, say so **once** in the
+    run's report — rather than one refused request per file. `media:read` is the
+    dedupe lookup; without it the import still runs and still uploads, and
+    duplicates on a re-run. New config `media_folder` (default `strapi`) keeps a few
+    hundred hashed filenames out of the library root.
+  - Verified live against the 1.6 MB export this was developed against: 530 files
+    staged through the route in 2.5 s, 367 entries into 6 collections, every media
+    field resolving to a `/media/<id>` silo serves, all 40 then all 530 assets
+    carrying a counted usage, and a full re-run reporting **530 matched, 0
+    uploaded** with the library unchanged. The ungranted path was measured too, by
+    revoking `media:create` and re-importing: one refused request, one message, 28
+    fields keeping their URL.
+
 - **Plugins gained byte bodies, admin panels, and silo's first first-party
   plugin (D41, 2026-08-27).** §13.20 in
   [../design/plugins.md](../design/plugins.md). Not a phase — §13.11 was

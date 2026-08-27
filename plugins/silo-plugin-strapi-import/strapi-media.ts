@@ -12,29 +12,37 @@ export interface StrapiMediaField {
   rows: number
 }
 
-/** A file as it reaches a silo entry. */
-export interface StrapiMediaValue {
+/** One row of Strapi's `files` table, as far as an import needs it. */
+export interface StrapiMediaFile {
+  /** The name on disk — the basename of `url`, which is what Strapi wrote into
+   *  `public/uploads` and therefore the key an operator's directory listing
+   *  matches. */
+  name: string
+  /** Strapi's `url` column verbatim: `/uploads/…`, or an absolute URL when the
+   *  instance used a storage provider. */
   url: string
-  name: string | null
   mime: string | null
-  width: number | null
-  height: number | null
-  /** Bytes, as Strapi records it — kilobytes, so it is converted. */
-  size: number | null
-  alt: string | null
+  /** Bytes. Strapi records `size` in kilobytes as a float, so it is converted
+   *  here rather than left as a number whose unit only that table knows. */
+  bytes: number | null
 }
 
 /**
- * Strapi's media catalog, as far as an import can carry it.
+ * Strapi's media catalog, and the fields that point into it.
  *
- * **The bytes are not here, and cannot be.** A `strapi transfer` database holds
- * the `files` table — names, dimensions, MIME types and `/uploads/…` paths — and
- * the files themselves live in the Strapi instance's `public/uploads` directory
- * or in whatever provider it was configured with. So a media reference imports
- * as a **URL**, absolutised against `media_base_url`, and this plugin does not
- * pretend otherwise. Bringing the bytes across is `silo media upload` against
- * the same URLs, which is a second job with its own failure modes and does not
- * belong inside a database read.
+ * **The bytes are not in the database, and that is a fact about the export rather
+ * than a limit of this plugin.** A `strapi transfer` carries the `files` table —
+ * names, MIME types, sizes and `/uploads/…` paths — while the uploads themselves
+ * are files in the instance's `public/uploads` directory. So this file reads the
+ * catalog, `UploadStore` holds whatever bytes the operator supplied for it, and
+ * `MediaLibrary` is where the two meet and become a silo media reference.
+ *
+ * A media field's imported value is a **string**, because that is silo's media
+ * type (`x-silo-type: "media"`, D23): either `silo://media/<id>` for a file silo
+ * now holds, or an absolute URL for one it does not. Both are values silo resolves
+ * — a foreign URL is somebody else's asset and is left alone — which is what lets
+ * a supplied file and an unsupplied one land in the same field without the schema
+ * changing shape.
  */
 export class StrapiMedia {
   /** The join table, and the two columns that make it polymorphic. */
@@ -66,27 +74,15 @@ export class StrapiMedia {
    * media fields each would otherwise be 1000 queries against a staged file, and
    * the join is what a database is for.
    */
-  static valuesOf(
+  static filesOf(
     source: StrapiDatabase,
     owner: string,
-    baseUrl: string,
-  ): Map<number, Record<string, StrapiMediaValue[]>> {
-    const byRow = new Map<number, Record<string, StrapiMediaValue[]>>()
+  ): Map<number, Record<string, StrapiMediaFile[]>> {
+    const byRow = new Map<number, Record<string, StrapiMediaFile[]>>()
     if (!source.hasTable(StrapiMedia.Table)) return byRow
 
-    const rows = source.rows<{
-      related_id: number
-      field: string
-      url: string | null
-      name: string | null
-      mime: string | null
-      width: number | null
-      height: number | null
-      size: number | null
-      alternative_text: string | null
-    }>(
-      `SELECT j.related_id, j.field, f.url, f.name, f.mime, f.width, f.height, f.size,
-              f.alternative_text
+    const rows = source.rows<StrapiMediaRow & { related_id: number; field: string }>(
+      `SELECT j.related_id, j.field, f.url, f.name, f.mime, f.size
          FROM "${StrapiMedia.Table}" j
          JOIN files f ON f.id = j.file_id
         WHERE j.related_type = ? AND j.field IS NOT NULL
@@ -97,40 +93,76 @@ export class StrapiMedia {
     for (const row of rows) {
       const fields = byRow.get(row.related_id) ?? {}
       const values = fields[row.field] ?? []
-      values.push({
-        url: StrapiMedia.absolute(row.url, baseUrl),
-        name: row.name,
-        mime: row.mime,
-        width: row.width,
-        height: row.height,
-        // Strapi stores `size` in kilobytes as a float. Bytes is the unit every
-        // other size in silo is in, so it is converted here rather than left as
-        // a number whose unit only this table knows.
-        size: row.size === null ? null : Math.round(row.size * 1024),
-        alt: row.alternative_text,
-      })
+      values.push(StrapiMedia.file(row))
       fields[row.field] = values
       byRow.set(row.related_id, fields)
     }
     return byRow
   }
 
-  /** The JSON Schema one media field gets. */
-  static schemaFor(field: StrapiMediaField): Record<string, unknown> {
-    const one = {
-      type: ['object', 'null'],
-      properties: {
-        url: { type: 'string' },
-        name: { type: ['string', 'null'] },
-        mime: { type: ['string', 'null'] },
-        width: { type: ['integer', 'null'] },
-        height: { type: ['integer', 'null'] },
-        size: { type: ['integer', 'null'] },
-        alt: { type: ['string', 'null'] },
-      },
-      required: ['url'],
+  /**
+   * Every distinct file the given owners reference — the set an operator has to
+   * supply for the import to hold silo's own media rather than links.
+   *
+   * Deduplicated by name, because one flag or logo is commonly attached to many
+   * rows and the operator is being asked to send **files**, not references. The
+   * same deduplication is what makes `MediaLibrary`'s cache correct: a file
+   * uploaded once is one asset in the library however many entries point at it.
+   *
+   * Scoped to owners rather than the whole `files` table, so the number the panel
+   * shows is the number this import needs. A catalog full of images belonging to
+   * content types nothing could be read from is not a list of missing work.
+   */
+  static wantedBy(source: StrapiDatabase, owners: readonly string[]): StrapiMediaFile[] {
+    if (!source.hasTable(StrapiMedia.Table) || owners.length === 0) return []
+
+    const placeholders = owners.map(() => '?').join(', ')
+    const rows = source.rows<StrapiMediaRow>(
+      `SELECT DISTINCT f.url, f.name, f.mime, f.size
+         FROM "${StrapiMedia.Table}" j
+         JOIN files f ON f.id = j.file_id
+        WHERE j.related_type IN (${placeholders}) AND j.field IS NOT NULL
+     ORDER BY f.name`,
+      ...owners,
+    )
+
+    const byName = new Map<string, StrapiMediaFile>()
+    for (const row of rows) {
+      const file = StrapiMedia.file(row)
+      if (file.name.length > 0 && !byName.has(file.name)) byName.set(file.name, file)
     }
-    return field.multiple ? { type: 'array', items: one } : one
+    return [...byName.values()]
+  }
+
+  /**
+   * The JSON Schema one media field gets.
+   *
+   * `x-silo-type: "media"` on a **string**, which is silo's media type and not an
+   * approximation of it. This used to emit an object mirroring Strapi's own media
+   * shape — `{ url, name, mime, width, height, size, alt }` — and that was wrong
+   * in a way worth naming: it imported, it validated, and every one of silo's own
+   * media behaviours passed it by. The admin rendered a nested form instead of the
+   * media picker, `MediaRefs.extract` found no reference so nothing counted as a
+   * usage, and a read never rewrote the URL. Faithful to the source and inert in
+   * the destination.
+   *
+   * Nullable on the single-file form, because a field with no file is `null` and
+   * an absent key would read the same as a cleared one. The array form is not: a
+   * row with no files is `[]`.
+   */
+  static schemaFor(field: StrapiMediaField): Record<string, unknown> {
+    if (field.multiple) {
+      return {
+        type: 'array',
+        items: { type: 'string', 'x-silo-type': 'media' },
+        description: 'Imported from a Strapi media field holding more than one file.',
+      }
+    }
+    return {
+      type: ['string', 'null'],
+      'x-silo-type': 'media',
+      description: 'Imported from a Strapi media field.',
+    }
   }
 
   /**
@@ -141,10 +173,41 @@ export class StrapiMedia {
    * `/uploads/…` is at least a *true* statement about the source instance, where
    * a guessed host would be a false one.
    */
-  private static absolute(url: string | null, baseUrl: string): string {
+  static absolute(url: string, baseUrl: string): string {
     if (!url) return ''
     if (/^[a-z][a-z0-9+.-]*:\/\//i.test(url)) return url
     if (!baseUrl) return url
     return `${baseUrl.replace(/\/+$/, '')}/${url.replace(/^\/+/, '')}`
   }
+
+  private static file(row: StrapiMediaRow): StrapiMediaFile {
+    const url = row.url ?? ''
+    return {
+      name: StrapiMedia.basename(url) || (row.name ?? ''),
+      url,
+      mime: row.mime,
+      bytes: row.size === null ? null : Math.round(row.size * 1024),
+    }
+  }
+
+  /**
+   * The filename in `url`.
+   *
+   * `url` and not the `name` column, because `name` is the name the file was
+   * *uploaded* as and `url` is what Strapi wrote to disk — two `logo.svg` uploads
+   * share a `name` and never share a `url`. The hash Strapi appends is the whole
+   * reason the operator's directory listing can be matched by name at all.
+   */
+  private static basename(url: string): string {
+    const path = url.split(/[?#]/)[0] ?? ''
+    return path.split('/').pop() ?? ''
+  }
+}
+
+/** The columns every read here selects. */
+interface StrapiMediaRow {
+  url: string | null
+  name: string | null
+  mime: string | null
+  size: number | null
 }

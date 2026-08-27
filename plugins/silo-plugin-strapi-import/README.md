@@ -12,21 +12,31 @@ plugin system that did not before (D41/§13.20): a route may be handed **bytes**
 a package may contribute an admin **panel**, and a route's declared body cap
 joins the manifest digest an operator approves.
 
+Media comes across as media: supply Strapi's `public/uploads` folder and the files
+land in silo's own media library, with entries holding `silo://media/<id>` rather
+than a link back to the instance you are migrating off.
+
 ## What it does
 
 ```
-   data.db  ──►  POST /source        the file, as bytes
+   data.db  ──►  POST /source        the export, as bytes
+   uploads/ ──►  GET  /files         which files it wants, and which arrived
+                 POST /files?name=   one file's bytes, per file
                  GET  /plan          one collection per list, editable
                  POST /imports       run it, in the background
                  GET  /imports/:id   progress
 ```
 
-1. **Upload.** The `.db` is staged on the server, opened read-only, and read.
-   Nothing is written to silo yet.
-2. **Plan.** One silo collection per Strapi list, one entry per row, with a JSON
+1. **Upload the export.** The `.db` is staged on the server, opened read-only,
+   and read. Nothing is written to silo yet.
+2. **Point it at `public/uploads`.** The export carries the file *catalog* and
+   never the files, so the panel asks for the folder and sends the ones the
+   import actually references. Skip this and every media field keeps its Strapi
+   URL instead.
+3. **Plan.** One silo collection per Strapi list, one entry per row, with a JSON
    Schema derived from the source's own columns. Rename anything, untick what you
    do not want, and choose per collection what happens if it already has entries.
-3. **Import.** Runs off the request that started it — 367 entries do not fit in a
+4. **Import.** Runs off the request that started it — 367 entries do not fit in a
    five-second dispatch budget — and the panel polls it.
 
 ## The mapping, and why
@@ -40,22 +50,76 @@ is defensible right up to the point of being useful: an array in one entry is
 faithful to the source, and it is also one `rev` for the whole table,
 unsearchable per row, and not how anyone would model it starting from silo.
 
-Each entry carries `strapi_id` — the source row's id. Provenance, not identity:
-silo mints its own (D2), and a plugin may not set an envelope field.
+**Nothing of Strapi's identity is carried.** No `strapi_id`, no `document_id`.
+Silo mints its own id (D2) and nothing on either side resolves a Strapi one, so a
+column holding one is a field that looks like a key and is not. A re-import
+matches on content or it does not match at all, which is what the plan's `replace`
+is for.
 
-## Two things it does not do
+## Media
 
-- **It does not bring media bytes across.** A database export carries the `files`
-  *catalog* — names, dimensions, MIME types, `/uploads/…` paths — and never the
-  uploads themselves. A media field therefore imports as an object with a `url`,
-  absolutised against `media_base_url`. Pulling those into silo's own media
-  library is a second job with its own failure modes, and pretending otherwise
-  would produce entries pointing at nothing.
-- **It does not import relations.** A Strapi relation is a row in a link table
-  pointing at another content type's `document_id`, and silo's `x-silo-ref` has
-  no integrity enforcement yet (§12.5) — so a faithful import would write ids
-  nothing resolves. Relations are reported under the inventory's `skipped` and
-  left out.
+A media field becomes **silo's media type** — `x-silo-type: "media"` on a string
+(D23) — and never a copy of Strapi's media object. That is the difference between
+importing media and importing something media-shaped: with the keyword, the admin
+renders the picker and a thumbnail, `MediaRefs.extract` counts the reference so
+deleting the asset is guarded, and a read rewrites the value against whatever host
+answered. The earlier version of this plugin emitted
+`{ url, name, mime, width, height, size, alt }`, which validated and imported
+cleanly while every one of those behaviours passed it by.
+
+What fills the field depends on whether you supplied the bytes, and the schema is
+the same either way:
+
+| you supplied | the entry holds |
+| :-- | :-- |
+| the file | `silo://media/<id>` — silo holds the bytes |
+| nothing | the absolute Strapi URL, which silo resolves by leaving alone |
+| nothing, and no `media_base_url` | the relative `/uploads/…` path Strapi recorded |
+
+Same `string` either way, so **import now and send the files later** is a
+re-import and not a schema migration.
+
+### Why one file per request
+
+`GET /files` lists the uploads this import references — by filename, because
+Strapi hashes an upload's name (`Mastercard_0a2d4ecc1c.svg`) and writes it flat,
+so the basename of the `url` column and the name in your folder are the same
+string. The panel matches your folder against that list and sends only what is
+wanted, which is also what keeps the thumbnails and derivatives Strapi generated
+out of silo.
+
+The obvious alternative was a zip of `public/uploads` through the same bytes route
+the `.db` uses, and it fails on the number that decides it: the 64 MiB body
+ceiling is a cap on **one request**, and a real instance's uploads directory is
+routinely larger. Per file it caps at 64 MiB *per file* — the unit silo's media
+library stores things in — and progress, retry and resume come for free: `/files`
+says what is still missing, so an interrupted run resumes by sending the rest.
+
+### Re-importing does not duplicate
+
+A file is uploaded once per run however many rows point at it, and before
+uploading anything the plugin asks whether silo already holds those exact bytes —
+matched on silo's own **sha256**, not on the filename. Without that, `replace`
+would double the media library on every re-run and orphan the previous copies:
+`POST /api/media` mints a new id per request and deduplicates nothing.
+
+That lookup needs `media:read`; ungranted, the import still runs and still
+uploads, and duplicates on a re-run.
+
+### What does not come across
+
+Strapi's `alternative_text` has nowhere to go — a silo media asset records a
+filename, folder, size, content type, hash and tags, and no alt text. And Strapi's
+generated size variants (`thumbnail_`, `small_`, `medium_`, `large_`) are not
+imported: silo does not model derivatives, and the original is what the catalog
+row points at.
+
+## One thing it does not do
+
+**It does not import relations.** A Strapi relation is a row in a link table
+pointing at another content type's `document_id`, and silo's `x-silo-ref` has no
+integrity enforcement yet (§12.5) — so a faithful import would write ids nothing
+resolves. Relations are reported under the inventory's `skipped` and left out.
 
 ## The trap it exists to avoid
 
@@ -102,6 +166,8 @@ claims     = [
   "collections:*/*/*:entries:create",
   "collections:*/*/*:entries:read",     # optional — counts what is already there
   "collections:*/*/*:entries:delete",   # optional — only for "empty it first"
+  "media:create",                       # optional — puts the uploads in the library
+  "media:read",                         # optional — so a re-import does not duplicate
   "http:route",
 ]
 
@@ -109,6 +175,7 @@ claims     = [
   project        = "default"
   env            = "prod"
   media_base_url = "https://cms.example.com"
+  media_folder   = "strapi"
 ```
 
 ```sh
@@ -117,11 +184,13 @@ silo plugin doctor
 
 Then **Settings → Plugins → silo-plugin-strapi-import → Open panel**.
 
-The two `entries:*` claims are declared `optional`, and the manifest says what
-each buys: without `entries:read` the plan cannot count what is already in a
-target collection, and without `entries:delete` "empty it first" is refused while
-"add to it" still works. Narrowing the grant to the three required claims leaves a
-working importer that can only append.
+Four claims are declared `optional`, and the manifest says what each buys.
+Without `entries:read` the plan cannot count what is already in a target
+collection; without `entries:delete` "empty it first" is refused while "add to it"
+still works; without `media:create` every media field keeps its Strapi URL, said
+once in the run's report rather than per file; without `media:read` an upload
+silo already holds is uploaded again. Narrowing the grant to the three required
+claims leaves a working importer that can only append and only link.
 
 ## Configuration
 
@@ -129,8 +198,9 @@ working importer that can only append.
 |-----|--|
 | `project`, `env` | where collections are created; the panel can override per run |
 | `collection_prefix` | prepended to every proposed name, e.g. `strapi_` |
-| `media_base_url` | the Strapi instance still serving `/uploads/…`. Empty leaves paths relative — a true statement about the source, where a guessed host would be a false one |
-| `work_dir` | where an upload is staged. Defaults under the system temp dir, deliberately **not** the data directory: D5 promises that is only your content |
+| `media_base_url` | the Strapi instance still serving `/uploads/…`, used for a file you did not supply. Empty leaves paths relative — a true statement about the source, where a guessed host would be a false one |
+| `media_folder` | where supplied uploads land in silo's media library, `strapi` by default. Empty means the root |
+| `work_dir` | where the export and the supplied uploads are staged. Defaults under the system temp dir, deliberately **not** the data directory: D5 promises that is only your content |
 | `version` | `published` (default) or `draft` |
 
 ## Development

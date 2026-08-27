@@ -1944,8 +1944,14 @@ surface reading the wrong one of two sources, the question to ask next is which
 ### A plugin could not be handed a file
 
 `ExtRequest` decoded every route body as UTF-8 and capped every route at one
-global mebibyte. `ctx.media.get` is metadata only — §13.6 says the bytes are not
-reachable through `ctx` — so there was no second door. A plugin whose whole
+global mebibyte. `ctx.media.get` is metadata only, and `/media/{id}` is one of the
+two routes outside `/api/` that §13.13 confines `ctx` away from — so bytes could
+not be *read* through `ctx` either, and there was no second door. (Bytes can be
+**written** through it: `POST /api/media` is inside `/api/` and takes a multipart
+body, which is what the importer's media half later turned out to rest on. The
+asymmetry is deliberate and both halves are right — reading `/media/{id}` is an
+unauthenticated route serving bytes to anyone holding an id, and writing is
+`media:create`, a claim an operator grants.) A plugin whose whole
 purpose is ingesting a file was therefore not awkward to write but
 **impossible**, and that class of plugin is not marginal: a database export, an
 archive, a spreadsheet, a font.
@@ -2126,6 +2132,76 @@ visible from a live run.
   rule ("would anything call it?") and can emit routes, a runtime and a panel;
   `--routes "POST /source+bytes:64"` is the grammar, and the ceiling it refuses
   against is drift-tested with the rest.
+
+### Media, and the transport a database export cannot carry
+
+Not a change to silo, and included because it is the part of the importer that had
+to be **designed twice** — the first version was wrong in a way that passed every
+test it had.
+
+Strapi's export holds the `files` *catalog* and never the uploads: names, MIME
+types, sizes, `/uploads/…` paths. So the first version imported a media field as
+an object mirroring Strapi's own — `{ url, name, mime, width, height, size, alt }`
+— which validated, imported, read back correctly, and was **inert**. Silo's media
+type is `x-silo-type: "media"` on a *string* (D23), and everything silo does with
+media keys off that: the admin renders the picker and a thumbnail, `MediaRefs`
+extracts the reference so a delete is guarded by the usage, and a read rewrites the
+value against the answering host. A faithful copy of the source's shape got none
+of it, and nothing failed — which is the failure mode this repo keeps finding, a
+correct-looking result with no behaviour behind it.
+
+A media field is now that string, and what fills it degrades without changing
+shape: `silo://media/<id>` where the bytes were supplied, the absolute Strapi URL
+where they were not — silo resolves a foreign URL by leaving it alone, so that is
+still a media value and not a broken one. Same `string` in the schema either way,
+which makes "import now and send the files later" a re-import rather than a schema
+migration.
+
+**The transport is one file per request, and the alternative was measured rather
+than assumed.** A zip of `public/uploads` through the same bytes route the `.db`
+uses is the obvious shape and it fails on the number that decides it:
+`PluginRouteBodies.Ceiling` caps **one request** at 64 MiB, and a real instance's
+uploads directory is routinely larger — so an archive route could not carry the
+case it exists for. Per file the cap becomes 64 MiB *per file*, which is the unit
+silo's media library stores things in, needs no archive reader inside a plugin, and
+makes progress, retry and resume fall out: `GET /files` says what is still
+missing, so an interrupted run resumes by sending the rest. The live export used
+to develop this wanted 530 files at 6.9 MB — under the ceiling, and only because
+it is flags and logos.
+
+Matching is by **filename**, which is what makes a browser directory picker usable
+against a catalog read on the server: Strapi hashes an upload's name
+(`Mastercard_0a2d4ecc1c.svg`) and writes it flat, so the basename of the `url`
+column and the name in the operator's folder are the same string with no path
+mapping in between. `name` will not do — that is the name the file was *uploaded*
+as, and two `logo.svg` uploads share it.
+
+Two findings from running it:
+
+- **`POST /api/media` deduplicates nothing.** It mints a new id per request, so a
+  `replace` re-import — the thing `replace` exists to let an operator do — doubled
+  the media library and left the previous copies as unreferenced assets only
+  `silo media reconcile` would ever mention. Measured on a live re-run. The plugin
+  now asks whether silo already holds those exact bytes before uploading, matched
+  on silo's own **sha256** rather than on the filename: Strapi's content hash in a
+  name is a convention, a digest is a fact, and the digest is already in the
+  catalog record. Whether silo itself should dedupe on `hash` is a separate
+  question this does not answer — the plugin's own re-runs are the case that
+  needed fixing, and a plugin cannot decide that two operators uploading the same
+  logo want one asset.
+- **`media:create` and `media:read` are optional, so refusal is an ordinary state
+  rather than an edge case.** A 403 is read as an *answer*: stop uploading, keep
+  the URLs, and say so **once** in the run's report. The alternative is one refused
+  request per file and an import that reports nothing an operator could act on.
+
+And the thing that does not come across, stated rather than approximated: Strapi's
+`alternative_text` has nowhere to go, because a silo media asset records a
+filename, folder, size, content type, hash and tags and no alt text.
+
+Nothing of Strapi's **identity** comes across either. The importer used to add a
+`strapi_id` per entry as provenance; it is gone, along with the special case that
+forced `document_id` in beside it. Silo mints its own id (D2) and nothing on either
+side resolves a Strapi one, so both were fields that looked like keys and were not.
 
 ### What D41 does not do
 

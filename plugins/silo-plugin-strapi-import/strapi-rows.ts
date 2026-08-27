@@ -2,10 +2,25 @@ import { StrapiColumns } from './strapi-columns'
 import type { StrapiDatabase } from './strapi-database'
 import type { StrapiList } from './strapi-inventory'
 import { StrapiInventory } from './strapi-inventory'
-import type { StrapiMediaValue } from './strapi-media'
+import type { StrapiMediaFile } from './strapi-media'
 import { StrapiMedia } from './strapi-media'
 import type { StrapiVersion } from './strapi-versions'
 import { StrapiVersions } from './strapi-versions'
+
+/**
+ * One source row: the entry as far as a database read can shape it, and the files
+ * its media fields point at.
+ *
+ * Two fields rather than one finished entry, because filling a media field means
+ * uploading bytes — an `await` per file, against silo. Doing that here would make
+ * a database read hold an open handle across an HTTP call for every attachment it
+ * found; `MediaLibrary.attach` does it where the `ctx` already is.
+ */
+export interface StrapiRow {
+  entry: Record<string, unknown>
+  /** By field name, in Strapi's own order. */
+  media: Record<string, StrapiMediaFile[]>
+}
 
 /**
  * The rows of one list, shaped as the entries an import writes.
@@ -22,17 +37,12 @@ export class StrapiRows {
    *  the one place here that could reach it. */
   private static readonly Chunk = 500
 
-  static read(
-    source: StrapiDatabase,
-    list: StrapiList,
-    version: StrapiVersion,
-    mediaBaseUrl: string,
-  ): Record<string, unknown>[] {
+  static read(source: StrapiDatabase, list: StrapiList, version: StrapiVersion): StrapiRow[] {
     const ids = StrapiRows.idsOf(source, list, version)
     const owner = list.origin === 'component' ? list.component! : list.contentType
-    const media = StrapiMedia.valuesOf(source, owner, mediaBaseUrl)
+    const media = StrapiMedia.filesOf(source, owner)
 
-    const rows: Record<string, unknown>[] = []
+    const rows: StrapiRow[] = []
     for (const batch of StrapiRows.batches(ids)) {
       const placeholders = batch.map(() => '?').join(', ')
       const found = source.rows<Record<string, unknown>>(
@@ -45,31 +55,19 @@ export class StrapiRows {
       const byId = new Map(found.map((row) => [Number(row.id), row]))
       for (const id of batch) {
         const row = byId.get(id)
-        if (row) rows.push(StrapiRows.shape(list, row, media.get(id) ?? {}))
+        if (row) rows.push({ entry: StrapiRows.shape(list, row), media: media.get(id) ?? {} })
       }
     }
     return rows
   }
 
-  /** One row → one entry. */
-  private static shape(
-    list: StrapiList,
-    row: Record<string, unknown>,
-    media: Record<string, StrapiMediaValue[]>,
-  ): Record<string, unknown> {
-    const entry: Record<string, unknown> = { strapi_id: Number(row.id) }
+  /** One row → the scalar half of one entry. */
+  private static shape(list: StrapiList, row: Record<string, unknown>): Record<string, unknown> {
+    const entry: Record<string, unknown> = {}
 
     for (const column of list.columns) {
       if (StrapiColumns.schemaFor(column) === null) continue
       entry[column.name] = StrapiColumns.valueFor(column, row[column.name])
-    }
-
-    for (const field of list.media) {
-      const values = media[field.name] ?? []
-      // A field with no file is `null` (or `[]`), not absent. An absent key and a
-      // cleared one read the same to every consumer, and only one of them is what
-      // the source says.
-      entry[field.name] = field.multiple ? values : (values[0] ?? null)
     }
     return entry
   }

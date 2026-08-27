@@ -21,7 +21,11 @@ export interface ImportPlan {
   project: string
   env: string
   version: StrapiVersion
+  /** The Strapi instance still serving the uploads. Used for a file whose bytes
+   *  were not supplied, which keeps its Strapi URL rather than importing. */
   mediaBaseUrl: string
+  /** Where in silo's media library supplied uploads land. */
+  mediaFolder: string
   steps: ImportStep[]
 }
 
@@ -52,7 +56,13 @@ export class ImportPlans {
   /** What silo would do with this export if nobody edited anything. */
   static propose(
     inventory: StrapiInventory,
-    defaults: { project: string; env: string; prefix: string; mediaBaseUrl: string },
+    defaults: {
+      project: string
+      env: string
+      prefix: string
+      mediaBaseUrl: string
+      mediaFolder: string
+    },
   ): ImportPlan {
     const taken = new Set<string>()
     const steps = inventory.lists.map((list) => ({
@@ -73,6 +83,7 @@ export class ImportPlans {
       env: defaults.env,
       version: inventory.version,
       mediaBaseUrl: defaults.mediaBaseUrl,
+      mediaFolder: defaults.mediaFolder,
       steps,
     }
   }
@@ -124,6 +135,7 @@ export class ImportPlans {
       env: ImportPlans.identifier(body.env, 'env'),
       version,
       mediaBaseUrl: typeof body.mediaBaseUrl === 'string' ? body.mediaBaseUrl : '',
+      mediaFolder: ImportPlans.folder(body.mediaFolder),
       steps,
     }
   }
@@ -170,6 +182,23 @@ export class ImportPlans {
       mode: mode as ImportMode,
       include: entry.include !== false,
     }
+  }
+
+  /**
+   * A media folder silo will accept, normalised.
+   *
+   * Not run through `identifier`: a folder is a path, `/` is meaningful in it, and
+   * silo normalises the leading and trailing slashes itself. The one thing refused
+   * is `..`, because a folder is a place in the library and not a way out of it.
+   */
+  private static folder(raw: unknown): string {
+    if (typeof raw !== 'string') return ''
+    const value = raw.trim().replace(/^\/+|\/+$/g, '')
+    if (value.length === 0) return ''
+    if (value.split('/').includes('..')) {
+      throw new Error(`"mediaFolder" may not contain ".." — it names a folder in silo's library`)
+    }
+    return value
   }
 
   private static array(raw: unknown): unknown[] {

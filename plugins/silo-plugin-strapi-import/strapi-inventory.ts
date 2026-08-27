@@ -147,8 +147,9 @@ export class StrapiInventory {
       }
       if (media.length > 0) {
         notes.push(
-          `${media.map((field) => field.name).join(', ')} hold uploaded files. They import as ` +
-            `URLs — a database export carries the catalog, never the bytes.`,
+          `${media.map((field) => field.name).join(', ')} hold uploaded files. Supply Strapi's ` +
+            `uploads directory and they import into silo's media library; without it they keep ` +
+            `their Strapi URL.`,
         )
       }
 
@@ -188,10 +189,12 @@ export class StrapiInventory {
     )
     if (scalars.length === 0 || entities.length === 0) return null
 
+    // Only the columns the author declared. `document_id` used to be forced in
+    // beside them as provenance, and it goes for the same reason `strapi_id` did:
+    // silo mints its own identity (D2), and a Strapi id carried into a silo entry
+    // is a field nothing here resolves.
     const names = new Set(scalars.map(([name]) => StrapiInventory.column(name)))
-    const columns = source
-      .columns(contentType.table)
-      .filter((column) => names.has(column.name) || column.name === 'document_id')
+    const columns = source.columns(contentType.table).filter((column) => names.has(column.name))
 
     if (columns.length === 0) return null
 
@@ -243,20 +246,40 @@ export class StrapiInventory {
     return attribute.replace(/([a-z0-9])([A-Z])/g, '$1_$2').toLowerCase()
   }
 
+  /**
+   * The `related_type` values these lists' rows are attached by — a component uid
+   * for a component list, a content-type uid for a document list.
+   *
+   * What scopes a listing of wanted files to this import. A `files` table holds
+   * everything the instance ever uploaded, including attachments of content types
+   * that were skipped, and asking an operator to supply those would be asking for
+   * work the import will not use.
+   */
+  static ownersOf(inventory: StrapiInventory): string[] {
+    const owners = new Set<string>()
+    for (const list of inventory.lists) {
+      owners.add(list.origin === 'component' ? list.component! : list.contentType)
+    }
+    return [...owners]
+  }
+
   private static mediaTotals(source: StrapiDatabase): { files: number; attached: number } {
     const files = source.hasTable('files') ? source.count('files') : 0
     const attached = source.hasTable('files_related_mph') ? source.count('files_related_mph') : 0
     return { files, attached }
   }
 
-  /** The JSON Schema for one list — what the collection is created with. */
+  /**
+   * The JSON Schema for one list — what the collection is created with.
+   *
+   * **Nothing of Strapi's identity is carried.** This used to add a `strapi_id`
+   * holding the source row's id, on the reasoning that provenance is worth
+   * keeping; it is not worth a column, because silo mints its own id (D2) and
+   * nothing on either side resolves a Strapi one. A re-import matches on content
+   * or it does not match at all, which is what the plan's `replace` is for.
+   */
   static schemaFor(list: StrapiList): Record<string, unknown> {
-    const properties: Record<string, unknown> = {
-      strapi_id: {
-        type: 'integer',
-        description: `The row's id in Strapi's "${list.table}". Provenance, not identity — silo mints its own.`,
-      },
-    }
+    const properties: Record<string, unknown> = {}
 
     for (const column of list.columns) {
       const schema = StrapiColumns.schemaFor(column)
