@@ -66,7 +66,7 @@ export function InstallPluginModal({
     setError('')
   }
 
-  const handleDrop = (e: DragEvent<HTMLDivElement>) => {
+  const handleDrop = (e: DragEvent<HTMLButtonElement>) => {
     e.preventDefault()
     const file = e.dataTransfer.files?.[0]
     if (file) accept(file)
