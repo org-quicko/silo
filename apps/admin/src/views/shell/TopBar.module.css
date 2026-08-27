@@ -1,0 +1,29 @@
+/* Three tracks so the search bar centres on the bar itself regardless of
+   what page-specific actions sit in the third column — an empty first
+   column balances whatever width the third one takes. */
+.topbar {
+  display: grid;
+  grid-template-columns: 1fr minmax(0, 560px) 1fr;
+  align-items: center;
+  height: 56px;
+  gap: 16px;
+  padding: 0 20px;
+  border-bottom: 1px solid var(--line);
+  background: var(--panel);
+}
+
+.searchSlot {
+  display: flex;
+  min-width: 0;
+  grid-column: 2;
+  justify-self: center;
+  width: 100%;
+}
+
+.right {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  grid-column: 3;
+  justify-self: end;
+}

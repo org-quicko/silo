@@ -1,0 +1,36 @@
+{
+  "name": "@silo/shared",
+  "version": "0.3.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "bun test",
+    "typecheck": "tsc --noEmit"
+  },
+  "exports": {
+    "./access-level": "./src/claims/access-level.ts",
+    "./claim": "./src/claims/claim.ts",
+    "./claim-preset": "./src/claims/claim-preset.ts",
+    "./claims": "./src/claims/claims.ts",
+    "./collection-claim": "./src/claims/collection-claim.ts",
+    "./collection-permission": "./src/claims/collection-permission.ts",
+    "./filter": "./src/query/filter.ts",
+    "./filter-ops": "./src/query/filter-ops.ts",
+    "./fixed-claim": "./src/claims/fixed-claim.ts",
+    "./hook-claim": "./src/claims/hook-claim.ts",
+    "./hook-name": "./src/hooks/hook-name.ts",
+    "./hook-names": "./src/hooks/hook-names.ts",
+    "./json-path": "./src/query/path/json-path.ts",
+    "./key-format": "./src/keys/key-format.ts",
+    "./media-field": "./src/schema/media-field.ts",
+    "./media-ref": "./src/media/media-ref.ts",
+    "./merge-patch": "./src/json/merge-patch.ts",
+    "./parsed-claim": "./src/claims/parsed-claim.ts",
+    "./path-selector": "./src/query/path/path-selector.ts",
+    "./schema-access": "./src/schema/schema-access.ts",
+    "./search-fields": "./src/schema/search-fields.ts",
+    "./silo-ref": "./src/schema/silo-ref.ts",
+    "./validation-detail": "./src/errors/validation-detail.ts",
+    "./validation-error": "./src/errors/validation-error.ts"
+  }
+}

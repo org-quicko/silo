@@ -1,7 +1,7 @@
 # Cuts a silo release: one executable per platform, checksummed, signed twice,
 # published, and pushed to the Homebrew tap.
 #
-# Everything the build does lives in `scripts/build.ts`, which is also what
+# Everything the build does lives in `tools/build/`, which is also what
 # `bun run build` runs, so a release is the local build with flags rather than a
 # recipe that only exists here and only runs on tags.
 #
@@ -31,7 +31,7 @@ permissions:
 env:
   # Keep in step with the Dockerfile's BUN_VERSION: the binary users install and
   # the image they deploy should not be built by different runtimes.
-  BUN_VERSION: "1.3.14"
+  BUN_VERSION: "1.4.0"
   NFPM_VERSION: "2.47.0"
   # How many past releases stay installable from the dnf repo. GitHub Pages has
   # a 1 GB soft limit and each release is ~60 MB of RPMs, so this cannot be
@@ -223,7 +223,7 @@ jobs:
             if [ "${{ steps.key.outputs.signed }}" = "true" ]; then
               args+=(--sign-key "$RUNNER_TEMP/signing-key.asc")
             fi
-            bun run scripts/build-rpm.ts "${args[@]}"
+            bun run tools/build-rpm.ts "${args[@]}"
           done
           ls -l dist/
 
@@ -444,7 +444,7 @@ jobs:
       - name: Render the formula
         working-directory: silo
         run: |
-          bun run scripts/render-formula.ts \
+          bun run tools/render-formula.ts \
             --version "${{ needs.version.outputs.version }}" \
             --checksums SHA256SUMS \
             --out ../tap/Formula/silo.rb

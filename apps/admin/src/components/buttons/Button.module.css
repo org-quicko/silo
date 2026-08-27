@@ -1,0 +1,82 @@
+.button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  padding: 8px 14px;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  font-family: var(--font-ui);
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: background 0.12s, border-color 0.12s, color 0.12s, opacity 0.12s;
+}
+
+.button:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+.primary {
+  background: var(--accent);
+  color: var(--accent-ink);
+}
+
+.primary:hover:not(:disabled) {
+  filter: brightness(1.08);
+}
+
+.secondary {
+  border-color: var(--line-2);
+  background: var(--panel);
+  color: var(--text-2);
+  font-weight: 500;
+}
+
+.secondary:hover:not(:disabled) {
+  background: var(--panel-2);
+  color: var(--text);
+}
+
+.danger {
+  background: var(--bad);
+  color: #fff;
+}
+
+.danger:hover:not(:disabled) {
+  filter: brightness(1.08);
+}
+
+.dangerGhost {
+  border-color: color-mix(in oklab, var(--bad) 34%, transparent);
+  background: transparent;
+  color: var(--bad);
+  font-weight: 500;
+}
+
+.dangerGhost:hover:not(:disabled) {
+  background: color-mix(in oklab, var(--bad) 12%, transparent);
+}
+
+.dashed {
+  width: 100%;
+  padding: 11px;
+  border: 1px dashed var(--line-2);
+  background: transparent;
+  color: var(--text-2);
+  font-weight: 500;
+}
+
+.dashed:hover:not(:disabled) {
+  border-color: var(--accent);
+  color: var(--text);
+}
+
+.small {
+  padding: 5px 11px;
+  font-size: 12px;
+  font-weight: 500;
+}

@@ -1,4 +1,4 @@
-# nfpm configuration for silo's RPM. Built by `scripts/build-rpm.ts`, which is
+# nfpm configuration for silo's RPM. Built by `tools/build-rpm.ts`, which is
 # what fills the three environment variables below.
 #
 # nfpm expands ${...} itself, so this file needs no rendering step of its own —

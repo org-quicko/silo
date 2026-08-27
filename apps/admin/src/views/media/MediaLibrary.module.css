@@ -1,0 +1,395 @@
+.hiddenInput { display: none; }
+.pageHeader { margin-bottom: 12px; }
+
+.uploadZone {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  margin-bottom: 20px;
+  padding: 24px;
+  border: 2px dashed var(--line);
+  border-radius: var(--radius-sm);
+  background: var(--panel);
+  text-align: center;
+  cursor: pointer;
+  transition: border-color 0.2s, background-color 0.2s;
+}
+
+.uploadZone:hover,
+.dragActive {
+  border-color: var(--accent);
+  background: var(--panel-2);
+}
+
+.uploadIcon { color: var(--text-3); }
+
+.uploadText {
+  color: var(--text-2);
+  font-size: 13.5px;
+}
+
+.loading {
+  min-height: 200px;
+}
+
+.empty {
+  min-height: 200px;
+  flex-direction: column;
+  gap: 8px;
+  color: var(--text-3);
+}
+
+.grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+  gap: 16px;
+  margin-top: 16px;
+}
+
+.card {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: var(--panel);
+  transition: transform 0.2s, box-shadow 0.2s;
+}
+
+.card:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.05);
+}
+
+.preview {
+  position: relative;
+  display: flex;
+  height: 120px;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  border-bottom: 1px solid var(--line);
+  background: var(--panel-2);
+}
+
+.preview img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.previewIcon { color: var(--text-3); }
+
+.info {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 4px;
+  padding: 10px 12px;
+}
+
+.name {
+  overflow: hidden;
+  color: var(--text);
+  font-size: 13px;
+  font-weight: 500;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.meta {
+  display: flex;
+  justify-content: space-between;
+  color: var(--text-3);
+  font-size: 11px;
+}
+
+/* Hidden until the card is hovered or one of its own buttons has focus (so a
+   keyboard user tabbing to Delete can still see what they landed on). */
+.actions {
+  display: flex;
+  gap: 6px;
+  margin-top: auto;
+  padding: 8px 12px;
+  border-top: 1px solid var(--line);
+  background: var(--panel-2);
+  opacity: 0;
+  transition: opacity 0.12s;
+}
+
+.card:hover .actions,
+.card:focus-within .actions {
+  opacity: 1;
+}
+
+/* Same hover-reveal, without the card's footer strip look — a table cell
+   already sits inside the row's own border and background. */
+.rowActions {
+  display: flex;
+  gap: 6px;
+  opacity: 0;
+  transition: opacity 0.12s;
+}
+
+.fileRow:hover .rowActions,
+.fileRow:focus-within .rowActions {
+  opacity: 1;
+}
+
+/* ---- Catalog layout (D23): a folder rail beside the grid ---- */
+
+.error {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 12px;
+  padding: 8px 12px;
+  border: 1px solid var(--bad);
+  border-radius: var(--radius-sm);
+  background: var(--panel);
+  color: var(--bad);
+  font-size: 12.5px;
+}
+
+.toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 12px;
+}
+
+.count {
+  color: var(--text-3);
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.pathRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 14px;
+}
+
+.pathTrail {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 3px;
+  overflow: hidden;
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.pathSegment {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  overflow: hidden;
+}
+
+.pathSep { flex: none; color: var(--text-3); }
+
+.pathCrumb {
+  overflow: hidden;
+  padding: 2px 5px;
+  border: 0;
+  border-radius: 5px;
+  background: none;
+  color: var(--text-3);
+  cursor: pointer;
+  font: inherit;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.pathCrumb:hover {
+  background: var(--panel-2);
+  color: var(--text);
+}
+
+.pathCurrent {
+  overflow: hidden;
+  padding: 2px 5px;
+  color: var(--text);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Resets <button> defaults on top of .card's shared shell — border,
+   background, and radius all come from .card; only what a button adds
+   (padding, font, text alignment) needs undoing here. */
+.folderCard {
+  display: flex;
+  width: 100%;
+  flex-direction: column;
+  padding: 0;
+  color: inherit;
+  cursor: pointer;
+  font: inherit;
+  text-align: left;
+}
+
+.folderCard:hover {
+  border-color: color-mix(in oklab, var(--accent) 40%, var(--line));
+}
+
+.folderPreview {
+  display: flex;
+  height: 120px;
+  align-items: center;
+  justify-content: center;
+  border-bottom: 1px solid var(--line);
+  background: color-mix(in oklab, var(--accent) 10%, var(--panel-2));
+  color: var(--accent);
+}
+
+.noMatchNote {
+  margin: 14px 0 0;
+  color: var(--text-3);
+  font-size: 12.5px;
+}
+
+/* List view — folders and files as DataTable rows instead of tiles. */
+/* .fileRow */
+
+/* Resets <button> defaults on a folder row without touching table.row's
+   grid/border/hover, the same way .folderCard does for the tile shell. */
+.rowReset {
+  width: 100%;
+  padding: 0;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+}
+
+.rowName {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.rowIcon {
+  display: flex;
+  width: 22px;
+  height: 22px;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  border-radius: 4px;
+  color: var(--text-3);
+}
+
+.rowIcon img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+/* The one piece of state that decides whether a delete will be refused. */
+.usedBadge {
+  color: var(--accent);
+  font-weight: 500;
+}
+
+.iconAction { padding: 4px; }
+
+.pager {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  margin-top: 20px;
+  color: var(--text-3);
+  font-size: 12px;
+}
+
+.editFields {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 0 20px 4px;
+}
+
+.editFields label {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  color: var(--text-2);
+  font-size: 12px;
+}
+
+.editFields input {
+  padding: 6px 10px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: var(--panel);
+  color: var(--text);
+  font-size: 13px;
+}
+
+.editFields input:focus {
+  border-color: var(--accent);
+  outline: none;
+}
+
+.usageList {
+  display: flex;
+  max-height: 220px;
+  flex-direction: column;
+  gap: 6px;
+  overflow-y: auto;
+  padding: 0 20px 4px;
+}
+
+.usageRow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  color: var(--text-2);
+  font-family: var(--mono, monospace);
+  font-size: 11.5px;
+}
+
+.usageScope {
+  color: var(--text-3);
+  white-space: nowrap;
+}
+
+.usageHidden {
+  padding: 4px 8px;
+  color: var(--text-3);
+  font-size: 11.5px;
+  font-style: italic;
+}
+
+/* A staged-but-undeleted asset (D23): recoverable, and the notice says how. */
+.stalled {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 12px;
+  padding: 10px 12px;
+  border: 1px solid var(--warn, var(--accent));
+  border-radius: var(--radius-sm);
+  background: var(--panel);
+  color: var(--text-2);
+  font-size: 12.5px;
+  line-height: 1.5;
+}
+
+.stalledBadge {
+  color: var(--warn, var(--accent));
+  font-weight: 500;
+}

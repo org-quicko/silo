@@ -1,0 +1,27 @@
+{
+  "name": "selfwriter",
+  "version": "1.0.0",
+  "type": "module",
+  "main": "index.ts",
+  "silo": {
+    "silo": "*",
+    "contributes": {
+      "hooks": [
+        "entry.afterWrite"
+      ]
+    },
+    "permissions": {
+      "required": [
+        {
+          "claim": "collections:*/*/*:entries:create",
+          "reason": "Fixture: exercises \"collections:*/*/*:entries:create\"."
+        }
+      ]
+    },
+    "config": {
+      "type": "object",
+      "properties": {},
+      "additionalProperties": false
+    }
+  }
+}

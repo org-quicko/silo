@@ -1,0 +1,22 @@
+{
+  "name": "greedy",
+  "version": "1.0.0",
+  "type": "module",
+  "main": "index.ts",
+  "silo": {
+    "silo": "*",
+    "contributes": {
+      "hooks": [
+        "entry.afterWrite"
+      ]
+    },
+    "permissions": {
+      "required": [
+        {
+          "claim": "collections:*/*/*:entries:delete",
+          "reason": "Fixture: exercises \"collections:*/*/*:entries:delete\"."
+        }
+      ]
+    }
+  }
+}

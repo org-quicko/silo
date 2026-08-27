@@ -79,3 +79,18 @@ Goal: Evaluate execution models for running Silo on serverless compute.
 | `turso` (Cloud SQLite)| ✅ Supported | ✅ Supported | ✅ Supported | ✅ Ideal | ✅ Ideal |
 | `s3` (R2 / AWS S3) | ✅ Supported | ✅ Supported | ✅ Supported | ✅ Ideal | ✅ Ideal |
 | `postgres` (Neon) | ✅ Supported | ✅ Supported | ✅ Supported | ✅ Ideal | ✅ Ideal |
+
+---
+
+## 5. Plugin System — promoted
+
+Explored here, then promoted to **D31** and **§13** of
+[IMPLEMENTATION.md](IMPLEMENTATION.md) once the open questions were resolved:
+worker isolation by default (a one-way door), no separate plugin API version,
+no installer, no `seq` cursor, no UI field in the manifest, and no plugin
+provenance in the export archive. The feasibility spikes that decided the shape
+— dynamic import, virtual modules and `Worker` isolation inside a
+`bun build --compile` binary, with measurements — live in §13.10 there.
+
+Remaining plugin ideas that are *not* decided are tracked as roadmap item 8
+(§12.8), not here.

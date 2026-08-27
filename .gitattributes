@@ -1,0 +1,22 @@
+# silo's canonical form is LF, and every file in the index is already stored
+# that way. This makes that a property of the repository rather than of each
+# contributor's `core.autocrlf` — which is `true` by default on Windows, and
+# checks the entire tree out as CRLF.
+#
+# What that costs, beyond taste: `create-silo-plugin` ships silo's
+# `server/plugins/host/silo-api-types.d.ts` as a verbatim copy, and
+# `server/test/plugins/create-silo-plugin-drift.test.ts` compares the two byte
+# for byte — the only thing keeping the published copy honest. A uniformly CRLF
+# checkout is self-consistent and passes; a tree where one of the pair has been
+# rewritten LF by an editor or a codegen step is not, and fails with an empty
+# diff, because the bytes differ only where nothing prints. `eol=lf` removes the
+# mixed state rather than teaching the test to tolerate it, and keeps a publish
+# from a Windows machine from putting CRLF in the asset every plugin author gets.
+#
+# This is a no-op on history: the index is LF already, so there is nothing to
+# renormalise and no commit that rewrites the tree.
+* text=auto eol=lf
+
+# The one tracked binary. `text=auto` already detects it by content; pinned so
+# no later rule can reach it.
+*.png binary

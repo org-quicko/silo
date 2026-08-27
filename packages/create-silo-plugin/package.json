@@ -1,0 +1,30 @@
+{
+  "name": "create-silo-plugin",
+  "version": "0.3.0",
+  "description": "Scaffold a silo plugin — manifest, hook stubs, and the silo:api types — in one command",
+  "keywords": ["silo", "cms", "headless-cms", "plugin", "scaffold", "create"],
+  "homepage": "https://github.com/org-quicko/silo#plugins",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/org-quicko/silo.git",
+    "directory": "create-silo-plugin"
+  },
+  "license": "AGPL-3.0-or-later",
+  "type": "module",
+  "bin": {
+    "create-silo-plugin": "./dist/cli.js"
+  },
+  "files": ["dist", "assets", "README.md"],
+  "engines": {
+    "node": ">=18"
+  },
+  "scripts": {
+    "build": "bun build src/main.ts --target=node --outfile dist/cli.js",
+    "typecheck": "tsc --noEmit",
+    "prepublishOnly": "bun run build"
+  },
+  "devDependencies": {
+    "@types/node": "^20.19.43",
+    "typescript": "^7.0.2"
+  }
+}

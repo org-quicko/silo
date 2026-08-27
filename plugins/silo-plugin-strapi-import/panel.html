@@ -1,0 +1,732 @@
+<!--
+  The plugin's admin panel (silo D41, `contributes.ui`).
+
+  One inlined file, no dependencies, no build step — the same properties the
+  plugin module has, and for the same reason. It runs in a sandboxed iframe with
+  no origin of its own, so there is nothing here that could reach the admin
+  around it: `window.silo.fetch` is the only way out, and it only reaches this
+  plugin's own routes, with the operator's key attached by the admin.
+
+  Theme colours arrive as CSS custom properties from the admin's live document,
+  so this stays legible under a custom accent or in light mode without knowing
+  which is on.
+-->
+<style>
+  .wrap { display: flex; flex-direction: column; gap: 14px; }
+  .step-head { display: flex; align-items: baseline; gap: 8px; }
+  .step-head h3 { margin: 0; font-size: 13px; }
+  .step-head .num {
+    display: inline-flex; align-items: center; justify-content: center;
+    width: 18px; height: 18px; border-radius: 50%;
+    background: var(--accent-soft); color: var(--accent);
+    font-size: 11px; font-weight: 600; flex: none;
+  }
+  .muted { color: var(--text-2); }
+  .dim { color: var(--text-3); font-size: 12px; }
+  .box {
+    border: 1px solid var(--line); border-radius: var(--radius);
+    background: var(--panel); padding: 12px 14px;
+  }
+  .drop {
+    border: 1px dashed var(--line-2); border-radius: var(--radius);
+    padding: 20px; text-align: center; cursor: pointer;
+    transition: border-color .12s, background .12s;
+  }
+  .drop:hover, .drop.over { border-color: var(--accent); background: var(--accent-soft); }
+  .row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+  .spread { justify-content: space-between; }
+  .grow { flex: 1; min-width: 0; }
+  input[type='text'], select { width: 100%; }
+  .cell-name { width: 34%; }
+  .cell-mode { width: 110px; }
+  .cell-n { width: 72px; text-align: right; font-variant-numeric: tabular-nums; }
+  .cell-tick { width: 28px; }
+  .bar { height: 5px; border-radius: 3px; background: var(--panel-2); overflow: hidden; }
+  .bar > i { display: block; height: 100%; background: var(--accent); transition: width .2s; }
+  .bar.bad > i { background: var(--bad); }
+  .bar.ok > i { background: var(--ok); }
+  .pill {
+    font-size: 11px; padding: 1px 7px; border-radius: 20px;
+    border: 1px solid var(--line-2); color: var(--text-2);
+  }
+  .pill.ok { color: var(--ok); border-color: var(--ok); }
+  .pill.bad { color: var(--bad); border-color: var(--bad); }
+  .pill.run { color: var(--accent); border-color: var(--accent); }
+  .warn {
+    border-left: 2px solid var(--warn); padding: 8px 10px;
+    background: var(--panel-2); border-radius: var(--radius-sm); font-size: 12px;
+  }
+  .bad-note { border-left-color: var(--bad); }
+  .notes { margin: 4px 0 0; padding-left: 16px; color: var(--text-3); font-size: 11.5px; }
+  .hidden { display: none; }
+  .err { color: var(--bad); }
+</style>
+
+<div class="wrap">
+  <div id="alert" class="hidden"></div>
+
+  <!-- 1. the source -->
+  <section class="box">
+    <div class="step-head"><span class="num">1</span><h3>The export</h3></div>
+    <p class="dim" style="margin-top: 6px">
+      A <code>.db</code> from <code>strapi transfer --to file://…</code>, or the
+      <code>.tmp/data.db</code> of a SQLite Strapi. Read-only, staged on the server while you
+      plan, and deleted when you say.
+    </p>
+
+    <div id="drop" class="drop">
+      <div><b>Choose a Strapi database</b></div>
+      <div class="dim">or drop it here · up to 64 MiB</div>
+      <input id="file" type="file" accept=".db,.sqlite,.sqlite3,application/x-sqlite3" class="hidden">
+    </div>
+
+    <div id="source" class="hidden" style="margin-top: 10px">
+      <div class="row spread">
+        <div>
+          <b id="source-name"></b>
+          <span class="dim" id="source-meta"></span>
+        </div>
+        <button id="forget">Remove</button>
+      </div>
+      <div id="source-notes" style="margin-top: 8px"></div>
+    </div>
+  </section>
+
+  <!-- 2. the uploads -->
+  <section id="files-box" class="box hidden">
+    <div class="step-head">
+      <span class="num">2</span><h3>The uploads</h3>
+      <span id="files-pill" class="pill"></span>
+    </div>
+    <p class="dim" style="margin-top: 6px">
+      The database carries Strapi's file <i>catalog</i> and never the files. Point this at your
+      Strapi's <code>public/uploads</code> folder and they import into silo's media library;
+      skip it and every media field keeps its Strapi URL instead.
+    </p>
+
+    <div class="row" style="margin: 10px 0">
+      <button id="pick-folder">Choose the uploads folder</button>
+      <button id="pick-files">Choose files</button>
+      <button id="forget-files" class="hidden">Remove staged files</button>
+      <span class="dim grow" id="files-note"></span>
+    </div>
+
+    <!-- Two inputs rather than one, because `webkitdirectory` turns the native
+         dialog into a folder chooser and there is no way to offer both from one
+         element. Both land in the same handler. -->
+    <input id="folder-input" type="file" multiple webkitdirectory class="hidden">
+    <input id="files-input" type="file" multiple class="hidden">
+
+    <div class="bar" id="files-bar" style="margin: 4px 0 8px"><i style="width:0%"></i></div>
+    <div id="files-missing"></div>
+  </section>
+
+  <!-- 3. the plan -->
+  <section id="plan-box" class="box hidden">
+    <div class="step-head"><span class="num">3</span><h3>The plan</h3></div>
+    <p class="dim" style="margin-top: 6px">
+      One collection per Strapi list, one entry per row. Rename anything, untick what you do not
+      want, and choose what happens to a collection that already has entries.
+    </p>
+
+    <div class="row" style="margin: 10px 0">
+      <label class="dim" style="width: 70px">Project</label>
+      <select id="project" class="grow" style="max-width: 200px"></select>
+      <label class="dim" style="width: 30px">Env</label>
+      <select id="env" class="grow" style="max-width: 200px"></select>
+    </div>
+
+    <table>
+      <thead>
+        <tr>
+          <th class="cell-tick"></th>
+          <th>Strapi list</th>
+          <th class="cell-name">silo collection</th>
+          <th class="cell-mode">If it exists</th>
+          <th class="cell-n">Rows</th>
+        </tr>
+      </thead>
+      <tbody id="steps"></tbody>
+    </table>
+
+    <div class="row spread" style="margin-top: 12px">
+      <span class="dim" id="plan-total"></span>
+      <button id="run" class="primary">Import</button>
+    </div>
+  </section>
+
+  <!-- 4. the run -->
+  <section id="run-box" class="box hidden">
+    <div class="step-head">
+      <span class="num">4</span><h3>Import</h3>
+      <span id="run-state" class="pill"></span>
+    </div>
+    <div id="run-media" class="hidden"></div>
+    <div id="run-steps" style="margin-top: 10px"></div>
+  </section>
+</div>
+
+<script>
+  const $ = (id) => document.getElementById(id)
+  const text = (value) => String(value == null ? '' : value)
+
+  /** One place to render a failure, so no path fails silently. */
+  function alert_(message, kind) {
+    const node = $('alert')
+    if (!message) {
+      node.className = 'hidden'
+      node.textContent = ''
+      return
+    }
+    node.className = kind === 'warn' ? 'warn' : 'warn bad-note'
+    node.textContent = message
+  }
+
+  const state = { source: null, inventory: null, files: null, plan: null, targets: null, job: null, timer: null }
+
+  function bytes(n) {
+    if (n < 1024) return n + ' B'
+    if (n < 1024 * 1024) return (n / 1024).toFixed(1) + ' KiB'
+    return (n / (1024 * 1024)).toFixed(1) + ' MiB'
+  }
+
+  /* ---------------------------------------------------------------- source */
+
+  $('drop').addEventListener('click', () => $('file').click())
+  $('file').addEventListener('change', (event) => {
+    const file = event.target.files && event.target.files[0]
+    if (file) upload(file)
+  })
+  for (const name of ['dragenter', 'dragover']) {
+    $('drop').addEventListener(name, (event) => {
+      event.preventDefault()
+      $('drop').classList.add('over')
+    })
+  }
+  for (const name of ['dragleave', 'drop']) {
+    $('drop').addEventListener(name, (event) => {
+      event.preventDefault()
+      $('drop').classList.remove('over')
+    })
+  }
+  $('drop').addEventListener('drop', (event) => {
+    const file = event.dataTransfer && event.dataTransfer.files && event.dataTransfer.files[0]
+    if (file) upload(file)
+  })
+
+  async function upload(file) {
+    alert_('')
+    $('drop').innerHTML = '<div class="muted">Reading ' + text(file.name) + '…</div>'
+    try {
+      // The bytes go over postMessage as an ArrayBuffer and reach the route as
+      // `request.bytes`, because the manifest declares that route as taking
+      // bytes. Nothing here base64s anything.
+      const buffer = await file.arrayBuffer()
+      $('drop').innerHTML = '<div class="muted">Uploading ' + bytes(buffer.byteLength) + '…</div>'
+      const answer = await silo.fetch('/source?name=' + encodeURIComponent(file.name), {
+        method: 'POST',
+        headers: { 'content-type': 'application/octet-stream' },
+        body: buffer,
+      })
+      const body = answer.json()
+      if (!answer.ok) throw new Error((body && body.error && body.error.message) || 'upload failed')
+      state.source = body.source
+      state.inventory = body.inventory
+      await loadPlan()
+    } catch (caught) {
+      alert_(caught.message || String(caught))
+    } finally {
+      resetDrop()
+      render()
+    }
+  }
+
+  function resetDrop() {
+    $('drop').innerHTML =
+      '<div><b>Choose a Strapi database</b></div>' +
+      '<div class="dim">or drop it here · up to 64 MiB</div>'
+  }
+
+  $('forget').addEventListener('click', async () => {
+    alert_('')
+    try {
+      await silo.fetch('/source', { method: 'DELETE' })
+    } catch (caught) {
+      alert_(caught.message || String(caught))
+    }
+    state.source = null
+    state.inventory = null
+    state.files = null
+    state.plan = null
+    render()
+  })
+
+  /* --------------------------------------------------------------- uploads */
+
+  $('pick-folder').addEventListener('click', () => $('folder-input').click())
+  $('pick-files').addEventListener('click', () => $('files-input').click())
+  for (const id of ['folder-input', 'files-input']) {
+    $(id).addEventListener('change', (event) => {
+      const chosen = [...(event.target.files || [])]
+      // Cleared, so choosing the same folder twice fires `change` both times.
+      event.target.value = ''
+      if (chosen.length > 0) sendFiles(chosen)
+    })
+  }
+
+  $('forget-files').addEventListener('click', async () => {
+    alert_('')
+    try {
+      await silo.fetch('/files', { method: 'DELETE' })
+      await loadFiles()
+    } catch (caught) {
+      alert_(caught.message || String(caught))
+    }
+    render()
+  })
+
+  async function loadFiles() {
+    state.files = await silo.json('/files')
+  }
+
+  /**
+   * Send the files the import actually wants.
+   *
+   * Matched by name against the catalog before anything is transferred, which is
+   * the difference between "send a folder" and "send 4000 files including every
+   * thumbnail Strapi generated": a `public/uploads` directory holds derivatives
+   * and orphans nothing references, and only the names in `/files` will be read.
+   *
+   * Sequential. A directory of a few hundred small files is seconds either way,
+   * and one at a time is what makes the counter on screen true — a parallel
+   * uploader that reported 40 of 300 could not say which 40.
+   */
+  async function sendFiles(chosen) {
+    alert_('')
+    const wanted = new Map()
+    for (const file of state.files.files) {
+      if (!file.staged) wanted.set(file.name, file)
+    }
+
+    const queue = []
+    let skipped = 0
+    for (const file of chosen) {
+      if (wanted.has(file.name)) queue.push(file)
+      else skipped++
+    }
+
+    if (queue.length === 0) {
+      alert_(
+        chosen.length +
+          ' file' + (chosen.length === 1 ? '' : 's') + ' chosen, none of which this import is ' +
+          'missing. Strapi writes hashed filenames, so the names in the export have to be the ' +
+          'names in the folder — check you picked the uploads directory itself.',
+        'warn',
+      )
+      return
+    }
+
+    setBusy(true)
+    let sent = 0
+    let failed = 0
+    try {
+      for (const file of queue) {
+        $('files-note').textContent =
+          'Sending ' + (sent + failed + 1) + ' of ' + queue.length + ' · ' + file.name
+        $('files-bar').firstElementChild.style.width =
+          Math.round(((sent + failed) / queue.length) * 100) + '%'
+        try {
+          const buffer = await file.arrayBuffer()
+          const answer = await silo.fetch('/files?name=' + encodeURIComponent(file.name), {
+            method: 'POST',
+            headers: { 'content-type': 'application/octet-stream' },
+            body: buffer,
+          })
+          if (!answer.ok) throw new Error((answer.json() || {}).error?.message || 'refused')
+          sent++
+        } catch (caught) {
+          failed++
+          if (failed === 1) alert_(file.name + ': ' + (caught.message || String(caught)))
+        }
+      }
+      await loadFiles()
+    } finally {
+      setBusy(false)
+      render()
+      $('files-note').textContent =
+        sent + ' sent' +
+        (failed > 0 ? ' · ' + failed + ' failed' : '') +
+        (skipped > 0 ? ' · ' + skipped + ' not needed' : '')
+    }
+  }
+
+  function setBusy(busy) {
+    for (const id of ['pick-folder', 'pick-files', 'forget-files', 'run']) $(id).disabled = busy
+  }
+
+  function renderFiles() {
+    const totals = state.files.totals
+    const pill = $('files-pill')
+    if (totals.wanted === 0) {
+      pill.className = 'pill'
+      pill.textContent = 'no media'
+    } else if (totals.missing === 0) {
+      pill.className = 'pill ok'
+      pill.textContent = 'all ' + totals.wanted + ' here'
+    } else {
+      pill.className = 'pill'
+      pill.textContent = totals.staged + ' of ' + totals.wanted
+    }
+
+    const share = totals.wanted === 0 ? 0 : Math.round((totals.staged / totals.wanted) * 100)
+    $('files-bar').className = 'bar' + (totals.missing === 0 && totals.wanted > 0 ? ' ok' : '')
+    $('files-bar').firstElementChild.style.width = share + '%'
+    $('forget-files').className = totals.staged > 0 ? '' : 'hidden'
+
+    const missing = state.files.files.filter((file) => !file.staged)
+    const host = $('files-missing')
+    if (missing.length === 0) {
+      host.innerHTML =
+        totals.wanted === 0
+          ? '<div class="dim">Nothing in this export attaches a file.</div>'
+          : '<div class="dim">Every file this import needs is staged (' +
+            bytes(totals.bytes) + '). They will land in silo’s media library' +
+            (state.files.folder ? ' under <code>' + text(state.files.folder) + '</code>' : '') +
+            '.</div>'
+      return
+    }
+
+    host.innerHTML =
+      '<div class="warn">' + missing.length + ' file' + (missing.length === 1 ? '' : 's') +
+      ' still missing (' + bytes(missing.reduce((sum, file) => sum + (file.bytes || 0), 0)) +
+      ' by Strapi’s own count). Those fields will hold ' +
+      (state.files.baseUrl
+        ? 'a URL at <code>' + text(state.files.baseUrl) + '</code>'
+        : 'the relative <code>/uploads/…</code> path Strapi recorded, which nothing serves — ' +
+          'set <code>media_base_url</code> if you are leaving them as links') +
+      '.</div>' +
+      '<ul class="notes">' +
+      missing.slice(0, 8).map((file) => '<li><code>' + text(file.name) + '</code></li>').join('') +
+      (missing.length > 8 ? '<li>… and ' + (missing.length - 8) + ' more</li>' : '') +
+      '</ul>'
+  }
+
+  /* ------------------------------------------------------------------ plan */
+
+  async function loadPlan() {
+    const [plan, targets, files] = await Promise.all([
+      silo.json('/plan'),
+      silo.json('/targets'),
+      silo.json('/files'),
+    ])
+    state.plan = plan.plan
+    state.targets = targets
+    state.files = files
+  }
+
+  function listOf(id) {
+    return (state.inventory ? state.inventory.lists : []).find((list) => list.id === id)
+  }
+
+  function renderTargets() {
+    const items = (state.targets && state.targets.items) || []
+    const project = $('project')
+    project.innerHTML = ''
+    for (const entry of items) {
+      const option = document.createElement('option')
+      option.value = entry.id || entry.name
+      option.textContent = entry.id || entry.name
+      project.appendChild(option)
+    }
+    if (state.plan) project.value = state.plan.project
+    if (!project.value && items.length > 0) project.value = items[0].id || items[0].name
+    renderEnvs()
+  }
+
+  function renderEnvs() {
+    const items = (state.targets && state.targets.items) || []
+    const chosen = items.find((entry) => (entry.id || entry.name) === $('project').value)
+    const envs = (chosen && (chosen.environments || chosen.envs)) || []
+    const select = $('env')
+    select.innerHTML = ''
+    for (const entry of envs) {
+      const name = typeof entry === 'string' ? entry : entry.id || entry.name
+      const option = document.createElement('option')
+      option.value = name
+      option.textContent = name
+      select.appendChild(option)
+    }
+    if (state.plan && [...select.options].some((option) => option.value === state.plan.env)) {
+      select.value = state.plan.env
+    }
+  }
+
+  $('project').addEventListener('change', renderEnvs)
+
+  function renderSteps() {
+    const body = $('steps')
+    body.innerHTML = ''
+    let total = 0
+
+    for (const step of state.plan.steps) {
+      const list = listOf(step.list)
+      if (!list) continue
+      if (step.include) total += list.count
+
+      const row = document.createElement('tr')
+
+      const tick = document.createElement('td')
+      const check = document.createElement('input')
+      check.type = 'checkbox'
+      check.checked = step.include
+      check.addEventListener('change', () => {
+        step.include = check.checked
+        renderSteps()
+      })
+      tick.appendChild(check)
+      row.appendChild(tick)
+
+      const label = document.createElement('td')
+      label.innerHTML =
+        '<div>' + text(list.label) + '</div>' +
+        '<div class="dim"><code>' + text(list.table) + '</code>' +
+        (list.media.length > 0
+          ? ' · ' + list.media.length + ' media field' + (list.media.length === 1 ? '' : 's')
+          : '') +
+        '</div>' +
+        (list.notes.length > 0
+          ? '<ul class="notes">' + list.notes.map((note) => '<li>' + text(note) + '</li>').join('') + '</ul>'
+          : '')
+      row.appendChild(label)
+
+      const name = document.createElement('td')
+      const input = document.createElement('input')
+      input.type = 'text'
+      input.value = step.collection
+      input.addEventListener('input', () => {
+        step.collection = input.value.trim()
+      })
+      name.appendChild(input)
+      row.appendChild(name)
+
+      const mode = document.createElement('td')
+      const select = document.createElement('select')
+      for (const [value, title] of [
+        ['append', 'add to it'],
+        ['replace', 'empty it first'],
+        ['skip', 'leave it alone'],
+      ]) {
+        const option = document.createElement('option')
+        option.value = value
+        option.textContent = title
+        select.appendChild(option)
+      }
+      select.value = step.mode
+      select.addEventListener('change', () => {
+        step.mode = select.value
+      })
+      mode.appendChild(select)
+      row.appendChild(mode)
+
+      const count = document.createElement('td')
+      count.className = 'cell-n'
+      count.textContent = String(list.count)
+      row.appendChild(count)
+
+      body.appendChild(row)
+    }
+
+    const included = state.plan.steps.filter((step) => step.include).length
+    $('plan-total').textContent =
+      included + ' collection' + (included === 1 ? '' : 's') + ', ' + total + ' entries'
+    $('run').disabled = included === 0
+  }
+
+  $('run').addEventListener('click', async () => {
+    alert_('')
+    $('run').disabled = true
+    try {
+      state.job = await silo.json('/imports', {
+        method: 'POST',
+        body: {
+          project: $('project').value,
+          env: $('env').value,
+          version: state.plan.version,
+          mediaBaseUrl: state.plan.mediaBaseUrl,
+          mediaFolder: state.plan.mediaFolder,
+          steps: state.plan.steps,
+        },
+      })
+      poll()
+    } catch (caught) {
+      alert_(caught.message || String(caught))
+    } finally {
+      $('run').disabled = false
+      render()
+    }
+  })
+
+  /* ------------------------------------------------------------------- run */
+
+  function poll() {
+    clearTimeout(state.timer)
+    if (!state.job || state.job.state !== 'running') return
+    state.timer = setTimeout(async () => {
+      try {
+        state.job = await silo.json('/imports/' + encodeURIComponent(state.job.id))
+      } catch (caught) {
+        alert_(caught.message || String(caught))
+        return
+      }
+      render()
+      poll()
+    }, 700)
+  }
+
+  function pillOf(value) {
+    if (value === 'done') return 'pill ok'
+    if (value === 'failed') return 'pill bad'
+    if (value === 'running') return 'pill run'
+    return 'pill'
+  }
+
+  /**
+   * What became of the media, said once for the run.
+   *
+   * Its own block rather than a line per step, because the tally is per job: one
+   * uploaded file serves however many rows and collections point at it, so a
+   * per-step count would either double-count it or hide it.
+   */
+  function renderMedia() {
+    const media = state.job.media
+    const host = $('run-media')
+    const total = media.uploaded + media.matched + media.reused + media.kept + media.empty
+    if (total === 0 && !media.stopped) {
+      host.className = 'hidden'
+      return
+    }
+
+    const parts = []
+    if (media.uploaded > 0) {
+      parts.push(
+        '<b>' + media.uploaded + '</b> file' + (media.uploaded === 1 ? '' : 's') +
+          ' into silo’s media library (' + bytes(media.bytes) + ')',
+      )
+    }
+    if (media.matched > 0) parts.push(media.matched + ' already in the library, byte for byte')
+    if (media.reused > 0) parts.push(media.reused + ' more field' + (media.reused === 1 ? '' : 's') + ' pointing at them')
+    if (media.kept > 0) parts.push(media.kept + ' kept a Strapi URL')
+    if (media.empty > 0) parts.push(media.empty + ' left empty')
+
+    host.className = media.stopped ? 'warn' : 'dim'
+    host.style.margin = '8px 0 0'
+    host.innerHTML =
+      (parts.length > 0 ? parts.join(' · ') : 'No media on these rows.') +
+      (media.stopped ? '<div style="margin-top:6px">' + text(media.stopped) + '</div>' : '') +
+      (media.notes.length > 0
+        ? '<ul class="notes">' + media.notes.map((note) => '<li>' + text(note) + '</li>').join('') + '</ul>'
+        : '')
+  }
+
+  function renderRun() {
+    $('run-state').className = pillOf(state.job.state)
+    $('run-state').textContent = state.job.state
+    renderMedia()
+    const host = $('run-steps')
+    host.innerHTML = ''
+
+    if (state.job.error) {
+      const note = document.createElement('div')
+      note.className = 'warn bad-note'
+      note.textContent = state.job.error
+      host.appendChild(note)
+    }
+
+    for (const step of state.job.steps) {
+      const block = document.createElement('div')
+      block.style.margin = '0 0 12px'
+
+      const share = step.total === 0 ? 0 : Math.round(((step.written + step.failed) / step.total) * 100)
+      block.innerHTML =
+        '<div class="row spread"><div><b>' + text(step.collection) + '</b> ' +
+        '<span class="dim">' + text(step.label) + '</span></div>' +
+        '<span class="' + pillOf(step.state) + '">' + text(step.state) + '</span></div>' +
+        '<div class="bar ' + (step.failed > 0 ? 'bad' : step.state === 'done' ? 'ok' : '') + '" ' +
+        'style="margin:6px 0 4px"><i style="width:' + share + '%"></i></div>' +
+        '<div class="dim">' + step.written + ' of ' + step.total + ' written' +
+        (step.failed > 0 ? ' · <span class="err">' + step.failed + ' refused</span>' : '') +
+        (step.detail ? ' · ' + text(step.detail) : '') + '</div>' +
+        (step.errors.length > 0
+          ? '<ul class="notes">' +
+            step.errors.map((error) => '<li>row ' + error.row + ': ' + text(error.message) + '</li>').join('') +
+            '</ul>'
+          : '')
+
+      host.appendChild(block)
+    }
+  }
+
+  /* ---------------------------------------------------------------- render */
+
+  function render() {
+    const has = Boolean(state.source)
+    $('drop').className = has ? 'drop hidden' : 'drop'
+    $('source').className = has ? '' : 'hidden'
+
+    if (has) {
+      $('source-name').textContent = state.source.name
+      $('source-meta').textContent =
+        ' · ' + bytes(state.source.bytes) + ' · staged ' + state.source.stagedAt.slice(0, 19).replace('T', ' ')
+
+      const notes = $('source-notes')
+      const inventory = state.inventory || { lists: [], skipped: [], media: { files: 0, attached: 0 } }
+      notes.innerHTML =
+        '<div class="dim">' + inventory.lists.length + ' importable list' +
+        (inventory.lists.length === 1 ? '' : 's') + ' · reading the <b>' +
+        text(inventory.version) + '</b> version · ' + inventory.media.files +
+        ' files in the catalog</div>' +
+        (inventory.skipped.length > 0
+          ? '<ul class="notes">' +
+            inventory.skipped
+              .map((entry) => '<li>skipped <code>' + text(entry.contentType) + '</code> — ' + text(entry.reason) + '</li>')
+              .join('') +
+            '</ul>'
+          : '')
+    }
+
+    $('files-box').className = state.files ? 'box' : 'box hidden'
+    if (state.files) renderFiles()
+
+    const planned = Boolean(state.plan && state.inventory)
+    $('plan-box').className = planned ? 'box' : 'box hidden'
+    if (planned) {
+      renderTargets()
+      renderSteps()
+    }
+
+    $('run-box').className = state.job ? 'box' : 'box hidden'
+    if (state.job) renderRun()
+  }
+
+  /* ------------------------------------------------------------------ boot */
+
+  ;(async () => {
+    try {
+      const answer = await silo.fetch('/source')
+      if (answer.ok) {
+        const body = answer.json()
+        state.source = body.source
+        state.inventory = body.inventory
+        await loadPlan()
+      }
+      const jobs = await silo.json('/imports')
+      if (jobs.items.length > 0) {
+        state.job = jobs.items[0]
+        poll()
+      }
+    } catch (caught) {
+      alert_(caught.message || String(caught))
+    }
+    render()
+  })()
+</script>

@@ -1,0 +1,71 @@
+{
+  "name": "greeter",
+  "version": "1.0.0",
+  "type": "module",
+  "main": "index.ts",
+  "silo": {
+    "silo": "*",
+    "contributes": {
+      "routes": [
+        {
+          "method": "GET",
+          "path": "/hello",
+          "auth": "public"
+        },
+        {
+          "method": "GET",
+          "path": "/whoami"
+        },
+        {
+          "method": "GET",
+          "path": "/notes/:id"
+        },
+        {
+          "method": "POST",
+          "path": "/notes"
+        },
+        {
+          "method": "DELETE",
+          "path": "/gone"
+        },
+        {
+          "method": "GET",
+          "path": "/refuse"
+        },
+        {
+          "method": "GET",
+          "path": "/boom"
+        },
+        {
+          "method": "GET",
+          "path": "/slow"
+        },
+        {
+          "method": "GET",
+          "path": "/loop"
+        }
+      ]
+    },
+    "permissions": {
+      "required": [
+        {
+          "claim": "collections:*/*/*:entries:read",
+          "reason": "Fixture: exercises \"collections:*/*/*:entries:read\"."
+        },
+        {
+          "claim": "collections:*/*/*:entries:create",
+          "reason": "Fixture: exercises \"collections:*/*/*:entries:create\"."
+        }
+      ]
+    },
+    "config": {
+      "type": "object",
+      "properties": {
+        "collection": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false
+    }
+  }
+}

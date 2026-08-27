@@ -1,0 +1,29 @@
+{
+  "name": "@silo/server",
+  "version": "0.3.0",
+  "description": "The silo server — CLI, HTTP API, storage adapters, and the plugin host",
+  "private": true,
+  "type": "module",
+  "main": "src/main.ts",
+  "scripts": {
+    "start": "bun run src/main.ts serve",
+    "test": "bun test",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@silo/shared": "workspace:*",
+    "ajv": "^8.20.0",
+    "ajv-formats": "^3.0.1",
+    "hono": "^4.13.3",
+    "semver": "^7.8.5",
+    "tar": "^7.5.22",
+    "ulidx": "^2.4.1"
+  },
+  "devDependencies": {
+    "@types/bun": "^1.4.0",
+    "@types/node": "^20.19.43",
+    "@types/semver": "^7.8.0",
+    "@types/tar": "^6.1.13",
+    "typescript": "^7.0.2"
+  }
+}

@@ -1,0 +1,34 @@
+{
+  "name": "lister",
+  "version": "1.0.0",
+  "type": "module",
+  "main": "index.ts",
+  "silo": {
+    "silo": "*",
+    "contributes": {
+      "hooks": [
+        "entry.beforeValidate"
+      ]
+    },
+    "permissions": {
+      "required": [
+        {
+          "claim": "collections:*/*/*:entries:read",
+          "reason": "Fixture: exercises \"collections:*/*/*:entries:read\"."
+        }
+      ]
+    },
+    "config": {
+      "type": "object",
+      "properties": {
+        "from": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "from"
+      ],
+      "additionalProperties": false
+    }
+  }
+}

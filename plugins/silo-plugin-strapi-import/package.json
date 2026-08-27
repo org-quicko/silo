@@ -1,0 +1,125 @@
+{
+  "name": "silo-plugin-strapi-import",
+  "version": "0.2.0",
+  "description": "Import a Strapi 5 SQLite export into silo collections, from a panel in the admin",
+  "type": "module",
+  "main": "index.ts",
+  "license": "AGPL-3.0-or-later",
+  "silo": {
+    "silo": "^0.2",
+    "contributes": {
+      "runtime": true,
+      "ui": {
+        "entry": "./panel.html",
+        "title": "Import from Strapi"
+      },
+      "routes": [
+        {
+          "method": "GET",
+          "path": "/source"
+        },
+        {
+          "method": "POST",
+          "path": "/source",
+          "body": { "kind": "bytes", "max_bytes": 67108864 }
+        },
+        {
+          "method": "DELETE",
+          "path": "/source"
+        },
+        { "method": "GET", "path": "/files" },
+        {
+          "method": "POST",
+          "path": "/files",
+          "body": { "kind": "bytes", "max_bytes": 67108864 }
+        },
+        { "method": "DELETE", "path": "/files" },
+        { "method": "GET", "path": "/plan" },
+        { "method": "GET", "path": "/targets" },
+        { "method": "POST", "path": "/imports" },
+        { "method": "GET", "path": "/imports" },
+        { "method": "GET", "path": "/imports/:id" }
+      ]
+    },
+    "permissions": {
+      "required": [
+        {
+          "claim": "collections:*/*/*:create",
+          "reason": "To create one collection per Strapi list — the plan names each of them before anything is written."
+        },
+        {
+          "claim": "collections:*/*/*:schema:read",
+          "reason": "To tell an existing collection from a name that is free, so the plan can warn you instead of failing halfway."
+        },
+        {
+          "claim": "collections:*/*/*:entries:create",
+          "reason": "To write one entry per row. This is the import."
+        }
+      ],
+      "optional": [
+        {
+          "claim": "media:create",
+          "reason": "To put Strapi's uploads into silo's media library, so an imported entry points at a file silo holds rather than at your old Strapi. Without this, media fields keep their Strapi URL."
+        },
+        {
+          "claim": "media:read",
+          "reason": "To recognise a file silo already holds, so re-importing does not upload every upload a second time and leave the first copy orphaned."
+        },
+        {
+          "claim": "collections:*/*/*:entries:read",
+          "reason": "To count what is already in a target collection, and to support re-importing over it."
+        },
+        {
+          "claim": "collections:*/*/*:entries:delete",
+          "reason": "To empty a collection first, when you choose \"replace\" for it. Without this, replace is refused and append still works."
+        }
+      ]
+    },
+    "config": {
+      "type": "object",
+      "properties": {
+        "project": {
+          "type": "string",
+          "title": "Target project",
+          "description": "Where imported collections are created. The panel can override this per run.",
+          "default": "default"
+        },
+        "env": {
+          "type": "string",
+          "title": "Target environment",
+          "default": "prod"
+        },
+        "collection_prefix": {
+          "type": "string",
+          "title": "Collection name prefix",
+          "description": "Prepended to every proposed collection name, e.g. \"strapi_\". Empty means none.",
+          "default": ""
+        },
+        "media_base_url": {
+          "type": "string",
+          "title": "Strapi media base URL",
+          "description": "The Strapi instance the uploads are still served from, e.g. https://cms.example.com. Used for a file whose bytes you did not supply: it keeps this URL instead of importing, which silo resolves by leaving it alone. Empty leaves the paths relative."
+        },
+        "media_folder": {
+          "type": "string",
+          "title": "Media library folder",
+          "description": "Where supplied uploads land in silo's media library. Keeps a few hundred hashed Strapi filenames out of the library root. Empty means the root.",
+          "default": "strapi"
+        },
+        "work_dir": {
+          "type": "string",
+          "title": "Staging directory",
+          "description": "Where the uploaded .db and any supplied uploads are written while they are being read. Defaults to a silo-strapi-import directory under the system temp dir."
+        },
+        "version": {
+          "type": "string",
+          "title": "Which document version to read",
+          "description": "Strapi 5 keeps a separate copy of every component row per draft and published version, so reading the tables directly would import each row twice.",
+          "enum": ["published", "draft"],
+          "default": "published"
+        }
+      },
+      "additionalProperties": false
+    }
+  }
+}

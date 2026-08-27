@@ -1,0 +1,48 @@
+{
+  "name": "prober",
+  "version": "1.0.0",
+  "type": "module",
+  "main": "index.ts",
+  "silo": {
+    "silo": "*",
+    "contributes": {
+      "hooks": [
+        "entry.beforeValidate"
+      ]
+    },
+    "permissions": {
+      "required": [
+        {
+          "claim": "collections:*/*/*:entries:read",
+          "reason": "Fixture: exercises \"collections:*/*/*:entries:read\"."
+        },
+        {
+          "claim": "keys:read",
+          "reason": "Fixture: exercises \"keys:read\"."
+        },
+        {
+          "claim": "media:read",
+          "reason": "Fixture: exercises \"media:read\"."
+        }
+      ]
+    },
+    "config": {
+      "type": "object",
+      "properties": {
+        "path": {
+          "type": "string"
+        },
+        "method": {
+          "type": "string"
+        },
+        "headers": {
+          "type": "object"
+        }
+      },
+      "required": [
+        "path"
+      ],
+      "additionalProperties": false
+    }
+  }
+}

@@ -1,0 +1,31 @@
+:root {
+  --board: #090a0e;
+  --bg: #0d0f14;
+  --panel: #14171f;
+  --panel-2: #1c202a;
+  --line: #262b36;
+  --line-2: #333a48;
+  --text: #e9ebef;
+  --text-2: #a2a9b6;
+  --text-3: #8890a0;
+  --accent: #7c86ff;
+  --accent-ink: #0a0c18;
+  --accent-soft: rgba(124, 134, 255, 0.15);
+  --ok: #5ec98d;
+  --warn: #e7b567;
+  --bad: #e5686f;
+  --font-ui: 'Hanken Grotesk', system-ui, sans-serif;
+  --font-mono: 'JetBrains Mono', ui-monospace, monospace;
+  --radius: 11px;
+  --radius-sm: 8px;
+  --ink-2: #0a0c11;
+  --shadow-panel: 0 30px 70px -30px rgba(0, 0, 0, 0.7);
+  --shadow-modal: 0 24px 60px -18px rgba(0, 0, 0, 0.75);
+
+  /* Sidebar chrome tracks the main tokens by default (no visual change);
+     ThemeManager overrides --sidebar/--sidebar-hover per theme. */
+  --sidebar: var(--panel);
+  --sidebar-hover: var(--panel-2);
+  --sidebar-text: var(--text);
+  --sidebar-dim: var(--text-2);
+}

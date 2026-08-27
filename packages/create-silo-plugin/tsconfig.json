@@ -1,0 +1,26 @@
+{
+  // Standalone, and deliberately not extending the repo root's config. This
+  // package publishes on its own, so it typechecks on its own: `bun install`
+  // in this directory and `bun run typecheck` is the whole loop, with no
+  // knowledge of the silo tree above it.
+  "compilerOptions": {
+    "lib": ["ESNext"],
+    "module": "ESNext",
+    "target": "ES2022",
+    "moduleResolution": "bundler",
+    "moduleDetection": "force",
+    "strict": true,
+    "skipLibCheck": true,
+    // `SiloRange` reads this package's own version out of its manifest, so the
+    // number has one home here too (D28).
+    "resolveJsonModule": true,
+    "forceConsistentCasingInFileNames": true,
+    // `bun build` produces dist/cli.js. tsc is here to typecheck, never to emit.
+    "noEmit": true,
+    // Named explicitly rather than left to the default @types sweep: this
+    // package is published and typechecked on its own, and Node is the only
+    // ambient it is allowed to assume.
+    "types": ["node"]
+  },
+  "include": ["src/**/*"]
+}

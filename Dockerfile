@@ -7,41 +7,48 @@
 #
 # The admin key is printed to the container logs on first run.
 
-ARG BUN_VERSION=1.3.14
+ARG BUN_VERSION=1.4.0
 
 # ---- Stage 1: build the admin UI ----
-# `ui` is a member of the root Bun workspace, so the install has to run from the
-# workspace root with every member's manifest present -- Bun aborts with
-# "Workspace not found" if one is missing from the context. `--filter silo-ui`
-# then installs only the UI's tree, leaving the server's dependencies out.
+# Every workspace member's manifest has to be present before `bun install` runs:
+# Bun aborts with "Workspace not found" if one named in the root manifest is
+# missing from the build context. Adding a workspace and not adding it here
+# breaks the image build and nothing else. `--filter @silo/admin` then installs
+# only the UI's tree, leaving the server's dependencies out.
 FROM oven/bun:${BUN_VERSION}-alpine AS ui
 WORKDIR /app
 COPY package.json bun.lock ./
-COPY shared/package.json ./shared/
-COPY ui/package.json ./ui/
-RUN bun install --frozen-lockfile --filter silo-ui
-COPY shared/src/ ./shared/src/
-COPY ui/ ./ui/
-RUN bun run --cwd ui build
+COPY apps/server/package.json ./apps/server/
+COPY apps/admin/package.json ./apps/admin/
+COPY packages/shared/package.json ./packages/shared/
+COPY packages/create-silo-plugin/package.json ./packages/create-silo-plugin/
+RUN bun install --frozen-lockfile --filter @silo/admin
+COPY packages/shared/src/ ./packages/shared/src/
+COPY apps/admin/ ./apps/admin/
+RUN bun run --cwd apps/admin build
 
 # ---- Stage 2: runtime ----
 FROM oven/bun:${BUN_VERSION}-alpine AS runtime
 WORKDIR /app
 
-# Install exactly the production dependencies captured in the text lockfile.
-# `ui/package.json` is copied only to satisfy the workspace declaration in the
-# root manifest; `--filter '!silo-ui'` keeps the UI's own dependency tree (React,
-# Vite, CodeMirror -- roughly 70 MB) out of the runtime image, which needs
-# nothing from `ui/` but the prebuilt `dist` copied in below.
+# Exactly the production dependencies captured in the text lockfile. The admin
+# and scaffolder manifests are copied only to satisfy the workspace declaration;
+# neither ships in the image. `--filter '!@silo/admin'` keeps the UI's own tree
+# (React, Vite, CodeMirror — roughly 70 MB) out of the runtime image, which
+# needs nothing from it but the prebuilt `dist` copied in below.
 COPY package.json bun.lock ./
-COPY shared/package.json ./shared/
-COPY shared/src/ ./shared/src/
-COPY ui/package.json ./ui/
-RUN bun install --frozen-lockfile --production --filter '!silo-ui'
+COPY apps/server/package.json ./apps/server/
+COPY apps/admin/package.json ./apps/admin/
+COPY packages/shared/package.json ./packages/shared/
+COPY packages/shared/src/ ./packages/shared/src/
+COPY packages/create-silo-plugin/package.json ./packages/create-silo-plugin/
+RUN bun install --frozen-lockfile --production --filter '!@silo/admin'
 
-# Copy source and built UI
-COPY --chown=bun:bun server/ ./server/
-COPY --chown=bun:bun --from=ui /app/ui/dist ./ui/dist
+# Server source and the built UI. `UiAssets` reads ./apps/admin/dist relative to
+# the working directory, which is why the layout is preserved rather than
+# flattened.
+COPY --chown=bun:bun apps/server/src/ ./apps/server/src/
+COPY --chown=bun:bun --from=ui /app/apps/admin/dist ./apps/admin/dist
 
 # Keep both the database and filesystem-backed media on the persistent volume.
 ENV NODE_ENV=production \
@@ -57,5 +64,5 @@ EXPOSE 8090
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
   CMD bun -e 'try { const response = await fetch("http://127.0.0.1:8090/api/health"); process.exit(response.ok ? 0 : 1); } catch { process.exit(1); }'
 
-ENTRYPOINT ["bun", "run", "server/main.ts"]
+ENTRYPOINT ["bun", "run", "apps/server/src/main.ts"]
 CMD ["serve"]

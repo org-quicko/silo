@@ -1,0 +1,19 @@
+/** Instance-level claims — those not scoped to a single collection. */
+export type FixedClaim =
+  | "keys:read"
+  | "keys:create"
+  | "keys:revoke"
+  | "keys:export"
+  | "keys:import"
+  | "transfer:export"
+  | "transfer:import"
+  | "transfer:copy"
+  | "media:read"
+  | "media:create"
+  | "media:delete"
+  | "plugins:read"
+  | "plugins:configure"
+  | "plugins:grant"
+  | "plugins:enable"
+  | "audit:read"
+  | "http:route";

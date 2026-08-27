@@ -1,0 +1,73 @@
+<!--
+  This plugin's admin panel — `silo.contributes.ui` (D41).
+
+  It runs inside the silo admin, in an iframe with `sandbox="allow-scripts"` and
+  **no** `allow-same-origin`. So it has no origin of its own: `localStorage`
+  throws, `document.cookie` is empty, and nothing it fetches carries a
+  credential. That is deliberate, and it is what makes shipping a screen with a
+  plugin safe — the admin keeps an API key per configured server, and a panel
+  that could read them would hold more than any plugin can be granted.
+
+  What it *can* do is `window.silo`, which the admin injects. `silo.fetch` and
+  `silo.json` ask the admin to call **this plugin's own routes** — nothing else —
+  with the operator's key. So a panel spends the operator's authority over your
+  routes, and your route handlers spend the plugin's grant. Both halves are
+  approved, neither is implicit.
+
+  One inlined file, no build step and no dependencies — the same properties the
+  plugin module has. There is no static asset server: a panel that needs CSS or
+  script puts it here.
+
+  The admin's theme reaches you as CSS custom properties, so `var(--text)` and
+  friends work and the panel follows a custom accent or light mode without
+  knowing which is on.
+-->
+<style>
+  .card {
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    background: var(--panel);
+    padding: 12px 14px;
+  }
+  .row { display: flex; align-items: center; gap: 8px; }
+  .dim { color: var(--text-3); font-size: 12px; }
+  pre {
+    margin: 10px 0 0;
+    padding: 10px;
+    background: var(--panel-2);
+    border-radius: var(--radius-sm);
+    overflow-x: auto;
+  }
+</style>
+
+<div class="card">
+  <div class="row">
+    <button id="go" class="primary">Call a route</button>
+    <span class="dim" id="where"></span>
+  </div>
+  <pre id="out">Nothing yet.</pre>
+</div>
+
+<script>
+  const out = document.getElementById('out')
+
+  // `silo.plugin` is this package's name and `silo.scope` is the project and
+  // environment the operator was last working in — a hint, not authority. A
+  // panel that needs to know what scopes exist asks one of its own routes,
+  // which can see them through `ctx.projects`.
+  document.getElementById('where').textContent =
+    `${silo.plugin} · ${silo.scope ? silo.scope.project + '/' + silo.scope.env : 'no scope'}`
+
+  document.getElementById('go').addEventListener('click', async () => {
+    out.textContent = 'Calling…'
+    try {
+      // A path is relative to this plugin's own namespace: '/status' reaches
+      // '/api/ext/<name>/status'. `silo.json` parses the answer and throws on a
+      // refusal; `silo.fetch` hands you the status and the bytes instead, which
+      // is what you want when a 400 is a result the panel should render.
+      out.textContent = JSON.stringify(await silo.json('/'), null, 2)
+    } catch (caught) {
+      out.textContent = `That did not work: ${caught.message}`
+    }
+  })
+</script>
