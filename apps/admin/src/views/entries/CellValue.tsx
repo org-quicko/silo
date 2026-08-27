@@ -33,17 +33,19 @@ export function CellValue({
   name,
   value,
   mediaById,
+  baseUrl,
 }: {
   schema: any
   name: string
   value: any
   mediaById?: Record<string, MediaAsset>
+  baseUrl?: string
 }) {
   const prop = schema?.properties?.[name]
   if (value == null || value === '') return <span className="muted">—</span>
 
   if (CellFormat.isMediaField(prop) && typeof value === 'string') {
-    return <MediaCell value={value} assets={mediaById} />
+    return <MediaCell value={value} assets={mediaById} baseUrl={baseUrl} />
   }
 
   if (prop?.enum && typeof value === 'string') return <StatusPill value={value} />
@@ -109,7 +111,15 @@ export function CellValue({
   return <span className={styles.text}>{String(value)}</span>
 }
 
-function MediaCell({ value, assets }: { value: string; assets?: Record<string, MediaAsset> }) {
+function MediaCell({
+  value,
+  assets,
+  baseUrl = '',
+}: {
+  value: string
+  assets?: Record<string, MediaAsset>
+  baseUrl?: string
+}) {
   const id = MediaRef.canonicalId(value)
   const asset = id ? assets?.[id] : undefined
 
@@ -125,10 +135,11 @@ function MediaCell({ value, assets }: { value: string; assets?: Record<string, M
   }
 
   const isImage = asset.content_type.startsWith('image/')
+  const fileUrl = `${baseUrl}${asset.url}`
   return (
     <span className={styles.media} title={asset.filename}>
       {isImage ? (
-        <img className={styles.mediaThumb} src={asset.url} alt="" />
+        <img className={styles.mediaThumb} src={fileUrl} alt="" />
       ) : (
         <span className={styles.mediaFallback}>
           <File size={13} />

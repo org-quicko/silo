@@ -28,7 +28,14 @@ UI, single-binary releases with Homebrew and RPM, and plugins with an installer
 panels, and there is a first-party plugin using both to import a Strapi 5 export,
 media included (D41).
 
-**The most recent change is silo's first first-party plugin, and the three
+**The most recent change fixes media thumbnail resolution in the admin entries grid (2026-08-27).**
+`CellValue.tsx` rendered media thumbnails using `<img src={asset.url} />` where `asset.url` is
+server-relative (`/media/<id>`). When connecting to remote servers or running under the Vite dev server
+(port 5173), thumbnails failed to load due to 404s against the admin host. The active server's base URL
+is now threaded from `EntriesView` through `EntriesTable` into `CellValue` and prefixed to `asset.url`
+consistent with `MediaCard`, `MediaRow`, and `MediaWidget`.
+
+**Before that came silo's first first-party plugin, and the three
 things in the plugin system it needed (D41, 2026-08-27).**
 [`plugins/silo-plugin-strapi-import`](plugins/silo-plugin-strapi-import) imports
 a Strapi 5 SQLite export into silo collections from a screen inside the admin,

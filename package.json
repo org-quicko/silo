@@ -7,7 +7,7 @@
   "workspaces": ["apps/*", "packages/*", "plugins/*"],
   "scripts": {
     "start": "bun run --cwd apps/server start",
-    "dev": "concurrently -n server,admin -c blue,magenta --kill-others \"bun run start\" \"bun run --cwd apps/admin dev\"",
+    "dev": "concurrently -n server,admin -c blue,magenta --kill-others \"bun run start --data ./silo_data --config ./silo_data/silo.toml\" \"bun run --cwd apps/admin dev\"",
     "test": "bun test",
     "lint": "bun run --cwd apps/admin lint",
     "typecheck": "tsc -b",

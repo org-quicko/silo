@@ -4,6 +4,16 @@
 > The *current* state is [CONTEXT.md](../../CONTEXT.md); this is how it got
 > there.
 
+- **Media thumbnails in the entries grid resolve against the active server's base URL (2026-08-27).**
+  In `apps/admin`, `CellValue.tsx` rendered media thumbnails using `src={asset.url}`. Because
+  `MediaAssetView.url` is server-relative (`/media/<id>`), browsers resolved thumbnail URLs against
+  the admin UI's origin rather than the configured silo instance. This worked only when the admin UI
+  happened to be hosted on the same origin as the silo server, and failed with 404s when pointed at
+  remote servers or running under the Vite dev server (`http://localhost:5173`). The server's base
+  URL is now threaded through `EntriesView` -> `EntriesTable` -> `CellValue` and prefixed to `asset.url`
+  identically to `MediaCard`, `MediaRow`, and `MediaWidget`.
+
+
 - **The Strapi importer carries media as silo media, and the uploads reach it one
   file at a time (2026-08-27).** §13.20 in
   [../design/plugins.md](../design/plugins.md), under "Media, and the transport a

@@ -29,6 +29,7 @@ export function EntriesTable({
   extra,
   gridCols,
   mediaById,
+  baseUrl,
   snippets,
   sortIcon,
   onToggleSort,
@@ -47,6 +48,7 @@ export function EntriesTable({
   extra: readonly string[]
   gridCols: string
   mediaById: Record<string, MediaAsset>
+  baseUrl?: string
   snippets: Record<string, SearchSnippet[]>
   sortIcon: (path: string) => ReactNode
   onToggleSort: (path: string) => void
@@ -101,7 +103,7 @@ export function EntriesTable({
           </div>
           {extra.map((c) => (
             <div key={c} className={table.cell}>
-              <CellValue schema={schema} name={c} value={e.data?.[c]} mediaById={mediaById} />
+              <CellValue schema={schema} name={c} value={e.data?.[c]} mediaById={mediaById} baseUrl={baseUrl} />
             </div>
           ))}
           <div className={`${table.cell} ${styles.relativeTime}`}>{Formatters.relativeTime(e.updated_at)}</div>

@@ -116,6 +116,7 @@ export function EntriesView({
   })
 
   const mediaById = useMediaColumns(url, apiKey, entries, extra)
+  const baseUrl = url ? (url.endsWith('/') ? url.slice(0, -1) : url) : ''
 
   /** Takes a path (D29), so the URL and the API speak the same language. */
   const toggleSort = (path: string) => {
@@ -286,6 +287,7 @@ export function EntriesView({
               extra={extra}
               gridCols={gridCols}
               mediaById={mediaById}
+              baseUrl={baseUrl}
               snippets={snippets}
               sortIcon={sortIcon}
               onToggleSort={toggleSort}
