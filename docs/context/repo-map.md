@@ -43,7 +43,7 @@ script.
 | Directory | What it holds |
 |-----------|---------------|
 | `cli/` | `Cli` parses argv, `CliOptions` owns the flag table, `UsageText` the help, `CommandRouter` routes in three tiers, and `commands/` is one class per subcommand. `runtime/silo-runtime.ts` does the dependency wiring |
-| `config/` | `Config` and its sub-shapes, `ConfigLoader`, and `PluginBlockWriter` — the only writer, and it appends rather than re-serialises |
+| `config/` | `Config` and its sub-shapes, `ConfigLoader`, `ConfigScaffold` (the annotated default file, written by `silo init` and by an install that has no file to list a plugin in), and `PluginBlockWriter` — the only editor, and it appends rather than re-serialises |
 | `core/domain/` | `Entry`, `Scope`, `Collection`, `Meta` and their helpers |
 | `core/ports/` | `Storage`, `BlobStorage`, `DerivedIndex` — interfaces only, importing no adapter |
 | `core/services/` | The application service layer. `SiloService` is the facade; `scopes`, `collections`, `entries`, `search`, `keys`, `plugins`, `audit`, `transfer` and `media` are the services behind it. `support/` holds what they share — the `ServiceContext`, the schema cache, the write lock |

@@ -42,13 +42,22 @@ than a link back to the instance you are migrating off.
 ## The mapping, and why
 
 A Strapi single type holding a repeatable component is **a table wearing a single
-type as a hat**. So `org-quicko.bank` inside `Org-quicko-bank` becomes a `bank`
-collection with one entry per bank, not one entry holding a 29-element array.
+type as a hat**. So `org-quicko.bank` inside `Org-quicko-bank` becomes an
+`org-quicko-bank` collection with one entry per bank, not one entry holding a
+29-element array.
 
 That is a modelling decision, not a mechanical translation, and the alternative
 is defensible right up to the point of being useful: an array in one entry is
 faithful to the source, and it is also one `rev` for the whole table,
 unsearchable per row, and not how anyone would model it starting from silo.
+
+**The name is carried whole.** The component's uid and not the single type's, and
+with its namespace kept: `org-quicko.bank` proposes `org-quicko-bank`, not `bank`.
+Strapi namespaces components because two of them are called the same short word,
+and silo's collections are flat, so the short name is the one the *next* import
+will also want. `api::` is dropped, and a segment that only repeats the one before
+it goes with it, so `api::article.article` still proposes `article`. Rename
+anything on the plan; `collection_prefix` prepends to all of them.
 
 **Nothing of Strapi's identity is carried.** No `strapi_id`, no `document_id`.
 Silo mints its own id (D2) and nothing on either side resolves a Strapi one, so a

@@ -1,4 +1,5 @@
-import type { StrapiInventory, StrapiList } from './strapi-inventory'
+import { SiloNames } from './silo-names'
+import type { StrapiInventory } from './strapi-inventory'
 import type { StrapiVersion } from './strapi-versions'
 import { StrapiVersions } from './strapi-versions'
 
@@ -49,10 +50,6 @@ export interface ImportPlan {
 export class ImportPlans {
   static readonly Modes: readonly ImportMode[] = ['append', 'replace', 'skip']
 
-  /** silo collection names: lowercase, digits, `_`. Applied here so a proposed
-   *  name is one silo will accept rather than one the first write rejects. */
-  private static readonly Allowed = /[^a-z0-9_]+/g
-
   /** What silo would do with this export if nobody edited anything. */
   static propose(
     inventory: StrapiInventory,
@@ -67,10 +64,7 @@ export class ImportPlans {
     const taken = new Set<string>()
     const steps = inventory.lists.map((list) => ({
       list: list.id,
-      collection: ImportPlans.unique(
-        defaults.prefix + ImportPlans.nameFor(list),
-        taken,
-      ),
+      collection: SiloNames.unique(defaults.prefix + SiloNames.forList(list), taken),
       // `append` and not `replace`, because a plan that defaults to deleting is a
       // plan somebody runs once without reading. Emptying a collection is
       // available, and it is a thing an operator has to choose.
@@ -131,32 +125,13 @@ export class ImportPlans {
     if (steps.length === 0) throw new Error('no steps are included, so there is nothing to import')
 
     return {
-      project: ImportPlans.identifier(body.project, 'project'),
-      env: ImportPlans.identifier(body.env, 'env'),
+      project: SiloNames.check(body.project, 'project'),
+      env: SiloNames.check(body.env, 'env'),
       version,
       mediaBaseUrl: typeof body.mediaBaseUrl === 'string' ? body.mediaBaseUrl : '',
       mediaFolder: ImportPlans.folder(body.mediaFolder),
       steps,
     }
-  }
-
-  /** The proposed collection name for one list. */
-  static nameFor(list: StrapiList): string {
-    // The component's own name, not the content type's: `org-quicko.bank` inside
-    // `Org-quicko-bank` is the thing being imported, and the wrapper single type
-    // is Strapi's way of holding a table rather than part of what it holds.
-    const source = list.component ?? list.contentType.split('.').pop() ?? list.contentType
-    const tail = source.split('.').pop() ?? source
-    const name = tail.replace(/-/g, '_').toLowerCase().replace(ImportPlans.Allowed, '_')
-    return name.replace(/^_+|_+$/g, '') || 'imported'
-  }
-
-  private static unique(name: string, taken: Set<string>): string {
-    let candidate = name
-    let suffix = 2
-    while (taken.has(candidate)) candidate = `${name}_${suffix++}`
-    taken.add(candidate)
-    return candidate
   }
 
   private static step(raw: unknown, inventory: StrapiInventory): ImportStep {
@@ -178,7 +153,7 @@ export class ImportPlans {
 
     return {
       list: list.id,
-      collection: ImportPlans.identifier(entry.collection, `step "${list.id}" collection`),
+      collection: SiloNames.check(entry.collection, `step "${list.id}" collection`),
       mode: mode as ImportMode,
       include: entry.include !== false,
     }
@@ -187,7 +162,7 @@ export class ImportPlans {
   /**
    * A media folder silo will accept, normalised.
    *
-   * Not run through `identifier`: a folder is a path, `/` is meaningful in it, and
+   * Not run through `SiloNames`: a folder is a path, `/` is meaningful in it, and
    * silo normalises the leading and trailing slashes itself. The one thing refused
    * is `..`, because a folder is a place in the library and not a way out of it.
    */
@@ -204,21 +179,5 @@ export class ImportPlans {
   private static array(raw: unknown): unknown[] {
     if (!Array.isArray(raw)) throw new Error('"steps" must be an array')
     return raw
-  }
-
-  private static identifier(raw: unknown, what: string): string {
-    if (typeof raw !== 'string' || raw.trim().length === 0) {
-      throw new Error(`${what} must be a non-empty string`)
-    }
-    const value = raw.trim()
-    if (ImportPlans.Allowed.test(value)) {
-      // Reset, because a global regex used with `test` keeps `lastIndex`.
-      ImportPlans.Allowed.lastIndex = 0
-      throw new Error(
-        `${what} "${value}" is not a usable name — lowercase letters, digits and underscores`,
-      )
-    }
-    ImportPlans.Allowed.lastIndex = 0
-    return value
   }
 }

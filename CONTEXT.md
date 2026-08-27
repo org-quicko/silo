@@ -30,8 +30,31 @@ media included (D41). Plugins install *and uninstall* from the API and the admin
 (D42/D43), and a plugin's page is a summary with its sections behind sheets so
 the plugin's own panel has room (D44).
 
-**The most recent change lets a plugin be uninstalled without a shell, and
-rebuilds the page it is uninstalled from (D43/D44, 2026-08-27).**
+**The most recent change stops an install from evaporating, and stops the Strapi
+importer from proposing everybody's collection names (2026-08-27).**
+Installing a plugin into a directory with no `silo.toml` reported `201`, ran the
+worker, and warned that nothing would come back at the next start. The file is now
+**created**: `ConfigScaffold` owns the annotated default file `silo init` writes,
+and `POST /api/plugins/install` and `silo add` write the same one when they have a
+plugin to list and no file to list it in. Creating it unasked is safe for one
+reason only — the scaffold is silo's *own defaults*, and file values sit below
+flags and `SILO_*` env vars, so a fresh file decides nothing the running instance
+had not already decided. `silo add` creates it after the claims are confirmed, not
+before, because a declined grant must leave the filesystem where it found it. What
+is still refused is inventing the path: a process handed no config file at all
+keeps the warning, since guessing `./silo.toml` is a file appearing in somebody's
+repository. In the same change, the Strapi importer stopped shortening a proposed
+collection name to the last segment of its source uid. `org-quicko.bank` proposed
+`bank`, which is the collection every *other* Strapi export also wants in an
+instance where collections are flat; it now proposes `org-quicko-bank`. Hyphens
+came with it, since silo's own id rule (`^[a-z][a-z0-9_-]{0,63}$`) always allowed
+them and the plugin was validating against a stricter one of its own. `api::` is
+dropped and a segment repeating the one before it goes with it, so
+`api::article.article` still proposes `article`. See §13.21 in
+[docs/design/plugins.md](docs/design/plugins.md).
+
+**Before that, a plugin became uninstallable without a shell, and the page it is
+uninstalled from was rebuilt (D43/D44, 2026-08-27).**
 `DELETE /api/plugins/{name}` takes a plugin off an instance whole: its
 `[[plugins]]` entry, its worker, its record, its managed key and its package.
 Same claim as install (`plugins:enable`), and `If-Match` fenced wherever there is

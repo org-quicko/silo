@@ -4,6 +4,30 @@
 > The *current* state is [CONTEXT.md](../../CONTEXT.md); this is how it got
 > there.
 
+- **An install with no `silo.toml` now writes one (2026-08-27).**
+  `POST /api/plugins/install` and `silo add` used to install, start and grant a plugin and then
+  warn that it would not come back at the next start, because the path they were started with named
+  no file. New `apps/server/src/config/config-scaffold.ts` owns the annotated default config
+  (`render` moved off `InitCommand`, which now holds only the `--force` refusal) and adds `create`,
+  a `wx` write that answers whether it made the file. `PluginInstallation.list` and
+  `AddCommand.register` call it before appending the block; `add` calls it *after* the claim
+  confirmation, so a declined grant writes nothing. A process with no config path at all keeps its
+  warning rather than guessing `./silo.toml`. `PluginBlockWriter.exists` is now used only by the
+  uninstall path.
+
+- **The Strapi importer proposes the whole source name (2026-08-27).**
+  Naming moved out of `ImportPlans` into new
+  `plugins/silo-plugin-strapi-import/silo-names.ts` (`SiloNames`), which owns silo's id rule
+  (`^[a-z][a-z0-9_-]{0,63}$`), the proposal derived from a Strapi uid, and the uniqueness and
+  length trimming around it. `nameFor` shortened a component uid to its last segment, so
+  `org-quicko.bank` proposed `bank` — the name every other Strapi export also proposes, in an
+  instance where collections are flat. `SiloNames.forList` carries the uid whole
+  (`org-quicko-bank`), drops `api::`, and drops a segment that only repeats the one before it so
+  `api::article.article` still proposes `article`. Hyphens survive now, because the plugin had
+  been validating against a stricter underscore-only regex of its own instead of silo's rule;
+  `unique` also keeps a proposal inside 64 characters once the configured prefix and any `_2`
+  suffix are on it.
+
 - **Plugins uninstall from the API and the admin (D43, 2026-08-27).**
   `DELETE /api/plugins/{name}` removes a plugin's `[[plugins]]` entry, worker, record, managed key
   and package, behind `plugins:enable`. New:

@@ -455,6 +455,39 @@ describe("plugin install API (POST /api/plugins/install)", () => {
     expect(await listed("prov")).toBe(true);
   });
 
+  /**
+   * The install used to report success and evaporate. With no `silo.toml` at the
+   * path this process was started with, the block had nowhere to go: the plugin
+   * ran, the response said so, and nothing came back at the next start (§13.21).
+   *
+   * The file is asserted through `ConfigLoader` rather than as text, because the
+   * point of creating one unasked is that `serve` can start from it.
+   */
+  test("creates the config file when there is none, so the plugin comes back", async () => {
+    await fs.rm(configPath);
+
+    const response = await app.request("/api/plugins/install", {
+      method: "POST",
+      headers: { ...auth(), "Content-Type": "application/json" },
+      body: JSON.stringify({ spec: path.join(Fixtures, "greeter") }),
+    });
+
+    expect(response.status).toBe(201);
+    const body: any = await response.json();
+    expect(body.warnings.join(" ")).toContain("was created");
+    expect(body.warnings.join(" ")).not.toContain("next start");
+    expect(await listed("greeter")).toBe(true);
+
+    const reloaded = await ConfigLoader.loadConfig(configPath, true);
+    expect(reloaded.plugins.map((plugin) => plugin.name)).toEqual(["greeter"]);
+    // Defaults and nothing else besides the entry: a file written behind the
+    // operator's back must not decide anything the run did not already decide.
+    expect({ ...reloaded, plugins: [] }).toEqual({
+      ...ConfigLoader.defaultConfig(),
+      plugins: [],
+    });
+  });
+
   test("refuses an archive larger than the upload limit without reading it", async () => {
     const form = new FormData();
     form.append("file", new File([new Uint8Array(8)], "plugin.tgz"));
