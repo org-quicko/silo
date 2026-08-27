@@ -4,6 +4,43 @@
 > The *current* state is [CONTEXT.md](../../CONTEXT.md); this is how it got
 > there.
 
+- **Plugins install from the API and the admin, and the block they get carries no claims (D42, 2026-08-27).**
+  `POST /api/plugins/install` acquires a package — npm spec, git URL, HTTPS tarball, local path, or
+  an uploaded `.tgz` — checks it, starts it, grants it and appends its `[[plugins]]` block, behind
+  `plugins:enable`. New: `apps/server/src/plugins/registry/plugin-installation.ts`,
+  `apps/admin/src/views/plugins/InstallPluginModal.tsx`,
+  `apps/admin/src/api/types/plugin-install.ts`. `PluginSupervisor.install` delegates to the first the
+  way `rescan` delegates to `PluginRescan`; `PluginInstaller` gains a public `uninstall`.
+  D34 had reserved `/api/plugins/*` for grants and lifecycle, on the argument that an API able to
+  write that block is a code-execution primitive wearing a management claim. The argument holds and
+  the conclusion had been overtaken: since D39 `rescan` starts arbitrary code named by the file on a
+  `plugins:enable` key, so that claim already *is* the primitive, and withholding the install cost an
+  operator on a managed platform a terminal without buying a guarantee. What the split still buys is
+  kept — the block is written **`claims = []`** and every claim goes in the `_plugins` record.
+  Effective authority is the file unioned with the record and only the record half passes
+  `assertGrantable`, passes `canDelegate`, is audited and can be withdrawn, so a block carrying
+  claims would be a grant no check ever sees, on this install and on every start after it.
+  **The order is the security property, and the first cut had it inverted** — side effects ran, then
+  checks — which measured on a running instance as three separate breaks: a key holding only
+  `plugins:enable`/`plugins:read` installed a plugin with three claims it could not delegate and read
+  a 403 while the block sat on disk with all three, the worker ran, and the route answered 200; a
+  manifest requiring `keys:create`, which `assertGrantable` says no plugin may ever hold, got it the
+  same way; and a *default* install of any package declaring routes or hooks failed at
+  `assertServable`, because the default read `permissions.required` rather than
+  `PluginGrantResolver.request().required` and so omitted the derived `http:route` and per-hook
+  claims — leaving a block for a package the next `serve` refuses to start, which `loadExtensions`
+  does not catch, so a failed API call became an unbootable server. `PluginInstallation` now refuses
+  what needs no manifest *before fetching*, refuses what the manifest decides *before running*,
+  spawns ungranted, grants, and writes the block **last**, with `PluginInstaller.uninstall` undoing
+  the package on any earlier refusal. Also fixed in the same pass: a provider-only package has no
+  worker and therefore no record (§13.7), which was dereferenced into a 500 and is now reported with
+  the reason it waits for the next start; an uploaded archive is capped at 64 MiB, checked from
+  `Content-Length` before the body is read and from the part's own size after; `timeout_ms` and
+  `on_error` are validated and no longer dropped when there is no config file; the route's two body
+  shapes share one field reader; `installArchive` throws the same `ApiError` as every other admin
+  call, so a 401 still routes the session back to the gate; and the modal's Cancel button was a bare
+  `<button>` inside a `<form>`, so cancelling installed. See §13.21 in `docs/design/plugins.md`.
+
 - **Media thumbnails in the entries grid resolve against the active server's base URL (2026-08-27).**
   In `apps/admin`, `CellValue.tsx` rendered media thumbnails using `src={asset.url}`. Because
   `MediaAssetView.url` is server-relative (`/media/<id>`), browsers resolved thumbnail URLs against

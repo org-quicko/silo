@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { ChevronRight, Plug, PlugZap, RefreshCw } from 'lucide-react'
+import { ChevronRight, Download, Plug, PlugZap, RefreshCw } from 'lucide-react'
 import { Claims } from '@silo/shared/claims'
 import { api } from '../../api/silo-api'
 import { Button } from '../../components/buttons/Button'
@@ -7,9 +7,12 @@ import { Pill } from '../../components/feedback/Pill'
 import { Breadcrumb } from '../../components/navigation/Breadcrumb'
 import { Link } from '../../router/Link'
 import { Routes } from '../../router/routes'
+import { router } from '../../router/router'
+import type { PluginInstallResponse } from '../../api/types/plugin-install'
 import type { PluginView } from '../../api/types/plugin-view'
 import type { RescanReport } from '../../api/types/rescan-report'
 import { TopBar } from '../shell/TopBar'
+import { InstallPluginModal } from './InstallPluginModal'
 import { PluginGrantPlan } from './plugin-grant-plan'
 import { PluginRuntimePill } from './PluginRuntimePill'
 import { PluginContributionWords } from './plugin-contribution-words'
@@ -62,8 +65,9 @@ export function PluginsView({
   const [report, setReport] = useState<RescanReport | null>(null)
   const [rescanning, setRescanning] = useState(false)
   const [rescanError, setRescanError] = useState('')
+  const [installing, setInstalling] = useState(false)
 
-  const canRescan = Claims.has(claims, Claims.PluginsEnable)
+  const canManage = Claims.has(claims, Claims.PluginsEnable)
   // Wide enough for the longest pill in each column: a clipped "Awaiting
   // approval" reads as a different, shorter status.
   const gridCols = '1.4fr 1.2fr 1fr 1fr 36px'
@@ -82,6 +86,17 @@ export function PluginsView({
     }
   }
 
+  // Straight to the plugin's own screen, which is where its claims, its reasons
+  // and its runtime are — an install lands the operator in the middle of a
+  // decision, not at the end of one. Unless there is no record to show: a
+  // package contributing only providers has none (§13.7), so the list is
+  // reloaded instead and the plugin appears there at the next start.
+  const handleInstalled = (result: PluginInstallResponse) => {
+    setInstalling(false)
+    if (result.state) router.navigate(Routes.plugin(serverId, result.name))
+    else reload()
+  }
+
   return (
     <>
       <TopBar />
@@ -96,10 +111,13 @@ export function PluginsView({
               and withdrawing one takes effect immediately.
             </span>
           </div>
-          {canRescan && (
+          {canManage && (
             <div className="head-actions">
               <Button variant="secondary" onClick={rescan} disabled={rescanning}>
                 <RefreshCw size={14} /> {rescanning ? 'Re-reading…' : 'Re-read silo.toml'}
+              </Button>
+              <Button variant="primary" onClick={() => setInstalling(true)}>
+                <Download size={14} /> Install plugin
               </Button>
             </div>
           )}
@@ -155,12 +173,26 @@ export function PluginsView({
               <span>No plugin has a record on this instance.</span>
               <span className={styles.emptyHint}>
                 A record is written the first time a plugin listed in <code>silo.toml</code> loads.
-                Install one with <code>silo add</code>, list it, then re-read the file.
+                Install one directly here, or add one to <code>silo.toml</code> and re-read the file.
               </span>
+              {canManage && (
+                <Button variant="primary" size="sm" onClick={() => setInstalling(true)} style={{ marginTop: 8 }}>
+                  <Download size={14} /> Install a plugin
+                </Button>
+              )}
             </div>
           )}
         </div>
       </div>
+
+      {installing && (
+        <InstallPluginModal
+          url={url}
+          apiKey={apiKey}
+          onClose={() => setInstalling(false)}
+          onSuccess={handleInstalled}
+        />
+      )}
     </>
   )
 }

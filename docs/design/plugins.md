@@ -2222,3 +2222,132 @@ side resolves a Strapi one, so both were fields that looked like keys and were n
   asymmetry is worth stating plainly: silo trusts plugin code and does not trust
   plugin markup, because the markup runs in the operator's browser next to the
   operator's keys.
+
+## 13.21 Installing from the API, and what D34's split was actually protecting (D42)
+
+D34 reserved `/api/plugins/*` for **grants and lifecycle** and said, in as many
+words, that an API able to add a `[[plugins]]` block would be a code-execution
+primitive wearing a management claim. Installing therefore meant a shell: `silo
+add`, then `POST /api/plugins/rescan` or a restart. An operator running silo
+behind a managed platform — a container they do not exec into, a host they reach
+only over HTTPS — could not install a plugin at all.
+
+`POST /api/plugins/install` is that verb, and the argument for adding it is that
+**the thing D34 was protecting had already stopped being protected.** `rescan`
+has, since D39, started arbitrary code named by `silo.toml` on the say-so of a
+`plugins:enable` key. Whoever holds that claim can already decide that plugin
+code runs; what they could not do was put the package on disk, which is a
+different task, not a smaller authority. The boundary was in the wrong place, and
+it cost the operator a terminal without buying a guarantee.
+
+### The block carries no claims
+
+What D34's split *does* still buy is the half worth keeping, and it is why the
+block this writes looks the way it does:
+
+```toml
+[[plugins]]
+name       = "silo-plugin-slugger"
+claims     = []
+timeout_ms = 30000
+on_error   = "fail"
+```
+
+Effective authority is `silo.toml` **unioned** with the `_plugins` record
+(`PluginGrantResolver.effective`), and the two halves are not equally guarded.
+The record half passes `PluginGrantUtils.assertGrantable` — no `root`, none of
+the six `PluginForbiddenClaims` — and `Claims.canDelegate`, is written through an
+audited mutation, and can be taken back with `DELETE .../grant`. The file half
+passes none of that: it is the operator's own file, and an operator editing it is
+assumed to mean it.
+
+An install that wrote claims into the block would therefore be minting a grant
+that no check ever sees — not only on the install, but on every start
+afterwards, because the file is re-read each time. So it writes `claims = []` and
+puts every claim in the record, where all three properties hold. This is the same
+split D34 stated, applied in the one direction that survives the API being able
+to write the file: **registration in the operator's file, authorization in the
+record.**
+
+`silo add` still writes the manifest's required claims into the block, and that
+divergence is deliberate. It runs for somebody with filesystem access — who can
+already execute code — and it asks, at a terminal, before it writes. The API path
+has a caller whose authority is bounded, and bounding it is the whole job.
+
+### The order is the security property
+
+Three of the four things that went wrong in the first cut of this were one
+mistake wearing different clothes: **the side effects ran before the checks.**
+The package was installed, the block written and the worker spawned, and only
+then did `PluginGrantService.grant` apply `canDelegate` and `assertGrantable`.
+Measured against a running instance:
+
+- A key holding `plugins:enable` and `plugins:read` installed a plugin with three
+  claims it could not delegate. It read `403 this key cannot grant plugin
+  "greeter" more authority than it holds itself` — while the block was on disk
+  with all three claims in it, the worker was running, and the plugin's route
+  answered 200. The refusal was cosmetic and the escalation survived a restart.
+- A manifest requiring `keys:create` — a claim `assertGrantable` says no plugin
+  may **ever** hold, because a plugin with it can mint a credential the record
+  does not bound — got it, by the same route.
+- A default install of any package declaring routes or hooks *failed*, because
+  the default read `permissions.required` and not
+  `PluginGrantResolver.request().required`: the derived claims (`http:route`, one
+  per declared hook) were missing, so `assertServable` refused the start. The
+  block had already been written, and `PluginLoader.loadExtensions` does not catch
+  a per-plugin start failure — so the next `serve` refused to boot. A failed API
+  call had turned into an unbootable server, which is the exact outcome
+  `PluginSupervisor.enable` orders its own steps to avoid.
+
+`PluginInstallation` exists to hold the order, and it is the order
+`PluginSupervisor`'s rule dictates — *the record must never describe a state the
+next `serve` cannot reach*:
+
+1. **Refuse before fetching.** A caller who names claims it cannot delegate, or
+   claims no plugin may hold, is refused before a byte crosses the network. It
+   needs no manifest to know that, and refusing early means no third-party code
+   is fetched or unpacked on behalf of a request that was going to fail.
+2. **Install**, which is where the manifest comes from.
+3. **Refuse before running** everything the manifest decides: nothing past what it
+   requested, nothing forbidden, nothing short of what it says it requires,
+   nothing the caller cannot delegate.
+4. **Start the worker**, still ungranted — the state every unapproved plugin is in
+   at every boot, and the reason `assertDeliverable` and `assertServable` exempt
+   an empty grant.
+5. **Grant**, which mints the key and swaps the authority in through
+   `PluginLifecycle.reapply` before the caller is told anything.
+6. **Write the block last.** Everything before it can be undone; it has nothing
+   after it to fail. A refusal at any earlier step takes the package back off
+   disk (`PluginInstaller.uninstall`) and leaves `silo.toml` untouched, so a
+   package that cannot start cannot make the instance unbootable.
+
+Step 6 fails *softly*: if the file cannot be written the plugin is left running
+and the response says it will not come back at the next start. That direction is
+recoverable and the other is not, which is the same asymmetry `enable` and
+`disable` order their halves around.
+
+A `--force` install is the one case with no clean undo: the previous directory is
+already gone, so a later refusal leaves the replacement on disk, stopped and
+unlisted, rather than leaving the operator with neither version.
+
+### What D42 does not do
+
+- **It does not lower the bar to installing.** `plugins:enable` was always the
+  claim that decides whether plugin code runs. It does not add a narrower one,
+  because a second claim would suggest a boundary between "start listed code" and
+  "list code" that the file's own semantics do not support.
+- **It does not remove a plugin.** Uninstalling means editing `silo.toml`, which
+  `PluginBlockWriter` cannot do without re-serialising a file that is mostly
+  comments — and a record with a key attached needs a decision about the key, not
+  a file edit. `DELETE .../grant` and `POST .../disable` already stop a plugin
+  doing anything.
+- **It does not ask for consent.** `silo add` shows the claims and waits, because
+  a terminal is a place to wait. The API's caller *is* the operator and its
+  authority is checked; the admin shows the grant on the plugin's own screen
+  immediately afterwards, which is where the reasons are.
+- **It does not install dependencies.** Unchanged from D32. A plugin's dependency
+  on silo is zero (§13.3) and nothing here grows a resolver.
+- **It does not make an upload unbounded.** `formData()` buffers, so an archive is
+  capped at 64 MiB — checked from `Content-Length` before the body is read and
+  from the part's own size after, because the first is a claim and the second is
+  what arrived.

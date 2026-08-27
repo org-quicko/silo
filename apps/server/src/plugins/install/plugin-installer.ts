@@ -135,6 +135,21 @@ export class PluginInstaller {
   }
 
   /**
+   * Take an installed package back off disk, lock entry included.
+   *
+   * The public half of `rollback`, for the checks that can only run once the
+   * manifest is readable — which is to say once the package has landed.
+   * `PluginInstallation` refuses on several of those, and "nothing lands until
+   * everything passes" has to keep holding when the deciding check lives one
+   * layer up rather than inside `install`.
+   */
+  static async uninstall(pluginsDir: string, name: string): Promise<void> {
+    await PluginInstaller.rollback(pluginsDir, PluginInstaller.target(pluginsDir, name));
+    const lock = await PluginLock.open(pluginsDir);
+    await lock.forget(name);
+  }
+
+  /**
    * A digest the operator supplied has to be used, or it has to say why not.
    *
    * `--integrity` was accepted and then silently dropped for every source but

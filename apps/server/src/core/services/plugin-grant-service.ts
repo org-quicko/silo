@@ -27,6 +27,12 @@ import type { ServiceContext } from "./support/service-context";
  * lives here, so that withdrawing it takes effect now rather than at the next
  * restart, and so that who granted what is recorded.
  *
+ * D42 gave the API a verb that writes the file, and did not weaken that split —
+ * it leaned on it. `PluginInstallation` appends a block with `claims = []` and
+ * routes every claim through this service, precisely because the file half of an
+ * effective grant passes none of what is below: not `assertGrantable`, not
+ * `canDelegate`, not the trail, and not `revoke`.
+ *
  * Every mutation here appends to the trail (D38) and every mutation may be
  * fenced with a revision. Both are properties of the service and not of the
  * route, so the offline CLI gets them for free.

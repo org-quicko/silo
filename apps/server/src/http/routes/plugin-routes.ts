@@ -1,3 +1,6 @@
+import fs from "fs/promises";
+import path from "path";
+import os from "os";
 import type { Context } from "hono";
 import { Claims } from "@silo/shared/claims";
 import { PluginGrantUtils } from "../../core/plugins/plugin-grant-utils";
@@ -9,7 +12,7 @@ import type { AuthenticatedKey } from "../../core/keys/authenticated-key";
 import type { PluginGrantRecord } from "../../core/plugins/plugin-grant-record";
 import type { GrantRequest } from "../../core/services/support/grant-request";
 import { NotFoundError } from "../../core/errors/not-found-error";
-import type { PluginSupervisor } from "../../plugins";
+import type { PluginInstallOptions, PluginSupervisor } from "../../plugins";
 import { RouteAuth } from "../auth/route-auth";
 import { PluginViews } from "./plugin-view";
 
@@ -17,12 +20,19 @@ import { PluginViews } from "./plugin-view";
  * `/api/plugins/*` — the management surface D31 reserved this namespace for,
  * D34 redirected it to, D38 built and D39 made take effect.
  *
- * It manages **grants and lifecycle**, not packages. Everything except `rescan`
- * reads and writes the `_plugins` record, and `rescan` reaches the filesystem
- * only to re-read the operator's *own* `silo.toml` — which keeps D34's split
- * intact: an API that could add a `[[plugins]]` block would be a code-execution
- * primitive wearing a management claim, while one that applies a block the
- * operator already wrote runs exactly what a restart would have.
+ * It manages **grants and lifecycle**, and — since D42 — packages. Most verbs
+ * here read and write the `_plugins` record only. `rescan` re-reads the
+ * operator's *own* `silo.toml`, and `install` writes to it.
+ *
+ * D34 declined to write that file from an API, on the argument that doing so is
+ * a code-execution primitive wearing a management claim. The argument was
+ * right and the conclusion has been overtaken: `rescan` starts arbitrary listed
+ * code already, so `plugins:enable` *is* that primitive, and an operator forced
+ * to a shell to install a plugin was being protected from nothing. What D34's
+ * split still buys is the part that matters — the block `install` writes
+ * carries **no claims**, so authority stays in the record where
+ * `assertGrantable`, `canDelegate` and the audit trail can see it, and where
+ * `DELETE .../grant` can take it back. See `PluginInstallation`.
  *
  * Every mutation that changes a record is fenced with `If-Match`. On a grant
  * that is not ceremony: approving means approving **what you read**, and a
@@ -33,6 +43,48 @@ import { PluginViews } from "./plugin-view";
  */
 export class PluginRoutes {
   static register(app: any, service: SiloService, supervisor: PluginSupervisor) {
+    /**
+     * Install a package and adopt it, without a restart or a shell (D42).
+     *
+     * Registered before `/:name` so the literal wins, like `rescan`.
+     *
+     * `plugins:enable`, and the choice is the whole security argument. This is
+     * the one verb on this surface that *writes* a `[[plugins]]` block, which
+     * D34 called a code-execution primitive wearing a management claim — and it
+     * is, so it is given the claim that already decides whether plugin code
+     * runs. `rescan` has been able to start arbitrary listed code since D39;
+     * splitting a second claim off for install would suggest a boundary that is
+     * not there. What install must never do is *widen* the caller, and that is
+     * `PluginInstallation`'s job: the block it writes carries no claims, and
+     * every claim goes through the record's own delegation checks first.
+     *
+     * Two bodies, one shape. A JSON body names a spec; a multipart body may
+     * carry an archive instead, which is written to a temp file and installed
+     * as a `tarball` source — so an upload and a URL take the identical path
+     * through `PluginInstaller`, integrity check included.
+     */
+    app.post("/api/plugins/install", async (c: Context) => {
+      const caller = RouteAuth.requireClaim(c, Claims.PluginsEnable);
+      const upload = await PluginRoutes.upload(c);
+
+      try {
+        const outcome = await supervisor.install(upload.options, {
+          claims: caller.claims,
+          actor: PluginRoutes.actor(caller),
+        });
+
+        // A package contributing only providers has no record to view — it has
+        // no worker to authorize (§13.7). Reporting the install and the reason
+        // beats a view of a record that was never written.
+        const view = outcome.record
+          ? await PluginRoutes.view(supervisor, outcome.record)
+          : { name: outcome.name, state: null, runtime: null };
+        return c.json({ ...view, warnings: outcome.warnings }, 201);
+      } finally {
+        await upload.cleanup();
+      }
+    });
+
     /**
      * Re-read `silo.toml` and make the running set match it.
      *
@@ -215,6 +267,117 @@ export class PluginRoutes {
       await PluginRoutes.require(service, name);
       return c.json(await supervisor.restart(name));
     });
+  }
+
+  /**
+   * The largest archive an install will accept into memory.
+   *
+   * `formData()` buffers, so this is a real ceiling rather than a policy: a
+   * plugin is source and a manifest, and 64 MiB is already far past any package
+   * that resolution rule (§13.3) is meant to serve. Checked from
+   * `Content-Length` before the body is read *and* from the part's own size
+   * after, because the first is a claim the client makes and the second is what
+   * arrived.
+   */
+  private static readonly MaxArchiveBytes = 64 * 1024 * 1024;
+
+  /**
+   * The install options, from either body shape, plus the cleanup that has to
+   * run whether the install succeeded or not.
+   *
+   * One parser rather than one per shape: the two differ only in where `spec`
+   * comes from, and the copy that stated every other field twice had already
+   * started to drift — `timeout_ms` was `Number(...)` on one side, unvalidated,
+   * and typed on the other.
+   */
+  private static async upload(
+    c: Context
+  ): Promise<{ options: PluginInstallOptions; cleanup: () => Promise<void> }> {
+    const noop = async () => {};
+    if (!(c.req.header("content-type") || "").includes("multipart/form-data")) {
+      const body = await PluginRoutes.body(c);
+      if (typeof body.spec !== "string" || !body.spec.trim()) {
+        throw new ValidationError("plugin spec is required");
+      }
+      return { options: PluginRoutes.options(body.spec, body), cleanup: noop };
+    }
+
+    const declared = Number(c.req.header("content-length"));
+    if (Number.isFinite(declared) && declared > PluginRoutes.MaxArchiveBytes) {
+      throw new ValidationError(
+        `the upload is ${declared} bytes, over the ${PluginRoutes.MaxArchiveBytes}-byte limit ` +
+          `for a plugin archive. Install it from a URL or an npm spec instead.`
+      );
+    }
+
+    const form = await c.req.formData();
+    const fields = Object.fromEntries(
+      [...form.entries()].filter(([, value]) => typeof value === "string")
+    ) as Record<string, string>;
+    const file = form.get("file");
+
+    if (!(file instanceof File)) {
+      if (typeof fields.spec === "string" && fields.spec.trim()) {
+        return { options: PluginRoutes.options(fields.spec, fields), cleanup: noop };
+      }
+      throw new ValidationError("missing file or plugin spec in form data");
+    }
+
+    if (file.size > PluginRoutes.MaxArchiveBytes) {
+      throw new ValidationError(
+        `"${file.name}" is ${file.size} bytes, over the ${PluginRoutes.MaxArchiveBytes}-byte ` +
+          `limit for a plugin archive. Install it from a URL or an npm spec instead.`
+      );
+    }
+
+    // Named `.tgz` regardless of what the part was called: the extension is what
+    // `SourceParser` reads to choose a fetcher, and a client that uploaded
+    // `plugin.bin` should still get the tarball path rather than a confusing
+    // refusal about an unrecognised spec.
+    const staging = await fs.mkdtemp(path.join(os.tmpdir(), "silo-install-upload-"));
+    const archive = path.join(staging, "plugin.tgz");
+    await fs.writeFile(archive, new Uint8Array(await file.arrayBuffer()));
+
+    return {
+      options: PluginRoutes.options(archive, fields),
+      cleanup: async () => {
+        await fs.rm(staging, { recursive: true, force: true }).catch(() => {});
+      },
+    };
+  }
+
+  /**
+   * One field reader for both body shapes.
+   *
+   * `claims` is the only field that differs in kind: JSON carries an array, a
+   * form carries a comma-separated string. Absent in either form means absent —
+   * not empty — because "grant nothing" and "grant what the package requires"
+   * are different requests and `PluginInstallation` distinguishes them.
+   */
+  private static options(spec: string, source: Record<string, unknown>): PluginInstallOptions {
+    const text = (key: string): string | undefined => {
+      const value = source[key];
+      return typeof value === "string" && value.trim() ? value.trim() : undefined;
+    };
+
+    const claims = source.claims;
+    const timeout = Number(source.timeout_ms);
+
+    return {
+      spec: spec.trim(),
+      ref: text("ref"),
+      integrity: text("integrity"),
+      registry: text("registry"),
+      force: source.force === true || source.force === "true" || source.force === "1",
+      claims: Array.isArray(claims)
+        ? claims.map(String)
+        : typeof claims === "string" && claims.trim()
+          ? claims.split(",").map((claim) => claim.trim()).filter(Boolean)
+          : undefined,
+      timeout_ms: Number.isFinite(timeout) && timeout > 0 ? timeout : undefined,
+      on_error:
+        source.on_error === "skip" || source.on_error === "fail" ? source.on_error : undefined,
+    };
   }
 
   /** The record plus everything only the supervisor knows: whether it is

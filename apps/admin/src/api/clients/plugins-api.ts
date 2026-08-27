@@ -1,4 +1,5 @@
 import type { PluginPanelSource, PluginView } from '../types/plugin-view'
+import type { PluginInstallRequest, PluginInstallResponse } from '../types/plugin-install'
 import type { PluginStatus } from '../types/plugin-status'
 import type { RescanReport } from '../types/rescan-report'
 import { HttpTransport } from '../transport/http-transport'
@@ -147,6 +148,56 @@ export class PluginsApi {
    *  CLI reaches a server that is already running. */
   rescan(url: string, key: string): Promise<RescanReport> {
     return this.transport.request<RescanReport>(url, key, '/api/plugins/rescan', { method: 'POST' })
+  }
+
+  /**
+   * Acquire a package and adopt it, without a restart (D42).
+   *
+   * The response is a plugin view with `warnings`, except for a package that
+   * contributes only providers — which has no record to view, so `state` and
+   * `runtime` come back `null` and the warnings carry the reason.
+   */
+  install(
+    url: string,
+    key: string,
+    payload: PluginInstallRequest,
+  ): Promise<PluginInstallResponse> {
+    return this.transport.request<PluginInstallResponse>(url, key, '/api/plugins/install', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    })
+  }
+
+  /**
+   * The same install, with the package uploaded instead of named.
+   *
+   * `fetchRaw` because `request` would set a JSON content type over the one
+   * `FormData` has to choose for itself — the multipart boundary is in it. The
+   * failure path still goes through `transport.fail`, so a refused upload
+   * arrives as the same `ApiError` every other call throws, and a 401 still
+   * routes the session back to the gate.
+   */
+  async installArchive(
+    url: string,
+    key: string,
+    file: File,
+    options: Omit<PluginInstallRequest, 'spec'> = {},
+  ): Promise<PluginInstallResponse> {
+    const form = new FormData()
+    form.append('file', file)
+    for (const [field, value] of Object.entries(options)) {
+      if (value === undefined || value === '') continue
+      form.append(field, Array.isArray(value) ? value.join(',') : String(value))
+    }
+
+    const response = await this.transport.fetchRaw(url, '/api/plugins/install', {
+      method: 'POST',
+      headers: HttpTransport.authHeaders(key),
+      body: form,
+    })
+    if (!response.ok) throw await this.transport.fail(response)
+    return (await response.json()) as PluginInstallResponse
   }
 
   private write(

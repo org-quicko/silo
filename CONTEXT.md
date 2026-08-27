@@ -26,9 +26,34 @@ keys with claims (D12/D21), export/import and scope-to-scope copy, the admin
 UI, single-binary releases with Homebrew and RPM, and plugins with an installer
 (D31/D32/D33). Plugins now also take byte bodies and contribute admin
 panels, and there is a first-party plugin using both to import a Strapi 5 export,
-media included (D41).
+media included (D41). Plugins install from the API and the admin (D42).
 
-**The most recent change fixes media thumbnail resolution in the admin entries grid (2026-08-27).**
+**The most recent change lets a plugin be installed without a shell (D42, 2026-08-27).**
+`POST /api/plugins/install` acquires a package — npm spec, git URL, HTTPS tarball,
+local path, or an uploaded `.tgz` — checks it, starts it, grants it and appends
+its `[[plugins]]` block, behind `plugins:enable`. The admin gets an Install
+dialog beside "Re-read silo.toml". D34 had reserved this namespace for grants and
+lifecycle, on the argument that an API able to write that block is a
+code-execution primitive wearing a management claim; the argument was right and
+the conclusion had been overtaken, because `rescan` has started arbitrary listed
+code on a `plugins:enable` key since D39. That claim *is* the primitive, and
+withholding the install only cost an operator on a managed platform a terminal
+they do not have. **What is kept is the half worth keeping: the block is written
+with `claims = []`.** Effective authority is the file unioned with the record,
+and only the record half passes `assertGrantable` and `canDelegate`, is audited,
+and can be withdrawn — so a block carrying claims would be a grant no check ever
+sees, on this install and on every start after it. The order is the rest of the
+design and the first cut had it inverted, running side effects before checks: a
+key holding only `plugins:enable` installed a plugin with three claims it could
+not delegate and read a 403 while that plugin's route answered 200; a manifest
+requiring `keys:create` — which no plugin may ever hold — got it; and a default
+install of any package declaring routes or hooks wrote its block and *then*
+failed to start, leaving a `silo.toml` the next `serve` refuses to boot on.
+`PluginInstallation` now refuses before fetching, refuses before running, starts
+ungranted, grants, and writes the block **last**, undoing the package on any
+earlier refusal. See §13.21 in [docs/design/plugins.md](docs/design/plugins.md).
+
+**Before that came a media thumbnail resolution fix in the admin entries grid (2026-08-27).**
 `CellValue.tsx` rendered media thumbnails using `<img src={asset.url} />` where `asset.url` is
 server-relative (`/media/<id>`). When connecting to remote servers or running under the Vite dev server
 (port 5173), thumbnails failed to load due to 404s against the admin host. The active server's base URL

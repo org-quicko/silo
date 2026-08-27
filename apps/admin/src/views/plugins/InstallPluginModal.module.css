@@ -1,0 +1,186 @@
+.body {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  padding: 18px 22px 0;
+}
+
+.modeSwitch {
+  width: 100%;
+}
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.field label {
+  color: var(--text-2);
+  font-size: 12.5px;
+  font-weight: 500;
+}
+
+.hint {
+  color: var(--text-3);
+  font-size: 11.5px;
+  line-height: 1.5;
+}
+
+.input {
+  width: 100%;
+  padding: 8px 12px;
+  border: 1px solid var(--line-2);
+  border-radius: var(--radius-sm);
+  background: var(--panel-2);
+  color: var(--text);
+  font-family: var(--font-sans);
+  font-size: 13px;
+  outline: none;
+  transition: border-color 0.15s ease;
+}
+
+.input:focus {
+  border-color: var(--accent);
+}
+
+.inputMono {
+  font-family: var(--font-mono);
+  font-size: 12px;
+}
+
+/* A <button>, so the file picker is keyboard-reachable; the font and width
+   resets are what a bare <button> needs to sit in a column of fields. */
+.dropzone {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  width: 100%;
+  padding: 28px 16px;
+  border: 1px dashed var(--line-2);
+  border-radius: var(--radius-sm);
+  background: var(--panel-2);
+  color: var(--text-3);
+  font-family: inherit;
+  font-size: 12.5px;
+  text-align: center;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.dropzone:focus-visible {
+  border-color: var(--accent);
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.dropzone:disabled {
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+
+.dropzone:hover {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+  color: var(--text-2);
+}
+
+.fileActive {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+  color: var(--text);
+}
+
+.fileInfo {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--text);
+  font-weight: 500;
+}
+
+.fileSize {
+  color: var(--text-3);
+  font-family: var(--font-mono);
+  font-size: 11px;
+}
+
+.toggleRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: var(--panel-2);
+}
+
+.toggleLabel {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.toggleLabel b {
+  color: var(--text-2);
+  font-size: 12.5px;
+  font-weight: 500;
+}
+
+.toggleLabel span {
+  color: var(--text-3);
+  font-size: 11.5px;
+}
+
+.errorBanner {
+  display: flex;
+  align-items: flex-start;
+  gap: 9px;
+  padding: 10px 12px;
+  border: 1px solid color-mix(in oklab, var(--bad) 35%, transparent);
+  border-radius: var(--radius-sm);
+  background: color-mix(in oklab, var(--bad) 10%, transparent);
+  color: var(--bad);
+  font-size: 12.5px;
+  line-height: 1.5;
+}
+
+.errorBanner svg {
+  flex-shrink: 0;
+  margin-top: 2px;
+}
+
+/* An install that succeeded but has something to say — a provider waiting for
+   the next start, a config file that could not be written. Not `bad`: the
+   plugin is installed, and these are the parts that are not simply running. */
+.noticeBanner {
+  display: flex;
+  align-items: flex-start;
+  gap: 9px;
+  padding: 10px 12px;
+  border: 1px solid var(--line-2);
+  border-radius: var(--radius-sm);
+  background: var(--panel-2);
+  color: var(--text-2);
+  font-size: 12.5px;
+  line-height: 1.5;
+}
+
+.noticeBanner svg {
+  flex-shrink: 0;
+  margin-top: 2px;
+}
+
+.noticeBanner b {
+  color: var(--text);
+  font-weight: 500;
+}
+
+.noticeBanner ul {
+  margin: 6px 0 0;
+  padding-left: 16px;
+  color: var(--text-3);
+}

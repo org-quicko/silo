@@ -46,7 +46,7 @@ export class CommandRouter {
     const config = await reload();
 
     if (await CommandRouter.runWithoutStorage(invocation, config, configPath)) return;
-    await CommandRouter.runAgainstData(invocation, config, reload);
+    await CommandRouter.runAgainstData(invocation, config, reload, configPath);
   }
 
   private static async loadConfig(
@@ -126,11 +126,12 @@ export class CommandRouter {
   private static async runAgainstData(
     invocation: CliInvocation,
     config: Config,
-    reload: () => Promise<Config>
+    reload: () => Promise<Config>,
+    configPath?: string
   ): Promise<void> {
     let runtime: SiloRuntime;
     try {
-      runtime = await SiloRuntime.open(config, invocation.command, reload);
+      runtime = await SiloRuntime.open(config, invocation.command, reload, configPath);
     } catch (error: any) {
       console.error(`silo: ${error.message}`);
       process.exit(1);

@@ -47,7 +47,8 @@ export class SiloRuntime {
   static async open(
     config: Config,
     command: string,
-    reload?: () => Promise<Config>
+    reload?: () => Promise<Config>,
+    configPath?: string
   ): Promise<SiloRuntime> {
     // Only `serve` logs: every other subcommand writes *program output* to
     // stdout — data the caller pipes somewhere — and routing that into a log
@@ -86,6 +87,7 @@ export class SiloRuntime {
       logger,
       config,
       reload,
+      configPath,
     });
     return new SiloRuntime(store, service, logger, plugins, supervisor);
   }

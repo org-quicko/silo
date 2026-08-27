@@ -5,6 +5,12 @@ export type { PluginFacts, PluginManifestFacts } from "./plugin-facts";
 export { PluginGrantResolver } from "./plugin-grant-resolver";
 export type { PluginRequest } from "./plugin-request";
 export { PluginInspector } from "./plugin-inspector";
+export { PluginInstallation } from "./plugin-installation";
+export type {
+  PluginInstallationOptions,
+  PluginInstallOptions,
+  PluginInstallOutcome,
+} from "./plugin-installation";
 export { PluginLifecycle } from "./plugin-lifecycle";
 export { PluginLoader } from "./plugin-loader";
 export type { ExtensionLoadOptions } from "./plugin-loader";

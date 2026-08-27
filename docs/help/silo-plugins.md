@@ -321,7 +321,32 @@ export default defineSiloPlugin({
 ## 8. 🎛️ How Silo Manages Plugins (Operator's Guide)
 
 ### Installing a Plugin
-You can install plugins from local paths, npm, git, or tarballs:
+
+There are two ways in, and they differ in where the grant is written.
+
+**From the admin, or the API.** Open **Plugins → Install plugin**, or call the
+API directly. The package is fetched, checked, started and granted in one step —
+no restart, no terminal:
+
+```bash
+curl -X POST https://silo.example.com/api/plugins/install \
+  -H "Authorization: Bearer $SILO_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"spec": "silo-plugin-slugger@^1.0.0"}'
+```
+
+You can also upload a `.tgz` you already have (up to 64 MiB) as
+`multipart/form-data` with a `file` part. Either way it needs `plugins:enable`,
+because installing is what decides that plugin code runs.
+
+The `[[plugins]]` block this appends is written with **`claims = []`** — the
+grant goes into the plugins record instead, where you can narrow it on the
+plugin's page or take it back entirely with **Revoke**. By default the plugin is
+granted exactly what its manifest says it *requires*; a key cannot grant a plugin
+more than it holds itself.
+
+**From a terminal.** `silo add` installs from local paths, npm, git, or tarballs:
+
 ```bash
 # From a local folder
 silo add ./silo-plugin-slugger
@@ -337,7 +362,11 @@ When you run `silo add`:
 1. Silo validates the archive and verifies integrity.
 2. Silo extracts it safely into `<data-dir>/plugins/<name>/`.
 3. Silo presents requested permissions and asks for operator confirmation.
-4. Silo appends a `[[plugins]]` block to `silo.toml`.
+4. Silo appends a `[[plugins]]` block to `silo.toml`, with the claims you
+   confirmed written into it.
+
+`silo add` does not start the plugin — a running server picks it up on
+`POST /api/plugins/rescan`, or at its next start.
 
 ### Managing via CLI
 

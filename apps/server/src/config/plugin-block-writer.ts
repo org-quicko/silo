@@ -59,13 +59,20 @@ export class PluginBlockWriter {
   /**
    * The block itself.
    *
-   * `claims` is written as **exactly what the manifest requests**, because the
-   * two are compared at load and a plugin granted less than it asked for
-   * refuses the start (`PluginLoader.assertGranted`). Writing a block that
-   * would refuse the start is worse than writing none, which is the same
-   * reasoning `create-silo-plugin`'s printed snippet follows — and the reason
-   * `silo add` shows the claims and asks before writing them rather than
+   * `claims` is the caller's to decide, and the two callers decide differently
+   * on purpose.
+   *
+   * `silo add` writes **exactly what the manifest requests**, because the two
+   * are compared at load and a plugin granted less than it asked for refuses
+   * the start (`PluginLoader.assertGranted`) — writing a block that would
+   * refuse the start is worse than writing none. It can afford to, because it
+   * runs for somebody with filesystem access and it *asks* first rather than
    * treating the manifest's request as consent.
+   *
+   * `PluginInstallation` (D42) writes `[]` and puts the grant in the `_plugins`
+   * record, because its caller is an API key: the file half of an effective
+   * grant passes neither `assertGrantable` nor `canDelegate`, so claims written
+   * here would be authority no check ever sees.
    */
   static render(config: PluginConfig, note?: string): string {
     const claims = config.claims.map((claim) => JSON.stringify(claim)).join(", ");

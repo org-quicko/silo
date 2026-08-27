@@ -12,10 +12,12 @@ import type { PluginRuntime } from "../runtime/plugin-runtime";
 import { PluginConfigurator } from "./plugin-configurator";
 import type { PluginFacts } from "./plugin-facts";
 import { PluginInspector } from "./plugin-inspector";
+import { PluginInstallation } from "./plugin-installation";
+import type { PluginInstallOptions, PluginInstallOutcome } from "./plugin-installation";
 import { PluginLifecycle } from "./plugin-lifecycle";
 import { PluginPanel } from "./plugin-panel";
 import type { PluginPanelSource } from "./plugin-panel";
-import type { PluginRegistry } from "./plugin-registry";
+import { PluginRegistry } from "./plugin-registry";
 import { PluginRescan } from "./plugin-rescan";
 import type { PluginStatus } from "./plugin-status";
 import type { RescanReport } from "./rescan-report";
@@ -31,10 +33,12 @@ export interface PluginSupervisorOptions {
    *  environment included. Absent in a process that was never handed one — an
    *  embedder, a test — where `rescan` refuses rather than guessing. */
   reload?: () => Promise<Config>;
+  /** Path to `silo.toml` if available, so newly installed plugins can be appended. */
+  configPath?: string;
 }
 
 /**
- * Live enable, disable, revoke, reconfigure and rescan (D39, phase 4).
+ * Live install, enable, disable, revoke, reconfigure and rescan (D39, phase 4).
  *
  * Before this, every management verb ended in "restart to find out". A grant was
  * resolved once at load and held in two places, so `DELETE .../grant` destroyed
@@ -69,6 +73,7 @@ export class PluginSupervisor {
   private readonly lifecycle: PluginLifecycle;
   private readonly configurator: PluginConfigurator;
   private readonly reload?: () => Promise<Config>;
+  private readonly configPath?: string;
   private readonly lock = new AsyncMutex();
 
   private config: Config;
@@ -79,6 +84,7 @@ export class PluginSupervisor {
     this.logger = options.logger;
     this.config = options.config;
     this.reload = options.reload;
+    this.configPath = options.configPath;
     this.lifecycle = new PluginLifecycle(options.registry, options.service, options.logger);
     this.configurator = new PluginConfigurator(this.lifecycle, options.service);
   }
@@ -189,14 +195,12 @@ export class PluginSupervisor {
   /**
    * Re-read `silo.toml` and make the running set match it.
    *
-   * The one verb that reaches the filesystem, and it reaches it to read the
-   * **operator's own file** — which is why it does not breach D34's split. An
-   * API that could add a `[[plugins]]` block would be a code-execution primitive
-   * wearing a management claim; an API that applies a block the operator already
-   * wrote runs exactly what a restart would have, sooner. It is guarded by
-   * `plugins:enable` for that reason: rescan is enable and disable applied to
-   * the whole set, and "may this caller decide whether plugin code runs" should
-   * have one answer rather than two.
+   * It reaches the filesystem to read the **operator's own file**, which is why
+   * it never breached D34's split: an API that applies a block the operator
+   * already wrote runs exactly what a restart would have, sooner. `install` is
+   * the verb that goes further and *writes* one, and it is guarded by the same
+   * claim for the same reason — rescan already ran arbitrary listed code, so
+   * "may this caller decide whether plugin code runs" has one answer, not two.
    */
   async rescan(): Promise<RescanReport> {
     return await this.serialized(async () => {
@@ -237,6 +241,42 @@ export class PluginSupervisor {
         failed: report.failed.map((failure) => failure.name).join(",") || "-",
       });
       return report;
+    });
+  }
+
+  /**
+   * Acquire a package, start it, authorize it and list it — see
+   * `PluginInstallation`, which owns the order those happen in and the reasons
+   * for it.
+   *
+   * Under the same mutex as everything else here, and for a sharper version of
+   * the same reason: an install decides what the ordered set is *and* writes to
+   * `silo.toml`, so one interleaved with a `rescan` would have the rescan read a
+   * file the install had half-written.
+   *
+   * The config in force is replaced from the outcome rather than re-read. The
+   * block that was appended is the block that was spawned, so a reload could
+   * only agree — at the cost of a second failure mode (a file that stopped
+   * parsing between the two) on the one path where there is nothing left to
+   * undo.
+   */
+  async install(
+    options: PluginInstallOptions,
+    request: GrantRequest
+  ): Promise<PluginInstallOutcome> {
+    return await this.serialized(async () => {
+      const outcome = await PluginInstallation.run({
+        lifecycle: this.lifecycle,
+        registry: this.registry,
+        service: this.service,
+        logger: this.logger,
+        config: this.config,
+        configPath: this.configPath,
+        install: options,
+        request,
+      });
+      this.config = outcome.config;
+      return outcome;
     });
   }
 

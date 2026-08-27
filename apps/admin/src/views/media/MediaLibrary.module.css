@@ -257,7 +257,7 @@
 }
 
 /* List view — folders and files as DataTable rows instead of tiles. */
-.fileRow {}
+/* .fileRow */
 
 /* Resets <button> defaults on a folder row without touching table.row's
    grid/border/hover, the same way .folderCard does for the tile shell. */
