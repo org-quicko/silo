@@ -17,7 +17,7 @@ can be cloned with one command.
 
 ## Where things stand
 
-*Last updated: 2026-08-31*
+*Last updated: 2026-08-31 (D49)*
 
 Everything through M5 is built and shipping: collections and JSON Schema
 validation, entry CRUD with optimistic concurrency, the query AST and search
@@ -32,13 +32,68 @@ the plugin's own panel has room (D44). Where the media library keeps its bytes i
 configurable from the admin, and still written back to `silo.toml` (D45); so are
 where media URLs point and what the library accepts (D46), and the rest of the
 config file — logging, search, validation, the auth switch (D47). A media
-delete can now force past a live reference, singly or in bulk from the admin's
+delete can force past a live reference, singly or in bulk from the admin's
 multi-select, and a reference that no longer resolves reads back `null`
-instead of a broken link (D48).
+instead of a broken link (D48). Force now additionally requires
+`entries:update` at every scope it actually reaches, folders can be renamed
+or moved (with an opt-in merge past a collision) and deleted recursively, and
+the whole library can be purged (D49).
 
-**The most recent change reverses D23's flat refusal on a referenced media
-delete, and gives the read path somewhere to put the truth (D48,
-2026-08-31).**
+**The most recent change tightens what a media force-delete needs, and gives
+folders a rename with an opt-in merge, a recursive delete, and the whole
+library a purge (D49, 2026-08-31).**
+D48 shipped force gated on `media:delete` alone, an acceptance this
+supersedes: force now additionally requires `entries:update`, held at every
+scope the assets being force-deleted are actually referenced from — the same
+rule `ForcedDeletePermissions` and the transfer/scope-copy replace
+permissions already stated three times, that a force must additionally hold
+the claims for the effects it cascades into. Unlike those three, media's reach
+is **data-derived**: `RouteAuth.requireForcedMediaDelete` (async, unlike its
+sibling, because it queries usages) enumerates the *true* referring scopes via
+`MediaUsageScopes`, which pages `Storage.listMediaUsages` up to a 2000-row cap
+and refuses anyone but a key holding `*` past it — checked against the whole
+truth, never the claim-filtered enumeration a refusal's body shows the
+caller, since filtering first would let a key force-delete *because* it
+cannot see the referrers. The admin mirrors it: `AssetInUseDialog`'s force
+checkbox is hidden, not merely disabled, whenever the server would refuse it
+(`MediaForceAvailability`). `PATCH /api/media/folders` renames or moves a
+folder, its descendant folders and every asset within — no entry touched, no
+blob moved, the same D23 property a single asset's rename has always had. It
+refuses on collision with `to` unless the caller opts in with `merge: true`;
+there is no transaction across the record writes, so the rename is **staged**
+the way a deletion is: a `_media_folder_moves` marker is written before the
+first record write and cleared after the last, and `resumePending` replays it
+at the next start, idempotently, selecting by "still within `from`" so a
+half-moved subtree converges rather than doubling. A crash cannot destroy
+anything either (folder records write put-then-delete, so a crash leaves a
+harmless duplicate rather than a loss — a successful merge leaves none, since
+the put is skipped where the destination already has a record). `merge: true`
+is now a deliberate operation rather than the repair — it also
+legalizes a colliding filename inside the merged folder on purpose, since a
+filename is display metadata, never addressing (D23). The admin offers merge
+only after a plain rename refuses, gated on `DangerConfirm`'s typed
+confirmation rather than a checkbox, because a merge cannot be undone by
+renaming back.
+`DELETE /api/media/folders?recursive=true` deletes everything inside a
+folder through the same saga and per-id outcome machinery `POST
+/api/media/delete` already uses, and removes the folder's records only once
+every asset in it is confirmed gone; without `recursive` the route is exactly
+what it was, except that `force=true` on its own is now a `400` rather than a
+silently discarded flag, since without `recursive` nothing in the request
+deletes anything. `POST /api/media/purge` (`{confirm: "purge", force?}`)
+empties the whole library, paging the catalog in batches rather than loading
+it all, checking force's authority once over the whole catalog's id set
+before the first delete runs, and answers the same `{deleted, failed}` shape
+plus a folder count. The admin
+gets rename/delete actions on folder rows and tiles (restructured off a
+`<button>` wrapping the whole tile, since rename and delete are buttons of
+their own now and cannot nest inside one) through the same two-dialog flow
+files use, and a low-emphasis "Purge library" action in the library's page
+head, gated on `media:delete`, through `DangerConfirm` with the force opt-in
+inside it.
+
+**Before it, D23's flat refusal on a referenced media delete was reversed,
+and the read path was given somewhere to put the truth (D48, 2026-08-31).**
 `media_in_use` used to be terminal: the only way past it was editing every
 referring entry by hand, which does not scale past a handful of references and
 is not always possible at all. `MediaDeletionService.delete(id, { force })`

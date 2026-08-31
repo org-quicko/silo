@@ -12,6 +12,7 @@ import type { FixedClaim } from "./fixed-claim";
 import { ForcedDeletePermissions } from "./forced-delete-permissions";
 import type { HookClaim } from "./hook-claim";
 import type { HookName } from "../hooks/hook-name";
+import { MediaForceDeletePermissions } from "./media-force-delete-permissions";
 import { ParsedClaim } from "./parsed-claim";
 import { ScopeCopyPermissions } from "./scope-copy-permissions";
 import { TransferPermissions } from "./transfer-permissions";
@@ -39,6 +40,10 @@ export class Claims extends ClaimVocabulary {
 
   /** What a `?force=true` delete exercises, at whatever reach it reaches. */
   static readonly ForcedDeletePermissions = ForcedDeletePermissions.All;
+
+  /** What a media `?force=true` delete *additionally* exercises, at the
+   *  scopes it is found to reach (D49) — see `RouteAuth.requireForcedMediaDelete`. */
+  static readonly MediaForceDeletePermissions = MediaForceDeletePermissions.All;
 
   static collection(
     project: string,

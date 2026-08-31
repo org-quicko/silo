@@ -29,7 +29,15 @@ export class Exporter {
       // carried the bytes without their filenames and folders would restore a
       // library with no organisation in it, so `_media`/`_media_folders` are
       // never gated on --with-keys the way `_keys` is.
-      if (name === MediaCatalog.Collection || name === MediaCatalog.FoldersCollection) {
+      if (
+        name === MediaCatalog.Collection ||
+        name === MediaCatalog.FoldersCollection ||
+        // An archive taken mid-rename carries the half-moved subtree either
+        // way; carrying its marker too is what lets the destination converge
+        // on the same final state the source will reach at its next start
+        // (D49), instead of restoring a split no one has a record of.
+        name === MediaCatalog.MovesCollection
+      ) {
         return false;
       }
       return name !== KeyUtils.KeysCollection || !withKeys;

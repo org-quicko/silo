@@ -14,6 +14,10 @@ interface Props {
   assets: MediaInUseAsset[]
   checked: boolean
   busy: boolean
+  /** Why force cannot be offered, or null when it can (D49). The server will
+   *  refuse it either way; this is what keeps the checkbox from promising
+   *  otherwise. */
+  forceUnavailable: string | null
   onCheckedChange: (checked: boolean) => void
   onForceDelete: () => void
   onClose: () => void
@@ -24,7 +28,15 @@ interface Props {
  * second and last dialog in the flow. Checking the box and clicking Force
  * delete retries only these ids, forced, with nothing to confirm after it.
  */
-export function AssetInUseDialog({ assets, checked, busy, onCheckedChange, onForceDelete, onClose }: Props) {
+export function AssetInUseDialog({
+  assets,
+  checked,
+  busy,
+  forceUnavailable,
+  onCheckedChange,
+  onForceDelete,
+  onClose,
+}: Props) {
   return (
     <Modal onClose={busy ? () => {} : onClose}>
       <ModalHeader>
@@ -78,18 +90,24 @@ export function AssetInUseDialog({ assets, checked, busy, onCheckedChange, onFor
         })}
       </div>
 
-      <label className={styles.forceGate}>
-        <Checkbox checked={checked} onChange={onCheckedChange} disabled={busy} />
-        I understand this will break these references.
-      </label>
+      {forceUnavailable ? (
+        <p className={styles.forceUnavailable}>{forceUnavailable}</p>
+      ) : (
+        <label className={styles.forceGate}>
+          <Checkbox checked={checked} onChange={onCheckedChange} disabled={busy} />
+          I understand this will break these references.
+        </label>
+      )}
 
       <ModalActions>
         <Button variant="secondary" disabled={busy} onClick={onClose}>
           Cancel
         </Button>
-        <Button variant="danger" disabled={!checked || busy} onClick={onForceDelete}>
-          {busy ? 'Deleting…' : 'Force delete'}
-        </Button>
+        {!forceUnavailable && (
+          <Button variant="danger" disabled={!checked || busy} onClick={onForceDelete}>
+            {busy ? 'Deleting…' : 'Force delete'}
+          </Button>
+        )}
       </ModalActions>
     </Modal>
   )

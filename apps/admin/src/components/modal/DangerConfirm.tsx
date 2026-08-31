@@ -21,6 +21,7 @@ export function DangerConfirm({
   title,
   confirmWord,
   confirmLabel,
+  busyLabel = 'Deleting…',
   busy = false,
   error,
   children,
@@ -31,6 +32,10 @@ export function DangerConfirm({
   /** Typed back verbatim before the action arms — normally the subject's id. */
   confirmWord: string
   confirmLabel: string
+  /** What the button says while the request is in flight. Defaults to the
+   *  delete wording every original caller wants; a caller whose action is not
+   *  a delete has to say so, or the button would name the wrong verb. */
+  busyLabel?: string
   busy?: boolean
   error?: string
   children: ReactNode
@@ -80,7 +85,7 @@ export function DangerConfirm({
           Cancel
         </Button>
         <Button variant="danger" disabled={!armed} onClick={onConfirm}>
-          {busy ? 'Deleting…' : confirmLabel}
+          {busy ? busyLabel : confirmLabel}
         </Button>
       </ModalActions>
     </Modal>

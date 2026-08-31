@@ -1,5 +1,6 @@
 import type { MediaAsset } from '../types/media-asset'
 import type { MediaBulkDeleteResult } from '../types/media-bulk-delete'
+import type { MediaFolderDeleteResult } from '../types/media-folder-delete'
 import type { MediaQuery } from '../types/media-query'
 import type { MediaPolicyInput, MediaPolicyView } from '../types/media-settings'
 import type { MediaStorageInput, MediaStorageView } from '../types/media-storage'
@@ -94,7 +95,7 @@ export class MediaApi {
     id: string,
     limit = 50,
     offset = 0,
-  ): Promise<{ items: MediaUsage[]; total: number; visible: number }> {
+  ): Promise<{ items: MediaUsage[]; total: number; visible: number; visible_capped: boolean }> {
     return this.transport.request(
       url,
       key,
@@ -116,6 +117,25 @@ export class MediaApi {
     })
   }
 
+  /** Rename or move a folder, its descendant folders, and every asset within.
+   *  Touches no entry and moves no blob (D49). `merge` joins an existing `to`
+   *  instead of refusing on collision — off by default, since a collision
+   *  should refuse until the caller opts in. */
+  renameFolder(
+    url: string,
+    key: string,
+    from: string,
+    to: string,
+    merge = false,
+  ): Promise<{ from: string; to: string }> {
+    return this.transport.request<{ from: string; to: string }>(url, key, '/api/media/folders', {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ from, to, merge }),
+    })
+  }
+
+  /** Empty-folder delete: refuses while anything is inside. */
   deleteFolder(url: string, key: string, path: string): Promise<void> {
     return this.transport.request<void>(
       url,
@@ -123,6 +143,27 @@ export class MediaApi {
       `/api/media/folders?path=${encodeURIComponent(path)}`,
       { method: 'DELETE' },
     )
+  }
+
+  /** Recursive folder delete (D49): every asset inside goes through the same
+   *  per-id outcome machinery `deleteMany` does, then the folder records — an
+   *  asset that comes back `media_in_use` means the folder is not gone. */
+  deleteFolderRecursive(url: string, key: string, path: string, force = false): Promise<MediaFolderDeleteResult> {
+    const query = `path=${encodeURIComponent(path)}&recursive=true${force ? '&force=true' : ''}`
+    return this.transport.request<MediaFolderDeleteResult>(url, key, `/api/media/folders?${query}`, {
+      method: 'DELETE',
+    })
+  }
+
+  /** Empties the whole library: every asset, then every folder record
+   *  (D49). The literal confirmation word is the cheapest insurance against a
+   *  stray or replayed request. */
+  purge(url: string, key: string, force = false): Promise<MediaFolderDeleteResult> {
+    return this.transport.request<MediaFolderDeleteResult>(url, key, '/api/media/purge', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ confirm: 'purge', force }),
+    })
   }
 
   /** Where the library keeps its bytes, and what the file versus the process

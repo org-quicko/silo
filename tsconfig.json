@@ -1,7 +1,14 @@
 {
   // One typecheck pass over everything that runs on Bun. Each package also has
   // its own config for `bun run --cwd <pkg> typecheck`; this one is what a bare
-  // `tsc -b` at the repo root checks.
+  // `tsc -b` at the repo root checks. The admin UI needs DOM and JSX, so it
+  // stays its own tree and the `typecheck` script runs it as a second pass
+  // rather than folding its sources in here.
   "extends": "./tsconfig.base.json",
-  "include": ["apps/server/**/*", "packages/shared/**/*", "tools/**/*"]
+  "include": ["apps/server/**/*", "packages/shared/**/*", "tools/**/*"],
+  // `silo_data/` is a running instance's data directory, not source: it holds
+  // plugins installed at runtime, whose files are gitignored and typecheck
+  // against their own tree. Sweeping them in here fails the build over code
+  // this repo does not own.
+  "exclude": ["**/node_modules/**", "**/silo_data*/**", "**/.build/**"]
 }

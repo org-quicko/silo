@@ -1,6 +1,15 @@
 .hiddenInput { display: none; }
 .pageHeader { margin-bottom: 12px; }
 
+/* Deliberately not in .head-actions beside Upload — purge is destructive and
+   whole-library, so it sits apart and low-key, not among the everyday
+   actions (D49). */
+.purgeRow {
+  display: flex;
+  justify-content: flex-end;
+  margin-bottom: 12px;
+}
+
 .uploadZone {
   display: flex;
   flex-direction: column;
@@ -222,22 +231,28 @@
   white-space: nowrap;
 }
 
-/* Resets <button> defaults on top of .card's shared shell — border,
-   background, and radius all come from .card; only what a button adds
-   (padding, font, text alignment) needs undoing here. */
-.folderCard {
+/* The one visual difference from a file tile at rest: an accent border on
+   hover, over the whole card — including its actions row, not just the open
+   region below. */
+.folderCard:hover {
+  border-color: color-mix(in oklab, var(--accent) 40%, var(--line));
+}
+
+/* Resets <button> chrome on just the open region (D49) — rename/delete sit
+   outside it now, as buttons of their own, so nesting them here would be
+   invalid HTML. Border, background and radius still come from .card on the
+   wrapping div. */
+.folderOpen {
   display: flex;
   width: 100%;
   flex-direction: column;
   padding: 0;
+  border: 0;
+  background: none;
   color: inherit;
   cursor: pointer;
   font: inherit;
   text-align: left;
-}
-
-.folderCard:hover {
-  border-color: color-mix(in oklab, var(--accent) 40%, var(--line));
 }
 
 .folderPreview {
@@ -259,12 +274,14 @@
 /* List view — folders and files as DataTable rows instead of tiles. */
 /* .fileRow */
 
-/* Resets <button> defaults on a folder row without touching table.row's
-   grid/border/hover, the same way .folderCard does for the tile shell. */
-.rowReset {
-  width: 100%;
-  padding: 0;
+/* Resets <button> chrome on just the name cell — .cell still supplies its
+   padding and ellipsis, unlike a plain reset that would zero those out too.
+   Rename/delete sit in their own cell now (D49), not nested inside this one. */
+.rowNameButton {
+  border: 0;
+  background: none;
   color: inherit;
+  cursor: pointer;
   font: inherit;
   text-align: left;
 }
@@ -505,4 +522,16 @@
   color: var(--text-2);
   font-size: 12.5px;
   cursor: pointer;
+}
+
+/* Replaces .forceGate when the server would refuse force (D49) — same slot,
+   no checkbox, no affordance the route will reject. */
+.forceUnavailable {
+  margin: 14px 20px 0;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: var(--panel-2);
+  color: var(--text-3);
+  font-size: 12.5px;
 }

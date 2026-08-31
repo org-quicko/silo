@@ -539,8 +539,11 @@ Present a key as `Authorization: Bearer <key>` or `X-Api-Key: <key>`.
 | `POST` | `/api/plugins/rescan` | re-read `silo.toml` and apply it |
 | `GET` | `/api/audit` | who changed what authority, and when |
 | `GET` / `POST` | `/api/media` | list / upload media |
-| `DELETE` | `/api/media/{id}` | delete a media asset, refused while an entry still references it unless `?force=true` |
+| `DELETE` | `/api/media/{id}` | delete a media asset, refused while an entry still references it unless `?force=true` (which also needs `entries:update` at the scopes it reaches) |
 | `POST` | `/api/media/delete` | delete up to 100 assets at once (`{ids, force}`), always `200` with a `deleted`/`failed` body |
+| `POST` | `/api/media/purge` | empty the whole library (`{confirm: "purge", force?}`), always `200` with a `deleted`/`failed` body plus a folder count |
+| `PATCH` | `/api/media/folders` | rename or move a folder (`{from, to}`), and every asset and descendant folder within |
+| `DELETE` | `/api/media/folders` | delete a folder — empty only by default, or everything inside it with `?recursive=true` (`?force=true` as above) |
 | `GET` / `PUT` | `/api/media/storage` | read / change where the library keeps its bytes (`media:configure`) |
 | `GET` / `PUT` | `/api/media/settings` | read / change where media URLs point and what may be uploaded (`media:configure`) |
 | `GET` | `/api/settings` | the rest of `silo.toml`, with what is in force and what a restart is owed for (`settings:configure`) |

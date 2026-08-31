@@ -4,6 +4,110 @@
 > The *current* state is [CONTEXT.md](../../CONTEXT.md); this is how it got
 > there.
 
+- **Folder merge no longer leaves a duplicate `_media_folders` record, and the
+  merge dialog names its own verb (D49 audit fix, 2026-08-31).**
+  `MediaFolderMoveService` writes folder records put-then-delete so a crash leaves a duplicate
+  rather than losing one, and `putFolder` mints a fresh id to make that true. Under `merge: true`
+  the destination can already hold an explicit record for the same path, and putting a second one
+  there left two records naming one folder — permanently, on a *successful* merge, and invisibly,
+  since `MediaFolderService.list` dedupes through a `Set`. Each merge into the same destination
+  added another. The put is now skipped when the destination path already holds a record: the
+  record the delete would be racing already stands, so there is no loss window to protect and the
+  put only duplicated it. A crash is once again the only thing that can leave a duplicate behind.
+  `DangerConfirm` gains an optional `busyLabel` (defaulting to the delete wording every original
+  caller wants), because it hard-coded "Deleting…" while busy — so `MergeFolderDialog`'s button
+  read "Deleting…" mid-merge, and its own `busy` label was dead code. Its copy now says the merge
+  cannot be undone rather than that the two subtrees cannot be told apart.
+  `.folderOpen` also missed the `border: 0; background: none;` its sibling `.rowNameButton` has,
+  so a folder tile’s open region rendered with the browser’s default button chrome.
+
+- **A media force-delete now additionally requires `entries:update` at the
+  scopes it reaches, folders gain a rename (with an opt-in merge past a
+  collision) and a recursive delete, and the library gains a purge (D49,
+  2026-08-31).**
+  D48 shipped force gated on `media:delete` alone, an acceptance this supersedes: a
+  force-deleted asset's referring entries are not rewritten in storage, but the read path changes
+  what every one of them *resolves to*, which is a bulk `entries:update` wearing a `media:delete`
+  claim — the same rule `ForcedDeletePermissions`, `TransferPermissions.Replace` and
+  `ScopeCopyPermissions.Replace` already state, the fourth place it is true. New
+  `MediaForceDeletePermissions.All = [entries:update]`, checked at every scope the force actually
+  reaches. Unlike its three siblings the reach is **data-derived**: `RouteAuth.
+  requireForcedMediaDelete` (async, unlike `requireForcedDelete`, because it queries usages)
+  enumerates the distinct referring scopes via `MediaUsageScopes.reach`, which pages
+  `Storage.listMediaUsages` up to a 2000-row cap and checks against the **true** referrer set,
+  never the claim-filtered one a refusal's body shows the caller — filtering first would let a key
+  force-delete *because* it cannot see the referrers, and a key that cannot read a scope
+  necessarily lacks `entries:update` there too, so refusing it is self-consistent. The `403` takes
+  the same hidden-versus-visible split the `409` does — it names only the missing scopes the key
+  may already read and counts the rest — so checking against the true reach does not become the
+  one place that discloses it. Past the cap,
+  only a key holding `*` may proceed; a `Storage.listMediaUsageScopes` port method would make the
+  cap unnecessary and was declined for now, since port growth needs its own justification. Applied
+  to all four force paths, including the two new ones below. The admin mirrors it:
+  `MediaForceAvailability.unavailable` hides `AssetInUseDialog`'s force checkbox and button
+  whenever the server would refuse it — `visible_capped` (too many referrers to enumerate),
+  `visible_count < usage_count` (a referrer this key cannot read at all), or a visible referrer's
+  scope is missing `entries:update`. `visible_count` is `MediaAssetService.usages`' true count of
+  readable referrers, counted up to the same `MediaUsageScopes.EnumerationCap` rather than
+  `items.length` — a page size is not the same question as how many this key may read.
+
+  `PATCH /api/media/folders` (`{from, to, merge?}`, `media:create`) renames or moves a folder, its
+  descendant folders and every asset within — no entry touched, no blob moved, the same D23
+  property a single asset's rename has always had, one level up. Refuses on collision with `to`
+  (an explicit record or one implied by any asset's folder) unless the caller opts in with
+  `merge: true`, and refuses moving a folder into its own descendant regardless. No cap on subtree
+  size, and no transaction across the record writes, so the rename is **staged** the way a
+  deletion is: a `_media_folder_moves` marker written before the first record write and
+  cleared after the last, replayed idempotently at the next start by `resumePending` (it
+  selects by "still within `from`", so a half-moved subtree converges rather than doubling;
+  a completed move's marker clears without writing; a marker naming nothing is dropped).
+  The marker is exported with the catalog, so an archive taken mid-rename restores to an
+  instance that finishes the job. A crash cannot destroy anything either:
+  each folder record now writes **put-then-delete** rather than delete-then-put, so a crash
+  between the two calls leaves a harmless duplicate (`MediaFolderService.list` already dedupes
+  through a `Set`) rather than losing the folder, and each asset is a single `putAsset` to its own
+  id, so a crash mid-loop there only ever splits the subtree across `from` and `to`, both already
+  existing per D20's rule. `merge: true` (D49 amendment) is what turns that unfinished state into
+  a finished one — a plain retry after a crash meets exactly the collision merge is for — and it
+  legalizes a colliding filename inside the merged folder on purpose, since a filename is display
+  metadata, never addressing (D23). The admin offers merge only after a plain rename refuses with
+  a `409`, gated on `DangerConfirm`'s typed confirmation rather than a checkbox
+  (`MergeFolderDialog`, `useMediaRenameFolderFlow`) — a merge cannot be undone by renaming back, the
+  same non-reversibility `DangerConfirm` is reserved for elsewhere. `DELETE
+  /api/media/folders?recursive=true&force=true` deletes everything inside a folder: without
+  `recursive` the route is exactly what it was (still refuses a non-empty folder), except that
+  `force=true` on its own is now a `400 ValidationError` rather than a silently discarded flag —
+  without `recursive` nothing in the request deletes anything, so there is nothing to force. With
+  `recursive`, every asset in the subtree goes through `MediaDeletionService.delete` via the same
+  per-id outcome loop `POST /api/media/delete` uses, now factored into a shared
+  `MediaDeleteBatch`; folder records are removed only once every asset in the subtree is confirmed
+  gone. `POST /api/media/purge` (`{confirm: "purge", force?}`, `media:delete`) empties the whole
+  library — the literal confirmation word is required, or a `ValidationError` — paging the catalog
+  in fixed-size batches via `MediaPurgeService` rather than loading it all, its offset advancing by
+  each page's *surviving*-failure count (excluding `not_found`, whose row is already gone and
+  shifts nothing) so a page of successful deletes cannot shift an untried row out of view. `force`
+  is checked once, over every id the whole catalog enumerates, before the first delete runs —
+  never per page, which would have let earlier pages finish deleting before a later page's
+  refusal aborted the request with a `403` that could not say what had already vanished. Both
+  answer `200` with the same `{deleted, failed}` shape plus `folders_deleted`. The admin gets
+  rename/delete actions on folder rows and tiles — `FolderRow`/`FolderTile` restructured off a
+  `<button>` wrapping the whole tile into a clickable name/open region plus a separate actions
+  cell, since rename and delete are buttons of their own now — through the same two-dialog flow
+  files use (`useMediaDeleteFlow`'s subject is now a `DeleteSubject` union rather than an asset
+  list alone), and a low-emphasis "Purge library" action in the library's page head, deliberately
+  not beside Upload, through `DangerConfirm` with the force opt-in inside the same dialog.
+  `RenameFolderDialog` takes `busy` like every other dialog in this flow, threaded from a new busy
+  cell in `MediaLibrary.tsx` around its `onSave` — without it a double click while the async
+  `PATCH` was in flight sent a second one, which 404s on a `from` the first already renamed.
+  `RenameAssetDialog` had the identical gap (an audit finding folded in here rather than left for
+  a follow-up) and gets the same fix: `busy`, an `editingBusy` cell around `MediaLibrary.tsx`'s
+  `onSave`, and its Save button and both inputs disabled while the request is in flight. Purge's
+  own state (`purging`/`busy`/`error`, and the confirm handler) moved out of `MediaLibrary.tsx`
+  into a new `use-media-purge.ts`, beside `use-media-delete-flow.ts`; selection state
+  (`selected`, `toggleSelected`, `selectMany`, and the page-boundary clear rule) moved out of
+  `use-media-library.ts` into a new `use-media-selection.ts` — both were doing more than one job,
+  and D49 had made both worse (a code-design audit fix, no behaviour change).
+
 - **A media delete can force past a live reference, singly or in bulk, and a
   reference that no longer resolves reads back `null` (D48, 2026-08-31).**
   D23's `media_in_use` was terminal: the only way past it was editing every referring entry by

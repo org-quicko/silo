@@ -12,16 +12,20 @@ import styles from './MediaLibrary.module.css'
 
 interface Props {
   asset: MediaAsset
+  busy: boolean
   onSave: (filename: string, folder: string) => void
   onClose: () => void
 }
 
-export function RenameAssetDialog({ asset, onSave, onClose }: Props) {
+/** `busy` disables Save for the request's duration, the same as every other
+ *  dialog in this flow — `onSave` is async, and a double click would send a
+ *  second `PATCH` before the first one lands. */
+export function RenameAssetDialog({ asset, busy, onSave, onClose }: Props) {
   const [filename, setFilename] = useState(asset.filename)
   const [folder, setFolder] = useState(asset.folder)
 
   return (
-    <Modal onClose={onClose}>
+    <Modal onClose={busy ? () => {} : onClose}>
       <ModalHeader>
         <ModalIcon tone="ok">
           <Pencil size={20} />
@@ -38,24 +42,25 @@ export function RenameAssetDialog({ asset, onSave, onClose }: Props) {
       <div className={styles.editFields}>
         <label>
           <span>File name</span>
-          <input value={filename} onChange={(event) => setFilename(event.target.value)} />
+          <input value={filename} disabled={busy} onChange={(event) => setFilename(event.target.value)} />
         </label>
         <label>
           <span>Folder</span>
           <input
             value={folder}
             placeholder="/ (library root)"
+            disabled={busy}
             onChange={(event) => setFolder(event.target.value)}
           />
         </label>
       </div>
 
       <ModalActions>
-        <Button variant="secondary" onClick={onClose}>
+        <Button variant="secondary" disabled={busy} onClick={onClose}>
           Cancel
         </Button>
-        <Button variant="primary" onClick={() => onSave(filename, folder)}>
-          Save
+        <Button variant="primary" disabled={busy} onClick={() => onSave(filename, folder)}>
+          {busy ? 'Saving…' : 'Save'}
         </Button>
       </ModalActions>
     </Modal>

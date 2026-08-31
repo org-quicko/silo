@@ -1,3 +1,4 @@
+import type { Entry } from "../../domain/entry";
 import type { MediaAssetView } from "../../media/media-asset-view";
 import type { MediaLinks } from "../../media/media-links";
 import type { MediaBytes } from "../../media/media-bytes";
@@ -14,8 +15,13 @@ import {
 import { MediaCatalogStore } from "./media-catalog-store";
 import { MediaDelivery } from "./media-delivery";
 import { MediaDeletionService } from "./media-deletion-service";
+import { MediaFolderMoveService } from "./media-folder-move-service";
 import { MediaFolderService } from "./media-folder-service";
 import { MediaLinkResolver } from "./media-link-resolver";
+import type { MediaForceReach } from "./media-usage-scopes";
+import { MediaUsageScopes } from "./media-usage-scopes";
+import type { MediaPurgeOutcome, MediaPurgeResult } from "./media-purge-service";
+import { MediaPurgeService } from "./media-purge-service";
 import { MediaReconciler } from "./media-reconciler";
 import { MediaReferenceGuard } from "./media-reference-guard";
 import { MediaUsageCounter } from "./media-usage-counter";
@@ -24,16 +30,19 @@ import { MediaUsageCounter } from "./media-usage-counter";
  * The media library (D23), instance-global: one library for the whole server,
  * not one per project/env, and `media:*` stays unscoped.
  *
- * A facade over six collaborators, so callers see one media surface rather than
+ * A facade over collaborators, so callers see one media surface rather than
  * having to know which of them owns a given verb.
  */
 export class MediaService {
   private readonly assets: MediaAssetService;
   private readonly delivery: MediaDelivery;
   private readonly folders: MediaFolderService;
+  private readonly folderMove: MediaFolderMoveService;
   private readonly deletion: MediaDeletionService;
   private readonly reconciler: MediaReconciler;
   private readonly linkResolver: MediaLinkResolver;
+  private readonly usageScopes: MediaUsageScopes;
+  private readonly purgeService: MediaPurgeService;
 
   /** The entry write path checks new references through this (§8.1). */
   readonly referenceGuard: MediaReferenceGuard;
@@ -44,10 +53,13 @@ export class MediaService {
     this.assets = new MediaAssetService(context, catalog, new MediaUsageCounter(context));
     this.delivery = new MediaDelivery(context, catalog);
     this.folders = new MediaFolderService(context, catalog);
+    this.folderMove = new MediaFolderMoveService(context, catalog);
     this.deletion = new MediaDeletionService(context, catalog);
     this.reconciler = new MediaReconciler(context, catalog, this.deletion);
     this.referenceGuard = new MediaReferenceGuard(catalog);
     this.linkResolver = new MediaLinkResolver(context, catalog);
+    this.usageScopes = new MediaUsageScopes(context, catalog);
+    this.purgeService = new MediaPurgeService(context, catalog);
   }
 
   /**
@@ -75,7 +87,7 @@ export class MediaService {
     id: string,
     page: { limit?: number; offset?: number } = {},
     visibility?: MediaUsageVisibility
-  ): Promise<{ items: MediaUsage[]; total: number; visible: number }> {
+  ): Promise<{ items: MediaUsage[]; total: number; visible: number; visibleCapped: boolean }> {
     return this.assets.usages(id, page, visibility);
   }
 
@@ -101,6 +113,11 @@ export class MediaService {
     return this.deletion.delete(id, options);
   }
 
+  /** Finishes any folder move the process died partway through (D49). */
+  resumePendingFolderMoves(): Promise<{ finished: number; pending: number }> {
+    return this.folderMove.resumePending();
+  }
+
   resumePendingDeletions(): Promise<{ finished: number; pending: number }> {
     return this.deletion.resumePending();
   }
@@ -117,7 +134,46 @@ export class MediaService {
     return this.folders.delete(folderPath);
   }
 
+  /** Renames or moves a folder, its descendant folders, and every asset
+   *  within — no entry touched, no blob moved (D49). `merge` allows the move
+   *  into an existing folder instead of refusing on collision — the opt-in
+   *  that finishes an interrupted rename as well as an ordinary merge. */
+  renameFolder(from: unknown, to: unknown, options?: { merge?: boolean }): Promise<{ from: string; to: string }> {
+    return this.folderMove.rename(from, to, options);
+  }
+
+  /** Every asset in `folderPath`'s subtree, for a recursive folder delete's
+   *  force-authority check and its delete loop, both run by `MediaFolderRoutes`
+   *  before either touches the catalog (D49). */
+  async folderAssetIds(folderPath: unknown): Promise<string[]> {
+    return (await this.folders.assetsWithin(folderPath)).map((entry: Entry) => entry.id);
+  }
+
+  /** Removes every explicit folder record at or beneath `folderPath` — called
+   *  by `MediaFolderRoutes` once a recursive delete confirms the subtree is
+   *  actually empty (D49). */
+  finishFolderDeletion(folderPath: unknown): Promise<number> {
+    return this.folders.deleteRecordsWithin(folderPath);
+  }
+
   reconcile(): Promise<MediaReconcileResult> {
     return this.reconciler.run();
+  }
+
+  /** The true, unfiltered scopes a media force-delete of `ids` would reach
+   *  (D49) — what `RouteAuth.requireForcedMediaDelete` checks claims against. */
+  forceReach(ids: readonly string[]): Promise<MediaForceReach> {
+    return this.usageScopes.reach(ids);
+  }
+
+  /** Empties the whole library: every catalog asset, then every folder record
+   *  (D49). `requireForce` and `deleteBatch` are the http layer's own
+   *  concerns, injected rather than imported across the boundary. */
+  purge(
+    force: boolean,
+    requireForce: (ids: string[]) => Promise<void>,
+    deleteBatch: (ids: string[], force: boolean) => Promise<MediaPurgeOutcome>
+  ): Promise<MediaPurgeResult> {
+    return this.purgeService.run(force, requireForce, deleteBatch);
   }
 }
