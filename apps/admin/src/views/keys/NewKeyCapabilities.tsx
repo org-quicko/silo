@@ -25,6 +25,12 @@ const GROUPS: CapabilityGroup[] = [
       { claim: Claims.MediaRead, label: 'List', help: 'List media metadata.' },
       { claim: Claims.MediaCreate, label: 'Upload', help: 'Upload new media files.' },
       { claim: Claims.MediaDelete, label: 'Delete', help: 'Delete media files.', warn: true },
+      {
+        claim: Claims.MediaConfigure,
+        label: 'Configure storage',
+        help: 'Read and change where the library keeps its bytes, credentials included.',
+        warn: true,
+      },
     ],
   },
   {

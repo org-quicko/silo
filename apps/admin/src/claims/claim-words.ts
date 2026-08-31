@@ -73,6 +73,7 @@ export class ClaimWords {
     [Claims.MediaRead]: 'list media',
     [Claims.MediaCreate]: 'upload media',
     [Claims.MediaDelete]: 'delete media',
+    [Claims.MediaConfigure]: 'change how the media library is set up',
     [Claims.KeysRead]: 'list keys',
     [Claims.KeysCreate]: 'mint keys',
     [Claims.KeysRevoke]: 'revoke keys',
@@ -98,6 +99,7 @@ export class ClaimWords {
     Claims.KeysExport,
     Claims.KeysImport,
     Claims.MediaDelete,
+    Claims.MediaConfigure,
     Claims.TransferImport,
     Claims.TransferCopy,
   ])

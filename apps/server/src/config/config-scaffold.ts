@@ -85,6 +85,13 @@ driver = ${s(config.blob_storage.driver)}           # "fs" (local directory) | "
 # secret_access_key = "..."          # prefer SILO_BLOB_S3_SECRET_ACCESS_KEY
 # force_path_style  = false          # true for MinIO and other path-style endpoints
 
+[media]
+# base_url        = "https://cdn.example.com"  # unset = the address each request arrived on
+# base_url_target = "server"   # "server": <base>/media/<id>, streamed by silo | "store": <base>/<blob key>, needs a public bucket
+extensions      = [${config.media.extensions.map((e) => s(e)).join(", ")}]
+# Uploads are refused unless the filename ends in one of these. ["*"] accepts anything.
+# svg can carry script and is served inline: drop it where uploaders are untrusted.
+
 [auth]
 disabled = ${config.auth.disabled}   # dev only: true treats every request as root, ignoring API keys
 

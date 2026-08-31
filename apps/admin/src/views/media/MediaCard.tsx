@@ -4,6 +4,7 @@ import { Button } from '../../components/buttons/Button'
 import { ByteSize } from '../../utils/byte-size'
 import { MediaUsageBadge } from './media-usage-badge'
 import styles from './MediaLibrary.module.css'
+import { MediaFileUrl } from './media-file-url'
 
 interface Props {
   asset: MediaAsset
@@ -18,7 +19,7 @@ interface Props {
 /** One asset in the grid: a preview, its facts, and — revealed on hover so
  *  the tile stays quiet at rest — what you can do to it. */
 export function MediaCard({ asset, baseUrl, canEdit, canDelete, onEdit, onDelete }: Props) {
-  const fileUrl = `${baseUrl}${asset.url}`
+  const fileUrl = MediaFileUrl.of(asset, baseUrl)
   const used = asset.usage_count || 0
   const isImage = asset.content_type.startsWith('image/')
 

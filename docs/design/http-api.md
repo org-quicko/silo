@@ -32,6 +32,8 @@ Hono web framework on Bun. JSON everywhere. Admin UI served at `/`; API under `/
 | GET / POST | `/api/media/folders` | list / create an empty folder (`media:read` / `media:create`) |
 | DELETE | `/api/media/folders` | delete an empty folder (`media:delete`) |
 | POST | `/api/media/reconcile` | backfill and repair the catalog (`media:create` + `media:delete`) |
+| GET / PUT | `/api/media/storage` | where the library keeps its bytes, read and changed (`media:configure`) — see §8.2 |
+| GET / PUT | `/api/media/settings` | where media URLs point and what may be uploaded (`media:configure`) — see §8.3 |
 | GET | `/media/{id}` | public asset streaming (pre-D23 `/media/{blobKey}` still resolves) |
 | GET | `/api/plugins` | plugin grants, state, the gap between requested and granted, what each package `contributes`, and the author's reason for every claim (`plugins:read`) |
 | GET | `/api/plugins/{name}` | one grant; carries `ETag: "<rev>"` for the mutations below |
@@ -167,3 +169,128 @@ enumerates only the referrers the calling key may read: media is
 instance-global but referrers are scoped, so a key confined to one project must
 learn that a file is in use without learning where. The remainder is reported
 as a count only.
+
+### 8.2 Media storage: reading and changing where the bytes go (D45)
+
+`GET`/`PUT /api/media/storage`, behind **`media:configure`**. The rationale, the
+ordering and the rollback are §6.4 in
+[storage.md](storage.md); this is the wire shape.
+
+Both verbs ask for one claim rather than a read/write pair. The read is not the
+harmless half: it names the bucket, the endpoint and the access key id the
+instance authenticates with.
+
+```jsonc
+// GET /api/media/storage
+{
+  "file":     { "driver": "s3", "bucket": "silo-media", "region": "ap-south-1",
+                "access_key_id": "AKIA…", "secret_access_key_set": true },
+  "in_force": { "driver": "s3", "bucket": "from-the-environment", "region": "ap-south-1",
+                "access_key_id": "AKIA…", "secret_access_key_set": true },
+  "drivers":  ["fs", "s3"],
+  "overrides": [{ "field": "bucket", "env": "SILO_BLOB_S3_BUCKET" }],
+  "config_path": "/srv/silo/silo.toml",
+  "writable": true
+}
+```
+
+**`file` and `in_force` are both reported**, because the page edits a file and a
+file is the third thing consulted (flags > `SILO_*` > file > defaults, §10).
+`overrides` names each field the file does not decide, with `env` set when the
+source can be named exactly; no `env` means a flag, or a file edited since the
+process started. The **fs media path derivation is not an override** — unset
+means "follow the data dir", so `<data dir>/media` appearing in `in_force` is
+the file being obeyed rather than overruled.
+
+`drivers` is what *this process* can open, so a provider plugin's blob driver
+(§13.7) is offered without the admin carrying a second copy of the list.
+`writable` is false when the process was started with no config file, in which
+case a `PUT` is refused with a 400 saying so rather than guessing at a path.
+
+`PUT` takes the same field names as a **whole document**, not a patch — the
+fields are few and all on one screen, so a `PUT` of what was read cannot leave a
+stale value behind by omission:
+
+```jsonc
+{ "driver": "s3", "bucket": "silo-media", "region": "ap-south-1",
+  "endpoint": "https://…", "access_key_id": "AKIA…",
+  "secret_access_key": "…",        // omitted keeps the file's; "" clears it
+  "force_path_style": false }
+```
+
+`secret_access_key` is the one exception, and it has to be: the read never
+returned it, so a caller sending back what it read has nothing to send. It is
+also merged over **the file's** value rather than the config in force, so a
+secret supplied through `SILO_BLOB_S3_SECRET_ACCESS_KEY` is never copied into
+`silo.toml` by somebody who came to change the region.
+
+### 8.3 Media settings: where URLs point, and what may be uploaded (D46)
+
+`GET`/`PUT /api/media/settings`, behind the same **`media:configure`** claim as
+§8.2 and separate from it on purpose. They are two tables with two failure
+modes — a bad allowlist is a typo, a bad bucket cannot be opened at all — and
+one route would make correcting the first depend on the second still working.
+
+```jsonc
+// GET /api/media/settings
+{
+  "file":     { "base_url": "https://cms.example.com", "base_url_target": "server" },
+  "in_force": { "base_url": "https://cms.example.com", "base_url_target": "server",
+                "extensions": ["jpg", "png", "pdf"] },
+  "overrides": [],
+  "default_extensions": ["jpg", "jpeg", "png", "…"],
+  "config_path": "/srv/silo/silo.toml",
+  "writable": true
+}
+```
+
+`file` is a **partial** and `in_force` is not: a `[media]` naming only
+`base_url` has not also decided the extension list, and reporting silo's
+defaults as though the file had asked for them would be the same lie §8.2
+avoids for the fs media path.
+
+**`base_url_target` decides what the URL under `base_url` looks like**, and the
+two are not interchangeable:
+
+| target | a media field resolves to | who serves it |
+|---|---|---|
+| `server` (default) | `<base>/media/<id>` | silo, with its ETag and 304 handling |
+| `store` | `<base>/<blob key>` | the bucket or a CDN over it, with silo out of the read path |
+
+`store` is the shape an email client needs, since it cannot authenticate and
+will not follow silo's cache headers; it requires the bucket to be publicly
+readable. It also costs one catalog lookup per response — a blob key lives on
+the record, not in the reference — which is why the resolution happens once
+per response before entries are mapped rather than inside `toApiResponse`
+(§8.1's purity is what makes that mapping cheap). An asset whose key was not
+resolved falls back to silo's own origin rather than to `base_url`: the CDN has
+never heard of `/media/<id>`, so a link rooted there would 404.
+
+`PUT` takes the whole table. Unlike §8.2's secret, **an omitted field is
+cleared, not kept** — nothing here is write-only, so the form always holds the
+real value and a missing one can only mean it was removed.
+
+```jsonc
+{ "base_url": "https://cdn.example.com",   // "" clears it; must be absolute http(s)
+  "base_url_target": "store",
+  "extensions": ["jpg", "png", "pdf"] }    // ["*"] accepts everything; [] is a 400
+```
+
+The allowlist is enforced on the **filename extension**, not the declared
+content type: a multipart part carries whatever `Content-Type` the client chose,
+so trusting it would let the caller decide whether the caller is allowed. It is
+enforced on `PATCH /api/media/{id}` too — a rename is the other way a filename
+enters the library — and before any bytes are written, so a refused upload
+leaves nothing behind. Only the last extension counts, so `invoice.pdf.exe` is
+an `.exe`.
+
+Neither field reaches backwards. Changing `base_url` does not rewrite a URL
+already sitting in a sent email, and narrowing the allowlist does not remove
+files already in the library.
+
+
+The response is the view a fresh `GET` would give, already reflecting the applied
+change: the running server is repointed before it answers. Refusals are `400`
+(unknown driver, a body that is not a configuration, a configuration the driver
+cannot be opened with, or no config file to write), `403` without the claim.
+Changes are appended to the audit trail as `media.configure`.

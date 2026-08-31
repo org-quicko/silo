@@ -6,6 +6,7 @@ import { Formatters } from '../../utils/formatters'
 import { MediaUsageBadge } from './media-usage-badge'
 import table from '../../components/data/DataTable.module.css'
 import styles from './MediaLibrary.module.css'
+import { MediaFileUrl } from './media-file-url'
 
 interface Props {
   asset: MediaAsset
@@ -20,7 +21,7 @@ interface Props {
 /** `MediaCard`'s row form for list view — same facts, same hover-revealed
  *  actions, laid out across the shared `DataTable` grid instead of a tile. */
 export function MediaRow({ asset, baseUrl, canEdit, canDelete, gridCols, onEdit, onDelete }: Props) {
-  const fileUrl = `${baseUrl}${asset.url}`
+  const fileUrl = MediaFileUrl.of(asset, baseUrl)
   const used = asset.usage_count || 0
   const isImage = asset.content_type.startsWith('image/')
 

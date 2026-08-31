@@ -22,7 +22,7 @@ React + TypeScript + Vite + RJSF (`@rjsf/core` + `@rjsf/validator-ajv8` for 2020
 3. **Command palette** (`⌘K`) — instance-wide search from anywhere in the shell. It asks for the whole instance rather than the scope on screen because the key already bounds it (`searchAccess`), groups hits by collection in the order the ranking gave, names the `project/env` only for results outside the current scope, and merges media in as its own group — the one place the two result sets meet.
 4. **Entry form** — RJSF-generated from the schema; per-subtree raw-JSON fallback for unrenderable constructs (D3); server validation errors mapped back onto fields.
 5. **Schema editor** — create/edit a collection's JSON Schema in a JSON editor (CodeMirror) with live validation of the schema document itself.
-6. **Media** — a searchable library: a folder rail, a name/type filter bound to the `_media` query, and per-asset rename, move, and delete. An asset in use shows its reference count and refuses deletion, naming the entries the current key may read (§8.1).
+6. **Media** — a searchable library: a folder rail, a name/type filter bound to the `_media` query, and per-asset rename, move, and delete. An asset in use shows its reference count and refuses deletion, naming the entries the current key may read (§8.1). Where the library *keeps* its bytes is a separate page under Settings → Media Library (D45), because it configures the instance rather than the content.
 7. **Keys** — list (label, claims, prefix, created), revoke, and a dedicated creation page. Revoke is offered only for keys the current one could have minted (D37) and never for a plugin's managed key (D34), because the route refuses both. The creation page is one guided sentence: a label, a **reach** naming the project and env segments of the key's collection claims independently (one env · a whole project · one env across every project · the whole instance), and a **role** (`read` · `write` · `manage` · `root`). One Advanced disclosure adds what the sentence cannot say — narrowing to named collections, the instance capabilities (media, key management, transfer), and a raw claim editor that takes over from the guided controls when even those are not enough. Choosing a transfer capability composes in the instance-wide collection permissions D21 requires alongside it, rather than naming them in help text. Options the current key cannot delegate are disabled with the reason. The secret is shown once. Plugin management and the audit trail are capabilities here too (D38); an instance capability this page has no words for is still shown, flagged, rather than omitted from the summary — a claim set that renders as less than it grants is the one failure a pre-mint summary cannot afford.
 8. **Data transfer** — two pages at two blast radii. Under *Server*: claim-aware whole-instance export/import panels and direct copy from another running silo (merge/replace, data-only/data-plus-keys). Under *Environment*: copy from another environment of this instance (D22), preview-then-apply, gated on the scoped claims the copy exercises.
 9. **Settings** — a nav column grouped by the scope each page configures; see below.
@@ -37,6 +37,7 @@ block:
 SERVER
   API Keys                                       list, revoke, and a creation page
   Data Transfer                                  whole-instance archive and direct server copy
+  Media Library                                  where uploads are stored, where their URLs point, what may be uploaded (D45, D46)
   Plugins                                        every plugin with a record; one page each (D40)
   Connection                                     endpoint, live diagnostics, forget this server
 PROJECTS
@@ -89,6 +90,62 @@ server connection is not — it destroys nothing on the instance — and takes a
 plain confirmation.
 
 `x-silo-ui` extension keys map to RJSF `uiSchema` (widget selection, field order, help text).
+
+**Media Library** sits under *Server* rather than under *Application*, and the
+contrast with Appearance is the reason: Appearance is this browser's and never
+leaves it, while this page is the **instance's** — it writes `silo.toml` and
+takes effect on the running server (D45). It needs `media:configure`, which no
+preset but root carries, and a key without it is told which claim is missing
+rather than shown an empty form.
+
+The page shows **two configurations**, and that is its whole shape. The form
+holds what the *file* says; a read-only panel beside it holds what the server is
+*using*, after environment variables and flags; and a field the file does not
+decide carries a note naming the value in force and, where it can be known, the
+variable supplying it. Both halves are needed for the page to be honest. Seeding
+the form from what is in force would put the derived fs media path
+(`<data dir>/media`, which is the value *precisely while nobody has named one*)
+into a box and save it back as a literal, pinning media in place and breaking
+`--data`. Hiding the environment would let somebody type a bucket, watch it
+save, and see the instance keep using another one.
+
+The provider list comes from the server (`drivers`), so a blob driver
+contributed by a plugin is selectable without the admin holding a second copy of
+the list, and whatever the file names stays in the select even when this build
+can no longer open it — a select that dropped the current value would propose a
+driver change nobody made. Which fields a provider shows follows the driver:
+`fs` takes a directory, `s3` takes a bucket and a credential, and an unknown
+driver takes both, because every driver is handed the same `[blob_storage]`
+table and the admin cannot know which keys a plugin reads.
+
+The secret is **write-only**, and its field is shaped by that. It is never read
+back, so a stored one shows as a fixed-width mask in a box that will not take a
+keystroke, and **clearing it is what opens the box** for a new value. Both
+halves earn their place: an editable box holding a mask invites somebody to
+append to a value they cannot see, and an empty box that quietly kept the old
+secret reads as "not set" to everyone who did not write the page. An untouched
+field sends nothing, a typed one wins over the clear that opened it, and saving
+a cleared field empty is the only way to remove a credential. The endpoint's
+placeholder is a self-hosted gateway rather than an AWS URL, since an
+`s3.<region>.amazonaws.com` example above "leave empty for AWS" reads as an
+instruction to fill it in. And the page
+says plainly, beside the provider, that **existing files are not moved** —
+switching provider leaves them where they are.
+
+A **second card** below it holds the `[media]` table (D46): the base URL media
+links are rooted at, whether that name fronts silo or the bucket, and the
+extension allowlist as chips you add to and take from. It has its **own Save**,
+because it writes its own table through its own route — a bucket that will not
+open must not be able to hold up a correction to the allowlist, which is the one
+thing an operator locked out of uploading needs to change. The allowlist is a
+chip list rather than a comma-separated box because the value is a set and the
+mistakes are per item: a stray space or a leading dot in one entry would refuse
+that whole file type, and a chip makes each entry something you can see and
+remove on its own. Its seeding is the deliberate opposite of the storage card's,
+which takes every value from the file: an empty extension list is not a state
+the server accepts, so the list falls back to what is **in force** when the file
+names none. A box showing nothing while something is being enforced would be the
+same page lying in the other direction.
 
 **Appearance** is client-only state — `ThemeManager` persists it to `localStorage`, never to a server, so the choice follows the browser rather than the instance. Three things compose: a **colour mode** (light/dark/system, the last resolved live against `prefers-color-scheme`), a **theme** (an accent paired with the sidebar tint it was designed alongside — `--sidebar`/`--sidebar-hover`, distinct from the main content's `--panel`/`--panel-2` so a theme can read as more than a hue swap), and a **font**. Dark mode's per-theme sidebar hex applies as-is; light mode instead washes the sidebar from whatever accent is active, because hand-tuning a light-mode pair for every theme would double the palette for no visual gain light mode doesn't already get by deriving it. Picking a custom accent hex keeps the last theme's sidebar and labels the bundle `Custom`, matching how picking a font or a mode leaves the other two alone. The theme gallery groups **Featured** (duotone hero bundles), **Single colour**, and **Vision assistive** (colour-blind-safe accent/sidebar pairs) — the grouping is presentation only, every entry is the same `ThemePreset` shape.
 

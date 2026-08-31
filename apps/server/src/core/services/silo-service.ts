@@ -1,4 +1,5 @@
 import { FsBlobStorage } from "../../adapters/blob/fs-blob-storage";
+import type { MediaConfig } from "../../config/media-config";
 import { Logger } from "../../logging/logger";
 import type { Meta } from "../domain/meta";
 import type { Hooks } from "../hooks/hooks";
@@ -47,7 +48,6 @@ export interface SiloServiceOptions extends SchemaValidatorOptions {
  */
 export class SiloService {
   readonly store: Storage;
-  readonly blobStorage: BlobStorage;
 
   readonly scopes: ScopeService;
   readonly collections: CollectionService;
@@ -79,7 +79,6 @@ export class SiloService {
     );
 
     this.store = store;
-    this.blobStorage = blobStorage;
 
     this.collections = new CollectionService(this.context);
     this.scopes = new ScopeService(this.context, this.collections);
@@ -100,6 +99,29 @@ export class SiloService {
    */
   useHooks(hooks: Hooks): void {
     this.context.useHooks(hooks);
+  }
+
+  /** Where media bytes live. Read through the context rather than held here,
+   *  because it can be repointed while the process runs (D45). */
+  get blobStorage(): BlobStorage {
+    return this.context.blobStorage;
+  }
+
+  /** Repoint media storage, handing back the store it replaces so the caller
+   *  can close it. See `ServiceContext.useBlobStorage`. */
+  useBlobStorage(blobStorage: BlobStorage): BlobStorage {
+    return this.context.useBlobStorage(blobStorage);
+  }
+
+  /** What the library accepts and where its URLs point (D46). */
+  get mediaConfig(): MediaConfig {
+    return this.context.mediaConfig;
+  }
+
+  /** Replaces the media policy, handing back the one it replaces. See
+   *  `ServiceContext.useMediaConfig`. */
+  useMediaConfig(media: MediaConfig): MediaConfig {
+    return this.context.useMediaConfig(media);
   }
 
   async meta(): Promise<Meta> {

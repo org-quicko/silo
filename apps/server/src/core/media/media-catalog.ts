@@ -2,6 +2,7 @@ import { MediaRef } from "@silo/shared/media-ref";
 import type { Entry } from "../domain/entry";
 import type { MediaAsset } from "./media-asset";
 import type { MediaAssetView } from "./media-asset-view";
+import type { MediaLinks } from "./media-links";
 
 /**
  * The `_media` / `_media_folders` system collections and the mapping between
@@ -17,7 +18,9 @@ export class MediaCatalog {
   static readonly Collection = "_media";
   static readonly FoldersCollection = "_media_folders";
 
-  /** The public URL for an asset — by id, so a rename never invalidates it. */
+  /** The public URL for an asset — by id, so a rename never invalidates it.
+   *  Relative, which is what a caller holding no `[media]` configuration and no
+   *  request origin can honestly say (D46). */
   static url(id: string): string {
     return `/media/${id}`;
   }
@@ -52,12 +55,16 @@ export class MediaCatalog {
     };
   }
 
-  static toView(e: Entry, usageCount?: number): MediaAssetView {
+  static toView(e: Entry, usageCount?: number, links?: MediaLinks): MediaAssetView {
     const asset = MediaCatalog.toAsset(e);
     return {
       ...asset,
       id: e.id,
-      url: MediaCatalog.url(e.id),
+      // With `[media]` configured this is the *public* URL, the same one an
+      // entry's media field resolves to — including the store-mode form, which
+      // needs the blob key and is therefore only derivable right here, where
+      // the record holding it is already open (D46).
+      url: links ? links.forAsset(e.id, asset.blob_key) : MediaCatalog.url(e.id),
       created_at: typeof e.created_at === "string" ? e.created_at : e.created_at.toISOString(),
       updated_at: typeof e.updated_at === "string" ? e.updated_at : e.updated_at.toISOString(),
       ...(usageCount === undefined ? {} : { usage_count: usageCount }),

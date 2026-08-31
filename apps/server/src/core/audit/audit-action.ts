@@ -47,4 +47,15 @@ export type AuditAction =
    * of the two it was, because reverting to `silo.toml` and pinning an override
    * look identical in a diff of the record.
    */
-  | "plugin.configure";
+  | "plugin.configure"
+  /**
+   * The media library was repointed at a different store (D45).
+   *
+   * In scope for the same narrow reason `plugin.configure` is: it decides which
+   * bucket every future upload lands in and which credential reaches it, so
+   * "who moved the library, and when did uploads stop arriving in the old one"
+   * is a question only this answers. `detail` carries the driver and the bucket
+   * or path, and `secret_access_key_set` rather than the secret — the trail
+   * records that a credential was configured, never the credential.
+   */
+  | "media.configure";

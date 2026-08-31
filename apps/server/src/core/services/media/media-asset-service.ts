@@ -3,6 +3,8 @@ import type { Filter } from "@silo/shared/filter";
 import { EntryUtils } from "../../domain/entry-utils";
 import { ConflictError } from "../../errors/conflict-error";
 import { MediaCatalog } from "../../media/media-catalog";
+import { MediaExtensions } from "../../media/media-extensions";
+import { MediaLinks } from "../../media/media-links";
 import { MediaPaths } from "../../media/media-paths";
 import { MimeUtils } from "../../media/mime-utils";
 import type { MediaAsset } from "../../media/media-asset";
@@ -108,6 +110,10 @@ export class MediaAssetService {
     folder?: string
   ): Promise<MediaAssetView> {
     const filename = MediaPaths.normalizeFilename(originalName);
+    // Before the bytes are read anywhere and well before they are written: a
+    // refused upload must leave nothing behind for `reconcile` to find.
+    MediaExtensions.assert(this.context.mediaConfig.extensions, filename);
+
     const id = EntryUtils.newID();
     const blobKey = MediaPaths.blobKey(id, filename);
     const contentType = mimeType && mimeType.trim() ? mimeType : MimeUtils.lookup(filename);
@@ -128,7 +134,11 @@ export class MediaAssetService {
         state: "active",
         tags: [],
       };
-      return MediaCatalog.toView(await this.catalog.putAsset(id, asset), 0);
+      return MediaCatalog.toView(
+        await this.catalog.putAsset(id, asset),
+        0,
+        MediaLinks.of(this.context.mediaConfig, "")
+      );
     });
   }
 
@@ -141,7 +151,13 @@ export class MediaAssetService {
         throw new ConflictError(`media asset "${id}" is being deleted`);
       }
 
-      const updated = await this.catalog.putAsset(id, MediaAssetPatch.apply(asset, patch));
+      const patched = MediaAssetPatch.apply(asset, patch);
+      // A rename is the other way a filename enters the library, so the
+      // allowlist has to hold here too. Without it "report.png" becomes
+      // "report.exe" after upload and the check is decoration.
+      MediaExtensions.assert(this.context.mediaConfig.extensions, patched.filename);
+
+      const updated = await this.catalog.putAsset(id, patched);
       const [view] = await this.usageCounter.withCounts([updated]);
       return view;
     });

@@ -6,6 +6,7 @@ import { Hono } from "hono";
 import { SqliteStore } from "../../src/adapters/storage/sqlite/sqlite-store";
 import { SiloService } from "../../src/core/services/silo-service";
 import { Scope } from "../../src/core/domain/scope";
+import { MediaLinks } from "../../src/core/media/media-links";
 import { MediaResolver } from "../../src/core/media/media-resolver";
 import { MediaRefs } from "../../src/core/media/media-refs";
 import { MediaRef } from "@silo/shared/media-ref";
@@ -35,21 +36,22 @@ describe("Media references in entry data (D23)", () => {
     expect(MediaResolver.isMediaField({ type: "string" })).toBe(false);
 
     const baseUrl = "http://localhost:8090";
+    const links = MediaLinks.fromRequest(baseUrl);
     const id = "01J8XQ4Z8K9M2P3R5T7V9X1B3D";
 
     // The canonical form since D23: addressed by catalog id, so the URL
     // survives a rename or a move.
-    expect(MediaResolver.toAbsoluteUrl(MediaRef.url(id), baseUrl)).toBe(`${baseUrl}/media/${id}`);
+    expect(links.urlFor(MediaRef.url(id))).toBe(`${baseUrl}/media/${id}`);
     // Pre-D23 entries still resolve while an instance is being backfilled.
-    expect(MediaResolver.toAbsoluteUrl("/media/hash_file.png", baseUrl)).toBe(
+    expect(links.urlFor("/media/hash_file.png")).toBe(
       `${baseUrl}/media/hash_file.png`
     );
     // A foreign URL is somebody else's asset and is left alone.
-    expect(MediaResolver.toAbsoluteUrl("http://cdn.com/media/hash_file.png", baseUrl)).toBe(
+    expect(links.urlFor("http://cdn.com/media/hash_file.png")).toBe(
       "http://cdn.com/media/hash_file.png"
     );
     // A bare string is no longer guessed at as a media key.
-    expect(MediaResolver.toAbsoluteUrl("hash_file.png", baseUrl)).toBe("hash_file.png");
+    expect(links.urlFor("hash_file.png")).toBe("hash_file.png");
   });
 
   test("extraction is structural — it finds references the schema never mentions", () => {

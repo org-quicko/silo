@@ -12,7 +12,8 @@ import { PluginStartError } from "../core/errors/plugin-start-error";
 import { UnauthorizedError } from "../core/errors/unauthorized-error";
 import { ForbiddenError } from "../core/errors/forbidden-error";
 import type { Logger } from "../logging/logger";
-import { PluginRegistry, PluginSupervisor } from "../plugins";
+import { PluginRegistry, PluginSupervisor, ProviderRegistry } from "../plugins";
+import { MediaPolicySupervisor, MediaStorageSupervisor } from "../settings";
 import { ConfigLoader } from "../config/config-loader";
 import { UiAssets } from "./ui-assets";
 
@@ -36,6 +37,22 @@ export interface SiloServerOptions {
    * server built without one behaves the same way rather than a lesser way.
    */
   plugins?: PluginSupervisor;
+
+  /**
+   * Where the media library keeps its bytes, and what may change it (D45).
+   *
+   * Optional the same way `plugins` is, and filled the same way: a supervisor
+   * over this process's defaults, which can report the configuration in force
+   * and refuses a save because there is no file to write. "This process was not
+   * started from a config file" is a true answer the page can render, and a
+   * better one than a route that is missing.
+   */
+  mediaStorage?: MediaStorageSupervisor;
+
+  /** Where media URLs point and what the library accepts (D46). Optional and
+   *  defaulted for `mediaStorage`'s reason, and refuses a save for the same
+   *  one: there is no file to write. */
+  mediaPolicy?: MediaPolicySupervisor;
 }
 
 /** Builds and owns the Hono app: middleware, API routes, and UI static serving. */
@@ -46,6 +63,8 @@ export class SiloServer {
   private readonly logger: Logger;
   private readonly logRequests: boolean;
   private readonly plugins: PluginSupervisor;
+  private readonly mediaStorage: MediaStorageSupervisor;
+  private readonly mediaPolicy: MediaPolicySupervisor;
 
   constructor(service: SiloService, options: SiloServerOptions) {
     this.service = service;
@@ -62,6 +81,24 @@ export class SiloServer {
         // Defaults, whose `plugins` array is empty: this process was not handed
         // a config file, so it lists no plugins and `rescan` has nothing to
         // re-read — which is what it says rather than inventing a path.
+        config: ConfigLoader.defaultConfig(),
+      });
+    this.mediaStorage =
+      options.mediaStorage ??
+      new MediaStorageSupervisor({
+        service,
+        providers: ProviderRegistry.withBuiltins(),
+        logger: options.logger,
+        // No `reload` and no `configPath`, for the reason above: a save refuses
+        // rather than guessing at `./silo.toml`, since a config file appearing
+        // in somebody's repository is not a side effect of pressing Save.
+        config: ConfigLoader.defaultConfig(),
+      });
+    this.mediaPolicy =
+      options.mediaPolicy ??
+      new MediaPolicySupervisor({
+        service,
+        logger: options.logger,
         config: ConfigLoader.defaultConfig(),
       });
   }
@@ -87,7 +124,13 @@ export class SiloServer {
     });
 
     // Register domain handlers
-    RouteManager.registerRoutes(app, this.service, this.plugins);
+    RouteManager.registerRoutes(
+      app,
+      this.service,
+      this.plugins,
+      this.mediaStorage,
+      this.mediaPolicy
+    );
 
     // Global Error Handler
     app.onError((err, c) => {

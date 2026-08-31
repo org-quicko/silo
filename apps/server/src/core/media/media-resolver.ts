@@ -1,6 +1,14 @@
 import { MediaField } from "@silo/shared/media-field";
-import { MediaRef } from "@silo/shared/media-ref";
+import type { MediaLinks } from "./media-links";
 
+/**
+ * Walks an entry's data and rewrites its media fields into fetchable URLs.
+ *
+ * The walk is here; **what** a URL looks like is `MediaLinks`. They were one
+ * class until `[media]` made the answer depend on more than a base string
+ * (D46), and splitting them keeps this file about the schema and that one
+ * about the configuration.
+ */
 export class MediaResolver {
   /**
    * Checks if a schema node represents a media field using x-silo-type: "media".
@@ -10,37 +18,9 @@ export class MediaResolver {
   }
 
   /**
-   * Turns a stored media reference into the URL a client can fetch.
-   *
-   * Since D23 an entry stores `silo://media/<ulid>` and the URL is
-   * `<base>/media/<ulid>` — addressed by catalog id, so it survives a rename
-   * or a move, and derivable without touching storage, which is what keeps
-   * `EntryUtils.toApiResponse` a pure function. Pre-D23 values
-   * (`/media/<blobKey>`, or an absolute URL of one) still resolve, so an
-   * instance serves correctly while it is being backfilled.
-   */
-  static toAbsoluteUrl(value: string, baseUrl: string): string {
-    if (typeof value !== "string" || !value.trim()) {
-      return value;
-    }
-    const trimmed = value.trim();
-    const cleanBase = baseUrl.replace(/\/+$/, "");
-
-    if (MediaRef.is(trimmed)) {
-      const id = MediaRef.idOf(trimmed);
-      return id ? `${cleanBase}/media/${id}` : trimmed;
-    }
-    if (trimmed.startsWith("http://") || trimmed.startsWith("https://")) {
-      return trimmed;
-    }
-    const legacyKey = MediaRef.legacyKeyOf(trimmed);
-    return legacyKey ? `${cleanBase}/media/${legacyKey}` : trimmed;
-  }
-
-  /**
    * Recursively resolves media fields in entry data into fully qualified URLs based on schema rules.
    */
-  static resolveMediaFields(data: any, schema: any, baseUrl: string): any {
+  static resolveMediaFields(data: any, schema: any, links: MediaLinks): any {
     if (!data || typeof data !== "object" || !schema || typeof schema !== "object") {
       return data;
     }
@@ -48,7 +28,7 @@ export class MediaResolver {
     if (Array.isArray(data)) {
       const itemSchema = schema.items || (Array.isArray(schema.prefixItems) ? schema.prefixItems[0] : null);
       if (!itemSchema) return data;
-      return data.map((item) => MediaResolver.resolveMediaFields(item, itemSchema, baseUrl));
+      return data.map((item) => MediaResolver.resolveMediaFields(item, itemSchema, links));
     }
 
     const properties = schema.properties || {};
@@ -60,24 +40,23 @@ export class MediaResolver {
 
       if (MediaResolver.isMediaField(propSchema)) {
         if (typeof val === "string") {
-          result[key] = MediaResolver.toAbsoluteUrl(val, baseUrl);
+          result[key] = links.urlFor(val);
         } else if (Array.isArray(val)) {
-          result[key] = val.map((v) => (typeof v === "string" ? MediaResolver.toAbsoluteUrl(v, baseUrl) : v));
+          result[key] = val.map((v) => (typeof v === "string" ? links.urlFor(v) : v));
         }
       } else if (propSchema.type === "object" || propSchema.properties) {
-        result[key] = MediaResolver.resolveMediaFields(val, propSchema, baseUrl);
+        result[key] = MediaResolver.resolveMediaFields(val, propSchema, links);
       } else if (propSchema.type === "array" && propSchema.items) {
         if (MediaResolver.isMediaField(propSchema.items)) {
           if (Array.isArray(val)) {
-            result[key] = val.map((v) => (typeof v === "string" ? MediaResolver.toAbsoluteUrl(v, baseUrl) : v));
+            result[key] = val.map((v) => (typeof v === "string" ? links.urlFor(v) : v));
           }
         } else if (Array.isArray(val)) {
-          result[key] = val.map((v) => MediaResolver.resolveMediaFields(v, propSchema.items, baseUrl));
+          result[key] = val.map((v) => MediaResolver.resolveMediaFields(v, propSchema.items, links));
         }
       }
     }
 
     return result;
   }
-
 }

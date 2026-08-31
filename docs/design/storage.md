@@ -168,3 +168,142 @@ Each entry file is the full envelope, pretty-printed with a fixed field order �
 Writes are `O_TMPFILE`-style: write to `.<id>.json.tmp`, fsync, rename. `manifest.json` is rewritten (same tmp+rename) after each write to persist `last_seq`; on startup the adapter verifies `last_seq >= max(seq)` found on disk (now recursing through the whole `projects/` tree) and repairs the manifest if the process died between the two writes. Listing = read directory (names are ULIDs, so lexical order = creation order), filter in memory. This is O(n) per query — acceptable and documented; the fs adapter's job is workflow (git, rsync), not throughput.
 
 **Frozen-format consequence (accepted in D5):** no sharded directories, no on-disk indexes, no binary formats — ever — without a `format_version` bump and migration tooling. Pre-1.0, that bump itself is cheap: D18 broke the layout outright (flat → `projects/<p>/<e>/...`) with no migration path, matching the project's pre-1.0 stance that breaking changes are expected rather than shimmed. `FsStore.open` refuses a data dir stamped with a different `format_version` rather than misreading it as the new tree.
+
+### 6.4 Blob storage, and changing it from the admin (D16, D45)
+
+Media bytes go through `BlobStorage`, a six-method port with two shipped
+adapters — `FsBlobStorage` (a directory) and `S3BlobStorage` (S3 and anything
+speaking its API, built on Bun's own `S3Client`) — resolved by driver name
+through `ProviderRegistry` exactly as the `Storage` adapters are, so a provider
+plugin's driver reaches the same lookup the built-ins do (§13.7).
+
+Which one an instance uses was, until D45, a `silo.toml` question and only that:
+`[blob_storage]`, the `SILO_BLOB_*` variables, or `--blob-path`. That is fine on
+a box with a shell and impossible on a managed platform without one, where
+pointing silo at a bucket meant redeploying the process. `GET`/`PUT
+/api/media/storage` and the admin's **Settings → Media Library** page close it,
+and the design is mostly about *not* introducing a second source of truth.
+
+**A save writes the file, and the file still decides.** `BlobStorageTable`
+replaces the `[blob_storage]` table as text — the sibling of `PluginBlockWriter`,
+with the same two rules: everything outside the table survives, and the result is
+parsed before it is written, with the write abandoned unless the rest of the
+document reads back identical and the table reads back as what was rendered.
+What it cannot preserve is comments *inside* the table it replaces, which is the
+honest cost of editing a table through an API instead of by hand.
+
+**What takes effect is what the next start would compute.** After the write the
+config is re-read through the same `reload` closure `PluginSupervisor` holds —
+flags and environment back on top — and the store is opened from *that*, never
+from the posted body. A bucket supplied by `SILO_BLOB_S3_BUCKET` outranks the
+file at the next start, so an instance running on the posted value in between
+would be reporting a configuration nothing else agrees with. D42/D43's rule
+carries over unchanged:
+
+> **The file must never describe a state the next `serve` cannot reach.**
+
+So the driver is checked against the registry *before* anything is written (a
+typo is the likely mistake and should cost nothing), and a configuration that
+cannot be opened — `s3` with no bucket, which `ProviderRegistry.openBlob`
+remains the only thing that refuses — restores the previous file byte for byte
+and answers 400.
+
+**The swap is one assignment.** `ServiceContext.blobStorage` became a cell behind
+a getter, which is `PluginAuthority`'s shape and works for the same reason: every
+media call site already read it at the moment it acted, so a request already
+inside `get` finishes against the store it started on and the next one does not.
+The replaced store is closed afterwards, forgivingly.
+
+**No bytes are moved.** An instance repointed from a directory to a bucket keeps
+a catalog full of assets the new store has never heard of. That is a property of
+object stores rather than something a swap could paper over, so the admin says it
+beside the provider selector and `silo media reconcile` is what reports the
+damage afterwards.
+
+**Two configurations, not one.** The API reports `file` and `in_force`
+separately, with `overrides` naming each field the file does not decide. Without
+that split the page would lie twice: the fs media path is `<data dir>/media`
+*precisely while nobody has named one* (§10), so seeding a form from what is in
+force and saving it back would pin media in place and break `--data`; and an
+operator would type a bucket that an environment variable was quietly beating.
+An env var is reported whenever it is **set**, even when it agrees with the file,
+because the next edit to that field will still do nothing.
+
+**The secret is write-only.** The read carries `secret_access_key_set` and never
+a value. An omitted secret keeps the file's and `""` clears it — the two states a
+field nobody can read back needs — and the merge base is the **file** rather than
+the config in force, so a credential held in the environment is never copied into
+a file that is usually in version control.
+
+**Authority.** `media:configure` guards both verbs. It is one claim rather than
+the read/write pair `keys:*` and `plugins:*` have, because the read is not the
+harmless half here: it names the bucket, the endpoint and the access key id an
+instance authenticates with. It is carried by no preset but `root`, and it is on
+`PluginForbiddenClaims` — a plugin holding it would receive every future upload
+in the instance, including uploads made by keys it has no `media:read` over, and
+it would get there by writing the one file that decides what code runs. Changes
+are appended to the trail as `media.configure` (D38), carrying the driver and the
+bucket or path but never the secret.
+
+### 6.5 Where media URLs point, and what the library accepts (D46)
+
+`[blob_storage]` decides where the bytes go. Two further questions are not about
+the driver at all — what URL a client is handed for them, and what may be put in
+the library in the first place — so they are a second table, `[media]`, behind a
+second route (`GET`/`PUT /api/media/settings`, §8.3) with its own Save on the
+same page. An fs instance behind a CDN wants a base URL exactly as much as a
+bucket does, which is the test that says these are not driver settings.
+
+**`base_url` roots media URLs somewhere other than the request.** Unset, a media
+field resolves against the origin the request arrived on — the only origin known
+to be reachable by whoever asked, and the reason D35 returns `""` for a
+plugin-dispatched request rather than inventing one. Set, it is that value
+instead, which is what an instance behind a CDN or serving a custom CMS domain
+needs. It must be absolute http(s): a relative base would resolve against
+whatever origin the reader happened to have, which is what leaving it empty
+already does, and only one of the two says so.
+
+**`base_url_target` decides the shape of the path under it,** and the choice is
+architectural rather than cosmetic:
+
+- **`server`** — `<base>/media/<id>`. silo stays in the read path, the bucket
+  stays private, and the asset is addressed by **catalog id**, so the URL
+  survives a rename and is derivable from the reference alone. That derivability
+  is what keeps `EntryUtils.toApiResponse` a pure synchronous function, which is
+  what makes resolving a page of entries free.
+- **`store`** — `<base>/<blob key>`. The bucket or a CDN over it serves the
+  bytes and silo is not consulted, which is the only shape that works for a
+  reader that cannot authenticate and will not follow silo's cache headers —
+  an email client, above all. It needs a publicly readable bucket, and it costs
+  a catalog lookup, because a blob key lives on the record rather than in the
+  reference. That lookup is done **once per response, before the entries are
+  mapped** (`MediaLinkResolver`), never inside the mapping; in `server` mode it
+  does no I/O at all. An asset whose key was not resolved falls back to silo's
+  own origin rather than to `base_url`, since the CDN has never heard of
+  `/media/<id>` and a link rooted there would 404 — D35's judgement again.
+
+Neither reaches backwards: changing the base does not rewrite a URL already
+sitting in a sent email.
+
+**`extensions` is an allowlist, and it is checked on the extension.** Not on the
+declared content type, because a multipart part carries whatever `Content-Type`
+the client chose to put in it, and trusting that lets the caller decide whether
+the caller is allowed; the extension at least decides what the file is served
+back as, since `MimeUtils.lookup` reads exactly that. Only the **last**
+extension counts, so `invoice.pdf.exe` is an `.exe`. The check runs before any
+bytes are written, so a refused upload leaves nothing for `reconcile` to find,
+and it runs on **rename** as well — `PATCH /api/media/{id}` is the other way a
+filename enters the library, and without it `report.png` becomes `report.exe`
+after the fact and the check is decoration. An empty list is refused at parse:
+a library that accepts nothing is a mistake rather than a policy, and `["*"]` is
+how "accept everything" is said out loud. The default is media types only —
+images, video, audio and PDF — with `svg` included and carrying the one caveat
+worth repeating in the file: an SVG is a document that can run script, and
+`/media/{id}` serves it inline from silo's own origin.
+
+**What does not change is D23.** Blob keys stay flat and folders stay catalog
+metadata even in `store` mode, where the key is the public path. Mirroring
+folders into the bucket was considered and refused: S3 has no rename, so a move
+would become a copy-and-delete of the bytes and would break every URL already
+published for that file — the two costs D23 was written to avoid, in exchange
+for a bucket listing that reads more tidily in a console.

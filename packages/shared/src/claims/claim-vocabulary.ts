@@ -32,6 +32,11 @@ export class ClaimVocabulary {
   static readonly MediaRead = "media:read";
   static readonly MediaCreate = "media:create";
   static readonly MediaDelete = "media:delete";
+  /** Reading and changing how the media library is set up: where it keeps its
+   *  bytes (D45), where its URLs point, and what it accepts (D46). A
+   *  configuration claim, not a per-asset one — see `PluginForbiddenClaims`
+   *  and §6.4 / §6.5 in `docs/design/storage.md`. */
+  static readonly MediaConfigure = "media:configure";
 
   // Plugin management (D34). D31 declined these because there was no install
   // API for them to guard; `_plugins` is that API, so the reasoning inverts.
@@ -91,6 +96,7 @@ export class ClaimVocabulary {
     [ClaimVocabulary.MediaRead]: true,
     [ClaimVocabulary.MediaCreate]: true,
     [ClaimVocabulary.MediaDelete]: true,
+    [ClaimVocabulary.MediaConfigure]: true,
     [ClaimVocabulary.PluginsRead]: true,
     [ClaimVocabulary.PluginsConfigure]: true,
     [ClaimVocabulary.PluginsGrant]: true,
@@ -100,13 +106,20 @@ export class ClaimVocabulary {
   };
 
   /**
-   * The fixed claims a **plugin** may never be granted (D34, extended by D37).
+   * The fixed claims a **plugin** may never be granted (D34, extended by D37 and
+   * D45).
    *
    * A plugin runs code, so each of these is a way out of its own grant, and a
-   * grant model that can be stepped around is decoration. Two shapes:
+   * grant model that can be stepped around is decoration. Three shapes:
    *
    * - `plugins:*` **widen the record.** A plugin holding `plugins:grant` grants
    *   itself more and then acts on it.
+   * - `media:configure` **moves the bytes.** It repoints the whole library at a
+   *   bucket and a credential of the holder's choosing, so a plugin holding it
+   *   receives every future upload in the instance — including uploads made by
+   *   keys it has no `media:read` over — and it does that by writing the
+   *   operator's `silo.toml`, which is the file that decides what code runs
+   *   (D45). Neither half survives being granted to a package.
    * - `keys:*` **bypass the record.** `keys:create` mints an *unmanaged* key,
    *   which is a credential nothing revokes when the plugin is revoked;
    *   `keys:import` plants a `_keys` row whose hash the planter chose, which is
@@ -115,7 +128,7 @@ export class ClaimVocabulary {
    *
    * `keys:read` and `keys:export` are deliberately **not** here. They disclose
    * the authority map — labels, claims, prefixes — and disclosure is a decision
-   * an operator can weigh. These six are not, because no grant that includes
+   * an operator can weigh. These seven are not, because no grant that includes
    * them means what it says.
    *
    * Refused at the grant, not at the call, so it is visible to whoever is
@@ -125,6 +138,7 @@ export class ClaimVocabulary {
     ClaimVocabulary.PluginsGrant,
     ClaimVocabulary.PluginsEnable,
     ClaimVocabulary.PluginsConfigure,
+    ClaimVocabulary.MediaConfigure,
     ClaimVocabulary.KeysCreate,
     ClaimVocabulary.KeysRevoke,
     ClaimVocabulary.KeysImport,
