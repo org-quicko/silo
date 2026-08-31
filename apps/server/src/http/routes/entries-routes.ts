@@ -49,9 +49,11 @@ export class EntriesRoutes {
       const sort = QueryUtils.parseSort(sortStr);
 
       const response = await service.entries.list(scope, name, { limit, offset, filter, sort });
-      const baseUrl = RequestUtils.getBaseUrl(c);
+      // Built once for the whole page: in store mode it resolves blob keys, and
+      // doing that per entry would be a lookup storm for one answer (D46).
+      const links = await service.media.links(RequestUtils.getBaseUrl(c), response.items);
       return c.json({
-        data: response.items.map((item) => EntryUtils.toApiResponse(item, collection.schema, baseUrl)),
+        data: response.items.map((item) => EntryUtils.toApiResponse(item, collection.schema, links)),
         total: response.total,
         limit: response.limit,
         offset: response.offset,
@@ -74,8 +76,8 @@ export class EntriesRoutes {
       );
       const data = await c.req.json();
       const e = await service.entries.create(scope, name, data, RouteAuth.getWriteContext(c));
-      const baseUrl = RequestUtils.getBaseUrl(c);
-      return c.json(EntryUtils.toApiResponse(e, collection.schema, baseUrl), 201);
+      const links = await service.media.links(RequestUtils.getBaseUrl(c), e);
+      return c.json(EntryUtils.toApiResponse(e, collection.schema, links), 201);
     };
 
     app.post("/api/projects/:project/environments/:env/collections/:name", createHandler);
@@ -95,8 +97,8 @@ export class EntriesRoutes {
         !SchemaAccess.requiresAuth(collection.schema),
       );
       const e = await service.entries.get(scope, name, id);
-      const baseUrl = RequestUtils.getBaseUrl(c);
-      return c.json(EntryUtils.toApiResponse(e, collection.schema, baseUrl));
+      const links = await service.media.links(RequestUtils.getBaseUrl(c), e);
+      return c.json(EntryUtils.toApiResponse(e, collection.schema, links));
     };
 
     app.get("/api/projects/:project/environments/:env/collections/:name/:id", getHandler);
@@ -117,8 +119,8 @@ export class EntriesRoutes {
       const rev = RouteAuth.getExpectedRev(c);
       const data = await c.req.json();
       const e = await service.entries.update(scope, name, id, data, rev, RouteAuth.getWriteContext(c));
-      const baseUrl = RequestUtils.getBaseUrl(c);
-      return c.json(EntryUtils.toApiResponse(e, collection.schema, baseUrl));
+      const links = await service.media.links(RequestUtils.getBaseUrl(c), e);
+      return c.json(EntryUtils.toApiResponse(e, collection.schema, links));
     };
 
     app.put("/api/projects/:project/environments/:env/collections/:name/:id", updateHandler);

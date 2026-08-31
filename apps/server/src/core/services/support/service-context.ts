@@ -1,5 +1,7 @@
+import type { MediaConfig } from "../../../config/media-config";
 import type { Storage } from "../../ports/storage";
 import type { BlobStorage } from "../../ports/blob-storage";
+import { MediaExtensions } from "../../media/media-extensions";
 import type { Searcher } from "../../search/searcher";
 import type { Hooks } from "../../hooks/hooks";
 import { NoOpHooks } from "../../hooks/no-op-hooks";
@@ -17,7 +19,6 @@ import { SchemaRegistry } from "./schema-registry";
  */
 export class ServiceContext {
   readonly store: Storage;
-  readonly blobStorage: BlobStorage;
   readonly schemaRegistry: SchemaRegistry;
   readonly searcher: Searcher;
 
@@ -28,6 +29,20 @@ export class ServiceContext {
    *  the same whether or not plugins exist (D31/§13.5). */
   private pluginHooks: Hooks = new NoOpHooks();
 
+  /** One cell, read by every media call site through the getter below (D45). */
+  private blobs: BlobStorage;
+
+  /**
+   * The same arrangement for the media policy (D46): the settings page edits it
+   * while the process runs, so it is read at the moment it is used.
+   *
+   * A service built without one refuses nothing and rewrites no URL. The
+   * allowlist a new instance starts with is `MediaDefaults`, applied by
+   * `ConfigLoader` — absent any configuration at all, "accept everything" is
+   * the only answer that does not invent a policy the caller never set.
+   */
+  private media: MediaConfig = { base_url_target: "server", extensions: [MediaExtensions.Any] };
+
   constructor(
     store: Storage,
     blobStorage: BlobStorage,
@@ -35,13 +50,19 @@ export class ServiceContext {
     searcher: Searcher
   ) {
     this.store = store;
-    this.blobStorage = blobStorage;
+    this.blobs = blobStorage;
     this.schemaRegistry = schemaRegistry;
     this.searcher = searcher;
   }
 
   get hooks(): Hooks {
     return this.pluginHooks;
+  }
+
+  /** Where media bytes live. A getter rather than a field because it can be
+   *  repointed while the process runs (D45) — see `useBlobStorage`. */
+  get blobStorage(): BlobStorage {
+    return this.blobs;
   }
 
   /**
@@ -54,6 +75,40 @@ export class ServiceContext {
    */
   useHooks(hooks: Hooks): void {
     this.pluginHooks = hooks;
+  }
+
+  /**
+   * Point media at a different store, and hand back the one it replaces so the
+   * caller can close it (D45).
+   *
+   * One assignment is the whole of it, for `PluginAuthority`'s reason: every
+   * media call site reads `context.blobStorage` at the moment it acts, so there
+   * is nothing to tear down and nothing to rebuild — a request already inside
+   * `get` finishes against the store it started on, and the next one does not.
+   *
+   * What this does **not** do is move any bytes. An instance repointed from a
+   * directory to a bucket has a catalog full of assets the new store has never
+   * heard of, which is a fact about object stores rather than something a swap
+   * could paper over; the admin says so before it saves.
+   */
+  useBlobStorage(blobStorage: BlobStorage): BlobStorage {
+    const previous = this.blobs;
+    this.blobs = blobStorage;
+    return previous;
+  }
+
+  /** What the library accepts and where its URLs point (D46). A getter for
+   *  `blobStorage`'s reason: the settings page can change it mid-process. */
+  get mediaConfig(): MediaConfig {
+    return this.media;
+  }
+
+  /** Replaces the media policy, and hands back the one it replaced so a caller
+   *  that has to undo the change can put it back exactly. */
+  useMediaConfig(media: MediaConfig): MediaConfig {
+    const previous = this.media;
+    this.media = media;
+    return previous;
   }
 
   /** Runs `work` with the instance write lock held. */

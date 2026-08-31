@@ -253,6 +253,14 @@ driver = "fs"                 # "fs" | "s3"
 # secret_access_key = "..."
 # force_path_style = false
 
+[media]
+# base_url        = "https://cdn.example.com"  # unset means the address each request arrives on
+# base_url_target = "server"   # "server": <base>/media/<id>, streamed by silo
+                               # "store":  <base>/<blob key>, served by the bucket (must be public)
+extensions      = ["jpg", "jpeg", "png", "gif", "webp", "avif", "svg", "ico",
+                   "bmp", "mp4", "webm", "mov", "mp3", "wav", "ogg", "m4a", "pdf"]
+# Uploads are refused unless the filename ends in one of these. ["*"] accepts anything.
+
 [auth]
 disabled = false        # dev only: if true, every request is treated as root
 
@@ -298,6 +306,33 @@ max_files   = 5               # kept as silo.log.1 … silo.log.5
 | `SILO_SEARCH_ENABLED`, `SILO_SEARCH_TOKENIZER` | `[search]` |
 | `SILO_LOG_LEVEL`, `SILO_LOG_FILE`, `SILO_LOG_FORMAT` | `[log]` |
 | `SILO_LOG_REQUESTS`, `SILO_LOG_MAX_SIZE_MB`, `SILO_LOG_MAX_FILES` | `[log]` |
+| `SILO_MEDIA_BASE_URL`, `SILO_MEDIA_BASE_URL_TARGET` | `[media]` |
+| `SILO_MEDIA_EXTENSIONS` | `[media]` (comma-separated) |
+
+Media storage is also configurable **from the admin**, under Settings → Media
+Library, behind the `media:configure` claim (D45). It edits this file: a save
+rewrites the `[blob_storage]` table in place, leaving the rest of the document
+and its comments alone, then applies the result to the running server without a
+restart. Nothing about the hierarchy changes, so the page shows what the file
+says *and* what is in force, and names the `SILO_*` variable wherever one is
+beating the file. Switching provider moves no files: uploads made before the
+switch stay where they were.
+
+The same page holds a second card for `[media]` (D46), saved separately: the
+**base URL** media links are rooted at, whether that name points at silo or at
+the bucket, and the **permitted file types**. Leave the base URL empty and every
+media URL is rooted at the address the request arrived on, which is what you
+want behind no proxy. Set it to a CDN and pick `store`, and media fields resolve
+to `<base>/<blob key>` with silo out of the read path entirely — the shape an
+email needs, since a mail client cannot authenticate. That requires a publicly
+readable bucket.
+
+The allowlist is on the filename extension, checked before anything is written
+and on rename as well as upload, and only the last extension counts. `["*"]`
+accepts everything. **Upgrading an instance with no `[media]` table applies the
+default list**, so file types you were accepting before — `.docx`, `.zip` — need
+adding back. `svg` ships in the default: it can carry script and is served
+inline from silo's own origin, so drop it where uploaders are untrusted.
 
 Media follows the data directory: with the `fs` blob driver, `--data <dir>`
 stores uploads in `<dir>/media`, so one instance stays in one place. Naming the
@@ -505,6 +540,8 @@ Present a key as `Authorization: Bearer <key>` or `X-Api-Key: <key>`.
 | `GET` | `/api/audit` | who changed what authority, and when |
 | `GET` / `POST` | `/api/media` | list / upload media |
 | `DELETE` | `/api/media/{id}` | delete a media asset, refused while an entry still references it |
+| `GET` / `PUT` | `/api/media/storage` | read / change where the library keeps its bytes (`media:configure`) |
+| `GET` / `PUT` | `/api/media/settings` | read / change where media URLs point and what may be uploaded (`media:configure`) |
 | `GET` | `/api/projects/{project}/envs/{env}/collections/{name}/search` | search one collection |
 | `GET` | `/api/projects/{project}/envs/{env}/search` | search one environment |
 | `GET` | `/api/search` | search everything the key can read |
@@ -621,7 +658,7 @@ collections:<project>/<env>/<name>:entries:read
 collections:<project>/<env>/<name>:entries:update
 collections:<project>/<env>/<name>:entries:delete
 hooks:<project>/<env>/<name>:<hook>
-media:read        media:create      media:delete
+media:read        media:create      media:delete      media:configure
 keys:read         keys:create       keys:revoke
 keys:export       keys:import
 plugins:read      plugins:grant     plugins:enable     plugins:configure
@@ -636,6 +673,14 @@ transfer:export   transfer:import   transfer:copy
 validated, with the chance to rewrite it, is a different authority from reading
 a committed one. It exists for plugins — see [Plugins](#plugins) — and the
 `<hook>` segment is one of the five hook names, with no wildcard.
+
+`media:configure` is not a fourth per-asset permission: it reads and changes how
+the library is **set up** — where it keeps its bytes, credentials included,
+where its URLs point, and what file types it accepts — and it writes `silo.toml`
+to do it. No preset but `root` carries it, no plugin may be granted it, and a
+key holding `media:read|create|delete` all day cannot repoint the library. It is
+one claim rather than a read/write pair because the read is not the harmless
+half: it names the bucket, the endpoint and the access key id.
 
 `plugins:*` and `audit:read` guard the management API and the authority trail.
 There is no `audit:write`: nothing updates or deletes an event, so a claim

@@ -2,6 +2,7 @@ import {
   ArrowLeft,
   ArrowUpDown,
   FolderGit2,
+  Image,
   KeyRound,
   Layers,
   Plug,
@@ -133,6 +134,13 @@ export function SettingsNav({
             title="Data Transfer"
             subtitle="Whole-instance archive & copy"
             active={serverSection === 'transfer'}
+          />
+          <SettingsNavItem
+            to={Routes.serverSettings(serverId, 'media-storage')}
+            icon={<Image size={15} />}
+            title="Media Library"
+            subtitle="Storage provider & credentials"
+            active={serverSection === 'media-storage'}
           />
           <SettingsNavItem
             to={Routes.serverSettings(serverId, 'plugins')}

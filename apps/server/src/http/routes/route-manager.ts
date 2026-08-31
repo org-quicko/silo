@@ -1,11 +1,14 @@
 import type { SiloService } from "../../core/services/silo-service";
 import type { PluginSupervisor } from "../../plugins";
+import type { MediaPolicySupervisor, MediaStorageSupervisor } from "../../settings";
 import { ProjectsRoutes } from "./projects-routes";
 import { CollectionsRoutes } from "./collections-routes";
 import { EntriesRoutes } from "./entries-routes";
 import { KeysRoutes } from "./keys-routes";
 import { TransferRoutes } from "./transfer-routes";
 import { MediaRoutes } from "./media-routes";
+import { MediaSettingsRoutes } from "./media-settings-routes";
+import { MediaStorageRoutes } from "./media-storage-routes";
 import { CopyRoutes } from "./copy-routes";
 import { SessionRoutes } from "./session-routes";
 import { SearchRoutes } from "./search-routes";
@@ -23,7 +26,13 @@ import { AuditRoutes } from "./audit-routes";
  * before `EntriesRoutes`.
  */
 export class RouteManager {
-  static registerRoutes(app: any, service: SiloService, plugins: PluginSupervisor) {
+  static registerRoutes(
+    app: any,
+    service: SiloService,
+    plugins: PluginSupervisor,
+    mediaStorage: MediaStorageSupervisor,
+    mediaPolicy: MediaPolicySupervisor
+  ) {
     SessionRoutes.register(app);
     // Plugin *management* (D34/D38/D39), registered before the scoped param
     // routes for the same ordering reason the rest of this list exists.
@@ -36,6 +45,9 @@ export class RouteManager {
     KeysRoutes.register(app, service);
     TransferRoutes.register(app, service);
     CopyRoutes.register(app, service);
+    // Before MediaRoutes, so "storage" and "settings" are never read as asset ids.
+    MediaStorageRoutes.register(app, mediaStorage);
+    MediaSettingsRoutes.register(app, mediaPolicy);
     MediaRoutes.register(app, service);
 
     ProjectsRoutes.register(app, service);

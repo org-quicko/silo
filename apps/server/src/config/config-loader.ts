@@ -2,6 +2,8 @@ import fs from "fs/promises";
 import path from "path";
 import { TOML } from "bun";
 import type { Config } from "./config";
+import { MediaDefaults } from "./media-defaults";
+import { MediaTable } from "./media-table";
 import type { PluginConfig } from "./plugin-config";
 
 export class ConfigLoader {
@@ -21,6 +23,7 @@ export class ConfigLoader {
         // chose, and --data would have to either clobber both or neither.
         driver: "fs",
       },
+      media: MediaDefaults.config(),
       auth: {
         disabled: false,
       },
@@ -151,6 +154,11 @@ export class ConfigLoader {
               config.blob_storage.forcePathStyle = parsed.blob_storage.force_path_style;
             }
           }
+          if (parsed.media && typeof parsed.media === "object") {
+            // One reader, shared with the writer the settings page uses, so the
+            // two cannot disagree about which key carries which field (D46).
+            Object.assign(config.media, MediaTable.fromTable(parsed.media) ?? {});
+          }
           if (parsed.auth && typeof parsed.auth === "object") {
             if (typeof parsed.auth.disabled === "boolean") {
               config.auth.disabled = parsed.auth.disabled;
@@ -223,6 +231,22 @@ export class ConfigLoader {
     }
     if (process.env.SILO_STORAGE_PATH) {
       config.storage.path = process.env.SILO_STORAGE_PATH;
+    }
+    if (process.env.SILO_MEDIA_BASE_URL) {
+      config.media.base_url = process.env.SILO_MEDIA_BASE_URL;
+    }
+    if (
+      process.env.SILO_MEDIA_BASE_URL_TARGET === "server" ||
+      process.env.SILO_MEDIA_BASE_URL_TARGET === "store"
+    ) {
+      config.media.base_url_target = process.env.SILO_MEDIA_BASE_URL_TARGET;
+    }
+    if (process.env.SILO_MEDIA_EXTENSIONS) {
+      // Comma-separated, because an environment variable has no lists in it and
+      // every other multi-value silo reads from one is spelled this way.
+      config.media.extensions = MediaTable.extensions(
+        process.env.SILO_MEDIA_EXTENSIONS.split(",")
+      );
     }
     if (process.env.SILO_BLOB_DRIVER) {
       config.blob_storage.driver = process.env.SILO_BLOB_DRIVER;

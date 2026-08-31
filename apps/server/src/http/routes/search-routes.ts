@@ -53,7 +53,7 @@ export class SearchRoutes {
         access
       );
 
-      const baseUrl = RequestUtils.getBaseUrl(c);
+      const links = await service.media.links(RequestUtils.getBaseUrl(c), response.items);
       // One schema lookup per distinct collection on the page, not per hit —
       // a page of 50 results from one collection would otherwise fetch the
       // same schema 50 times.
@@ -70,7 +70,7 @@ export class SearchRoutes {
           collection: hit.collection,
           // The location sits on the hit; the entry stays exactly what the
           // API returns everywhere else (§5.1, and the exception D30 records).
-          entry: EntryUtils.toApiResponse(hit.entry, schemas.get(cacheKey), baseUrl),
+          entry: EntryUtils.toApiResponse(hit.entry, schemas.get(cacheKey), links),
           snippets: hit.snippets,
         });
       }

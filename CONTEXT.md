@@ -17,7 +17,7 @@ can be cloned with one command.
 
 ## Where things stand
 
-*Last updated: 2026-08-27*
+*Last updated: 2026-08-31*
 
 Everything through M5 is built and shipping: collections and JSON Schema
 validation, entry CRUD with optimistic concurrency, the query AST and search
@@ -28,10 +28,98 @@ UI, single-binary releases with Homebrew and RPM, and plugins with an installer
 panels, and there is a first-party plugin using both to import a Strapi 5 export,
 media included (D41). Plugins install *and uninstall* from the API and the admin
 (D42/D43), and a plugin's page is a summary with its sections behind sheets so
-the plugin's own panel has room (D44).
+the plugin's own panel has room (D44). Where the media library keeps its bytes is
+configurable from the admin, and still written back to `silo.toml` (D45); so are
+where media URLs point and what the library accepts (D46).
 
-**The most recent change stops an install from evaporating, and stops the Strapi
-importer from proposing everybody's collection names (2026-08-27).**
+**The most recent change makes media *delivery* configurable too, in a table of
+its own (D46, 2026-08-31).**
+D45 answered where the bytes go. It left two questions that are not about the
+driver at all: what URL a client is handed for them, and what may be put in the
+library in the first place. Media URLs were rooted at whatever host the request
+arrived on, so an instance behind a CDN — or one serving an email CMS, whose
+readers cannot authenticate and will not follow silo's cache headers — could not
+hand out a stable public link at all; and any file whatever could be uploaded,
+because nothing between the multipart parser and the blob store asked what it
+was. Both are now `[media]`: `base_url`, `base_url_target`, `extensions`, with
+`SILO_MEDIA_*` above them, edited on the same **Settings → Media Library** page
+behind the same `media:configure` claim through `GET`/`PUT /api/media/settings`
+and its own Save. **Two routes and two Saves, not one**, because they are two
+tables with two failure modes: a bad allowlist is a typo, a bad bucket cannot be
+opened at all, and one form would make correcting the first depend on the second
+still working. `MediaTable` joins `BlobStorageTable` over a shared
+`TomlTableEdit`, so both writers keep the one rule — edit as text, parse before
+writing, abandon unless the rest of the document reads back identical.
+
+**`base_url_target` is the decision, and it is architectural.** `server` keeps
+silo in the read path and addresses an asset by catalog id, which is exactly what
+lets `EntryUtils.toApiResponse` stay a pure synchronous function: the URL is
+derivable from the reference alone. `store` addresses the **blob key**, because
+that is what a bucket serves, and the key lives on the catalog record — so
+`MediaLinkResolver` resolves it once per response, before the entries are mapped,
+never inside the mapping, and does no I/O at all in the ordinary case. An asset
+whose key was not resolved falls back to **silo's own origin** rather than to the
+configured base: the CDN has never heard of `/media/<id>`, so a link rooted there
+would 404, which is D35's judgement about a base that resolves nowhere. The
+allowlist is checked on the **extension** rather than the declared content type,
+since a multipart part carries whatever `Content-Type` the client chose and
+trusting it lets the caller decide whether the caller is allowed; only the last
+extension counts, it runs before any bytes are written, and it runs on rename as
+well, or `report.png` becomes `report.exe` afterwards and the check is
+decoration. **An instance upgrading with no `[media]` table now gets the default
+allowlist** and will refuse types it accepted before. What is deliberately
+unchanged is D23: mirroring media folders into S3 was considered and refused,
+because S3 has no rename, so a move would become a copy-and-delete of the bytes
+and would break every URL already published for that file. Blob keys stay flat
+and folders stay catalog metadata, `store` mode included. See §6.5 in
+[docs/design/storage.md](docs/design/storage.md) and §8.3 in
+[docs/design/http-api.md](docs/design/http-api.md).
+
+**Before it, media storage moved into the admin without making the admin a
+second source of truth (D45, 2026-08-31).**
+Where the media library keeps its bytes was a `silo.toml` question and only that
+— `[blob_storage]`, the `SILO_BLOB_*` variables, or `--blob-path` — which is
+fine on a box with a shell and impossible on a managed platform without one.
+`GET`/`PUT /api/media/storage` and a **Settings → Media Library** page now expose
+it, behind a new `media:configure` claim. **A save still writes the file.**
+`BlobStorageTable` replaces the `[blob_storage]` table as text the way
+`PluginBlockWriter` edits `[[plugins]]` — parse the result before writing it,
+and abandon the write unless the rest of the document reads back identical —
+and what then takes effect is **the config re-read the way a start reads it**,
+flags and environment back on top, never the posted body. A bucket supplied by
+`SILO_BLOB_S3_BUCKET` outranks the file at the next start, so an instance running
+on the posted value in between would be reporting a configuration nothing else
+agrees with. D42/D43's rule carries over unchanged: the file must never describe
+a state the next `serve` cannot reach, so the driver is checked before anything
+is written and a configuration that cannot be opened restores the file and
+answers 400. The swap itself is one assignment — `ServiceContext.blobStorage`
+became a cell behind a getter, `PluginAuthority`'s shape — because every media
+call site already read it at the moment it acted.
+
+**The page reads two configurations, and that split is the design.** The form
+edits *the file*; `in_force` is what the process is using; `overrides` names
+every field the file does not decide, and the variable deciding it where that can
+be known exactly. Without it the page would lie twice: the fs media path is
+`<data dir>/media` *precisely while nobody has named one*, so a form seeded from
+what is in force would save that back as a literal and break `--data`; and an
+operator would type a bucket an environment variable was quietly beating. The
+secret is write-only — the read carries `secret_access_key_set` and never a
+value, an omitted one keeps the file's while `""` clears it, and the merge base
+is the file, so a credential held in the environment is never copied into one
+that is usually in version control. The field says the same thing: a stored
+secret is a mask in a box that takes no keystroke, and clearing it is what opens
+the box, so a typed value has to outrank the clear that admitted it. `media:configure` is one claim rather than a
+read/write pair, because the read names the bucket, endpoint and access key id;
+it is carried by no preset but root and joins `PluginForbiddenClaims`, since a
+plugin holding it would receive every future upload in the instance and would get
+there by writing the file that decides what code runs. Changes are audited as
+`media.configure`. **No bytes are moved** by a switch, which is a property of
+object stores rather than something a swap could paper over, and the page says so
+beside the provider. See §6.4 in [docs/design/storage.md](docs/design/storage.md)
+and §8.2 in [docs/design/http-api.md](docs/design/http-api.md).
+
+**Before that, an install stopped evaporating, and the Strapi importer stopped
+proposing everybody's collection names (2026-08-27).**
 Installing a plugin into a directory with no `silo.toml` reported `201`, ran the
 worker, and warned that nothing would come back at the next start. The file is now
 **created**: `ConfigScaffold` owns the annotated default file `silo init` writes,
@@ -369,7 +457,7 @@ unchanged and the full suite passes throughout. See
 | [docs/context/repo-map.md](docs/context/repo-map.md) | Where everything lives |
 | [docs/context/code-design.md](docs/context/code-design.md) | How code here is expected to be shaped |
 | [docs/context/changelog.md](docs/context/changelog.md) | Every change that altered behaviour, architecture or layout, newest first |
-| [IMPLEMENTATION.md](IMPLEMENTATION.md) | The vision, the D1–D40 decisions log, and the index into `docs/design/` |
+| [IMPLEMENTATION.md](IMPLEMENTATION.md) | The vision, the D1–D45 decisions log, and the index into `docs/design/` |
 | [README.md](README.md) | How to run, configure and use silo |
 
 ## Working in this repo

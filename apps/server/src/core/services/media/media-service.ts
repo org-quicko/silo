@@ -1,4 +1,5 @@
 import type { MediaAssetView } from "../../media/media-asset-view";
+import type { MediaLinks } from "../../media/media-links";
 import type { MediaBytes } from "../../media/media-bytes";
 import type { MediaQuery } from "../../media/media-query";
 import type { MediaReconcileResult } from "../../media/media-reconcile-result";
@@ -14,6 +15,7 @@ import { MediaCatalogStore } from "./media-catalog-store";
 import { MediaDelivery } from "./media-delivery";
 import { MediaDeletionService } from "./media-deletion-service";
 import { MediaFolderService } from "./media-folder-service";
+import { MediaLinkResolver } from "./media-link-resolver";
 import { MediaReconciler } from "./media-reconciler";
 import { MediaReferenceGuard } from "./media-reference-guard";
 import { MediaUsageCounter } from "./media-usage-counter";
@@ -31,6 +33,7 @@ export class MediaService {
   private readonly folders: MediaFolderService;
   private readonly deletion: MediaDeletionService;
   private readonly reconciler: MediaReconciler;
+  private readonly linkResolver: MediaLinkResolver;
 
   /** The entry write path checks new references through this (§8.1). */
   readonly referenceGuard: MediaReferenceGuard;
@@ -44,6 +47,18 @@ export class MediaService {
     this.deletion = new MediaDeletionService(context, catalog);
     this.reconciler = new MediaReconciler(context, catalog, this.deletion);
     this.referenceGuard = new MediaReferenceGuard(catalog);
+    this.linkResolver = new MediaLinkResolver(context, catalog);
+  }
+
+  /**
+   * How this response should render media references (D46).
+   *
+   * Every route that resolves media fields calls this first and passes the
+   * result to `EntryUtils.toApiResponse`, rather than passing an origin string:
+   * the answer depends on `[media]`, and in store mode on the catalog too.
+   */
+  links(requestBase: string, payload: unknown): Promise<MediaLinks> {
+    return this.linkResolver.forPayload(requestBase, payload);
   }
 
   list(query: MediaQuery = {}): Promise<MediaAssetPage> {

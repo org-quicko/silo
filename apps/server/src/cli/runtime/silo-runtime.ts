@@ -4,6 +4,7 @@ import { SiloService } from "../../core/services/silo-service";
 import { SearchTokenizers } from "../../core/search/search-tokenizers";
 import { Logger } from "../../logging/logger";
 import { PluginLoader, PluginRegistry, PluginSupervisor, ProviderRegistry } from "../../plugins";
+import { MediaPolicySupervisor, MediaStorageSupervisor } from "../../settings";
 import type { Storage } from "../../core/ports/storage";
 
 /**
@@ -25,18 +26,31 @@ export class SiloRuntime {
    *  first plugin arrives without a restart. */
   readonly supervisor: PluginSupervisor;
 
+  /** The one thing allowed to repoint media storage (D45). It holds the same
+   *  `ProviderRegistry` storage was opened from, so the drivers it offers are
+   *  this build's plus whatever a provider plugin registered. */
+  readonly mediaStorage: MediaStorageSupervisor;
+
+  /** The one thing allowed to change where media URLs point and what the
+   *  library accepts (D46). */
+  readonly mediaPolicy: MediaPolicySupervisor;
+
   private constructor(
     store: Storage,
     service: SiloService,
     logger: Logger,
     plugins: PluginRegistry,
-    supervisor: PluginSupervisor
+    supervisor: PluginSupervisor,
+    mediaStorage: MediaStorageSupervisor,
+    mediaPolicy: MediaPolicySupervisor
   ) {
     this.store = store;
     this.service = service;
     this.logger = logger;
     this.plugins = plugins;
     this.supervisor = supervisor;
+    this.mediaStorage = mediaStorage;
+    this.mediaPolicy = mediaPolicy;
   }
 
   /**
@@ -59,9 +73,17 @@ export class SiloRuntime {
     // holding a silent logger would drop that on the floor exactly when it
     // matters.
     const logger = command === "serve" ? Logger.create(config.log) : Logger.silent();
-    const { store, service, rebuildNotice } = await SiloRuntime.openStorage(config, logger);
+    const { store, service, providers, rebuildNotice } = await SiloRuntime.openStorage(
+      config,
+      logger
+    );
 
     if (rebuildNotice && command === "serve") console.error(rebuildNotice);
+
+    // Before anything can upload or resolve a URL: the service's own default is
+    // "no policy", which is the right answer for a service built without a
+    // config and the wrong one for a process that was handed one (D46).
+    service.useMediaConfig(config.media);
 
     // Extension plugins load only for `serve` (D31). Every other subcommand is
     // a one-shot against the data dir, and spinning a worker per plugin to run
@@ -89,7 +111,33 @@ export class SiloRuntime {
       reload,
       configPath,
     });
-    return new SiloRuntime(store, service, logger, plugins, supervisor);
+    // The same `reload` the plugin supervisor gets, deliberately: a save that
+    // re-read the file without this process's flags and environment would apply
+    // a different configuration than the next `serve` will (D45).
+    const mediaStorage = new MediaStorageSupervisor({
+      service,
+      providers,
+      logger,
+      config,
+      reload,
+      configPath,
+    });
+    const mediaPolicy = new MediaPolicySupervisor({
+      service,
+      logger,
+      config,
+      reload,
+      configPath,
+    });
+    return new SiloRuntime(
+      store,
+      service,
+      logger,
+      plugins,
+      supervisor,
+      mediaStorage,
+      mediaPolicy
+    );
   }
 
   async close(): Promise<void> {
@@ -107,6 +155,10 @@ export class SiloRuntime {
   private static async openStorage(config: Config, logger: Logger): Promise<{
     store: Storage;
     service: SiloService;
+    /** Handed back rather than discarded: `MediaStorageSupervisor` opens the
+     *  next blob store through the same registry this one came from, so a
+     *  provider plugin's driver stays selectable afterwards (D45). */
+    providers: ProviderRegistry;
     rebuildNotice: string | null;
   }> {
     const providers = ProviderRegistry.withBuiltins();
@@ -135,7 +187,12 @@ export class SiloRuntime {
       },
     });
 
-    return { store, service, rebuildNotice: await SiloRuntime.rebuildIndex(store, searcher) };
+    return {
+      store,
+      service,
+      providers,
+      rebuildNotice: await SiloRuntime.rebuildIndex(store, searcher),
+    };
   }
 
   /**

@@ -4,6 +4,97 @@
 > The *current* state is [CONTEXT.md](../../CONTEXT.md); this is how it got
 > there.
 
+- **Media URLs and the upload allowlist become configuration (D46, 2026-08-31).**
+  Two gaps D45 left. Media URLs were rooted at whatever host a request arrived on, so an
+  instance behind a CDN — or one serving an email CMS, whose readers cannot authenticate — could
+  not hand out a stable public link at all; and any file whatever could be uploaded, because
+  nothing between the multipart parser and the blob store asked what it was. Both are now a new
+  `[media]` table (`apps/server/src/config/media-config.ts`): `base_url`, `base_url_target`,
+  `extensions`, read by `ConfigLoader`, overridable by `SILO_MEDIA_*`, and edited on the same
+  **Settings → Media Library** page behind the same `media:configure` claim through a second
+  route, `GET`/`PUT /api/media/settings`, with its own Save. Two routes rather than one because
+  they are two tables with two failure modes: a bad allowlist is a typo, a bad bucket cannot be
+  opened at all, and folding them together would make correcting the first depend on the second
+  still working.
+
+  `base_url_target` is the part with consequences. `server` keeps silo in the read path and
+  addresses an asset by catalog id, which is what has always let `EntryUtils.toApiResponse` stay
+  a pure synchronous function: `silo://media/<id>` resolves from the reference alone. `store`
+  addresses the **blob key**, since that is what a bucket serves, and the key lives on the
+  catalog record — so `MediaLinkResolver` resolves it once per response, before the entries are
+  mapped, and never inside the mapping; in `server` mode it does no I/O at all. An asset whose
+  key was not resolved falls back to silo's own origin rather than to the configured base,
+  because the CDN has never heard of `/media/<id>` and a link rooted there would 404 (D35's
+  judgement about a base that resolves nowhere). `MediaResolver` kept the schema walk and handed
+  the URL policy to a new `MediaLinks`; `toApiResponse` takes that object instead of a base
+  string, at five call sites.
+
+  The allowlist is checked on the **extension**, not the declared content type: a multipart part
+  carries whatever `Content-Type` the client chose, so trusting it lets the caller decide whether
+  the caller is allowed. Only the last extension counts, so `invoice.pdf.exe` is an `.exe`. It is
+  checked before any bytes are written, so a refused upload leaves nothing for `reconcile` to
+  find, and on **rename** as well — `PATCH /api/media/{id}` is the other way a filename enters the
+  library, and without it `report.png` becomes `report.exe` afterwards and the check is
+  decoration. An empty list is refused at parse; `["*"]` is how "accept everything" is said out
+  loud. **This is a behaviour change on upgrade:** an instance with no `[media]` table now gets
+  the default allowlist (images, video, audio, PDF) and will refuse file types it accepted
+  before. `svg` is in the default with a caveat recorded in the scaffold and the docs: it can
+  carry script and `/media/{id}` serves it inline from silo's own origin.
+
+  `ServiceContext` gained a `mediaConfig` cell with `useMediaConfig` beside `useBlobStorage`, so a
+  save applies to the running process in one assignment. `BlobStorageTable`'s text mechanics moved
+  to a shared `TomlTableEdit` — the edit is text so comments outside the table survive, the result
+  is parsed before it is written, and the write is abandoned unless the rest of the document reads
+  back identical — with `MediaTable` as the second user. `MediaStorageOverride` became
+  `SettingsOverride`, now that two pages report one.
+
+  **D23 is untouched.** Mirroring media folders into S3 was considered and refused: S3 has no
+  rename, so a move would become a copy-and-delete of the bytes and would break every URL already
+  published for that file, which are the two costs D23 exists to avoid. Blob keys stay flat and
+  folders stay catalog metadata, in `store` mode as well.
+
+- **Media storage is configurable from the admin (D45, 2026-08-31).**
+  Where the media library keeps its bytes was reachable only through `silo.toml`, the
+  `SILO_BLOB_*` variables or `--blob-path`, so an operator on a managed platform with no shell
+  could not point silo at a bucket at all. New `GET`/`PUT /api/media/storage`
+  (`apps/server/src/http/routes/media-storage-routes.ts`, registered before `MediaRoutes` so
+  `storage` is never read as an asset id) and a **Settings → Media Library** page in the admin,
+  both behind a new `media:configure` fixed claim. New `apps/server/src/settings/` holds the two
+  halves: `MediaStorageSettings` decides which value wins (parse a body, merge over *the file*,
+  name the fields the file does not decide) and `MediaStorageSupervisor` applies it.
+  New `apps/server/src/config/blob-storage-table.ts` reads and rewrites the `[blob_storage]`
+  table as text the way `PluginBlockWriter` handles `[[plugins]]`, parsing the result before
+  writing it and abandoning the write unless the rest of the document reads back identical.
+
+  A save is ordered by D42/D43's rule — the file must never describe a state the next `serve`
+  cannot reach: the driver is checked against `ProviderRegistry` before anything is written, the
+  file is written, the config is re-read through the same `reload` closure `PluginSupervisor`
+  holds (flags and environment back on top), and the store is opened from *that* rather than from
+  the posted body. A configuration that cannot be opened restores the file byte for byte and
+  answers 400. `ServiceContext.blobStorage` became a cell behind a getter with
+  `useBlobStorage` beside `useHooks`, so the swap is one assignment and every media call site
+  picks it up on its next call; `SiloService.blobStorage` is now a getter over it.
+  `SiloRuntime` retains the `ProviderRegistry` it opened storage with, so a provider plugin's
+  blob driver stays selectable. Changes are audited as a new `media.configure` action.
+
+  The API reports `file` and `in_force` as two configurations with an `overrides` list between
+  them, and the page edits the first. Both halves are load-bearing: the fs media path is
+  `<data dir>/media` *precisely while nobody has named one*, so a form seeded from what is in
+  force would save that back as a literal and break `--data`, and an operator would otherwise
+  type a bucket that `SILO_BLOB_S3_BUCKET` was quietly beating. The secret is write-only —
+  the read carries `secret_access_key_set` and never a value, an omitted secret keeps the file's
+  and `""` clears it, and the merge base is the file so a credential held in the environment is
+  never copied into it. `media:configure` is carried by no preset but root and joins
+  `PluginForbiddenClaims`. Switching provider moves no bytes, and the page says so.
+
+  The secret's field follows from being write-only rather than working around it: a stored one
+  shows as a fixed-width mask in a box that takes no keystroke, and **clearing it is what opens
+  the box** for a replacement, so the two states are set together rather than exclusively.
+  `MediaStorageDraft.payload` therefore reads the typed value *before* the clear flag, since the
+  other order would discard what was just typed and leave the instance with no credential at all.
+  The endpoint placeholder names a self-hosted gateway, not `s3.<region>.amazonaws.com`, which
+  above the words "leave empty for AWS" read as an instruction to fill it in.
+
 - **An install with no `silo.toml` now writes one (2026-08-27).**
   `POST /api/plugins/install` and `silo add` used to install, start and grant a plugin and then
   warn that it would not come back at the next start, because the path they were started with named

@@ -1,6 +1,7 @@
 import { ulid } from "ulidx";
 import { ValidationError } from "@silo/shared/validation-error";
 import { MediaResolver } from "../media/media-resolver";
+import type { MediaLinks } from "../media/media-links";
 import type { Entry } from "./entry";
 
 export const TimeLayout = "YYYY-MM-DDTHH:mm:ss.SSSZ";
@@ -55,7 +56,7 @@ export class EntryUtils {
     }
   }
 
-  static toApiResponse(e: Entry, schema?: any, baseUrl?: string): Record<string, any> {
+  static toApiResponse(e: Entry, schema?: any, links?: MediaLinks): Record<string, any> {
     const createdAt =
       e.created_at instanceof Date
         ? e.created_at.toISOString()
@@ -79,8 +80,8 @@ export class EntryUtils {
     delete userFields.created_at;
     delete userFields.updated_at;
 
-    if (schema && baseUrl) {
-      userFields = MediaResolver.resolveMediaFields(userFields, schema, baseUrl);
+    if (schema && links) {
+      userFields = MediaResolver.resolveMediaFields(userFields, schema, links);
     }
 
     // `rev` is part of the response because `PUT`/`DELETE` require it back as

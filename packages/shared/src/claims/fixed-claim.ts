@@ -11,6 +11,7 @@ export type FixedClaim =
   | "media:read"
   | "media:create"
   | "media:delete"
+  | "media:configure"
   | "plugins:read"
   | "plugins:configure"
   | "plugins:grant"

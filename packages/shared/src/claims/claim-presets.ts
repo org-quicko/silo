@@ -61,6 +61,11 @@ export class ClaimPresets {
    * of `manage` makes "who may empower a plugin" a deliberate grant rather than
    * a side effect of picking the second-widest preset. `manage` still reads and
    * configures, which is what an operator running an instance needs day to day.
+   *
+   * `media:configure` is root-only for the same reason (D45): it rewrites
+   * `silo.toml` and decides which bucket and which credential every upload
+   * lands in, so handing it out with the preset an operator picks for a
+   * colleague would make "who may move the library" a side effect too.
    */
   private static readonly Fixed: Record<
     Exclude<ClaimPreset, "root">,

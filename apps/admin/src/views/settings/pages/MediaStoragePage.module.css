@@ -1,0 +1,175 @@
+/* Media Library settings. The card, form and alert styles come from
+   SettingsView.module.css; only what this page adds lives here. */
+
+.select {
+  padding: 8px 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: var(--ink-2);
+  color: var(--text);
+  font-size: 13px;
+  outline: none;
+}
+
+.select:focus {
+  border-color: var(--accent);
+}
+
+.help {
+  color: var(--text-3);
+  font-size: 11.5px;
+}
+
+.note {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  color: var(--warn);
+  font-size: 11.5px;
+}
+
+.fieldHead {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+/* A text button beside a label: clearing a secret, mostly. */
+.inlineAction {
+  border: 0;
+  padding: 0;
+  background: none;
+  color: var(--accent);
+  font-size: 11.5px;
+  cursor: pointer;
+}
+
+.inlineAction:disabled {
+  color: var(--text-3);
+  cursor: default;
+}
+
+.toggleRow {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.toggleCopy {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.toggleCopy b {
+  color: var(--text);
+  font-size: 12.5px;
+  font-weight: 500;
+}
+
+.notice {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 10px 14px;
+  border: 1px solid color-mix(in oklab, var(--warn) 30%, transparent);
+  border-radius: var(--radius-sm);
+  background: color-mix(in oklab, var(--warn) 8%, transparent);
+  color: var(--warn);
+  font-size: 12.5px;
+}
+
+.notice svg {
+  flex: none;
+  margin-top: 1px;
+}
+
+.readOnly {
+  padding: 14px;
+  border: 1px dashed var(--line);
+  border-radius: var(--radius-sm);
+  color: var(--text-3);
+  font-size: 12.5px;
+}
+
+/* A stored secret, shown rather than editable. Wide tracking so the mask reads
+   as a mask and not as a value somebody could have typed. */
+.masked {
+  letter-spacing: 3px;
+}
+
+/* The extension allowlist: one chip per accepted type, and a box that adds to
+   them. Laid out as a field rather than a control of its own, so it sits with
+   the inputs around it. */
+.chips {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  padding: 7px 8px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: var(--ink-2);
+}
+
+.chips:focus-within {
+  border-color: var(--accent);
+}
+
+.chipsDisabled {
+  opacity: 0.6;
+}
+
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 4px 2px 8px;
+  border-radius: 999px;
+  background: var(--ink-3, var(--ink-1));
+  color: var(--text-2);
+  font-size: 11.5px;
+}
+
+.chip button {
+  display: inline-flex;
+  padding: 1px;
+  border: 0;
+  border-radius: 999px;
+  background: none;
+  color: var(--text-3);
+  cursor: pointer;
+}
+
+.chip button:hover:not(:disabled) {
+  color: var(--text);
+}
+
+.chip button:disabled {
+  cursor: default;
+}
+
+.chipInput {
+  flex: 1;
+  min-width: 90px;
+  padding: 2px 0;
+  border: 0;
+  background: none;
+  color: var(--text);
+  font-size: 12.5px;
+  outline: none;
+}
+
+.fieldFoot {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.fieldActions {
+  display: inline-flex;
+  flex: none;
+  gap: 10px;
+}
