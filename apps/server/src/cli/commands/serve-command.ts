@@ -22,7 +22,8 @@ export class ServeCommand {
    * readable.
    */
   static async run(runtime: SiloRuntime, config: Config, version: string): Promise<void> {
-    const { service, store, logger, plugins, supervisor, mediaStorage, mediaPolicy } = runtime;
+    const { service, store, logger, plugins, supervisor, mediaStorage, mediaPolicy, settings } =
+      runtime;
     // Before anything is written. Two servers over one data directory hand out
     // duplicate `seq` values and defeat the process-local write mutex that
     // makes optimistic concurrency sound — see RunFile.assertNotRunning.
@@ -74,6 +75,7 @@ export class ServeCommand {
       // and written back to silo.toml (D45).
       mediaStorage,
       mediaPolicy,
+      settings,
     }).build();
 
     // Before the bind, so no request can arrive while a plugin's `ctx.fetch`

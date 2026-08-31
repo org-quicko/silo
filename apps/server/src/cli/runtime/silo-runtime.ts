@@ -4,7 +4,7 @@ import { SiloService } from "../../core/services/silo-service";
 import { SearchTokenizers } from "../../core/search/search-tokenizers";
 import { Logger } from "../../logging/logger";
 import { PluginLoader, PluginRegistry, PluginSupervisor, ProviderRegistry } from "../../plugins";
-import { MediaPolicySupervisor, MediaStorageSupervisor } from "../../settings";
+import { ConfigSupervisor, MediaPolicySupervisor, MediaStorageSupervisor } from "../../settings";
 import type { Storage } from "../../core/ports/storage";
 
 /**
@@ -35,6 +35,11 @@ export class SiloRuntime {
    *  library accepts (D46). */
   readonly mediaPolicy: MediaPolicySupervisor;
 
+  /** The one thing allowed to rewrite the rest of `silo.toml` (D47). It holds
+   *  the config this process **started on**, which is how it can tell a change
+   *  waiting for a restart from one already in force. */
+  readonly settings: ConfigSupervisor;
+
   private constructor(
     store: Storage,
     service: SiloService,
@@ -42,7 +47,8 @@ export class SiloRuntime {
     plugins: PluginRegistry,
     supervisor: PluginSupervisor,
     mediaStorage: MediaStorageSupervisor,
-    mediaPolicy: MediaPolicySupervisor
+    mediaPolicy: MediaPolicySupervisor,
+    settings: ConfigSupervisor
   ) {
     this.store = store;
     this.service = service;
@@ -51,6 +57,7 @@ export class SiloRuntime {
     this.supervisor = supervisor;
     this.mediaStorage = mediaStorage;
     this.mediaPolicy = mediaPolicy;
+    this.settings = settings;
   }
 
   /**
@@ -129,6 +136,13 @@ export class SiloRuntime {
       reload,
       configPath,
     });
+    const settings = new ConfigSupervisor({
+      service,
+      logger,
+      config,
+      reload,
+      configPath,
+    });
     return new SiloRuntime(
       store,
       service,
@@ -136,7 +150,8 @@ export class SiloRuntime {
       plugins,
       supervisor,
       mediaStorage,
-      mediaPolicy
+      mediaPolicy,
+      settings
     );
   }
 

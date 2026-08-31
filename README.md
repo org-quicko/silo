@@ -542,6 +542,8 @@ Present a key as `Authorization: Bearer <key>` or `X-Api-Key: <key>`.
 | `DELETE` | `/api/media/{id}` | delete a media asset, refused while an entry still references it |
 | `GET` / `PUT` | `/api/media/storage` | read / change where the library keeps its bytes (`media:configure`) |
 | `GET` / `PUT` | `/api/media/settings` | read / change where media URLs point and what may be uploaded (`media:configure`) |
+| `GET` | `/api/settings` | the rest of `silo.toml`, with what is in force and what a restart is owed for (`settings:configure`) |
+| `PUT` | `/api/settings/{table}` | rewrite one of `log`, `search`, `schema`, `auth` (`settings:configure`) |
 | `GET` | `/api/projects/{project}/envs/{env}/collections/{name}/search` | search one collection |
 | `GET` | `/api/projects/{project}/envs/{env}/search` | search one environment |
 | `GET` | `/api/search` | search everything the key can read |
@@ -662,7 +664,7 @@ media:read        media:create      media:delete      media:configure
 keys:read         keys:create       keys:revoke
 keys:export       keys:import
 plugins:read      plugins:grant     plugins:enable     plugins:configure
-audit:read        http:route
+audit:read        http:route        settings:configure
 transfer:export   transfer:import   transfer:copy
 ```
 
@@ -681,6 +683,22 @@ to do it. No preset but `root` carries it, no plugin may be granted it, and a
 key holding `media:read|create|delete` all day cannot repoint the library. It is
 one claim rather than a read/write pair because the read is not the harmless
 half: it names the bucket, the endpoint and the access key id.
+
+`settings:configure` covers the rest of `silo.toml` — logging, search, schema
+validation, and the auth switch — through **Settings → Configuration** or
+`/api/settings`. Root-only and forbidden to plugins, for the same reasons:
+`[schema] allow_remote_refs` alone turns every schema validation into an
+outbound fetch of the holder's choosing. Two settings there are deliberately not
+freely writable. `[storage]` is reported and never written, because changing the
+driver or data directory names a *different* instance rather than configuring
+this one. `[auth] disabled` can be set to `false` and never to `true`: an API
+that could switch off the authentication protecting it is not one.
+
+Not everything on that page applies without a restart, and the page says which
+per field. `[log] level`, `format` and `requests` take effect on the next line
+written; a log file, the rotation settings, the search tokenizer and the rest are
+adopted at the next start, and a saved value waiting for one is reported as
+waiting rather than as in force.
 
 `plugins:*` and `audit:read` guard the management API and the authority trail.
 There is no `audit:write`: nothing updates or deletes an event, so a claim

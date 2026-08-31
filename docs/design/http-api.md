@@ -34,6 +34,8 @@ Hono web framework on Bun. JSON everywhere. Admin UI served at `/`; API under `/
 | POST | `/api/media/reconcile` | backfill and repair the catalog (`media:create` + `media:delete`) |
 | GET / PUT | `/api/media/storage` | where the library keeps its bytes, read and changed (`media:configure`) — see §8.2 |
 | GET / PUT | `/api/media/settings` | where media URLs point and what may be uploaded (`media:configure`) — see §8.3 |
+| GET | `/api/settings` | every other table of `silo.toml`, with what is in force and what a restart is owed for (`settings:configure`) — see §8.4 |
+| PUT | `/api/settings/{table}` | rewrite one of them (`settings:configure`) |
 | GET | `/media/{id}` | public asset streaming (pre-D23 `/media/{blobKey}` still resolves) |
 | GET | `/api/plugins` | plugin grants, state, the gap between requested and granted, what each package `contributes`, and the author's reason for every claim (`plugins:read`) |
 | GET | `/api/plugins/{name}` | one grant; carries `ETag: "<rev>"` for the mutations below |
@@ -287,6 +289,76 @@ an `.exe`.
 Neither field reaches backwards. Changing `base_url` does not rewrite a URL
 already sitting in a sent email, and narrowing the allowlist does not remove
 files already in the library.
+
+### 8.4 Server settings: the rest of the config file (D47)
+
+`GET /api/settings` and `PUT /api/settings/{table}`, behind
+**`settings:configure`**. One read for every section, because the page draws
+them together and four requests to fill one screen is four ways for it to come
+up half-formed; one write per section, because they are separate tables with
+separate failure modes.
+
+```jsonc
+// GET /api/settings
+{
+  "sections": [{
+    "table": "log",
+    "title": "Logging",
+    "summary": "How much the server writes down, in what format, and where.",
+    "fields": [
+      { "key": "level", "type": "enum", "values": ["debug", "info", "warn", "error", "silent"],
+        "env": "SILO_LOG_LEVEL", "label": "Level" },
+      { "key": "file", "type": "string", "env": "SILO_LOG_FILE", "restart": true, "label": "File" }
+    ],
+    "file":     { "level": "warn" },
+    "in_force": { "level": "warn", "format": "text", "requests": false },
+    "overrides": [],
+    "writable": true,
+    "restart_pending": []
+  }],
+  "config_path": "/srv/silo/silo.toml",
+  "writable": true,
+  "restart_pending": false
+}
+```
+
+**The field list travels with the answer.** It is the spec `ConfigSections`
+holds, so a setting added there appears on the page with its label, its type and
+its restart behaviour intact. A form built from a second list written out in the
+admin goes stale one release after somebody adds a field to only one of them.
+
+`file` versus `in_force` is §8.2's split, and `restart_pending` is what this
+route adds to it. Not every setting can be applied to a running process: a log
+level is a threshold read on every line, while a tokenizer rebuilds an index at
+boot and a log file is a handle opened once. So a field carries `restart: true`
+or it does not, and a saved value the process has not adopted is reported in
+`restart_pending` and **left out of `in_force`** rather than echoed back into it.
+
+```jsonc
+// PUT /api/settings/log   ->  the whole view, since a save can change what another section reports
+{ "level": "debug", "requests": true }
+```
+
+The body is the whole table, not a patch. An **unknown key is refused**, not
+dropped: a typo that saves cleanly and does nothing is the one outcome a caller
+cannot tell from success. An omitted key means the file does not decide that
+field, which is what keeps an unset `[log] file` meaning "the console".
+
+Two limits are deliberate and are reported rather than hidden:
+
+- **`[storage]` is `writable: false`.** Changing the driver or the data
+  directory does not configure this instance, it names a different one, and a
+  `PUT` is a 400 that says so.
+- **`[auth] disabled` may be set to `false` and never to `true`.** An API that
+  can switch off the authentication protecting it is a lock whose key opens
+  itself. The other direction is always safe: an instance running with auth off
+  is one where every caller is already root.
+
+`[blob_storage]` and `[media]` are not here — they have §8.2 and §8.3, where a
+save applies live and rolls back. `[[plugins]]` is not here either, and that one
+is not an omission: it decides what code runs, so it goes through the install
+API and the grant model (§13.21) rather than a text field.
+
 
 
 The response is the view a fresh `GET` would give, already reflecting the applied

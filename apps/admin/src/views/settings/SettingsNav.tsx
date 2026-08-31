@@ -1,6 +1,7 @@
 import {
   ArrowLeft,
   ArrowUpDown,
+  FileCog,
   FolderGit2,
   Image,
   KeyRound,
@@ -141,6 +142,13 @@ export function SettingsNav({
             title="Media Library"
             subtitle="Storage provider & credentials"
             active={serverSection === 'media-storage'}
+          />
+          <SettingsNavItem
+            to={Routes.serverSettings(serverId, 'configuration')}
+            icon={<FileCog size={15} />}
+            title="Configuration"
+            subtitle="Logging, search & validation"
+            active={serverSection === 'configuration'}
           />
           <SettingsNavItem
             to={Routes.serverSettings(serverId, 'plugins')}

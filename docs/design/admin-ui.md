@@ -38,6 +38,7 @@ SERVER
   API Keys                                       list, revoke, and a creation page
   Data Transfer                                  whole-instance archive and direct server copy
   Media Library                                  where uploads are stored, where their URLs point, what may be uploaded (D45, D46)
+  Configuration                                  the rest of silo.toml: logging, search, validation, auth (D47)
   Plugins                                        every plugin with a record; one page each (D40)
   Connection                                     endpoint, live diagnostics, forget this server
 PROJECTS
@@ -146,6 +147,25 @@ which takes every value from the file: an empty extension list is not a state
 the server accepts, so the list falls back to what is **in force** when the file
 names none. A box showing nothing while something is being enforced would be the
 same page lying in the other direction.
+
+**Configuration** is the same idea as Media Library, one page further out: the
+rest of `silo.toml`, one card and one Save per table (D47). Its cards are drawn
+from a **spec the server sends** rather than from a field list written out here,
+so a setting added to `ConfigSections` appears with its label, its type and its
+restart behaviour intact. A form built from a second copy of that list goes
+stale one release after somebody adds a field to only one of them.
+
+Its difference from every other settings page is the one an operator has to
+trust: **not everything applies immediately.** A log level is read on every line
+and takes effect at once; a tokenizer rebuilds an index at boot and a log file is
+a handle opened once. So each field says which it is, and a saved value the
+process has not adopted is reported as *waiting for a restart* and kept out of
+what the page calls in force — echoing it back would be worst exactly where it
+hurts most, since `[log] file` is what somebody reads when they are already lost.
+Two cards are deliberately less than editable: `[storage]` is reported and never
+written, because changing it names a different instance rather than configuring
+this one, and `[auth] disabled` offers only the direction that turns
+authentication back on.
 
 **Appearance** is client-only state — `ThemeManager` persists it to `localStorage`, never to a server, so the choice follows the browser rather than the instance. Three things compose: a **colour mode** (light/dark/system, the last resolved live against `prefers-color-scheme`), a **theme** (an accent paired with the sidebar tint it was designed alongside — `--sidebar`/`--sidebar-hover`, distinct from the main content's `--panel`/`--panel-2` so a theme can read as more than a hue swap), and a **font**. Dark mode's per-theme sidebar hex applies as-is; light mode instead washes the sidebar from whatever accent is active, because hand-tuning a light-mode pair for every theme would double the palette for no visual gain light mode doesn't already get by deriving it. Picking a custom accent hex keeps the last theme's sidebar and labels the bundle `Custom`, matching how picking a font or a mode leaves the other two alone. The theme gallery groups **Featured** (duotone hero bundles), **Single colour**, and **Vision assistive** (colour-blind-safe accent/sidebar pairs) — the grouping is presentation only, every entry is the same `ThemePreset` shape.
 

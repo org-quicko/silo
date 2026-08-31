@@ -24,8 +24,14 @@ import type { LogSink } from "./log-sink";
  */
 export class Logger {
   private readonly sinks: LogSink[];
-  private readonly threshold: number;
-  private readonly json: boolean;
+  /** Mutable since D47: the level, the format and the access-log switch are
+   *  read at each line, so the settings API changes them without a restart.
+   *  The **sinks** are not — a file is opened once at boot — which is why
+   *  `[log] file` and the rotation settings are marked `restart` and these are
+   *  not. */
+  private threshold: number;
+  private json: boolean;
+  private logRequests = false;
   private readonly interactive: boolean;
   readonly file?: string;
 
@@ -46,13 +52,15 @@ export class Logger {
     } else {
       sinks.push(new ConsoleSink());
     }
-    return new Logger(
+    const logger = new Logger(
       sinks,
       LogLevels.threshold(config.level),
       config.format === "json",
       !target && process.stdout.isTTY === true,
       target
     );
+    logger.logRequests = config.requests === true;
+    return logger;
   }
 
   /** A logger that drops everything — the default for tests and for embedders
@@ -69,6 +77,31 @@ export class Logger {
    */
   isInteractive(): boolean {
     return this.interactive;
+  }
+
+  /** Whether a line is written per HTTP request. Read by `LoggingMiddleware` on
+   *  every request rather than once at build, so it can be switched live. */
+  get requests(): boolean {
+    return this.logRequests;
+  }
+
+  useRequests(on: boolean): void {
+    this.logRequests = on;
+  }
+
+  /**
+   * Adopt a new `[log]` configuration, as far as one can be adopted without
+   * restarting (D47).
+   *
+   * Level, format and the access-log switch take effect on the next line. The
+   * destination does not: a sink holds an open file handle and a rotation
+   * policy fixed when it was opened, and quietly reopening one under a running
+   * server is how half a log ends up in each of two files.
+   */
+  apply(config: LogConfig): void {
+    this.threshold = LogLevels.threshold(config.level);
+    this.json = config.format === "json";
+    this.logRequests = config.requests === true;
   }
 
   debug(message: string, fields?: Record<string, unknown>): void {
