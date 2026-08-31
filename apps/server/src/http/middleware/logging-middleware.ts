@@ -2,10 +2,20 @@ import type { Context, Next } from "hono";
 import { InjectedPrincipals } from "../auth/injected-principals";
 import type { Logger } from "../../logging/logger";
 
-/** One log line per request: method, path, status, and how long it took. */
+/**
+ * One log line per request: method, path, status, and how long it took.
+ *
+ * Always installed since D47, and asks the logger *per request* whether to
+ * write. It used to be installed only when `[log] requests` was on, which made
+ * the switch a boot-time decision — an operator who needed an access log to
+ * diagnose something in progress had to restart the server and lose the thing
+ * they were diagnosing.
+ */
 export class LoggingMiddleware {
   static create(logger: Logger) {
     return async (c: Context, next: Next) => {
+      if (!logger.requests) return await next();
+
       const start = Date.now();
       await next();
 

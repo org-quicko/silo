@@ -16,6 +16,7 @@ import { AppearancePage } from './pages/AppearancePage'
 import { ConnectionPage } from './pages/ConnectionPage'
 import { EnvGeneralPage } from './pages/EnvGeneralPage'
 import { EnvTransferPage } from './pages/EnvTransferPage'
+import { ConfigurationPage } from './pages/ConfigurationPage'
 import { MediaStoragePage } from './pages/MediaStoragePage'
 import { ProjectEnvironmentsPage } from './pages/ProjectEnvironmentsPage'
 import { ProjectGeneralPage } from './pages/ProjectGeneralPage'
@@ -242,6 +243,10 @@ export function SettingsView({ server, route, onUpdateServer, onDeleteServer, on
 
         {route.view === 'server-settings' && route.section === 'media-storage' && (
           <MediaStoragePage server={server} claims={claims} />
+        )}
+
+        {route.view === 'server-settings' && route.section === 'configuration' && (
+          <ConfigurationPage server={server} claims={claims} />
         )}
 
         {route.view === 'server-settings' && route.section === 'appearance' && (

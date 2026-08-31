@@ -101,3 +101,45 @@ A named config file that does not exist is **created** by either writer, from
 defaults, which file values sitting below flags and env vars makes a no-op. What
 is never invented is the *path*: a process handed no config file refuses the
 write and says so.
+
+### 10.2 The rest of the file, from the API (D47)
+
+`[log]`, `[search]`, `[schema]` and `[auth]` are editable through
+`PUT /api/settings/{table}` (§8.4) and a **Settings → Configuration** page. Same
+text rules as §10.1 — they go through the same `TomlTableEdit` — but driven by a
+**spec** rather than by hand: `ConfigSections` states each field once, and the
+reader, the writer, the override report and the admin's form all read it. Doing
+otherwise would have meant four more copies of the same mapping, and the way
+that goes wrong is a field that saves fine while nothing reports the `SILO_*`
+variable beating it.
+
+What changes here that §10.1 did not have to face is that **a write cannot
+always be applied**. The hierarchy is unaffected — the file is still third,
+below flags and env vars — but a running process is a fourth thing again, and it
+is not always willing to move:
+
+| | applies immediately | needs a restart |
+|---|---|---|
+| `[log]` | `level`, `format`, `requests` | `file`, `max_size_mb`, `max_files` |
+| `[search]` | — | all of it |
+| `[schema]` | — | `allow_remote_refs` |
+| `[auth]` | — | `disabled` |
+
+The split is not arbitrary and is not per table: a level is a threshold read on
+every line, while a sink holds a file handle and a rotation policy fixed when it
+was opened, and reopening one under a running server is how half a log ends up
+in each of two files. So the API keeps the config the process **started on**
+separate from the file, updates the first only where something genuinely applied,
+and reports the difference as a restart owed. A value written and then echoed
+back as "in force" would be worst exactly where it matters most — `[log] file`
+is what somebody reads when they are already lost.
+
+Two settings are reported and not (fully) written. **`[storage]`** is read-only:
+changing the driver or the data directory does not configure this instance, it
+names a different one, and doing that from a browser means watching the content
+disappear at the next restart with the file saying you asked for it.
+**`[auth] disabled`** may be set to `false` and never to `true`, because an API
+able to switch off the authentication protecting it is a lock whose key opens
+itself; the tightening direction stays open, since an instance running with auth
+off is one where every caller is already root and turning it back on is a repair.
+

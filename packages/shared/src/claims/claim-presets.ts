@@ -66,6 +66,9 @@ export class ClaimPresets {
    * `silo.toml` and decides which bucket and which credential every upload
    * lands in, so handing it out with the preset an operator picks for a
    * colleague would make "who may move the library" a side effect too.
+   * `settings:configure` (D47) is absent for the third time over: it writes the
+   * same file, and one of the fields it writes turns every schema validation
+   * into an outbound fetch.
    */
   private static readonly Fixed: Record<
     Exclude<ClaimPreset, "root">,

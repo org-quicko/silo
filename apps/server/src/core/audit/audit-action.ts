@@ -58,4 +58,14 @@ export type AuditAction =
    * or path, and `secret_access_key_set` rather than the secret — the trail
    * records that a credential was configured, never the credential.
    */
-  | "media.configure";
+  | "media.configure"
+
+  /**
+   * A table of `silo.toml` rewritten through `PUT /api/settings/{table}` (D47).
+   *
+   * The trail's own subject, since one of the settings it covers is whether
+   * authentication is checked at all and another turns every schema validation
+   * into an outbound fetch. `subject` is the table and `detail` is what was
+   * written — none of these settings is a credential, unlike the one above.
+   */
+  | "settings.configure";

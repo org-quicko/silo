@@ -15,6 +15,8 @@ export type ServerSettingsSection =
   /** Where the media library keeps its bytes: provider, credentials, and what
    *  the environment is overriding (D45). */
   | 'media-storage'
+  /** The rest of `silo.toml`: logging, search, schema validation, auth (D47). */
+  | 'configuration'
   /** The project index: every project on the instance, and creating one. */
   | 'projects'
   /** Installed plugins, and one plugin's grant, config and activity (D40). */

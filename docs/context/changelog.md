@@ -4,6 +4,44 @@
 > The *current* state is [CONTEXT.md](../../CONTEXT.md); this is how it got
 > there.
 
+- **The rest of `silo.toml` becomes editable from the admin (D47, 2026-08-31).**
+  D45 and D46 put two tables behind the API and left four where they were, so an operator on a
+  managed platform could point silo at a bucket but could not raise the log level. New
+  `GET /api/settings` and `PUT /api/settings/{table}` cover `[log]`, `[search]`, `[schema]` and
+  `[auth]` behind a new **`settings:configure`** claim, with a **Settings → Configuration** page
+  of one card and one Save per table.
+
+  Two things make it unlike its predecessors. It is **spec-driven**:
+  `apps/server/src/config/config-sections.ts` states each field once — TOML key, type, the
+  `SILO_*` variable that beats it, whether it needs a restart, and the admin's own label — and
+  `SectionTable`, `ConfigSectionSettings`, the override report and the admin's form all read
+  that one statement. Four more hand-written trios would have been twelve files whose only real
+  content is that mapping, and the way that goes wrong is a field appearing in the form and in
+  the writer while nothing reports the variable quietly winning over both. The spec travels to
+  the admin in the response, so a new setting appears on the page with nothing to change there.
+
+  And it is the first that **cannot always apply what it saves**. `MediaStorageSupervisor` swaps
+  a store; a tokenizer rebuilds an index at boot and a log file is a handle opened once. So
+  `ConfigSupervisor` keeps the config the process *started on* separate from the file, updates it
+  only where something genuinely applied, and reports the difference as a restart owed — kept out
+  of `in_force` rather than echoed back into it, which would be worst exactly where it matters,
+  since `[log] file` is what somebody reads when they are already lost. `Logger` became mutable
+  in its threshold, format and access-log switch and stayed immutable in its sinks;
+  `LoggingMiddleware` is now always installed and asks the logger per request, because an access
+  log you must restart to enable is one you cannot turn on to watch a problem you are having.
+
+  Two settings are reported rather than freely written. **`[storage]` is read-only**: changing
+  the driver or the data directory does not configure this instance, it names a different one,
+  and doing that from a browser means watching the content vanish at the next restart with the
+  file saying you asked for it. **`[auth] disabled` may be set to `false` and never to `true`**,
+  because an API able to switch off the authentication protecting it is a lock whose key opens
+  itself; the tightening direction stays open, since an instance running with auth off is one
+  where every caller is already root. `settings:configure` is root-only by preset and joins
+  `PluginForbiddenClaims` — `[schema] allow_remote_refs` alone turns every schema validation into
+  an outbound fetch of the holder's choosing. Changes are audited as a new `settings.configure`
+  action. `[[plugins]]` stays out on purpose: it decides what code runs, and the grant model
+  exists to keep that a reviewed decision rather than a text field.
+
 - **Media URLs and the upload allowlist become configuration (D46, 2026-08-31).**
   Two gaps D45 left. Media URLs were rooted at whatever host a request arrived on, so an
   instance behind a CDN — or one serving an email CMS, whose readers cannot authenticate — could

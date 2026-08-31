@@ -38,6 +38,17 @@ export class ClaimVocabulary {
    *  and §6.4 / §6.5 in `docs/design/storage.md`. */
   static readonly MediaConfigure = "media:configure";
 
+  /**
+   * Reading and changing the rest of `silo.toml` from the API (D47): logging,
+   * search, schema validation and the auth switch.
+   *
+   * One claim rather than a read/write pair, following `media:configure`: the
+   * read is not the harmless half. It names the data directory, the log path
+   * and whether authentication is on at all, which is a map of the instance
+   * rather than metadata about it.
+   */
+  static readonly SettingsConfigure = "settings:configure";
+
   // Plugin management (D34). D31 declined these because there was no install
   // API for them to guard; `_plugins` is that API, so the reasoning inverts.
   // `PluginsGrant` and `PluginsEnable` are privilege-escalation primitives —
@@ -97,6 +108,7 @@ export class ClaimVocabulary {
     [ClaimVocabulary.MediaCreate]: true,
     [ClaimVocabulary.MediaDelete]: true,
     [ClaimVocabulary.MediaConfigure]: true,
+    [ClaimVocabulary.SettingsConfigure]: true,
     [ClaimVocabulary.PluginsRead]: true,
     [ClaimVocabulary.PluginsConfigure]: true,
     [ClaimVocabulary.PluginsGrant]: true,
@@ -106,11 +118,11 @@ export class ClaimVocabulary {
   };
 
   /**
-   * The fixed claims a **plugin** may never be granted (D34, extended by D37 and
-   * D45).
+   * The fixed claims a **plugin** may never be granted (D34, extended by D37,
+   * D45 and D47).
    *
    * A plugin runs code, so each of these is a way out of its own grant, and a
-   * grant model that can be stepped around is decoration. Three shapes:
+   * grant model that can be stepped around is decoration. Four shapes:
    *
    * - `plugins:*` **widen the record.** A plugin holding `plugins:grant` grants
    *   itself more and then acts on it.
@@ -120,6 +132,11 @@ export class ClaimVocabulary {
    *   keys it has no `media:read` over — and it does that by writing the
    *   operator's `silo.toml`, which is the file that decides what code runs
    *   (D45). Neither half survives being granted to a package.
+   * - `settings:configure` **changes the ground everything else stands on.** It
+   *   writes the same `silo.toml`, and `[schema] allow_remote_refs` alone turns
+   *   every schema validation into an outbound fetch of the holder's choosing
+   *   (D47). Like `media:configure`, it is a way for a package to rewrite the
+   *   file that decides what code runs.
    * - `keys:*` **bypass the record.** `keys:create` mints an *unmanaged* key,
    *   which is a credential nothing revokes when the plugin is revoked;
    *   `keys:import` plants a `_keys` row whose hash the planter chose, which is
@@ -128,7 +145,7 @@ export class ClaimVocabulary {
    *
    * `keys:read` and `keys:export` are deliberately **not** here. They disclose
    * the authority map — labels, claims, prefixes — and disclosure is a decision
-   * an operator can weigh. These seven are not, because no grant that includes
+   * an operator can weigh. These eight are not, because no grant that includes
    * them means what it says.
    *
    * Refused at the grant, not at the call, so it is visible to whoever is
@@ -139,6 +156,7 @@ export class ClaimVocabulary {
     ClaimVocabulary.PluginsEnable,
     ClaimVocabulary.PluginsConfigure,
     ClaimVocabulary.MediaConfigure,
+    ClaimVocabulary.SettingsConfigure,
     ClaimVocabulary.KeysCreate,
     ClaimVocabulary.KeysRevoke,
     ClaimVocabulary.KeysImport,

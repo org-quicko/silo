@@ -13,7 +13,7 @@ import { UnauthorizedError } from "../core/errors/unauthorized-error";
 import { ForbiddenError } from "../core/errors/forbidden-error";
 import type { Logger } from "../logging/logger";
 import { PluginRegistry, PluginSupervisor, ProviderRegistry } from "../plugins";
-import { MediaPolicySupervisor, MediaStorageSupervisor } from "../settings";
+import { ConfigSupervisor, MediaPolicySupervisor, MediaStorageSupervisor } from "../settings";
 import { ConfigLoader } from "../config/config-loader";
 import { UiAssets } from "./ui-assets";
 
@@ -53,6 +53,11 @@ export interface SiloServerOptions {
    *  defaulted for `mediaStorage`'s reason, and refuses a save for the same
    *  one: there is no file to write. */
   mediaPolicy?: MediaPolicySupervisor;
+
+  /** The rest of `silo.toml`, read and changed through the API (D47). Optional
+   *  and defaulted for `mediaStorage`'s reason: "this process was not started
+   *  from a config file" is a true answer the page can render. */
+  settings?: ConfigSupervisor;
 }
 
 /** Builds and owns the Hono app: middleware, API routes, and UI static serving. */
@@ -61,17 +66,20 @@ export class SiloServer {
   private readonly version: string;
   private readonly authDisabled: boolean;
   private readonly logger: Logger;
-  private readonly logRequests: boolean;
   private readonly plugins: PluginSupervisor;
   private readonly mediaStorage: MediaStorageSupervisor;
   private readonly mediaPolicy: MediaPolicySupervisor;
+  private readonly settings: ConfigSupervisor;
 
   constructor(service: SiloService, options: SiloServerOptions) {
     this.service = service;
     this.version = options.version;
     this.authDisabled = options.authDisabled;
     this.logger = options.logger;
-    this.logRequests = options.logRequests ?? false;
+    // An explicit option still wins at construction, for an embedder that wants
+    // an access log without a `[log]` table. Absent, whatever `Logger.create`
+    // read from the config stands.
+    if (options.logRequests !== undefined) options.logger.useRequests(options.logRequests);
     this.plugins =
       options.plugins ??
       new PluginSupervisor({
@@ -101,6 +109,13 @@ export class SiloServer {
         logger: options.logger,
         config: ConfigLoader.defaultConfig(),
       });
+    this.settings =
+      options.settings ??
+      new ConfigSupervisor({
+        service,
+        logger: options.logger,
+        config: ConfigLoader.defaultConfig(),
+      });
   }
 
   build(): Hono {
@@ -108,9 +123,9 @@ export class SiloServer {
 
     // Registered rather than gated inside the middleware, so a server with
     // request logging off pays nothing per request for the decision.
-    if (this.logRequests) {
-      app.use("*", LoggingMiddleware.create(this.logger));
-    }
+    // Always installed; the logger decides per request, so `[log] requests` can
+    // be switched from the settings API without a restart (D47).
+    app.use("*", LoggingMiddleware.create(this.logger));
 
     // Enable CORS
     app.use("/api/*", cors());
@@ -129,7 +144,8 @@ export class SiloServer {
       this.service,
       this.plugins,
       this.mediaStorage,
-      this.mediaPolicy
+      this.mediaPolicy,
+      this.settings
     );
 
     // Global Error Handler

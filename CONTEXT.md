@@ -30,10 +30,47 @@ media included (D41). Plugins install *and uninstall* from the API and the admin
 (D42/D43), and a plugin's page is a summary with its sections behind sheets so
 the plugin's own panel has room (D44). Where the media library keeps its bytes is
 configurable from the admin, and still written back to `silo.toml` (D45); so are
-where media URLs point and what the library accepts (D46).
+where media URLs point and what the library accepts (D46), and the rest of the
+config file — logging, search, validation, the auth switch (D47).
 
-**The most recent change makes media *delivery* configurable too, in a table of
-its own (D46, 2026-08-31).**
+**The most recent change finishes the job the last two started: the rest of
+`silo.toml` is editable from the admin, and the page says what a restart is owed
+for (D47, 2026-08-31).**
+D45 and D46 put two tables behind the API and left four where they were, so an
+operator on a managed platform could point silo at a bucket and could not raise
+the log level. `GET /api/settings` and `PUT /api/settings/{table}` now cover
+`[log]`, `[search]`, `[schema]` and `[auth]` behind a new **`settings:configure`**
+claim, with a **Settings → Configuration** page of one card and one Save per
+table. It is **spec-driven** where its predecessors are hand-written:
+`ConfigSections` states each field once — key, type, the `SILO_*` variable that
+beats it, whether it needs a restart, and the label — and the writer, the
+override report and the admin's form all read that one statement. The spec
+travels in the response, so a setting added on the server appears on the page
+with nothing to change there.
+
+**It is also the first that cannot always apply what it saves, and that is the
+part worth understanding.** A store can be swapped; a tokenizer rebuilds an index
+at boot and a log file is a handle opened once. So `ConfigSupervisor` keeps the
+config the process *started on* separate from the file, updates it only where
+something genuinely applied, and reports the difference as a restart **owed** —
+kept out of `in_force` rather than echoed back into it, which would be worst
+exactly where it matters, since `[log] file` is what somebody reads when they are
+already lost. `Logger` became mutable in its threshold, format and access-log
+switch and stayed immutable in its sinks; `LoggingMiddleware` is always installed
+now and asks per request, because an access log you must restart to enable is one
+you cannot turn on to watch a problem you are having. Two settings are reported
+rather than freely written: **`[storage]` is read-only**, since changing it names
+a different instance rather than configuring this one, and **`[auth] disabled`
+may be set to `false` and never to `true`**, because an API able to switch off
+the authentication protecting it is a lock whose key opens itself. The claim is
+root-only and on `PluginForbiddenClaims`: `[schema] allow_remote_refs` alone
+turns every schema validation into an outbound fetch of the holder's choosing.
+`[[plugins]]` stays out, because it decides what code runs. See §8.4 in
+[docs/design/http-api.md](docs/design/http-api.md) and §10.2 in
+[docs/design/configuration.md](docs/design/configuration.md).
+
+**Before it, media *delivery* became configurable too, in a table of its own
+(D46, 2026-08-31).**
 D45 answered where the bytes go. It left two questions that are not about the
 driver at all: what URL a client is handed for them, and what may be put in the
 library in the first place. Media URLs were rooted at whatever host the request
@@ -75,7 +112,7 @@ and folders stay catalog metadata, `store` mode included. See §6.5 in
 [docs/design/storage.md](docs/design/storage.md) and §8.3 in
 [docs/design/http-api.md](docs/design/http-api.md).
 
-**Before it, media storage moved into the admin without making the admin a
+**And before that, media storage moved into the admin without making the admin a
 second source of truth (D45, 2026-08-31).**
 Where the media library keeps its bytes was a `silo.toml` question and only that
 — `[blob_storage]`, the `SILO_BLOB_*` variables, or `--blob-path` — which is
