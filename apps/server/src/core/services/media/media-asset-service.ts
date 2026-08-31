@@ -19,6 +19,7 @@ import { MediaCatalogStore } from "./media-catalog-store";
 import { MediaFilter } from "./media-filter";
 import { MediaSortOrder } from "./media-sort-order";
 import type { MediaUsageCounter } from "./media-usage-counter";
+import { MediaUsageScopes } from "./media-usage-scopes";
 
 /** Decides which referring entries a caller may see, so a scoped key learns
  *  that a file is in use without learning where (§8.1). */
@@ -87,12 +88,20 @@ export class MediaAssetService {
   /**
    * Referrers of an asset. Instance-global media meets scoped entries here: the
    * caller gets the true total but only the rows `visibility` admits (§8.1).
+   *
+   * `visible` is the true count of referrers the caller may read — how many
+   * fit on the `page` requested is a different question, answered by
+   * `items.length`. Before this it was `items.length` for both, which made
+   * `visible` mean "how many happened to fit on the page" rather than what
+   * its name and the docs promise, and let any asset with more referrers
+   * than one page could hold look under-visible even when every referrer was
+   * readable (D49 audit fix).
    */
   async usages(
     id: string,
     page: { limit?: number; offset?: number } = {},
     visibility?: MediaUsageVisibility
-  ): Promise<{ items: MediaUsage[]; total: number; visible: number }> {
+  ): Promise<{ items: MediaUsage[]; total: number; visible: number; visibleCapped: boolean }> {
     const entry = await this.catalog.asset(id);
     const tokens = MediaCatalog.tokens(entry.id, MediaCatalog.toAsset(entry).blob_key);
     const found = await this.context.store.listMediaUsages(tokens, page);
@@ -100,7 +109,35 @@ export class MediaAssetService {
     const items = visibility
       ? found.items.filter((usage) => visibility(usage.project, usage.env, usage.collection))
       : found.items;
-    return { items, total: found.total, visible: items.length };
+
+    if (!visibility) {
+      return { items, total: found.total, visible: found.total, visibleCapped: false };
+    }
+    const { visible, visibleCapped } = await this.countVisible(tokens, found.total, visibility);
+    return { items, total: found.total, visible, visibleCapped };
+  }
+
+  /**
+   * The true count of referrers `visibility` admits, counted up to
+   * `MediaUsageScopes.EnumerationCap` — the same bound the force-authority
+   * check pages to, reused rather than a second cap invented for this. Past
+   * it, the count is a lower bound over whatever the scan actually reached,
+   * and `visibleCapped` says so explicitly rather than leaving a caller to
+   * infer "not exact" from `visible` falling short of `total` on its own.
+   */
+  private async countVisible(
+    tokens: string[],
+    total: number,
+    visibility: MediaUsageVisibility
+  ): Promise<{ visible: number; visibleCapped: boolean }> {
+    const enumerated = await this.context.store.listMediaUsages(tokens, {
+      limit: MediaUsageScopes.EnumerationCap,
+      offset: 0,
+    });
+    const visible = enumerated.items.filter((usage) =>
+      visibility(usage.project, usage.env, usage.collection)
+    ).length;
+    return { visible, visibleCapped: total > MediaUsageScopes.EnumerationCap };
   }
 
   async save(

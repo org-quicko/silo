@@ -47,6 +47,19 @@ export class ServeCommand {
     // catalog and a remote object store cannot share a transaction, so the
     // saga's last two steps are retried here rather than left staged
     // indefinitely (D23).
+    // Same reasoning one step over: a folder rename rewrites more records than
+    // any adapter can write atomically, so it is staged and finished here (D49).
+    const moves = await service.media.resumePendingFolderMoves();
+    if (moves.finished > 0) {
+      logger.info("finished pending media folder moves", { count: moves.finished });
+    }
+    if (moves.pending > 0) {
+      logger.warn(
+        "media folder moves could not be completed. The subtree is split across both paths; renaming again with merge finishes it.",
+        { count: moves.pending }
+      );
+    }
+
     const resumed = await service.media.resumePendingDeletions();
     if (resumed.finished > 0) {
       logger.info("finished pending media deletions", { count: resumed.finished });

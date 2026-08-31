@@ -32,6 +32,14 @@ export class MediaPath {
     return parts[parts.length - 1] ?? folder
   }
 
+  /** `folder`'s parent — "" for a top-level folder, and for root itself.
+   *  Where the browser lands after the folder it was in is deleted (D49). */
+  static parent(folder: string): string {
+    const parts = folder.split('/').filter(Boolean)
+    parts.pop()
+    return parts.length === 0 ? '' : '/' + parts.join('/')
+  }
+
   private static depth(folder: string): number {
     return folder.split('/').filter(Boolean).length
   }

@@ -27,11 +27,13 @@ Hono web framework on Bun. JSON everywhere. Admin UI served at `/`; API under `/
 | GET / POST | `/api/keys` | list (`keys:read`) / create (`keys:create`); create returns the secret exactly once |
 | DELETE | `/api/keys/{id}` | revoke a key (`keys:revoke`, **and** the authority to have minted it — D37) |
 | GET / POST | `/api/media` | search (`media:read`) / upload (`media:create`) — see §8.1 |
-| GET / PATCH / DELETE | `/api/media/{id}` | asset detail / rename·move·retag (`media:create`) / guarded delete, `?force=true` to delete over a live reference (`media:delete`, D48) — see §8.1 |
-| POST | `/api/media/delete` | bulk delete (`{ids, force}`, up to 100), always `200` with per-id outcomes (`media:delete`, D48) — see §8.1 |
+| GET / PATCH / DELETE | `/api/media/{id}` | asset detail / rename·move·retag (`media:create`) / guarded delete, `?force=true` to delete over a live reference (`media:delete` plus `entries:update` at the scopes it reaches — D48, D49) — see §8.1 |
+| POST | `/api/media/delete` | bulk delete (`{ids, force}`, up to 100), always `200` with per-id outcomes (`media:delete`, force as above — D48, D49) — see §8.1 |
+| POST | `/api/media/purge` | empty the whole library (`{confirm: "purge", force?}`), always `200` with per-id outcomes plus a folder count (`media:delete`, force as above — D49) — see §8.1 |
 | GET | `/api/media/{id}/usages` | paginated referrers, claim-filtered (`media:read`) |
 | GET / POST | `/api/media/folders` | list / create an empty folder (`media:read` / `media:create`) |
-| DELETE | `/api/media/folders` | delete an empty folder (`media:delete`) |
+| PATCH | `/api/media/folders` | rename or move a folder (`{from, to, merge?}`), and every asset and descendant folder within — refuses on collision unless `merge: true` (`media:create`, D49) |
+| DELETE | `/api/media/folders` | delete a folder — empty only by default, or `?recursive=true` for everything inside it, `?force=true` as above (`media:delete`, D23/D49) |
 | POST | `/api/media/reconcile` | backfill and repair the catalog (`media:create` + `media:delete`) |
 | GET / PUT | `/api/media/storage` | where the library keeps its bytes, read and changed (`media:configure`) — see §8.2 |
 | GET / PUT | `/api/media/settings` | where media URLs point and what may be uploaded (`media:configure`) — see §8.3 |
@@ -167,10 +169,19 @@ deletion is an operator decision, not a boot-time one. Startup therefore counts
 failures instead of throwing, because a misconfigured blob store must not stop
 the server booting over a deletion someone staged days ago.
 
-The `409` always reports the total count, and enumerates only the referrers
-the calling key may read: media is instance-global but referrers are scoped,
-so a key confined to one project must learn that a file is in use without
-learning where. The remainder is reported as a count only.
+The `409` always reports the total count (`usage_count`), and enumerates only
+the referrers the calling key may read: media is instance-global but
+referrers are scoped, so a key confined to one project must learn that a file
+is in use without learning where. The remainder is reported as a count only,
+`visible_count` — the **true** number of referrers the key may read, not how
+many happened to fit on the `referrers` sample page (D49 audit fix: it used
+to be `items.length`, which made `visible_count < usage_count` for any asset
+with more referrers than one page holds, readable or not). `visible_count` is
+itself counted up to `MediaUsageScopes.EnumerationCap` (2000 rows, the same
+force-authority cap described a few paragraphs down) — reused rather than a
+second cap of its own — and once a single asset's referrers exceed it,
+`visible_capped: true` says the count is a lower bound rather than pretending
+to be exact.
 
 **`?force=true` deletes over a live reference (D48).** Only the literal
 string `"true"` enables it; anything else is read as absent. Force skips step
@@ -182,19 +193,62 @@ state that honestly records the entries still hold the reference, and `silo
 media reconcile` re-derives them from entries regardless of what a delete did
 or did not touch. What changes instead is the read path: a media field whose
 reference no longer resolves answers `null` rather than a URL that 404s (see
-below). Force rides on `media:delete` rather than a claim of its own, as an
-**acceptance and not because it grants nothing new**. `media:delete` is
-already instance-global and unscoped, so a holder could already delete any
-unreferenced file in any project; but force does add reach, because it
-breaks references in scopes the key cannot read, and the claim-filtered
-enumeration above governs what such a caller *learns*, never what it may
-destroy. The exposure is concentrated on plugins: `media:delete` is not on
+below).
+
+**Force additionally requires `entries:update` at every scope it actually
+reaches (D49).** D48 shipped force gated on `media:delete` alone, reasoning
+that the claim was already instance-global and unscoped, so a holder could
+already delete any unreferenced file in any project — an acceptance, not a
+claim that force grants nothing new. That acceptance did not survive folder
+rename, recursive delete and purge arriving together: a force-deleted asset's
+referring entries do not have their *stored* value rewritten, but the read
+path changes what every one of them *resolves to*, which is a bulk
+`entries:update` wearing a `media:delete` claim — the same rule
+`ForcedDeletePermissions`, `TransferPermissions.Replace` and
+`ScopeCopyPermissions.Replace` already state: a force must additionally hold
+the claims for the effects it cascades into. `entries:update`, not
+`entries:delete`, because the entry is not deleted and its stored content is
+not rewritten — only what one field of it resolves to. `MediaForceDeletePermissions.All
+= [entries:update]` lives beside `Claims.ForcedDeletePermissions` for the
+reason it does: the admin gates its force affordances on the same list this
+enforces.
+
+Unlike the other three force routes, media's reach is **data-derived** rather
+than read off the route's own parameters: `RouteAuth.requireForcedMediaDelete`
+(async, unlike its sibling `requireForcedDelete`, because it queries usages)
+enumerates the distinct `(project, env, collection)` scopes currently
+referring to the assets being force-deleted — via `MediaUsageScopes.reach`,
+which pages `Storage.listMediaUsages` up to a **2000-row** cap — and requires
+`entries:update` on each, checked against the **true** referrer set, never the
+claim-filtered one the `409`/per-id body above shows the caller. Filtering
+first would let a key force-delete *because* it cannot see the referrers; a
+key that cannot read a scope necessarily lacks `entries:update` there too, so
+refusing it is the correct and self-consistent outcome. Past the cap, the
+distinct-scope reduction is not attempted and force is refused unless the key
+holds `*` — silo cannot enumerate everything the operation would break, so
+only a key that can do anything may do it.
+
+**The `403` takes the same hidden-versus-visible split the `409` does.** The
+check runs against the true reach, so the refusal must not be the one place
+that discloses it: it names only the missing scopes the key may already read
+(the ones the `409` would have enumerated anyway) and reports the rest as a
+bare count, "N scopes this key cannot read". Naming the first missing scope
+would have handed a project-confined key exactly the project, environment and
+collection names the enumeration above is written to withhold — and would
+have leaked them from the alphabetically first hidden referrer, which no
+`409` ever shows.
+
+A `Storage.listMediaUsageScopes`
+port method would make the cap unnecessary by answering the question exactly
+rather than by paging rows; it was not added because port growth needs its
+own justification beyond one caller, and a fixed cap with a root fallback is
+honest about what it does not know rather than silently wrong. The exposure
+this closes is concentrated on plugins: `media:delete` is not on
 `PluginForbiddenClaims`, so a plugin already holding it gains
 reference-breaking reach with no manifest change and therefore no
-`needs_review` re-approval. A root-only `media:force_delete` on that list,
-D47's shape for `settings:configure`, is the answer if that ever bites, and
-the split stays cheap because the route reads force, not the vocabulary. No new
-audit action is added for it either: `core/audit/audit-action.ts` audits
+`needs_review` re-approval — force alone was never enough of a check on that,
+and `entries:update` at the reached scopes now is. No new audit action is
+added for it either: `core/audit/audit-action.ts` audits
 *authority* changes, and entry and content writes are deliberately not
 audited; a force-delete is a content decision like any other media delete, not
 an authority one.
@@ -215,7 +269,8 @@ needs explaining with.
   "deleted": ["id1"],
   "failed": [
     { "id": "id3", "code": "media_in_use", "message": "...",
-      "usage_count": 4, "visible_count": 2, "referrers": [ /* claim-filtered, as above */ ] },
+      "usage_count": 4, "visible_count": 2, "visible_capped": false,
+      "referrers": [ /* claim-filtered, as above */ ] },
     { "id": "id4", "code": "not_found", "message": "..." },
     { "id": "id5", "code": "media_delete_stalled", "message": "..." },
     { "id": "../x", "code": "invalid_id", "message": "..." }
@@ -234,6 +289,165 @@ a spurious `not_found` for the id its own first pass just removed.
 
 Any error the route does not recognise as one of those four propagates as a
 normal `5xx`/`4xx` rather than being folded silently into `failed`.
+
+**`PATCH /api/media/folders`** renames or moves a folder (D49): `{"from":
+"/a", "to": "/b", "merge": false}`, behind `media:create` — the same claim
+and reasoning as an asset rename/move, since where a thing sits is the same
+kind of statement as what it is called. A body rather than a path parameter,
+because a folder path contains `/`. It updates the explicit `_media_folders`
+record for the folder and every descendant, and `folder` on every asset
+within the subtree — no entry is touched and no blob moves, the same D23
+property a single asset's rename has always had, one level up. Refuses with a
+`409` if `to` already exists, as an explicit record or implied by any asset's
+folder, **unless the caller opts in with `merge: true`** (D49 amendment),
+which joins the subtree into whatever already sits at `to` instead; refuses
+with a `400` if `to` is inside `from` (which would otherwise loop) or if
+either path normalizes to root — both guards apply whether or not `merge` is
+set. No cap on subtree size — a large rename holds the write lock for as many
+record writes as it takes, which is the cost of not inventing a limit that
+would leave a large library with no way to rename a folder at all.
+
+**`merge` is opt-in rather than automatic because it is genuinely
+irreversible.** Once two subtrees have joined, a rename back cannot separate
+them again — which asset came from which no longer means anything, so the
+default stays a refusal and merging is a deliberate second step. With it, the
+write proceeds into a folder that may already hold files, including one with
+the same filename as something already there, and that is legal on purpose:
+a filename is display metadata, never addressing (D23) — assets are
+referenced by stable id and blob keys are flat — so two files both named
+`logo.svg` in one folder after a merge is the same ordinary state the
+library already permits everywhere else. Nothing about this route should
+ever be "hardened" into refusing that.
+
+The **depth ceiling still applies to the whole subtree regardless of
+`merge`**, checked on its deepest path before anything is written: a
+descendant's rewritten path is stored as a field and never passes back
+through `MediaPaths.normalizeFolder`, so a move under a deeper parent would
+otherwise store paths past `MaxDepth` that no upload could have created.
+
+**The rename is staged, because there is no transaction across the record
+writes.** A `_media_folder_moves` record naming `from` and `to` is written
+after every refusal above and before the first record write, and cleared
+after the last, so the only states a crash can leave are "no marker, nothing
+started" and "marker, possibly half-applied" — never half-applied with no
+record that it was. `MediaFolderMoveService.resumePending` replays any marker
+at the next start, beside the staged-deletion resume above, and the replay is
+idempotent by construction: it selects by "still within `from`", so a subtree
+already partly moved converges instead of doubling, and a marker whose move
+had in fact completed clears without writing anything. A marker naming
+nothing is dropped rather than retried forever. Failures are counted, never
+thrown — a rename staged days ago must not stop the server booting, the same
+judgement the deletion resume makes. The marker is carried in an export for
+the reason the rest of the catalog is: an archive taken mid-rename holds the
+half-moved subtree either way, and carrying the marker is what lets the
+destination converge on the state the source will reach at its own next
+start, rather than restoring a split nothing has a record of.
+
+The staging is what makes recovery automatic; the write order is what makes
+a crash non-destructive in the first place. Each folder record write is a
+`putFolder` (a fresh id, at the moved
+path) followed by a `deleteFolder` (the old id) — put before delete,
+deliberately, so a crash between the two leaves *both* records standing
+rather than neither: a harmless duplicate `MediaFolderService.list` already
+collapses through a `Set` on the read side, never a folder that silently
+stopped existing. A crash is the *only* thing that may leave such a
+duplicate: the put is skipped whenever the destination path already holds an
+explicit record — reachable only under `merge`, since otherwise `to` would
+not exist — because the record the delete would be racing already stands,
+so there is no window to protect and the put would only duplicate it.
+Without that skip, every merge into a destination with explicit records of
+its own left one behind permanently, and the `Set` that makes a crash's
+duplicate harmless is also what guaranteed nobody would ever see it (D49
+audit fix). `merge: true` is therefore a deliberate operation rather than
+the recovery mechanism — the saga is that — though it remains how an operator
+finishes a move whose marker the resume could not apply, and the reason a
+replay meets no collision it cannot pass. Each asset write is a single `putAsset` to its own
+unchanged id, never a delete followed by a put, so it carries no equivalent
+loss window; a crash mid-loop there only ever splits the subtree's assets
+between `from` and `to`, both of which already exist per D20's existence
+rule the moment either name is used by anything. Either way, a crash leaves
+the rename looking *unfinished*, never *lost* — and a plain retry then
+refuses on exactly the collision the crash created, which is the scenario
+`merge: true` exists to finish. It is not a repair tool bolted on after the
+fact; it is the same opt-in an operator reaches for on purpose, run once
+against whatever a crash happened to leave behind. That is also why capping
+subtree size to make the rename atomic was never the fix worth building: it
+would still leave an operator with no way to rename a folder bigger than the
+cap, where `merge` costs nothing extra and resolves the interrupted case for
+free.
+
+**`DELETE /api/media/folders?recursive=true&force=true`** takes a folder
+delete recursive (D49). Without `recursive`, behaviour is exactly what it was
+before this decision: `MediaFolderService.delete` refuses with a `409` while
+anything is inside, and an empty folder deletes trivially — D23's absolute
+"a folder delete must never route around the reference guard" premise was
+already reversed by D48 making that guard opt-in force everywhere else it
+applies, and D49 is what makes the recursive path *coherent* rather than what
+makes the non-recursive one *obsolete*. `force=true` without `recursive=true`
+is a `400 ValidationError`, not a silently ignored flag: without `recursive`
+nothing in the request deletes anything, so there is nothing for `force` to
+force, and accepting the flag while dropping it would be indistinguishable
+from a verified request in the response — the same reasoning D32 already
+states for a source that cannot honour `--integrity` (D49 audit fix; this
+route used to return before `force` was even read). With `recursive`, every asset in the
+subtree is deleted through the same saga a single-asset delete uses
+(`MediaDeletionService.delete`, so the blob delete and
+`MediaDeleteStalledError` both still apply), via the same per-id outcome loop
+`POST /api/media/delete` runs — factored into one shared `MediaDeleteBatch`
+rather than a second failure shape — and only once every asset in the
+subtree comes back gone are the folder records (the subtree's own and every
+descendant's) removed. `force` is read the same as everywhere else and needs
+the D49 authority check above, computed once over every id the subtree
+enumerates. The response is `200` with the same `{deleted, failed}` shape
+`POST /api/media/delete` answers, plus `folders_deleted`: an asset that comes
+back `media_in_use` means the folder is not actually empty, so the count is
+`0` and the records stay, reported honestly rather than deleted out from
+under what still names them.
+
+**`POST /api/media/purge`** empties the whole library (D49): `{"confirm":
+"purge", "force": false}`, behind `media:delete`. The literal confirmation
+word is required — a missing or wrong value is a `ValidationError` — as the
+cheapest insurance against a stray or replayed request emptying a library
+with no undo. Every catalog asset is deleted through the same saga
+(`MediaDeletionService.delete`) and the same `MediaDeleteBatch` outcome loop,
+but `MediaPurgeService` **pages the catalog** in fixed-size batches rather
+than calling `allAssets()` the way `MediaFolderService` does — deliberately
+not that pattern, since purge's whole point is a library too large to hold
+in memory at once. Its offset advances by each page's *surviving-failure*
+count, not its size: a plain `offset += batchSize` scan over a table the
+same request is deleting rows from would silently skip whatever a
+successful page's deletions shifted past the next boundary, and advancing by
+the failures left behind is the exact correction, landing the next page
+exactly on the first row this pass never touched. "Surviving" excludes
+`not_found`: that row is already gone before the page that reports it, so
+counting it toward the offset would skip one untried asset past it the same
+way a successful delete's row does (a narrow bug the offset arithmetic could
+only hit under a concurrent delete racing the scan, fixed in the same change
+that made the force check below pre-flight, D49 audit fix).
+
+`force` needs the D49 authority check **once, over the whole catalog's id
+set, before the first delete runs** — never per page. A per-page check would
+let earlier pages finish deleting, blobs included, before a later page's
+refusal aborted the request with a `403` whose body has nowhere to record
+what already vanished (D49 audit fix; the other three force routes —
+`media-routes.ts`'s single and bulk delete, `media-folder-routes.ts`'s
+recursive delete — already complete their authority check over the whole id
+set before any mutation, and purge now matches them). Purge, unlike those
+three, has no caller-supplied or route-derived id list to check against, so
+it pages the whole catalog once, collecting every id, before running
+`requireForce` over that complete set through the same `MediaUsageScopes`
+path and the same 2000-row cap rule the other three routes use — past the
+cap, force requires `*`, which for a purge-sized reach is an honest cost, not
+a defect, since forcing past the entire library's referrers is a near-root
+act already. Unforced purge is unaffected: it needs no authority check at
+all and pages exactly as it always did. Unforced, an in-use asset is a
+per-id `media_in_use` failure and
+everything else still deletes — "delete everything you can, report what
+refused," the same posture bulk delete already takes. The response is `200`
+with `{deleted, failed, folders_deleted}`, the same shape the recursive
+folder delete answers with, for the same reason: a partial purge needs
+somewhere to report what refused, and every explicit folder record is removed
+only once nothing failed.
 
 **A media field resolves to `null` when its reference does not resolve
 (D48).** Before D48 a reference was rewritten from the id alone, so a

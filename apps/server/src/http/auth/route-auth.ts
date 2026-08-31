@@ -9,6 +9,7 @@ import { Scope } from "../../core/domain/scope";
 import { ValidationError } from "@silo/shared/validation-error";
 import { ForbiddenError } from "../../core/errors/forbidden-error";
 import { UnauthorizedError } from "../../core/errors/unauthorized-error";
+import type { MediaService } from "../../core/services/media/media-service";
 
 export class RouteAuth {
   static getScope(c: Context): Scope {
@@ -131,6 +132,80 @@ export class RouteAuth {
         );
       }
     }
+  }
+
+  /**
+   * The extra authority a media `?force=true` delete needs (D49) — the sibling
+   * `requireForcedDelete` doesn't have, because a media force's reach is
+   * **data-derived** rather than the route's own scope parameters. It must
+   * enumerate who currently refers to `mediaIds` before it can know which
+   * scopes to check, which is a store query — the one reason this is `async`
+   * and its sibling is not.
+   *
+   * Checked against `media.forceReach`, the TRUE referrer set, never a
+   * claim-filtered one: filtering first would let a key force-delete
+   * *because* it cannot see the referrers, and a key that cannot read a scope
+   * necessarily lacks `entries:update` there, so refusing it is the correct
+   * and self-consistent outcome (§8.1).
+   *
+   * When the reach is too wide to enumerate exactly (over the 2000-row cap
+   * `MediaUsageScopes` pages up to), only a key holding `*` may proceed —
+   * silo cannot enumerate everything the operation would break, so only a key
+   * that can do anything may do this one.
+   *
+   * The refusal names only the scopes the key may already read and counts the
+   * rest, the same split the `409` body takes: checking against the true reach
+   * must not become the one place that discloses it (§8.1).
+   */
+  static async requireForcedMediaDelete(
+    c: Context,
+    operation: string,
+    media: MediaService,
+    mediaIds: readonly string[],
+  ): Promise<void> {
+    const key = RouteAuth.requireKey(c);
+    const reach = await media.forceReach(mediaIds);
+
+    if (reach.capped) {
+      if (!Claims.has(key.claims, Claims.Root)) {
+        throw new ForbiddenError(
+          `${operation} with force references too many entries to enumerate exactly; only a key holding "*" may force it`,
+        );
+      }
+      return;
+    }
+
+    const missing = reach.scopes.filter((scope) =>
+      Claims.MediaForceDeletePermissions.some(
+        (permission) =>
+          !Claims.has(
+            key.claims,
+            Claims.collection(scope.project, scope.env, scope.collection, permission),
+          ),
+      ),
+    );
+    if (missing.length === 0) return;
+
+    // Every scope, not the first one found: throwing inside the loop would
+    // have made the refusal name whichever hidden scope happened to sort
+    // first.
+    const readable = missing.filter((scope) =>
+      RouteAuth.canReadEntries(c, scope.project, scope.env, scope.collection),
+    );
+    const hidden = missing.length - readable.length;
+
+    const where: string[] = [];
+    if (readable.length > 0) {
+      where.push(readable.map((scope) => `${scope.project}/${scope.env}/${scope.collection}`).join(", "));
+    }
+    if (hidden > 0) {
+      where.push(`${hidden} scope${hidden === 1 ? "" : "s"} this key cannot read`);
+    }
+    const needed = Claims.MediaForceDeletePermissions.join('", "');
+
+    throw new ForbiddenError(
+      `${operation} with force changes what the entries referring to it resolve to, so it needs "${needed}" at every referring scope; this key is missing that at ${where.join(" and ")}`,
+    );
   }
 
   static requirePublicOrClaim(

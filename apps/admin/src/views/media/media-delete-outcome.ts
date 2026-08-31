@@ -8,6 +8,7 @@ export interface MediaInUseAsset {
   filename: string
   usage_count: number
   visible_count: number
+  visible_capped: boolean
   referrers: NonNullable<MediaBulkDeleteFailure['referrers']>
 }
 
@@ -40,6 +41,7 @@ export class MediaDeleteOutcome {
       filename: names.get(failure.id) ?? failure.id,
       usage_count: failure.usage_count ?? 0,
       visible_count: failure.visible_count ?? 0,
+      visible_capped: failure.visible_capped ?? false,
       referrers: failure.referrers ?? [],
     }))
   }

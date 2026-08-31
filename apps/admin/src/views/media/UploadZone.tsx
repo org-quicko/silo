@@ -43,7 +43,7 @@ export function UploadZone({ folder, uploading, onFiles, onBrowse }: Props) {
         ) : (
           <span>
             Drag &amp; drop files here, or <strong>browse</strong>
-            {folder ? ` — into ${folder}` : ''}
+            {folder ? ` into ${folder}` : ''}
           </span>
         )}
       </div>

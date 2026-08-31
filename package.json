@@ -10,7 +10,7 @@
     "dev": "concurrently -n server,admin -c blue,magenta --kill-others \"bun run start --data ./silo_data --config ./silo_data/silo.toml\" \"bun run --cwd apps/admin dev\"",
     "test": "bun test",
     "lint": "bun run --cwd apps/admin lint",
-    "typecheck": "tsc -b",
+    "typecheck": "tsc -b && tsc -b apps/admin",
     "build": "bun run tools/build/main.ts",
     "seed": "bun run tools/seed/main.ts",
     "set-version": "bun run tools/set-version.ts"

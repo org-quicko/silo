@@ -170,6 +170,23 @@ describe("media catalog (D23)", () => {
     expect(visible.items[0].project).toBe("default");
   });
 
+  test("visible is the true count of readable referrers, not how many fit on the requested page (D49 audit fix)", async () => {
+    await seedCollection();
+    const asset = await service.media.save("popular.png", new TextEncoder().encode("bytes"));
+    for (let index = 0; index < 25; index++) {
+      await service.entries.create(Scope.Default, "posts", { cover: MediaRef.url(asset.id) });
+    }
+
+    // A page of 20 asked for, but every one of the 25 referrers is readable —
+    // visible must report 25, not 20, or an asset like this would look
+    // under-visible to a caller who can in fact read every referrer.
+    const usage = await service.media.usages(asset.id, { limit: 20 }, () => true);
+    expect(usage.total).toBe(25);
+    expect(usage.items).toHaveLength(20);
+    expect(usage.visible).toBe(25);
+    expect(usage.visibleCapped).toBe(false);
+  });
+
   test("an asset being deleted refuses new references", async () => {
     await seedCollection();
     const asset = await service.media.save("staged.png", new TextEncoder().encode("bytes"));

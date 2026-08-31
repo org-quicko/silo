@@ -1,12 +1,22 @@
 import { useCallback, useEffect, useState } from 'react'
+import { ApiError } from '../../api/api-error'
 import { api } from '../../api/silo-api'
 import type { MediaAsset } from '../../api/types/media-asset'
 import type { MediaBulkDeleteResult } from '../../api/types/media-bulk-delete'
+import type { MediaFolderDeleteResult } from '../../api/types/media-folder-delete'
 import { MediaDeleteOutcome } from './media-delete-outcome'
 import { MediaPath } from './media-path'
+import { useMediaSelection } from './use-media-selection'
+import { useFolderCounts } from './use-folder-counts'
+import { MediaLibraryError } from './media-library-error'
 
 /** How many assets one page of the grid holds. */
 export const MediaPageSize = 48
+
+/** What a folder rename attempt did: saved, refused on a collision at `to`
+ *  (the one outcome `useMediaRenameFolderFlow` turns into a merge offer), or
+ *  failed some other way (already reported through `error`). */
+export type RenameFolderOutcome = 'ok' | 'conflict' | 'error'
 
 /**
  * The library's contents and the operations that change them.
@@ -23,9 +33,6 @@ export function useMediaLibrary(url: string, apiKey: string, initialQuery: strin
   const [offset, setOffset] = useState(0)
   const [folders, setFolders] = useState<string[]>([])
   const [folder, setFolder] = useState('')
-  /** Item count per visible subfolder — direct children only, fetched only
-   *  for the folders on screen, not the whole tree. */
-  const [folderCounts, setFolderCounts] = useState<Record<string, number>>({})
   const [search, setSearch] = useState(initialQuery)
   const [query, setQuery] = useState(initialQuery)
   const [loading, setLoading] = useState(true)
@@ -38,21 +45,10 @@ export function useMediaLibrary(url: string, apiKey: string, initialQuery: strin
    *  `reload` never clears, so the message survives the reload a successful
    *  delete in the same batch triggers. */
   const [deleteIssues, setDeleteIssues] = useState('')
-  /** Asset ids selected for a bulk operation. Assets only — folders are never
-   *  selectable, since folder delete is a separate, empty-folder-only route. */
-  const [selected, setSelected] = useState<Set<string>>(new Set())
-  const clearSelection = useCallback(() => setSelected(new Set()), [])
-
-  // Selection clears on folder change, page change and query change — it
-  // names rows on the page being left, not ones on the page being entered.
-  // Reset during render (React's documented pattern for state derived from
-  // other state) rather than in an effect, which would cost an extra commit
-  // for a set-state-in-effect lint has no way to know is unavoidable here.
-  const [selectionKey, setSelectionKey] = useState({ folder, offset, query })
-  if (selectionKey.folder !== folder || selectionKey.offset !== offset || selectionKey.query !== query) {
-    setSelectionKey({ folder, offset, query })
-    setSelected(new Set())
-  }
+  // Selection lives in its own hook (D49 audit fix) — this hook already does
+  // list state and delete orchestration, and selection is a third concern
+  // with its own page-boundary reset rule.
+  const selection = useMediaSelection(JSON.stringify([folder, offset, query]))
 
   const reload = useCallback(() => {
     setLoading(true)
@@ -101,31 +97,27 @@ export function useMediaLibrary(url: string, apiKey: string, initialQuery: strin
 
   const subfolders = MediaPath.children(folders, folder)
 
-  // One count-only request per subfolder on screen (limit 0 — just the
-  // total), plus each subfolder's own subfolder count read straight off the
-  // list already fetched. Never the whole tree, only what's rendered here.
-  useEffect(() => {
-    const visible = MediaPath.children(folders, folder)
-    if (visible.length === 0) return
-    let alive = true
-    Promise.all(
-      visible.map((path) =>
-        api.media
-          .list(url, apiKey, { folder: path, recursive: false, limit: 0 })
-          .then((page): [string, number] => [path, page.total + MediaPath.children(folders, path).length])
-          .catch((): [string, number] => [path, MediaPath.children(folders, path).length]),
-      ),
-    ).then((entries) => {
-      if (alive) setFolderCounts(Object.fromEntries(entries))
-    })
-    return () => {
-      alive = false
-    }
-  }, [url, apiKey, folders, folder])
+  // Counts for the subfolders on screen, fetched there rather than here:
+  // they are derived from what is rendered, not part of this hook's state.
+  const folderCounts = useFolderCounts(url, apiKey, folders, folder)
 
   const selectFolder = (next: string) => {
     setFolder(next)
     setOffset(0)
+  }
+
+  /** The `stalled`/`deleteIssues` banners `bulkDelete`, `deleteFolderRecursive`
+   *  and `purge` all report the same way, off the same `{deleted, failed}`
+   *  shape (D49). */
+  const reportOutcome = (result: MediaBulkDeleteResult): void => {
+    const { otherFailures } = MediaDeleteOutcome.classify(result)
+    const stalledCount = otherFailures.filter((failure) => failure.code === 'media_delete_stalled').length
+    const notFoundCount = otherFailures.filter((failure) => failure.code === 'not_found').length
+    const invalidCount = otherFailures.filter((failure) => failure.code === 'invalid_id').length
+    if (stalledCount > 0) setStalled(MediaLibraryError.stalledMessage(stalledCount))
+    if (notFoundCount > 0 || invalidCount > 0) {
+      setDeleteIssues(MediaLibraryError.deleteIssuesMessage(notFoundCount, invalidCount))
+    }
   }
 
   return {
@@ -147,30 +139,10 @@ export function useMediaLibrary(url: string, apiKey: string, initialQuery: strin
     deleteIssues,
     setDeleteIssues,
     reload,
-    selected,
-    clearSelection,
-
-    toggleSelected: (id: string) => {
-      setSelected((prev) => {
-        const next = new Set(prev)
-        if (next.has(id)) next.delete(id)
-        else next.add(id)
-        return next
-      })
-    },
-
-    /** The header checkbox in list view: selects or clears every id given —
-     *  the current page's assets, never a folder. */
-    selectMany: (ids: string[], on: boolean) => {
-      setSelected((prev) => {
-        const next = new Set(prev)
-        for (const id of ids) {
-          if (on) next.add(id)
-          else next.delete(id)
-        }
-        return next
-      })
-    },
+    selected: selection.selected,
+    clearSelection: selection.clearSelection,
+    toggleSelected: selection.toggleSelected,
+    selectMany: selection.selectMany,
 
     upload: async (files: FileList) => {
       if (files.length === 0) return
@@ -207,6 +179,26 @@ export function useMediaLibrary(url: string, apiKey: string, initialQuery: strin
       }
     },
 
+    /** Rename or move a folder (D49). Navigates along if the folder being
+     *  browsed was renamed or moved out from under the browser.
+     *
+     *  A collision at `to` without `merge` reports `'conflict'` rather than
+     *  setting `error` — `useMediaRenameFolderFlow` is what turns that into
+     *  the merge offer, so it must not also land in the generic banner. */
+    renameFolder: async (from: string, to: string, merge = false): Promise<RenameFolderOutcome> => {
+      try {
+        const result = await api.media.renameFolder(url, apiKey, from, to, merge)
+        reload()
+        if (folder === result.from) selectFolder(result.to)
+        else if (folder.startsWith(result.from + '/')) selectFolder(result.to + folder.slice(result.from.length))
+        return 'ok'
+      } catch (failure: unknown) {
+        if (!merge && failure instanceof ApiError && failure.status === 409) return 'conflict'
+        setError(MediaLibraryError.message(failure, 'Could not rename the folder'))
+        return 'error'
+      }
+    },
+
     /**
      * The one delete path — a single-file trash click is a list of one id,
      * same as a multi-select. Always answers `200` with per-id outcomes
@@ -219,16 +211,9 @@ export function useMediaLibrary(url: string, apiKey: string, initialQuery: strin
     bulkDelete: async (ids: string[], force: boolean): Promise<MediaBulkDeleteResult> => {
       try {
         const result = await api.media.deleteMany(url, apiKey, ids, force)
-        const { otherFailures } = MediaDeleteOutcome.classify(result)
-        const stalledCount = otherFailures.filter((failure) => failure.code === 'media_delete_stalled').length
-        const notFoundCount = otherFailures.filter((failure) => failure.code === 'not_found').length
-        const invalidCount = otherFailures.filter((failure) => failure.code === 'invalid_id').length
-        if (stalledCount > 0) setStalled(MediaLibraryError.stalledMessage(stalledCount))
-        if (notFoundCount > 0 || invalidCount > 0) {
-          setDeleteIssues(MediaLibraryError.deleteIssuesMessage(notFoundCount, invalidCount))
-        }
+        reportOutcome(result)
         if (result.deleted.length > 0) {
-          clearSelection()
+          selection.clearSelection()
           reload()
         }
         return result
@@ -237,27 +222,45 @@ export function useMediaLibrary(url: string, apiKey: string, initialQuery: strin
         return { deleted: [], failed: [] }
       }
     },
+
+    /** Recursive folder delete (D49): the same per-id outcome banners as
+     *  `bulkDelete`. `folders_deleted > 0` is the honest signal the folder
+     *  is actually gone — an asset a delete could not remove means it isn't,
+     *  regardless of how many others succeeded — and is what decides whether
+     *  the browser navigates out of it. */
+    deleteFolderRecursive: async (path: string, force: boolean): Promise<MediaFolderDeleteResult> => {
+      try {
+        const result = await api.media.deleteFolderRecursive(url, apiKey, path, force)
+        reportOutcome(result)
+        if (result.deleted.length > 0) selection.clearSelection()
+        if (result.folders_deleted > 0 && (folder === path || folder.startsWith(path + '/'))) {
+          selectFolder(MediaPath.parent(path))
+        }
+        if (result.deleted.length > 0 || result.folders_deleted > 0) reload()
+        return result
+      } catch (failure: unknown) {
+        setError(MediaLibraryError.message(failure, 'Could not delete the folder'))
+        return { deleted: [], failed: [], folders_deleted: 0 }
+      }
+    },
+
+    /** Empties the whole library (D49). `media_in_use` failures are this
+     *  call's own concern to report — purge has one dialog, not the
+     *  confirm-then-in-use pair `useMediaDeleteFlow` drives, so there is no
+     *  second dialog for them to become. */
+    purge: async (force: boolean): Promise<MediaFolderDeleteResult> => {
+      try {
+        const result = await api.media.purge(url, apiKey, force)
+        reportOutcome(result)
+        selection.clearSelection()
+        selectFolder('')
+        reload()
+        return result
+      } catch (failure: unknown) {
+        setError(MediaLibraryError.message(failure, 'Purge failed'))
+        return { deleted: [], failed: [], folders_deleted: 0 }
+      }
+    },
   }
 }
 
-/** One place that decides what a failed media call says. */
-class MediaLibraryError {
-  static message(failure: unknown, fallback: string): string {
-    return failure instanceof Error ? failure.message : fallback
-  }
-
-  static stalledMessage(count: number): string {
-    const file = count === 1 ? 'file is' : 'files are'
-    return `${count} ${file} staged for deletion but could not be removed from storage. Run "silo media reconcile".`
-  }
-
-  /** Covers both `not_found` and `invalid_id`: neither is a storage
-   *  problem, so neither belongs in `stalled`, and both survive a reload
-   *  the same way. */
-  static deleteIssuesMessage(notFound: number, invalid: number): string {
-    const parts: string[] = []
-    if (notFound > 0) parts.push(`${notFound} ${notFound === 1 ? 'file was' : 'files were'} already gone`)
-    if (invalid > 0) parts.push(`${invalid} ${invalid === 1 ? 'id was' : 'ids were'} invalid`)
-    return `${parts.join(' and ')}; not deleted.`
-  }
-}

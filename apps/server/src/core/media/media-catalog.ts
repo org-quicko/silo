@@ -2,6 +2,7 @@ import { MediaRef } from "@silo/shared/media-ref";
 import type { Entry } from "../domain/entry";
 import type { MediaAsset } from "./media-asset";
 import type { MediaAssetView } from "./media-asset-view";
+import type { MediaFolderMove } from "./media-folder-move";
 import type { MediaLinks } from "./media-links";
 
 /**
@@ -17,6 +18,9 @@ import type { MediaLinks } from "./media-links";
 export class MediaCatalog {
   static readonly Collection = "_media";
   static readonly FoldersCollection = "_media_folders";
+  /** In-flight folder moves (D49). Staged like a deletion, because a rename
+   *  spans more records than any adapter can write atomically. */
+  static readonly MovesCollection = "_media_folder_moves";
 
   /** The public URL for an asset — by id, so a rename never invalidates it.
    *  Relative, which is what a caller holding no `[media]` configuration and no
@@ -74,5 +78,14 @@ export class MediaCatalog {
   static folderOf(e: Entry): string {
     const data = (e.data || {}) as { path?: unknown };
     return typeof data.path === "string" ? data.path : "";
+  }
+
+  /** A staged folder move, or null when the record is not a usable one — a
+   *  marker naming nothing is dropped rather than replayed (D49). */
+  static toMove(e: Entry): MediaFolderMove | null {
+    const data = (e.data || {}) as Partial<MediaFolderMove>;
+    if (typeof data.from !== "string" || typeof data.to !== "string") return null;
+    if (!data.from || !data.to) return null;
+    return { from: data.from, to: data.to };
   }
 }

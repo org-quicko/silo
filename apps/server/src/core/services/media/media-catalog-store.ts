@@ -5,6 +5,7 @@ import { NotFoundError } from "../../errors/not-found-error";
 import { MediaCatalog } from "../../media/media-catalog";
 import type { MediaAsset } from "../../media/media-asset";
 import type { MediaFolder } from "../../media/media-folder";
+import type { MediaFolderMove } from "../../media/media-folder-move";
 import type { Query } from "../../query/query";
 import type { ServiceContext } from "../support/service-context";
 
@@ -142,5 +143,43 @@ export class MediaCatalogStore {
 
   async deleteFolder(entryId: string): Promise<void> {
     await this.context.store.delete(this.scope, MediaCatalog.FoldersCollection, entryId);
+  }
+
+  /** Declares a folder move, returning the marker's id (D49). */
+  async putMove(move: MediaFolderMove): Promise<string> {
+    const now = EntryUtils.now();
+    const id = EntryUtils.newID();
+    const entry: Entry = {
+      id,
+      project: this.scope.project,
+      env: this.scope.env,
+      collection: MediaCatalog.MovesCollection,
+      rev: 1,
+      seq: 0,
+      created_at: now,
+      updated_at: now,
+      data: move,
+    };
+    await this.context.store.put(entry, { usages: [], search: null });
+    return id;
+  }
+
+  /** Clears a move marker. A miss is not an error: the marker only exists to
+   *  be removed, so a double clear is the state it was aiming for. */
+  async deleteMove(entryId: string): Promise<void> {
+    try {
+      await this.context.store.delete(this.scope, MediaCatalog.MovesCollection, entryId);
+    } catch (error) {
+      if (!(error instanceof NotFoundError)) throw error;
+    }
+  }
+
+  /** Every staged move, unpaged. Empty in the ordinary case. */
+  async allMoves(): Promise<Entry[]> {
+    const { items } = await this.context.store.list(this.scope, MediaCatalog.MovesCollection, {
+      limit: MediaCatalogStore.WholeCatalog,
+      offset: 0,
+    });
+    return items;
   }
 }

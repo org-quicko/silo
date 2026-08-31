@@ -2,9 +2,9 @@ import type { MediaUsage } from './media-usage'
 
 /**
  * One id's outcome in `POST /api/media/delete` (D48). `code` mirrors the
- * server's per-id failure codes; `usage_count`, `visible_count` and
- * `referrers` are only present for `media_in_use`, the same claim-filtered
- * facts the single-delete 409 carries.
+ * server's per-id failure codes; `usage_count`, `visible_count`,
+ * `visible_capped` and `referrers` are only present for `media_in_use`, the
+ * same claim-filtered facts the single-delete 409 carries.
  */
 export interface MediaBulkDeleteFailure {
   id: string
@@ -12,6 +12,7 @@ export interface MediaBulkDeleteFailure {
   message: string
   usage_count?: number
   visible_count?: number
+  visible_capped?: boolean
   referrers?: MediaUsage[]
 }
 
