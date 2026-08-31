@@ -21,6 +21,7 @@ import { ModalIcon } from '../../components/modal/ModalIcon'
 import { ModalSubject } from '../../components/modal/ModalSubject'
 import { slateTemplates, slateWidgets, slateFields } from '../../forms/theme'
 import { buildUiSchema } from '../../forms/build-ui-schema'
+import { MediaValue } from '../../forms/widgets/media-value'
 import { SiloRefs } from '../../schema/silo-refs'
 import { TopBar } from '../shell/TopBar'
 import { SmartSearch } from '../search/SmartSearch'
@@ -121,10 +122,14 @@ export function EntryForm({
     Claims.collection(scope.project, scope.env, collection.name, Claims.CollectionEntriesDelete),
   )
 
-  const handleSubmit = async ({ formData: data }: any) => {
+  const handleSubmit = async ({ formData: rawData }: any) => {
     setSaving(true)
     setFormError('')
     setExtraErrors(undefined)
+    // A media field that reads back `null` (D48: its asset was force-deleted)
+    // is omitted here rather than sent as `null` — the media schema rejects
+    // `null` outright, which would fail the save on a field nobody touched.
+    const data = MediaValue.omitUnresolved(rawData, schema)
     try {
       if (entry) await api.entries.update(url, apiKey, scope, collection.name, entry.id, entry.rev, data)
       else await api.entries.create(url, apiKey, scope, collection.name, data)

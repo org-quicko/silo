@@ -24,7 +24,6 @@ describe("MediaLinks", () => {
   test("with no configuration it is what every response did before", () => {
     const links = MediaLinks.fromRequest(origin);
     expect(links.urlFor(MediaRef.url(id))).toBe(`${origin}/media/${id}`);
-    expect(links.needsKeys).toBe(false);
   });
 
   test("a base URL replaces the request's origin, not the path", () => {
@@ -43,7 +42,6 @@ describe("MediaLinks", () => {
       origin,
       new Map([[id, `${id}.png`]])
     );
-    expect(links.needsKeys).toBe(true);
     expect(links.urlFor(MediaRef.url(id))).toBe(`https://cdn.example.com/${id}.png`);
   });
 
@@ -85,5 +83,31 @@ describe("MediaLinks", () => {
     // What the media API answers with when nothing is configured: the admin
     // joins it to the server it is talking to, which it already knows.
     expect(MediaLinks.of(config(), "").forAsset(id, `${id}.png`)).toBe(`/media/${id}`);
+  });
+
+  // ---- D48: three states, not two ----
+
+  test("asked and absent resolves to null", () => {
+    const links = MediaLinks.of(config(), origin, new Map(), new Set([id]));
+    expect(links.urlFor(MediaRef.url(id))).toBeNull();
+  });
+
+  test("asked and present resolves to a URL, exactly as before", () => {
+    const links = MediaLinks.of(config(), origin, new Map([[id, `${id}.png`]]), new Set([id]));
+    expect(links.urlFor(MediaRef.url(id))).toBe(`${origin}/media/${id}`);
+  });
+
+  test("never asked (no asked set at all) resolves to a URL — the id is not judged absent just because keys is empty", () => {
+    const links = MediaLinks.of(config(), origin);
+    expect(links.urlFor(MediaRef.url(id))).toBe(`${origin}/media/${id}`);
+  });
+
+  test("fromRequest never asks, so nothing it resolves is ever null", () => {
+    expect(MediaLinks.fromRequest(origin).urlFor(MediaRef.url(id))).toBe(`${origin}/media/${id}`);
+  });
+
+  test("a legacy reference is never looked up and so is never null, even when the id is in `asked`", () => {
+    const links = MediaLinks.of(config(), origin, new Map(), new Set(["aabb_old.png"]));
+    expect(links.urlFor("/media/aabb_old.png")).toBe(`${origin}/media/aabb_old.png`);
   });
 });

@@ -1,6 +1,7 @@
 import { FileText, Link, Pencil, Trash2 } from 'lucide-react'
 import type { MediaAsset } from '../../api/types/media-asset'
 import { Button } from '../../components/buttons/Button'
+import { Checkbox } from '../../components/controls/Checkbox'
 import { ByteSize } from '../../utils/byte-size'
 import { Formatters } from '../../utils/formatters'
 import { MediaUsageBadge } from './media-usage-badge'
@@ -12,15 +13,29 @@ interface Props {
   asset: MediaAsset
   baseUrl: string
   canEdit: boolean
+  /** Also whether the row is selectable at all — the checkbox is a bulk
+   *  delete tool, so it needs the same claim the trash icon does. */
   canDelete: boolean
   gridCols: string
+  selected: boolean
+  onToggleSelect: () => void
   onEdit: () => void
   onDelete: () => void
 }
 
 /** `MediaCard`'s row form for list view — same facts, same hover-revealed
  *  actions, laid out across the shared `DataTable` grid instead of a tile. */
-export function MediaRow({ asset, baseUrl, canEdit, canDelete, gridCols, onEdit, onDelete }: Props) {
+export function MediaRow({
+  asset,
+  baseUrl,
+  canEdit,
+  canDelete,
+  gridCols,
+  selected,
+  onToggleSelect,
+  onEdit,
+  onDelete,
+}: Props) {
   const fileUrl = MediaFileUrl.of(asset, baseUrl)
   const used = asset.usage_count || 0
   const isImage = asset.content_type.startsWith('image/')
@@ -34,6 +49,11 @@ export function MediaRow({ asset, baseUrl, canEdit, canDelete, gridCols, onEdit,
 
   return (
     <div className={`${table.row} ${styles.fileRow}`} style={{ ['--cols' as any]: gridCols }}>
+      {canDelete && (
+        <div className={`${table.cell} ${styles.checkboxCell}`}>
+          <Checkbox checked={selected} onChange={onToggleSelect} aria-label={`Select ${asset.filename}`} />
+        </div>
+      )}
       <div className={`${table.cell} ${styles.rowName}`}>
         <span className={styles.rowIcon}>
           {isImage ? <img src={fileUrl} alt="" loading="lazy" /> : <FileText size={15} />}

@@ -27,7 +27,8 @@ Hono web framework on Bun. JSON everywhere. Admin UI served at `/`; API under `/
 | GET / POST | `/api/keys` | list (`keys:read`) / create (`keys:create`); create returns the secret exactly once |
 | DELETE | `/api/keys/{id}` | revoke a key (`keys:revoke`, **and** the authority to have minted it — D37) |
 | GET / POST | `/api/media` | search (`media:read`) / upload (`media:create`) — see §8.1 |
-| GET / PATCH / DELETE | `/api/media/{id}` | asset detail / rename·move·retag (`media:create`) / guarded delete (`media:delete`) |
+| GET / PATCH / DELETE | `/api/media/{id}` | asset detail / rename·move·retag (`media:create`) / guarded delete, `?force=true` to delete over a live reference (`media:delete`, D48) — see §8.1 |
+| POST | `/api/media/delete` | bulk delete (`{ids, force}`, up to 100), always `200` with per-id outcomes (`media:delete`, D48) — see §8.1 |
 | GET | `/api/media/{id}/usages` | paginated referrers, claim-filtered (`media:read`) |
 | GET / POST | `/api/media/folders` | list / create an empty folder (`media:read` / `media:create`) |
 | DELETE | `/api/media/folders` | delete an empty folder (`media:delete`) |
@@ -166,11 +167,119 @@ deletion is an operator decision, not a boot-time one. Startup therefore counts
 failures instead of throwing, because a misconfigured blob store must not stop
 the server booting over a deletion someone staged days ago.
 
-There is **no force-delete**. The `409` always reports the total count, and
-enumerates only the referrers the calling key may read: media is
-instance-global but referrers are scoped, so a key confined to one project must
-learn that a file is in use without learning where. The remainder is reported
-as a count only.
+The `409` always reports the total count, and enumerates only the referrers
+the calling key may read: media is instance-global but referrers are scoped,
+so a key confined to one project must learn that a file is in use without
+learning where. The remainder is reported as a count only.
+
+**`?force=true` deletes over a live reference (D48).** Only the literal
+string `"true"` enables it; anything else is read as absent. Force skips step
+1 — the usage check — and nothing else: the rest of the saga, and the write
+lock around it, are unchanged. The entries that named the asset are **not
+rewritten** — no mass mutation of entry data on a delete — and the usage rows
+those entries produced are **not deleted**: they are adapter-owned derived
+state that honestly records the entries still hold the reference, and `silo
+media reconcile` re-derives them from entries regardless of what a delete did
+or did not touch. What changes instead is the read path: a media field whose
+reference no longer resolves answers `null` rather than a URL that 404s (see
+below). Force rides on `media:delete` rather than a claim of its own, as an
+**acceptance and not because it grants nothing new**. `media:delete` is
+already instance-global and unscoped, so a holder could already delete any
+unreferenced file in any project; but force does add reach, because it
+breaks references in scopes the key cannot read, and the claim-filtered
+enumeration above governs what such a caller *learns*, never what it may
+destroy. The exposure is concentrated on plugins: `media:delete` is not on
+`PluginForbiddenClaims`, so a plugin already holding it gains
+reference-breaking reach with no manifest change and therefore no
+`needs_review` re-approval. A root-only `media:force_delete` on that list,
+D47's shape for `settings:configure`, is the answer if that ever bites, and
+the split stays cheap because the route reads force, not the vocabulary. No new
+audit action is added for it either: `core/audit/audit-action.ts` audits
+*authority* changes, and entry and content writes are deliberately not
+audited; a force-delete is a content decision like any other media delete, not
+an authority one.
+
+**`POST /api/media/delete`** is the bulk sibling, behind the same
+`media:delete`: `{"ids": ["id1", "id2"], "force": false}`, capped at 100 ids.
+Each id is deleted through the same saga as the single-asset route, in a
+sequential loop — never one write lock over the whole batch, since that would
+serialize every other media write behind an operator's spring-cleaning. It
+**always answers `200`**, never `204` and never a `207`: the request itself
+succeeded, and each id's outcome is data the caller reads out of the body
+rather than a status code that cannot carry the referrers a partial refusal
+needs explaining with.
+
+```jsonc
+// POST /api/media/delete
+{
+  "deleted": ["id1"],
+  "failed": [
+    { "id": "id3", "code": "media_in_use", "message": "...",
+      "usage_count": 4, "visible_count": 2, "referrers": [ /* claim-filtered, as above */ ] },
+    { "id": "id4", "code": "not_found", "message": "..." },
+    { "id": "id5", "code": "media_delete_stalled", "message": "..." },
+    { "id": "../x", "code": "invalid_id", "message": "..." }
+  ]
+}
+```
+
+`invalid_id` is what a malformed id becomes: `MediaCatalogStore.asset` runs
+`EntryUtils.assertSafeSegment` before it touches storage, which throws for a
+path separator, a NUL byte, `.`/`..`, or a segment over 255 bytes. That is a
+per-id 4xx condition, not grounds to fail the whole request — a batch that hit
+it after already deleting earlier ids would 400 with no `deleted` list to show
+for them. `ids` themselves are deduplicated preserving first-seen order before
+the loop runs, so `{"ids": ["x", "x"]}` deletes `x` once rather than reporting
+a spurious `not_found` for the id its own first pass just removed.
+
+Any error the route does not recognise as one of those four propagates as a
+normal `5xx`/`4xx` rather than being folded silently into `failed`.
+
+**A media field resolves to `null` when its reference does not resolve
+(D48).** Before D48 a reference was rewritten from the id alone, so a
+force-deleted asset left an entry answering with a link that 404s — the delete
+became visible only when something tried to fetch the file. `MediaLinkResolver`
+now consults the catalog for every reference in a response, not only in
+`store` mode: **one `catalog.findAsset(id)` point read per distinct reference**
+in the payload, in a loop, capped at 200 — never one filtered query over the
+whole catalog. That query shape was tried and reverted: `FsEntryStore.list`
+reads and parses every document in `_media` before filtering anything, which
+is the O(n)-per-query character §6.3 commits the fs adapter to by design, so a
+single `in` lookup over `$.id` would cost the entire catalog on every response
+holding even one reference; on SQLite it is two statements, because `list`
+always runs a `SELECT COUNT(*)` the caller never uses. A reference the catalog
+no longer holds answers `null`, in place: a single field is `null`, and an
+element of a media array is `null` in that slot rather than removed, so an
+array's length never depends on whether every reference in it still resolves.
+A reference that was never looked up at all — past the resolver's lookup cap,
+or a pre-D23 `blob:`/`/media/<blobKey>` legacy value, which is never looked up
+— resolves exactly as it always has; only an id the catalog was actually asked
+about and came back empty for is ever `null`. This costs `EntryUtils.
+toApiResponse` a property D46 bought it: the lookup used to run only in
+`store` mode and now always runs on all five read paths that call it
+(`entries-routes.ts` ×4, `search-routes.ts` ×1), so the ordinary `server`-mode
+response now pays one point read per distinct reference, capped at 200, that
+it used to pay zero for. That is the honest price of a `null` the caller can
+trust rather than a link that 404s. The lookup still runs once per response
+before entries are mapped, so `toApiResponse` itself stays synchronous.
+
+**The reference itself is not rewritten, and that makes the `null` dangerous
+to echo back.** A force-delete leaves the entry's stored value exactly as it
+was — the reference and the usage row it produced both survive, and `silo
+media reconcile` would re-derive that usage row from the entry regardless of
+what the delete did or did not touch. Only the *read* path answers `null`. A
+client that fetches such an entry, edits an unrelated field and PUTs the whole
+object back therefore sends `null` for the media field, and `MediaRefs.
+canonicalize` passes `null` through unchanged on the way in — the reference and
+its usage row are destroyed for real, this time by the client's own write.
+Worse, for the ordinary media schema, `{"type": "string", "x-silo-type":
+"media"}`, `null` **fails validation** in both RJSF's ajv8 and the server's own
+validator, so a user editing a field they never touched hits an error on the
+one they did not. The admin's fix lives at the write path: a media field that
+reads back `null` is **omitted** from what the form submits, never sent as
+`null`. An optional field then saves cleanly, and a required one fails with an
+honest "required" error on that field — which is the truth, since the entry
+has lost a file it is required to have.
 
 ### 8.2 Media storage: reading and changing where the bytes go (D45)
 
@@ -264,9 +373,18 @@ will not follow silo's cache headers; it requires the bucket to be publicly
 readable. It also costs one catalog lookup per response — a blob key lives on
 the record, not in the reference — which is why the resolution happens once
 per response before entries are mapped rather than inside `toApiResponse`
-(§8.1's purity is what makes that mapping cheap). An asset whose key was not
-resolved falls back to silo's own origin rather than to `base_url`: the CDN has
-never heard of `/media/<id>`, so a link rooted there would 404.
+(§8.1's purity is what makes that mapping cheap).
+
+Since D48 the catalog is consulted in `server` mode too, for a different
+reason: not to find a blob key, but to tell a reference that still resolves
+from one that does not. An id past `MediaLinkResolver`'s lookup cap was never
+asked about and falls back to silo's own origin rather than to `base_url`,
+exactly as it always has: the CDN has never heard of `/media/<id>`, so a link
+rooted there would 404. An id that **was** asked about and the catalog no
+longer holds — most often a force-delete (§8.1, D48) — answers `null`
+instead, in both targets. Those are the only two outcomes a lookup miss can
+mean, and a client cannot tell one from the other unless the server does not
+paper over the difference with the same fallback for both.
 
 `PUT` takes the whole table. Unlike §8.2's secret, **an omitted field is
 cleared, not kept** — nothing here is write-only, so the form always holds the

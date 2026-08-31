@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useState } from 'react'
 import { api } from '../../api/silo-api'
-import { ApiError } from '../../api/api-error'
 import type { MediaAsset } from '../../api/types/media-asset'
-import type { MediaInUse } from '../../api/types/media-usage'
+import type { MediaBulkDeleteResult } from '../../api/types/media-bulk-delete'
+import { MediaDeleteOutcome } from './media-delete-outcome'
 import { MediaPath } from './media-path'
 
 /** How many assets one page of the grid holds. */
@@ -33,6 +33,26 @@ export function useMediaLibrary(url: string, apiKey: string, initialQuery: strin
   const [error, setError] = useState('')
   /** Set when the blob store refused a delete: the asset is staged, not gone. */
   const [stalled, setStalled] = useState('')
+  /** Set when a bulk delete's per-id outcomes include a `not_found` or
+   *  `invalid_id` failure — on the same pattern as `stalled`, a state
+   *  `reload` never clears, so the message survives the reload a successful
+   *  delete in the same batch triggers. */
+  const [deleteIssues, setDeleteIssues] = useState('')
+  /** Asset ids selected for a bulk operation. Assets only — folders are never
+   *  selectable, since folder delete is a separate, empty-folder-only route. */
+  const [selected, setSelected] = useState<Set<string>>(new Set())
+  const clearSelection = useCallback(() => setSelected(new Set()), [])
+
+  // Selection clears on folder change, page change and query change — it
+  // names rows on the page being left, not ones on the page being entered.
+  // Reset during render (React's documented pattern for state derived from
+  // other state) rather than in an effect, which would cost an extra commit
+  // for a set-state-in-effect lint has no way to know is unavoidable here.
+  const [selectionKey, setSelectionKey] = useState({ folder, offset, query })
+  if (selectionKey.folder !== folder || selectionKey.offset !== offset || selectionKey.query !== query) {
+    setSelectionKey({ folder, offset, query })
+    setSelected(new Set())
+  }
 
   const reload = useCallback(() => {
     setLoading(true)
@@ -124,7 +144,33 @@ export function useMediaLibrary(url: string, apiKey: string, initialQuery: strin
     setError,
     stalled,
     setStalled,
+    deleteIssues,
+    setDeleteIssues,
     reload,
+    selected,
+    clearSelection,
+
+    toggleSelected: (id: string) => {
+      setSelected((prev) => {
+        const next = new Set(prev)
+        if (next.has(id)) next.delete(id)
+        else next.add(id)
+        return next
+      })
+    },
+
+    /** The header checkbox in list view: selects or clears every id given —
+     *  the current page's assets, never a folder. */
+    selectMany: (ids: string[], on: boolean) => {
+      setSelected((prev) => {
+        const next = new Set(prev)
+        for (const id of ids) {
+          if (on) next.add(id)
+          else next.delete(id)
+        }
+        return next
+      })
+    },
 
     upload: async (files: FileList) => {
       if (files.length === 0) return
@@ -162,26 +208,33 @@ export function useMediaLibrary(url: string, apiKey: string, initialQuery: strin
     },
 
     /**
-     * Returns the referrers when the server refused because the file is still
-     * in use — that refusal is the feature, so it gets a real explanation
-     * rather than a generic failure.
+     * The one delete path — a single-file trash click is a list of one id,
+     * same as a multi-select. Always answers `200` with per-id outcomes
+     * (D48): `media_in_use` ones are for `useMediaDeleteFlow` to turn into
+     * the second dialog. `not_found` and `invalid_id` set `deleteIssues`,
+     * `media_delete_stalled` sets `stalled` — both a state `reload` never
+     * touches, so a `reload()` a few lines down (triggered by whatever *did*
+     * delete in the same batch) cannot wipe the message before it is read.
      */
-    remove: async (id: string): Promise<MediaInUse | null> => {
+    bulkDelete: async (ids: string[], force: boolean): Promise<MediaBulkDeleteResult> => {
       try {
-        await api.media.delete(url, apiKey, id)
-        reload()
-        return null
-      } catch (failure: unknown) {
-        if (failure instanceof ApiError && failure.code === 'media_in_use') {
-          return failure.info as unknown as MediaInUse
+        const result = await api.media.deleteMany(url, apiKey, ids, force)
+        const { otherFailures } = MediaDeleteOutcome.classify(result)
+        const stalledCount = otherFailures.filter((failure) => failure.code === 'media_delete_stalled').length
+        const notFoundCount = otherFailures.filter((failure) => failure.code === 'not_found').length
+        const invalidCount = otherFailures.filter((failure) => failure.code === 'invalid_id').length
+        if (stalledCount > 0) setStalled(MediaLibraryError.stalledMessage(stalledCount))
+        if (notFoundCount > 0 || invalidCount > 0) {
+          setDeleteIssues(MediaLibraryError.deleteIssuesMessage(notFoundCount, invalidCount))
         }
-        if (failure instanceof ApiError && failure.code === 'media_delete_stalled') {
-          setStalled(failure.message)
+        if (result.deleted.length > 0) {
+          clearSelection()
           reload()
-          return null
         }
+        return result
+      } catch (failure: unknown) {
         setError(MediaLibraryError.message(failure, 'Delete failed'))
-        return null
+        return { deleted: [], failed: [] }
       }
     },
   }
@@ -191,5 +244,20 @@ export function useMediaLibrary(url: string, apiKey: string, initialQuery: strin
 class MediaLibraryError {
   static message(failure: unknown, fallback: string): string {
     return failure instanceof Error ? failure.message : fallback
+  }
+
+  static stalledMessage(count: number): string {
+    const file = count === 1 ? 'file is' : 'files are'
+    return `${count} ${file} staged for deletion but could not be removed from storage. Run "silo media reconcile".`
+  }
+
+  /** Covers both `not_found` and `invalid_id`: neither is a storage
+   *  problem, so neither belongs in `stalled`, and both survive a reload
+   *  the same way. */
+  static deleteIssuesMessage(notFound: number, invalid: number): string {
+    const parts: string[] = []
+    if (notFound > 0) parts.push(`${notFound} ${notFound === 1 ? 'file was' : 'files were'} already gone`)
+    if (invalid > 0) parts.push(`${invalid} ${invalid === 1 ? 'id was' : 'ids were'} invalid`)
+    return `${parts.join(' and ')}; not deleted.`
   }
 }

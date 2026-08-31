@@ -87,6 +87,14 @@ export class QuerySuite {
             want: ["alpha"],
           },
           {
+            // `in` over `$.id` is public API surface (every op is forever,
+            // §5.3) independent of any one caller — no production code
+            // currently issues this filter.
+            name: "in over envelope id",
+            filter: { op: "in", path: "$.id", value: [alpha.id, "does-not-exist"] },
+            want: ["alpha"],
+          },
+          {
             name: "exists",
             filter: { op: "exists", path: "$.data.subtitle" },
             want: ["alpha"],

@@ -16,6 +16,6 @@ export class MediaUsageBadge {
 
     const used = asset.usage_count || 0
     if (used === 0) return 'Not referenced by any entry'
-    return `Referenced by ${used} entr${used === 1 ? 'y' : 'ies'} — cannot be deleted`
+    return `Referenced by ${used} entr${used === 1 ? 'y' : 'ies'}. Deleting asks you to force it.`
   }
 }

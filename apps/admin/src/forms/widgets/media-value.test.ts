@@ -85,4 +85,59 @@ describe('MediaValue', () => {
       )
     })
   })
+
+  describe('omitUnresolved', () => {
+    const schema = {
+      type: 'object',
+      properties: {
+        title: { type: 'string' },
+        cover: { type: 'string', 'x-silo-type': 'media' },
+        gallery: { type: 'array', items: { type: 'string', 'x-silo-type': 'media' } },
+        author: {
+          type: 'object',
+          properties: {
+            avatar: { type: 'string', 'x-silo-type': 'media' },
+            name: { type: 'string' },
+          },
+        },
+      },
+    }
+
+    test('a null media field is omitted, not sent as null', () => {
+      const data = { title: 'hello', cover: null }
+      expect(MediaValue.omitUnresolved(data, schema)).toEqual({ title: 'hello' })
+    })
+
+    test('a resolved media field is left alone', () => {
+      const data = { title: 'hello', cover: `silo://media/${TEST_ULID}` }
+      expect(MediaValue.omitUnresolved(data, schema)).toEqual(data)
+    })
+
+    test('a non-media field never touched, even if it happens to be null', () => {
+      const data = { title: null, cover: `silo://media/${TEST_ULID}` }
+      expect(MediaValue.omitUnresolved(data, schema)).toEqual(data)
+    })
+
+    test('null slots in a media array are filtered out, the array itself kept', () => {
+      const data = { gallery: [`silo://media/${TEST_ULID}`, null, 'silo://media/other'] }
+      expect(MediaValue.omitUnresolved(data, schema)).toEqual({
+        gallery: [`silo://media/${TEST_ULID}`, 'silo://media/other'],
+      })
+    })
+
+    test('recurses into a nested object schema', () => {
+      const data = { author: { name: 'Jane', avatar: null } }
+      expect(MediaValue.omitUnresolved(data, schema)).toEqual({ author: { name: 'Jane' } })
+    })
+
+    test('data with no matching schema property is left alone', () => {
+      const data = { unknownField: null }
+      expect(MediaValue.omitUnresolved(data, schema)).toEqual({ unknownField: null })
+    })
+
+    test('a non-object value passes through unchanged', () => {
+      expect(MediaValue.omitUnresolved(null, schema)).toBeNull()
+      expect(MediaValue.omitUnresolved('x', schema)).toBe('x')
+    })
+  })
 })

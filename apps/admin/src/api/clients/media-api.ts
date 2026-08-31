@@ -1,4 +1,5 @@
 import type { MediaAsset } from '../types/media-asset'
+import type { MediaBulkDeleteResult } from '../types/media-bulk-delete'
 import type { MediaQuery } from '../types/media-query'
 import type { MediaPolicyInput, MediaPolicyView } from '../types/media-settings'
 import type { MediaStorageInput, MediaStorageView } from '../types/media-storage'
@@ -70,9 +71,21 @@ export class MediaApi {
     })
   }
 
-  /** Rejects with a 409 `media_in_use` while any entry still references it. */
-  delete(url: string, key: string, id: string): Promise<void> {
-    return this.transport.request<void>(url, key, MediaApi.assetPath(id), { method: 'DELETE' })
+  /** Rejects with a 409 `media_in_use` while any entry still references it,
+   *  unless `force` is set (D48), which deletes over a live reference. */
+  delete(url: string, key: string, id: string, force = false): Promise<void> {
+    const path = force ? `${MediaApi.assetPath(id)}?force=true` : MediaApi.assetPath(id)
+    return this.transport.request<void>(url, key, path, { method: 'DELETE' })
+  }
+
+  /** One request, one id per outcome, always `200` (D48). A single-file
+   *  delete and a multi-select delete are both this, with one id. */
+  deleteMany(url: string, key: string, ids: string[], force = false): Promise<MediaBulkDeleteResult> {
+    return this.transport.request<MediaBulkDeleteResult>(url, key, '/api/media/delete', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ids, force }),
+    })
   }
 
   usages(

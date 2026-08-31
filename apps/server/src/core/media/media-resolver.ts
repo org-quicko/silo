@@ -8,6 +8,13 @@ import type { MediaLinks } from "./media-links";
  * class until `[media]` made the answer depend on more than a base string
  * (D46), and splitting them keeps this file about the schema and that one
  * about the configuration.
+ *
+ * A reference that does not resolve becomes `null` (D48), never a dropped
+ * value: a single field becomes `null` directly, and an array element becomes
+ * `null` **in that slot** — the `.map` calls below never shorten the array,
+ * so a caller cannot mistake "this array lost an element" for "this array
+ * always had fewer entries". Same asymmetry `MediaRefs` already takes between
+ * over-capture and under-capture: visible beats silent.
  */
 export class MediaResolver {
   /**

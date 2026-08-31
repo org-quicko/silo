@@ -2,8 +2,10 @@ import { ConflictError } from "./conflict-error";
 
 /**
  * A media asset was asked to be deleted while entries still reference it
- * (D23). There is no force-delete, so this is terminal until the referrers
- * drop the reference.
+ * (D23). Refused unless the caller opts into `force` (D48), which skips this
+ * check and leaves the dangling references for the read path to answer
+ * `null` for, rather than a refusal nobody can get past — so the message
+ * says the delete is refused, not that it is impossible.
  *
  * It carries the *true* total rather than a visible one. Media is
  * instance-global but referrers are scoped, so the count and the enumerable
@@ -20,7 +22,7 @@ export class MediaInUseError extends ConflictError {
     super(
       `media asset "${mediaId}" is referenced by ${usageCount} ${
         usageCount === 1 ? "entry" : "entries"
-      } and cannot be deleted`
+      }`
     );
     this.name = "MediaInUseError";
     this.mediaId = mediaId;
