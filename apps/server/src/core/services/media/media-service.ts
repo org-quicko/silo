@@ -55,7 +55,9 @@ export class MediaService {
    *
    * Every route that resolves media fields calls this first and passes the
    * result to `EntryUtils.toApiResponse`, rather than passing an origin string:
-   * the answer depends on `[media]`, and in store mode on the catalog too.
+   * the answer depends on `[media]`, and — always, since D48 — on the catalog,
+   * which is also what lets a reference to a force-deleted asset resolve to
+   * `null` instead of a link that 404s.
    */
   links(requestBase: string, payload: unknown): Promise<MediaLinks> {
     return this.linkResolver.forPayload(requestBase, payload);
@@ -94,8 +96,9 @@ export class MediaService {
     return this.delivery.bytes(idOrKey);
   }
 
-  delete(id: string): Promise<void> {
-    return this.deletion.delete(id);
+  /** `force` skips the usage check and deletes over a live reference (D48). */
+  delete(id: string, options?: { force?: boolean }): Promise<void> {
+    return this.deletion.delete(id, options);
   }
 
   resumePendingDeletions(): Promise<{ finished: number; pending: number }> {

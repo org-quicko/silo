@@ -4,11 +4,19 @@ import { SiloService } from "../../core/services/silo-service";
 import { ValidationError } from "@silo/shared/validation-error";
 import { RouteAuth } from "../auth/route-auth";
 import { MediaInUseError } from "../../core/errors/media-in-use-error";
+import { MediaDeleteStalledError } from "../../core/errors/media-delete-stalled-error";
+import { NotFoundError } from "../../core/errors/not-found-error";
+import type { MediaUsage } from "../../core/media/media-usage";
 import { MimeUtils } from "../../core/media/mime-utils";
 
 export class MediaRoutes {
   /** How many referrers a 409 body enumerates before it just reports a count. */
   private static readonly UsageSample = 20;
+
+  /** Caps `POST /api/media/delete` (D48). Each id takes its own write lock in
+   *  its own turn, so an unbounded batch is an amplification an operator
+   *  should not be able to ask for in one request. */
+  private static readonly BulkDeleteCap = 100;
 
   static register(app: any, service: SiloService) {
     // ---- Folders ----
@@ -42,6 +50,56 @@ export class MediaRoutes {
     });
 
     // ---- Assets ----
+
+    // Registered before /api/media/:id, like /api/media/folders above, so
+    // "delete" is never read as an asset id.
+    app.post("/api/media/delete", async (c: Context) => {
+      RouteAuth.requireClaim(c, Claims.MediaDelete);
+      const body = await c.req.json();
+      const ids = MediaRoutes.parseBulkIds(body?.ids);
+      const force = body?.force === true;
+
+      const deleted: string[] = [];
+      const failed: Array<Record<string, unknown>> = [];
+
+      // Sequential, not Promise.all: each id takes its own write lock in its
+      // own turn, so the batch never holds one lock over the whole request.
+      for (const id of ids) {
+        try {
+          await service.media.delete(id, { force });
+          deleted.push(id);
+        } catch (caught) {
+          if (caught instanceof MediaInUseError) {
+            failed.push({
+              id,
+              code: "media_in_use",
+              message: caught.message,
+              ...(await MediaRoutes.inUseDetails(c, service, id, caught)),
+            });
+          } else if (caught instanceof NotFoundError) {
+            failed.push({ id, code: "not_found", message: caught.message });
+          } else if (caught instanceof MediaDeleteStalledError) {
+            failed.push({ id, code: "media_delete_stalled", message: caught.message });
+          } else if (caught instanceof ValidationError) {
+            // A malformed id — "/", "\", a NUL byte, ".", "..", or over the
+            // 255-byte segment cap — is a per-id 4xx condition, not a reason
+            // to 400 the whole request after earlier ids were already
+            // deleted (§8.1).
+            failed.push({ id, code: "invalid_id", message: caught.message });
+          } else {
+            // An error this route does not know how to describe as one id's
+            // outcome — propagate rather than folding it silently into the
+            // array.
+            throw caught;
+          }
+        }
+      }
+
+      // Always 200: the request itself succeeded, and each id's outcome is
+      // data the caller reads out of the body — including the referrers a
+      // 409 would have carried, which a bare status code cannot.
+      return c.json({ deleted, failed }, 200);
+    });
 
     app.post("/api/media", async (c: Context) => {
       RouteAuth.requireClaim(c, Claims.MediaCreate);
@@ -115,28 +173,22 @@ export class MediaRoutes {
     app.delete("/api/media/:id", async (c: Context) => {
       RouteAuth.requireClaim(c, Claims.MediaDelete);
       const id = c.req.param("id") || "";
+      // Strict: only the literal string "true" opts in (D48). The claim is
+      // already instance-global and unscoped, so a holder can already delete
+      // any unreferenced file in any project; force's marginal power is
+      // breaking references in scopes it cannot read, which is what the 409
+      // body's visibility filtering below already governs.
+      const force = c.req.query("force") === "true";
       try {
-        await service.media.delete(id);
+        await service.media.delete(id, { force });
       } catch (caught) {
         if (caught instanceof MediaInUseError) {
-          // The total is the true one; the rows are only those this key may
-          // read. A project-confined key learns that the file is in use and
-          // how widely, without learning which other projects hold it (§8.1).
-          const usage = await service.media.usages(
-            id,
-            { limit: MediaRoutes.UsageSample },
-            MediaRoutes.readableBy(c)
-          );
           return c.json(
             {
               error: {
                 code: "media_in_use",
                 message: caught.message,
-                details: {
-                  usage_count: caught.usageCount,
-                  visible_count: usage.visible,
-                  referrers: usage.items,
-                },
+                details: await MediaRoutes.inUseDetails(c, service, id, caught),
               },
             },
             409
@@ -191,5 +243,46 @@ export class MediaRoutes {
   private static readableBy(c: Context) {
     return (project: string, env: string, collection: string): boolean =>
       RouteAuth.canReadEntries(c, project, env, collection);
+  }
+
+  /**
+   * The claim-filtered "still in use" facts for one id: the true total, the
+   * visible one, and the referrers the calling key may read. Shared by the
+   * single-delete 409 and the bulk route's per-id failure entry, which carry
+   * the same facts in two different envelopes.
+   */
+  private static async inUseDetails(
+    c: Context,
+    service: SiloService,
+    id: string,
+    caught: MediaInUseError
+  ): Promise<{ usage_count: number; visible_count: number; referrers: MediaUsage[] }> {
+    const usage = await service.media.usages(
+      id,
+      { limit: MediaRoutes.UsageSample },
+      MediaRoutes.readableBy(c)
+    );
+    return { usage_count: caught.usageCount, visible_count: usage.visible, referrers: usage.items };
+  }
+
+  /** Validates the bulk delete body's `ids`: a non-empty array of non-empty
+   *  strings, capped at {@link BulkDeleteCap}, deduplicated preserving
+   *  first-seen order — `{ids:["x","x"]}` deletes `x` once rather than
+   *  reporting a spurious `not_found` for the id its own first pass just
+   *  removed. */
+  private static parseBulkIds(raw: unknown): string[] {
+    if (!Array.isArray(raw) || raw.length === 0) {
+      throw new ValidationError('"ids" must be a non-empty array of strings');
+    }
+    if (raw.length > MediaRoutes.BulkDeleteCap) {
+      throw new ValidationError(`"ids" cannot exceed ${MediaRoutes.BulkDeleteCap} per request`);
+    }
+    const ids = raw.map((id, index) => {
+      if (typeof id !== "string" || !id.trim()) {
+        throw new ValidationError(`"ids[${index}]" must be a non-empty string`);
+      }
+      return id;
+    });
+    return [...new Set(ids)];
   }
 }

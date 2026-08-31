@@ -31,11 +31,53 @@ media included (D41). Plugins install *and uninstall* from the API and the admin
 the plugin's own panel has room (D44). Where the media library keeps its bytes is
 configurable from the admin, and still written back to `silo.toml` (D45); so are
 where media URLs point and what the library accepts (D46), and the rest of the
-config file — logging, search, validation, the auth switch (D47).
+config file — logging, search, validation, the auth switch (D47). A media
+delete can now force past a live reference, singly or in bulk from the admin's
+multi-select, and a reference that no longer resolves reads back `null`
+instead of a broken link (D48).
 
-**The most recent change finishes the job the last two started: the rest of
-`silo.toml` is editable from the admin, and the page says what a restart is owed
-for (D47, 2026-08-31).**
+**The most recent change reverses D23's flat refusal on a referenced media
+delete, and gives the read path somewhere to put the truth (D48,
+2026-08-31).**
+`media_in_use` used to be terminal: the only way past it was editing every
+referring entry by hand, which does not scale past a handful of references and
+is not always possible at all. `MediaDeletionService.delete(id, { force })`
+now skips only the usage check — the saga, and the write lock around it, are
+otherwise unchanged — reachable as `?force=true` (parsed strictly) on
+`DELETE /api/media/{id}` and as the new `POST /api/media/delete`, which takes
+`{ids, force}` up to 100 at a time, deletes each sequentially through the same
+saga, and **always answers `200`** with a `deleted`/`failed` body rather than a
+status code that has nowhere to put the referrers a partial refusal needs
+explaining with. No claim was added, and that is an
+acceptance rather than a claim that force grants nothing new:
+`media:delete` is already instance-global and unscoped, but force does add
+reach, since it breaks references in scopes the key cannot read, and the
+409's filtered referrer list governs what a caller *learns* rather than
+what it may destroy. The exposure is a plugin already holding
+`media:delete`, which is not on `PluginForbiddenClaims` and so gains that
+reach with no re-approval; a root-only `media:force_delete` is the answer
+if it bites. Entries are not rewritten and
+their usage rows are not deleted, because those rows are derived state that
+`reconcile` re-derives from entries regardless, and no audit action was added,
+because entry writes are deliberately outside that trail already. What makes a
+force-delete safe to ship is that `MediaLinkResolver` now consults the catalog
+for **every** reference in a response, not only in `store` mode, so a media
+field whose reference the catalog no longer holds answers `null` instead of a
+URL that 404s — one point read per distinct reference, in a bounded loop
+capped at 200, never one filtered query over the whole catalog (the fs
+adapter has no index by design, §6.3, so a filtered query costs the entire
+catalog per response) — costing D46's `EntryUtils.toApiResponse` its zero-I/O
+case in `server` mode, though the function itself stays synchronous. The
+reference itself is not rewritten, so a client that echoes the resulting
+`null` back into a PUT destroys it for real; the admin now omits a `null`
+media field from what it submits instead. The admin's
+delete flow is one dialog when nothing selected is in use, two when something
+is, and never three: a confirm dialog, replaced — only if the server refuses
+— by one naming what is still referenced with an opt-in checkbox and a Force
+delete button that retries only the still-refused ids.
+
+**Before it, the rest of `silo.toml` became editable from the admin, and the
+page started saying what a restart is owed for (D47, 2026-08-31).**
 D45 and D46 put two tables behind the API and left four where they were, so an
 operator on a managed platform could point silo at a bucket and could not raise
 the log level. `GET /api/settings` and `PUT /api/settings/{table}` now cover

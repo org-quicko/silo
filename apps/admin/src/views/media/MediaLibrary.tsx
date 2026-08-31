@@ -2,9 +2,9 @@ import { useRef, useState } from 'react'
 import { Folder, FolderPlus, LayoutGrid, List, Plus, X } from 'lucide-react'
 import { Claims } from '@silo/shared/claims'
 import type { MediaAsset } from '../../api/types/media-asset'
-import type { MediaInUse } from '../../api/types/media-usage'
 import type { ScopeRef } from '../../api/types/scope-ref'
 import { Button } from '../../components/buttons/Button'
+import { Checkbox } from '../../components/controls/Checkbox'
 import { Segmented } from '../../components/controls/Segmented'
 import { Breadcrumb } from '../../components/navigation/Breadcrumb'
 import { SmartSearch } from '../search/SmartSearch'
@@ -17,8 +17,10 @@ import { FolderTile } from './FolderTile'
 import { MediaCard } from './MediaCard'
 import { MediaPath } from './media-path'
 import { MediaRow } from './MediaRow'
+import { MediaSelectionBar } from './MediaSelectionBar'
 import { RenameAssetDialog } from './RenameAssetDialog'
 import { UploadZone } from './UploadZone'
+import { useMediaDeleteFlow } from './use-media-delete-flow'
 import { MediaPageSize, useMediaLibrary } from './use-media-library'
 import table from '../../components/data/DataTable.module.css'
 import styles from './MediaLibrary.module.css'
@@ -27,6 +29,9 @@ type LibraryView = 'grid' | 'list'
 
 const VIEW_KEY = 'silo_media_view'
 const LIST_COLS = 'minmax(0, 1fr) 100px 100px 140px 96px'
+/** With the leading checkbox column — list view, once `media:delete` makes
+ *  a row selectable. */
+const LIST_COLS_SELECTABLE = `28px ${LIST_COLS}`
 
 interface Props {
   serverId: string
@@ -62,9 +67,8 @@ export function MediaLibraryView({
   onNavigateToCollection,
 }: Props) {
   const library = useMediaLibrary(url, apiKey, initialQuery)
+  const deleteFlow = useMediaDeleteFlow(library.bulkDelete)
   const [editing, setEditing] = useState<MediaAsset | null>(null)
-  const [toDelete, setToDelete] = useState<MediaAsset | null>(null)
-  const [inUse, setInUse] = useState<MediaInUse | null>(null)
   const [view, setView] = useState<LibraryView>(
     () => (localStorage.getItem(VIEW_KEY) as LibraryView | null) || 'grid',
   )
@@ -73,6 +77,7 @@ export function MediaLibraryView({
   const canUpload = Claims.has(claims, Claims.MediaCreate)
   const canDelete = Claims.has(claims, Claims.MediaDelete)
   const baseUrl = url ? (url.endsWith('/') ? url.slice(0, -1) : url) : ''
+  const listCols = canDelete ? LIST_COLS_SELECTABLE : LIST_COLS
 
   const browse = () => fileInput.current?.click()
 
@@ -87,17 +92,9 @@ export function MediaLibraryView({
     library.createFolder(library.folder ? `${library.folder}/${name}` : `/${name}`)
   }
 
-  const confirmDelete = async () => {
-    if (!toDelete) return
-    const blocked = await library.remove(toDelete.id)
-    if (blocked) setInUse(blocked)
-    else setToDelete(null)
-  }
-
-  const closeInUse = () => {
-    setInUse(null)
-    setToDelete(null)
-  }
+  const selectedAssets = library.assets.filter((asset) => library.selected.has(asset.id))
+  const pageSelected = library.assets.length > 0 && library.assets.every((asset) => library.selected.has(asset.id))
+  const pageIndeterminate = !pageSelected && library.assets.some((asset) => library.selected.has(asset.id))
 
   const pathSegments = MediaPath.segments(library.folder)
   const hasQuery = library.query.trim() !== ''
@@ -171,6 +168,15 @@ export function MediaLibraryView({
           </div>
         )}
 
+        {library.deleteIssues && (
+          <div className={styles.deleteIssues}>
+            <span>{library.deleteIssues}</span>
+            <button type="button" onClick={() => library.setDeleteIssues('')}>
+              <X size={13} />
+            </button>
+          </div>
+        )}
+
         <div className={styles.pathRow}>
           <nav className={styles.pathTrail} aria-label="Folder path">
             {library.folder === '' ? (
@@ -214,6 +220,14 @@ export function MediaLibraryView({
           />
         </div>
 
+        {canDelete && selectedAssets.length > 0 && (
+          <MediaSelectionBar
+            count={selectedAssets.length}
+            onClear={library.clearSelection}
+            onDelete={() => deleteFlow.start(selectedAssets)}
+          />
+        )}
+
         {genuinelyEmpty ? (
           canUpload ? (
             <UploadZone
@@ -253,8 +267,10 @@ export function MediaLibraryView({
                   baseUrl={baseUrl}
                   canEdit={canUpload}
                   canDelete={canDelete}
+                  selected={library.selected.has(asset.id)}
+                  onToggleSelect={() => library.toggleSelected(asset.id)}
                   onEdit={() => setEditing(asset)}
-                  onDelete={() => setToDelete(asset)}
+                  onDelete={() => deleteFlow.start([asset])}
                 />
               ))}
             </div>
@@ -268,8 +284,20 @@ export function MediaLibraryView({
             <div className="card">
               <div
                 className={`${table.header} ${table.table}`}
-                style={{ ['--cols' as any]: LIST_COLS }}
+                style={{ ['--cols' as any]: listCols }}
               >
+                {canDelete && (
+                  <span className={styles.checkboxCell}>
+                    <Checkbox
+                      checked={pageSelected}
+                      indeterminate={pageIndeterminate}
+                      onChange={(checked) =>
+                        library.selectMany(library.assets.map((asset) => asset.id), checked)
+                      }
+                      aria-label="Select all files on this page"
+                    />
+                  </span>
+                )}
                 <span>Name</span>
                 <span>Size</span>
                 <span>Modified</span>
@@ -281,7 +309,8 @@ export function MediaLibraryView({
                   key={path}
                   path={path}
                   itemCount={library.folderCounts[path]}
-                  gridCols={LIST_COLS}
+                  gridCols={listCols}
+                  checkboxGap={canDelete}
                   onOpen={() => library.selectFolder(path)}
                 />
               ))}
@@ -292,9 +321,11 @@ export function MediaLibraryView({
                   baseUrl={baseUrl}
                   canEdit={canUpload}
                   canDelete={canDelete}
-                  gridCols={LIST_COLS}
+                  gridCols={listCols}
+                  selected={library.selected.has(asset.id)}
+                  onToggleSelect={() => library.toggleSelected(asset.id)}
                   onEdit={() => setEditing(asset)}
-                  onDelete={() => setToDelete(asset)}
+                  onDelete={() => deleteFlow.start([asset])}
                 />
               ))}
             </div>
@@ -341,19 +372,23 @@ export function MediaLibraryView({
         />
       )}
 
-      {toDelete && !inUse && (
+      {deleteFlow.confirming && (
         <DeleteAssetDialog
-          asset={toDelete}
-          onConfirm={confirmDelete}
-          onClose={() => setToDelete(null)}
+          assets={deleteFlow.confirming}
+          busy={deleteFlow.busy}
+          onConfirm={deleteFlow.confirm}
+          onClose={deleteFlow.cancel}
         />
       )}
 
-      {inUse && (
+      {deleteFlow.inUse && (
         <AssetInUseDialog
-          filename={toDelete?.filename ?? ''}
-          inUse={inUse}
-          onClose={closeInUse}
+          assets={deleteFlow.inUse}
+          checked={deleteFlow.forceChecked}
+          busy={deleteFlow.busy}
+          onCheckedChange={deleteFlow.setForceChecked}
+          onForceDelete={deleteFlow.forceDelete}
+          onClose={deleteFlow.cancel}
         />
       )}
     </>

@@ -342,11 +342,8 @@
 
 .usageList {
   display: flex;
-  max-height: 220px;
   flex-direction: column;
   gap: 6px;
-  overflow-y: auto;
-  padding: 0 20px 4px;
 }
 
 .usageRow {
@@ -392,4 +389,120 @@
 .stalledBadge {
   color: var(--warn, var(--accent));
   font-weight: 500;
+}
+
+/* not_found / invalid_id (D48/Part 2): a per-id 4xx outcome, not a storage
+   problem, so it gets .stalled's shape rather than .error's. */
+.deleteIssues {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 12px;
+  padding: 10px 12px;
+  border: 1px solid var(--warn, var(--accent));
+  border-radius: var(--radius-sm);
+  background: var(--panel);
+  color: var(--text-2);
+  font-size: 12.5px;
+  line-height: 1.5;
+}
+
+/* ---- Multi-select (D48/Part 2) ---- */
+
+.checkboxCell {
+  display: flex;
+  justify-content: center;
+}
+
+/* Hidden at rest like .actions, so a quiet grid does not sprout a checkbox on
+   every tile; a selected card keeps its checkbox visible regardless. */
+.cardCheckbox {
+  position: absolute;
+  top: 8px;
+  left: 8px;
+  z-index: 1;
+  opacity: 0;
+  transition: opacity 0.12s;
+}
+
+.card:hover .cardCheckbox,
+.card:focus-within .cardCheckbox,
+.cardSelected .cardCheckbox {
+  opacity: 1;
+}
+
+.cardSelected {
+  border-color: var(--accent);
+}
+
+.selectionBar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 12px;
+  padding: 8px 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: var(--panel);
+}
+
+.selectionCount {
+  margin-right: auto;
+  color: var(--text-2);
+  font-size: 12.5px;
+  font-weight: 500;
+}
+
+/* ---- AssetInUseDialog, one or more assets (D48) ---- */
+
+.inUseAssets {
+  display: flex;
+  max-height: 320px;
+  flex-direction: column;
+  gap: 14px;
+  overflow-y: auto;
+  padding: 0 20px 4px;
+}
+
+.inUseAsset {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.inUseHeader {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.inUseFilename {
+  overflow: hidden;
+  color: var(--text);
+  font-size: 13px;
+  font-weight: 500;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.inUseCount {
+  flex: none;
+  color: var(--text-3);
+  font-size: 11.5px;
+}
+
+.forceGate {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 14px 20px 0;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: var(--panel-2);
+  color: var(--text-2);
+  font-size: 12.5px;
+  cursor: pointer;
 }

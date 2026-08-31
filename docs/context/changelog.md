@@ -4,6 +4,69 @@
 > The *current* state is [CONTEXT.md](../../CONTEXT.md); this is how it got
 > there.
 
+- **A media delete can force past a live reference, singly or in bulk, and a
+  reference that no longer resolves reads back `null` (D48, 2026-08-31).**
+  D23's `media_in_use` was terminal: the only way past it was editing every referring entry by
+  hand, which does not scale and is not always possible. `MediaDeletionService.delete(id, { force
+  })` now skips only the usage check — the saga and its write lock are otherwise unchanged —
+  reachable as `?force=true` (strict: only the literal string `"true"`) on
+  `DELETE /api/media/{id}` and as the new `POST /api/media/delete`, which takes `{ids, force}` up
+  to 100 ids, deletes each sequentially through the same saga (one write lock per id, never one
+  over the batch), and **always answers `200`** with a `deleted`/`failed` body — never `204`,
+  never a `207` — because each id's outcome is data the caller reads out, including the
+  claim-filtered referrers a `media_in_use` failure carries. `ids` are deduplicated preserving
+  first-seen order before the loop runs, and a malformed id — a path separator, a NUL byte,
+  `.`/`..`, or over the 255-byte segment cap — is its own failure code, `invalid_id`, rather than a
+  `ValidationError` that would 400 the whole request after earlier ids in it were already deleted.
+  No new claim was added, as an acceptance rather
+  than because force grants nothing new: `media:delete` is already
+  instance-global and unscoped, but force does add reach, and the `failed`
+  body's referrer filtering governs what a caller learns, not what it may
+  destroy. The exposure is a plugin already holding `media:delete`, which
+  is not on `PluginForbiddenClaims`; a root-only `media:force_delete` is
+  the fix if it bites. Entries are **not rewritten** and their usage rows are **not
+  deleted**: those rows are derived state `reconcile` re-derives from entries regardless, and
+  rewriting content on a delete is a mass mutation D23 never does. No audit action was added
+  either — `core/audit/audit-action.ts` audits authority changes, and entry/content writes are
+  deliberately outside that trail.
+
+  What makes force safe to ship is the read path. `MediaLinkResolver.forPayload` now consults the
+  catalog for **every** reference in a response, not only when `base_url_target = "store"`, so a
+  force-deleted asset's field answers `null` instead of a URL that 404s, in `server` mode as well
+  — one `catalog.findAsset(id)` point read per distinct reference, in a bounded loop, capped at
+  200, never one filtered query over the whole catalog (`FsEntryStore.list` reads and parses every
+  document in `_media` before filtering, by design — §6.3 — so an `in` query over `$.id` would
+  cost the entire catalog per response). `MediaLinks` tracks an `asked` set alongside its `keys`
+  map, so a reference is `null` iff it was asked about and not found; one past
+  `MediaLinkResolver`'s 200-lookup cap, or a pre-D23 legacy value, was never asked and resolves
+  exactly as before. `MediaResolver.resolveMediaFields` needed no logic change for this — its
+  array `.map` already never shortens the array, so an unresolvable element was already `null`
+  **in that slot**. The cost is half of D46's `EntryUtils.toApiResponse` purity property: the
+  function itself stays synchronous, but the zero-I/O case D46 carved out for `server` mode is
+  gone, since the lookup now always runs, on all five read paths that build one.
+
+  The reference is not rewritten, only answered as `null` on read, so a client that fetches such an
+  entry, edits an unrelated field and PUTs the whole object back sends `null` for the media field —
+  `MediaRefs.canonicalize` passes `null` through, so that write really does destroy the reference,
+  and for the ordinary media schema `null` also fails ajv8/the server validator's own check, failing
+  the save on a field nobody touched. `EntryForm`'s submit path now runs `MediaValue.omitUnresolved`
+  first, which drops a media field that reads `null` from what gets sent rather than sending it, so
+  an optional field saves clean and a required one fails with an honest "required" error instead.
+
+  The admin's delete flow is one dialog when nothing selected is in use and two when something is,
+  never three: `DeleteAssetDialog` now takes a list (one file is a list of one) and calls the bulk
+  route; if the server refuses any of them, that dialog is replaced by `AssetInUseDialog` — now
+  showing every still-referenced file with its claim-filtered referrers, an opt-in checkbox, and a
+  Force delete button disabled until it is checked — which retries only the still-refused ids,
+  forced, and closes. Selection is assets only, never folders; a checkbox on each row/card, a
+  header "select page" checkbox in list view, and a selection bar (count, Clear, Delete) that
+  clears on folder/page/query change and after a successful delete. `MediaDeleteOutcome` is the
+  pure half of the two-dialog decision, so it is testable without a DOM. `not_found` and
+  `invalid_id` failures get their own dismissible state in `useMediaLibrary`, on the same pattern
+  `media_delete_stalled` already used — a state `reload` never clears — because folding them into
+  `error` meant the reload every successful delete triggers wiped the message a few milliseconds
+  after it appeared.
+
 - **The rest of `silo.toml` becomes editable from the admin (D47, 2026-08-31).**
   D45 and D46 put two tables behind the API and left four where they were, so an operator on a
   managed platform could point silo at a bucket but could not raise the log level. New

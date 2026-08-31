@@ -1,6 +1,7 @@
 import { FileText, Link, Pencil, Trash2 } from 'lucide-react'
 import type { MediaAsset } from '../../api/types/media-asset'
 import { Button } from '../../components/buttons/Button'
+import { Checkbox } from '../../components/controls/Checkbox'
 import { ByteSize } from '../../utils/byte-size'
 import { MediaUsageBadge } from './media-usage-badge'
 import styles from './MediaLibrary.module.css'
@@ -11,14 +12,27 @@ interface Props {
   /** The server's base URL; the asset's own `url` is rooted at it. */
   baseUrl: string
   canEdit: boolean
+  /** Also whether the card is selectable at all — the checkbox is a bulk
+   *  delete tool, so it needs the same claim the trash icon does. */
   canDelete: boolean
+  selected: boolean
+  onToggleSelect: () => void
   onEdit: () => void
   onDelete: () => void
 }
 
 /** One asset in the grid: a preview, its facts, and — revealed on hover so
  *  the tile stays quiet at rest — what you can do to it. */
-export function MediaCard({ asset, baseUrl, canEdit, canDelete, onEdit, onDelete }: Props) {
+export function MediaCard({
+  asset,
+  baseUrl,
+  canEdit,
+  canDelete,
+  selected,
+  onToggleSelect,
+  onEdit,
+  onDelete,
+}: Props) {
   const fileUrl = MediaFileUrl.of(asset, baseUrl)
   const used = asset.usage_count || 0
   const isImage = asset.content_type.startsWith('image/')
@@ -31,7 +45,12 @@ export function MediaCard({ asset, baseUrl, canEdit, canDelete, onEdit, onDelete
         : undefined
 
   return (
-    <div className={styles.card}>
+    <div className={`${styles.card} ${selected ? styles.cardSelected : ''}`}>
+      {canDelete && (
+        <div className={styles.cardCheckbox}>
+          <Checkbox checked={selected} onChange={onToggleSelect} aria-label={`Select ${asset.filename}`} />
+        </div>
+      )}
       <div className={styles.preview}>
         {isImage ? (
           <img src={fileUrl} alt={asset.filename} loading="lazy" />

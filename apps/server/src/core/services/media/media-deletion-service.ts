@@ -14,7 +14,8 @@ import { MediaCatalogStore } from "./media-catalog-store";
  * `deleting`, which {@link resumePending} finishes at startup and which
  * `MediaReferenceGuard` refuses to let anything reference again.
  *
- * There is no force-delete.
+ * `force` (D48) skips only the usage check; the rest of the saga, and the
+ * write lock around it, are unchanged.
  */
 export class MediaDeletionService {
   /** Enough to sweep any realistic backlog of staged deletions in one pass. */
@@ -28,15 +29,26 @@ export class MediaDeletionService {
     this.catalog = catalog;
   }
 
-  async delete(id: string): Promise<void> {
+  /**
+   * `force: true` deletes over a live reference (D48). The entries that held
+   * it are not rewritten and the usage rows are not deleted — they are
+   * derived state that honestly records entries still naming this id, and
+   * `reconcile` re-derives them from entries anyway. `MediaLinks` is what
+   * makes a read of one of those entries answer `null` afterwards.
+   */
+  async delete(id: string, options?: { force?: boolean }): Promise<void> {
+    const force = options?.force === true;
+
     await this.context.withWriteLock(async () => {
       const entry = await this.catalog.asset(id);
       const asset = MediaCatalog.toAsset(entry);
 
       if (asset.state !== "deleting") {
-        const tokens = MediaCatalog.tokens(entry.id, asset.blob_key);
-        const usage = await this.context.store.listMediaUsages(tokens, { limit: 0 });
-        if (usage.total > 0) throw new MediaInUseError(id, usage.total);
+        if (!force) {
+          const tokens = MediaCatalog.tokens(entry.id, asset.blob_key);
+          const usage = await this.context.store.listMediaUsages(tokens, { limit: 0 });
+          if (usage.total > 0) throw new MediaInUseError(id, usage.total);
+        }
 
         await this.catalog.putAsset(id, { ...asset, state: "deleting" });
       }

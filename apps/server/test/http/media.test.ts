@@ -97,6 +97,28 @@ describe("media catalog (D23)", () => {
     expect(await service.media.bytes(asset.blob_key)).toBeNull();
   });
 
+  test("force delete succeeds over a live reference, and leaves the usage row behind (D48)", async () => {
+    await seedCollection();
+    const asset = await service.media.save("forced.png", new TextEncoder().encode("bytes"));
+    const entry = await service.entries.create(Scope.Default, "posts", { cover: MediaRef.url(asset.id) });
+
+    // Unforced still refuses, exactly as before.
+    await expect(service.media.delete(asset.id)).rejects.toThrow(MediaInUseError);
+
+    await service.media.delete(asset.id, { force: true });
+    await expect(service.media.get(asset.id)).rejects.toThrow(NotFoundError);
+    expect(await service.media.bytes(asset.blob_key)).toBeNull();
+
+    // The entry is untouched — no rewrite, dangling reference and all.
+    const after = await service.entries.get(Scope.Default, "posts", entry.id);
+    expect(after.data.cover).toBe(MediaRef.url(asset.id));
+
+    // The usage row is adapter-owned derived state and is deliberately not
+    // deleted alongside the record: it honestly records that the entry still
+    // names this id, and `reconcile` would re-derive it from the entry anyway.
+    expect(await store.countMediaUsages([asset.id])).toEqual(new Map([[asset.id, 1]]));
+  });
+
   test("deleting the entry releases the asset", async () => {
     await seedCollection();
     const asset = await service.media.save("bound.png", new TextEncoder().encode("bytes"));
