@@ -37,7 +37,7 @@ export function ScopeSuggest({
     return (
       <div className={styles.popup}>
         <p className={styles.empty}>
-          No collection here named “{query}”. <kbd>⏎</kbd> searches the whole instance for the literal text; <kbd>esc</kbd> keeps
+          No collection here named “{query}”. <kbd>⏎</kbd> searches for the literal text; <kbd>esc</kbd> keeps
           typing.
         </p>
       </div>

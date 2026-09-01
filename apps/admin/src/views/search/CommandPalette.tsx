@@ -98,7 +98,7 @@ export function CommandPalette({
     return () => clearTimeout(t)
   }, [text])
 
-  const target: SearchReach = reach ? { kind: 'collection', scope, collection: reach.collection } : { kind: 'instance' }
+  const target: SearchReach = reach ? { kind: 'collection', scope, collection: reach.collection } : { kind: 'scope', scope }
 
   useEffect(() => {
     setActive(0)

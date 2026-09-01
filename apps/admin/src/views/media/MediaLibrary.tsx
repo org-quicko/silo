@@ -7,7 +7,6 @@ import { Button } from '../../components/buttons/Button'
 import { Segmented } from '../../components/controls/Segmented'
 import { Breadcrumb } from '../../components/navigation/Breadcrumb'
 import { SmartSearch } from '../search/SmartSearch'
-import type { PaletteSeed } from '../search/palette-seed'
 import { TopBar } from '../shell/TopBar'
 import { MediaDialogs } from './MediaDialogs'
 import { MediaNotice } from './MediaNotice'
@@ -37,8 +36,6 @@ interface Props {
   claims: string[]
   /** A search carried in by the URL — the command palette links assets this way. */
   initialQuery?: string
-  onOpenPalette: (seed: PaletteSeed) => void
-  onNavigateToCollection: (name: string, q: string) => void
 }
 
 /**
@@ -58,8 +55,6 @@ export function MediaLibraryView({
   apiKey,
   claims,
   initialQuery = '',
-  onOpenPalette,
-  onNavigateToCollection,
 }: Props) {
   const library = useMediaLibrary(url, apiKey, initialQuery)
   const deleteFlow = useMediaDeleteFlow(library.bulkDelete, library.deleteFolderRecursive)
@@ -99,11 +94,11 @@ export function MediaLibraryView({
         search={
           <SmartSearch
             serverId={serverId}
+            url={url}
+            apiKey={apiKey}
             scope={scope}
-            collection={null}
+            claims={claims}
             collections={collections}
-            onNavigateToCollection={onNavigateToCollection}
-            onOpenPalette={onOpenPalette}
           />
         }
       />

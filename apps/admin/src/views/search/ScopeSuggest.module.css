@@ -1,13 +1,13 @@
 .popup {
   position: absolute;
   z-index: 60;
-  top: calc(100% + 8px);
+  top: calc(100% + 6px);
   left: 0;
-  width: 440px;
-  max-width: calc(100vw - 40px);
+  right: 0;
+  width: 100%;
   overflow: hidden;
   border: 1px solid var(--line-2);
-  border-radius: 13px;
+  border-radius: var(--radius);
   background: var(--panel);
   box-shadow: var(--shadow-modal);
   animation: rise 0.12s ease-out;

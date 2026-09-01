@@ -16,7 +16,6 @@ import { PathLabel } from '../../query/path-label'
 import { UrlFilter } from '../../query/url-filter'
 import { TopBar } from '../shell/TopBar'
 import { SmartSearch } from '../search/SmartSearch'
-import type { PaletteSeed } from '../search/palette-seed'
 import { Columns } from './columns'
 import { DeleteEntryModal } from './DeleteEntryModal'
 import { EntriesTable } from './EntriesTable'
@@ -47,8 +46,6 @@ interface Props {
   onNewEntry: () => void
   onEditEntry: (e: Entry) => void
   onChanged: () => void
-  onOpenPalette: (seed: PaletteSeed) => void
-  onNavigateToCollection: (name: string, q: string) => void
 }
 
 export function EntriesView({
@@ -65,8 +62,6 @@ export function EntriesView({
   onNewEntry,
   onEditEntry,
   onChanged,
-  onOpenPalette,
-  onNavigateToCollection,
 }: Props) {
   const [menuId, setMenuId] = useState<string | null>(null)
   const [showFilter, setShowFilter] = useState(false)
@@ -101,7 +96,7 @@ export function EntriesView({
   const canEditSchema = can(Claims.CollectionSchemaUpdate)
   const gridCols = `minmax(0,1.9fr) ${extra.map(() => 'minmax(0,1fr)').join(' ')} minmax(0,0.8fr) 44px`
 
-  const { entries, snippets, total, truncated, engine, error, loading, reload } = useEntriesData({
+  const { entries, snippets, total, truncated, error, loading, reload } = useEntriesData({
     url,
     apiKey,
     scope,
@@ -184,12 +179,11 @@ export function EntriesView({
         search={
           <SmartSearch
             serverId={serverId}
+            url={url}
+            apiKey={apiKey}
             scope={scope}
-            collection={collection.name}
+            claims={claims}
             collections={collections}
-            listQuery={{ q: query.q, engine, onQueryChange: (q) => onQueryChange({ ...query, q, page: 1 }, true) }}
-            onNavigateToCollection={onNavigateToCollection}
-            onOpenPalette={onOpenPalette}
           />
         }
       />

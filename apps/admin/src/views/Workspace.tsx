@@ -3,15 +3,13 @@ import { useEffect, useState } from 'react'
 import { Claims } from '@silo/shared/claims'
 import { Routes } from '../router/routes'
 import { router } from '../router/router'
-import { DEFAULT_LIST_QUERY, type ListQuery } from '../router/list-query'
+import type { ListQuery } from '../router/list-query'
 import type { ServerRoute } from '../router/route'
 import type { Server } from './servers/server'
 import { ServerManager } from './servers/ServerManager'
 import type { ScopeRef } from '../api/types/scope-ref'
 import { ScopeMemory } from '../utils/scope-memory'
 import { CollectionVisits } from '../utils/collection-visits'
-import { CommandPalette } from './search/CommandPalette'
-import type { PaletteSeed } from './search/palette-seed'
 import { Sidebar } from './shell/Sidebar'
 import { TopBar } from './shell/TopBar'
 import { SmartSearch } from './search/SmartSearch'
@@ -47,11 +45,6 @@ export function Workspace({
   const scope: ScopeRef = { project: route.project, env: route.env }
 
   const [showServerBrowser, setShowServerBrowser] = useState(false)
-  // Seeds the instance overlay when the smart bar's chip is off (or names a
-  // collection this page can't show in-table results for) — `null` closes
-  // it. `⌘K`/`/` are handled by whichever `SmartSearch` is mounted on the
-  // current page, not here; every page has one, so there is always a target.
-  const [palette, setPalette] = useState<PaletteSeed | null>(null)
 
   // The settings shell's PROJECT/ENVIRONMENT groups need a scope even on its
   // unscoped pages (keys, connection); this is where one is known for certain.
@@ -100,10 +93,6 @@ export function Workspace({
   const smartCollections = collections.map((c) => ({ name: c.name, count: counts[c.name] ?? null, schema: c.schema }))
 
   const goToEntries = (name: string) => router.navigate(Routes.entries(serverId, scope.project, scope.env, name))
-  // What the smart bar's scope chip does when it names a collection other
-  // than the one on screen: leave, carrying whatever text was still typed.
-  const goToCollectionSearch = (name: string, q: string) =>
-    router.navigate(Routes.entries(serverId, scope.project, scope.env, name, { ...DEFAULT_LIST_QUERY, q }))
   const afterCountsChange = () => session.refreshCounts()
 
   return (
@@ -133,8 +122,6 @@ export function Workspace({
             apiKey={apiKey}
             claims={claims}
             initialQuery={route.q}
-            onOpenPalette={setPalette}
-            onNavigateToCollection={goToCollectionSearch}
           />
         )}
 
@@ -154,8 +141,6 @@ export function Workspace({
               claims={claims}
               backTo={backTo}
               entryCount={activeCollection ? counts[activeCollection.name] ?? null : null}
-              onOpenPalette={setPalette}
-              onNavigateToCollection={goToCollectionSearch}
               onSaved={(name) => {
                 session.refreshCollections().then(() => goToEntries(name))
               }}
@@ -184,8 +169,6 @@ export function Workspace({
             entry={entry}
             claims={claims}
             backTo={Routes.entries(serverId, scope.project, scope.env, activeCollection.name)}
-            onOpenPalette={setPalette}
-            onNavigateToCollection={goToCollectionSearch}
             onSaved={() => {
               afterCountsChange()
               goToEntries(activeCollection.name)
@@ -220,8 +203,6 @@ export function Workspace({
             onNewEntry={() => router.navigate(Routes.newEntry(serverId, scope.project, scope.env, activeCollection.name))}
             onEditEntry={(e) => router.navigate(Routes.entry(serverId, scope.project, scope.env, activeCollection.name, e.id))}
             onChanged={afterCountsChange}
-            onOpenPalette={setPalette}
-            onNavigateToCollection={goToCollectionSearch}
           />
         )}
 
@@ -231,11 +212,11 @@ export function Workspace({
               search={
                 <SmartSearch
                   serverId={serverId}
+                  url={url}
+                  apiKey={apiKey}
                   scope={scope}
-                  collection={null}
+                  claims={claims}
                   collections={smartCollections}
-                  onNavigateToCollection={goToCollectionSearch}
-                  onOpenPalette={setPalette}
                 />
               }
             />
@@ -255,20 +236,6 @@ export function Workspace({
           </>
         )}
       </main>
-
-      {palette && (
-        <CommandPalette
-          serverId={serverId}
-          url={url}
-          apiKey={apiKey}
-          scope={scope}
-          claims={claims}
-          initialQuery={palette.q}
-          reach={palette.collection ? { collection: palette.collection } : undefined}
-          onNavigate={(href) => router.navigate(href)}
-          onClose={() => setPalette(null)}
-        />
-      )}
 
       {showServerBrowser && (
         <ServerManager
