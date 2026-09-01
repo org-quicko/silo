@@ -6,6 +6,11 @@
 ## 10. Configuration & CLI
 
 TOML config + `SILO_*` env overrides + flags (flags > env > file > defaults).
+*Which* file is chosen the same way: `--config`, then `SILO_CONFIG`, then
+`silo.toml` beside the process. The variable is the layer a container has, an
+image having no argv to edit (D50), and unlike `--config` it does not make a
+missing file an error: a fresh volume has none, and the first save through the
+API is what creates it.
 
 ```toml
 # silo.toml — every key optional
@@ -101,6 +106,18 @@ A named config file that does not exist is **created** by either writer, from
 defaults, which file values sitting below flags and env vars makes a no-op. What
 is never invented is the *path*: a process handed no config file refuses the
 write and says so.
+
+Nor is it assumed to be writable (D50). `ConfigFileAccess` probes it — the file's
+own write access, or the nearest directory that exists when the file does not
+yet, since the scaffold creates the rest — and every view carries the answer as
+`writable` plus a `read_only_reason` the admin prints. The probe is a courtesy
+and the write is the guarantee: `ConfigFileAccess.writing` wraps each write, puts
+the file back on any failure, and reports a filesystem refusal (`EACCES`,
+`EROFS`, `ENOSPC`, …) as a `400` naming the path and the remedy. Anything with no
+errno keeps its own error and its `500`, so a bug is still a bug. The failure
+this exists for is a container: `silo.toml` defaulting into an image directory
+the server's own user cannot write, where the page offered a form and the save
+came back `internal error` with the reason only in the log.
 
 ### 10.2 The rest of the file, from the API (D47)
 

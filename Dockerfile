@@ -50,8 +50,15 @@ RUN bun install --frozen-lockfile --production --filter '!@silo/admin'
 COPY --chown=bun:bun apps/server/src/ ./apps/server/src/
 COPY --chown=bun:bun --from=ui /app/apps/admin/dist ./apps/admin/dist
 
-# Keep both the database and filesystem-backed media on the persistent volume.
+# Keep the database, filesystem-backed media *and the config file* on the
+# persistent volume. `silo.toml` is not only read: the settings APIs write it
+# (D45/D46/D47), and its default path is `silo.toml` beside the process, which
+# here is /app, owned by root while this runs as `bun` and replaced on every
+# deploy. A save there fails on permissions, and one that somehow succeeded
+# would not survive the next image. SILO_CONFIG is how a container names the
+# file, an image having no argv to edit (D50).
 ENV NODE_ENV=production \
+    SILO_CONFIG=/data/silo.toml \
     SILO_STORAGE_PATH=/data \
     SILO_BLOB_PATH=/data/media \
     SILO_LISTEN=:8090

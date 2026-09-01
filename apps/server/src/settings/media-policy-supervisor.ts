@@ -7,6 +7,7 @@ import type { AuditActor } from "../core/audit/audit-actor";
 import { AsyncMutex } from "../core/services/support/async-mutex";
 import type { SiloService } from "../core/services/silo-service";
 import type { Logger } from "../logging/logger";
+import { ConfigFileAccess } from "./config-file-access";
 import type { MediaPolicyInput } from "./media-policy-input";
 import { MediaPolicySettings } from "./media-policy-settings";
 import type { MediaPolicyView } from "./media-policy-view";
@@ -72,7 +73,7 @@ export class MediaPolicySupervisor {
       overrides: MediaPolicySettings.overrides(file, inForce),
       default_extensions: [...MediaDefaults.Extensions],
       ...(this.configPath ? { config_path: this.configPath } : {}),
-      writable: !!this.configPath && !!this.reload,
+      ...(await ConfigFileAccess.report(this.configPath, !!this.reload)),
     };
   }
 
@@ -101,7 +102,9 @@ export class MediaPolicySupervisor {
     const next = MediaPolicySettings.merge(file, input);
 
     const restore = await MediaPolicySupervisor.snapshot(configPath);
-    const created = await MediaTable.write(configPath, next);
+    const created = await ConfigFileAccess.writing(configPath, restore, () =>
+      MediaTable.write(configPath, next)
+    );
 
     let config: Config;
     try {

@@ -17,7 +17,7 @@ can be cloned with one command.
 
 ## Where things stand
 
-*Last updated: 2026-08-31 (D49)*
+*Last updated: 2026-09-01 (D50)*
 
 Everything through M5 is built and shipping: collections and JSON Schema
 validation, entry CRUD with optimistic concurrency, the query AST and search
@@ -37,11 +37,38 @@ multi-select, and a reference that no longer resolves reads back `null`
 instead of a broken link (D48). Force now additionally requires
 `entries:update` at every scope it actually reaches, folders can be renamed
 or moved (with an opt-in merge past a collision) and deleted recursively, and
-the whole library can be purged (D49).
+the whole library can be purged (D49). The three settings APIs now check that
+the file they write can be written, say why when it cannot, and a container
+names that file with `SILO_CONFIG` (D50).
 
-**The most recent change tightens what a media force-delete needs, and gives
-folders a rename with an opt-in merge, a recursive delete, and the whole
-library a purge (D49, 2026-08-31).**
+**The most recent change makes the settings APIs honest about the file they
+write, and gives a container a way to name it (D50, 2026-09-01).**
+A silo deployed to Railway from this repo's Dockerfile answered `500 internal
+error` to `PUT /api/media/storage` and `PUT /api/settings/log`, while `GET` on
+both said `writable: true`. The config path defaulted to `silo.toml` beside the
+process, which in the image is `/app`: owned by root, running as `bun`, so
+creating the file was `EACCES` — and the only place that said so was the
+server's own log. Three things change. `SILO_CONFIG` names the config file,
+below `--config` and above the default, because an image someone else built has
+no argv to edit; unlike `--config` it does not make a missing file an error,
+since a fresh volume has none and the first save is what creates it. The image
+sets it to `/data/silo.toml`, beside the database and the media, both because
+`/app` cannot be written and because it is replaced on every deploy.
+`ConfigFileAccess` answers "can a save land?" by probing the path — the file's
+write access, or the nearest directory that exists when the file does not, since
+`ConfigScaffold` creates the rest — so `writable` is about the filesystem rather
+than about having been handed a path, and the three views carry a
+`read_only_reason` the admin prints instead of asserting the one reason it knew.
+And a refusal reaches the caller: `ConfigFileAccess.writing` wraps every table
+write, restores the file on any failure, and turns an errno it recognises into a
+`400` naming the path and the remedy, while anything with no errno keeps its own
+error and its `500`. `TomlTableEdit`'s three refusals became `ValidationError`s
+on the same reasoning. The probe stays advisory and the write stays the
+guarantee, since permissions change and volumes fill between a `GET` and a `PUT`.
+
+**Before it, what a media force-delete needs was tightened, and folders gained
+a rename with an opt-in merge, a recursive delete, and the whole library a
+purge (D49, 2026-08-31).**
 D48 shipped force gated on `media:delete` alone, an acceptance this
 supersedes: force now additionally requires `entries:update`, held at every
 scope the assets being force-deleted are actually referenced from — the same

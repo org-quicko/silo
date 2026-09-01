@@ -227,6 +227,34 @@ describe("MediaStorageSupervisor", () => {
     ).rejects.toThrow(/not started from a config file/);
   });
 
+  test("a config file the server cannot write is refused, not answered with a fault", async () => {
+    // A directory where the file should be: the one way to make a path
+    // unwritable that behaves the same on Linux and on Windows. What a
+    // container hits is EACCES on an image directory, and it arrives here by
+    // the same route (D50).
+    const blocked = path.join(dir, "blocked.toml");
+    await fs.mkdir(blocked);
+
+    const stuck = new MediaStorageSupervisor({
+      service,
+      providers,
+      config,
+      logger: Logger.silent(),
+      reload: async () => config,
+      configPath: blocked,
+    });
+
+    const raised = await stuck
+      .save(MediaStorageSettings.parse({ driver: "fs" }), { kind: "cli" })
+      .catch((caught) => caught);
+
+    // A `ValidationError` is a 400 with the reason in it. A plain one is the
+    // `500 internal error` that sent an operator to the server log.
+    expect(ValidationError.is(raised)).toBe(true);
+    expect(raised.message).toContain(blocked);
+    expect(raised.message).toMatch(/SILO_CONFIG/);
+  });
+
   test("the change is in the audit trail, and the secret is not", async () => {
     await supervisor.save(
       MediaStorageSettings.parse({

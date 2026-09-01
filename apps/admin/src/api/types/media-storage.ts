@@ -41,9 +41,11 @@ export interface MediaStorageView {
   drivers: string[]
   overrides: SettingsOverride[]
   config_path?: string
-  /** False when the server was started without a config file, in which case
-   *  there is nothing to write and the form is read-only. */
+  /** False when the file cannot be written: no config file, or a path the
+   *  server has no write access to. The form is read-only either way. */
   writable: boolean
+  /** Which of the two it is, as the sentence to show. */
+  read_only_reason?: string
 }
 
 /**

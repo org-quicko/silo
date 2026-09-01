@@ -18,7 +18,7 @@ export class CliOptions {
   static readonly DefaultConfigPath = "silo.toml";
 
   private static readonly Flags = {
-    config: { type: "string", default: CliOptions.DefaultConfigPath },
+    config: { type: "string" },
     data: { type: "string" },
     "blob-path": { type: "string" },
     driver: { type: "string" },
@@ -64,9 +64,21 @@ export class CliOptions {
     return { values: values as Record<string, unknown>, positionals };
   }
 
-  /** The config file the run should read. */
+  /**
+   * The config file the run should read: `--config`, then `SILO_CONFIG`, then
+   * `silo.toml` beside the process.
+   *
+   * The variable is the layer a container has (D50). An image someone else
+   * built has no argv to edit, and the file is no longer only read — the
+   * settings APIs write it (D45/D46/D47), so an instance whose config path
+   * defaults into an unwritable image directory has a Settings page that
+   * cannot save. Naming a path this way is deliberately *not* the same as
+   * `--config`: the file is still allowed to be missing, because on a fresh
+   * volume it always is and the first save is what creates it.
+   */
   static configPath(values: Record<string, unknown>): string {
-    return typeof values.config === "string" ? values.config : CliOptions.DefaultConfigPath;
+    if (typeof values.config === "string") return values.config;
+    return process.env.SILO_CONFIG?.trim() || CliOptions.DefaultConfigPath;
   }
 
   /** Whether `--config` was given, as opposed to defaulted — an explicit path

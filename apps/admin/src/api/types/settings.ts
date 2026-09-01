@@ -44,5 +44,7 @@ export interface ConfigSettingsView {
   sections: ConfigSectionView[]
   config_path?: string
   writable: boolean
+  /** Why a save cannot land, when one cannot. See `MediaStorageView`. */
+  read_only_reason?: string
   restart_pending: boolean
 }

@@ -8,6 +8,7 @@ import { AsyncMutex } from "../core/services/support/async-mutex";
 import type { SiloService } from "../core/services/silo-service";
 import type { Logger } from "../logging/logger";
 import type { ProviderRegistry } from "../plugins";
+import { ConfigFileAccess } from "./config-file-access";
 import type { MediaStorageInput } from "./media-storage-input";
 import { MediaStorageSettings } from "./media-storage-settings";
 import type { MediaStorageView } from "./media-storage-view";
@@ -89,7 +90,7 @@ export class MediaStorageSupervisor {
       drivers: this.providers.drivers().blob,
       overrides: MediaStorageSettings.overrides(file, inForce),
       ...(this.configPath ? { config_path: this.configPath } : {}),
-      writable: this.writable(),
+      ...(await ConfigFileAccess.report(this.configPath, !!this.reload)),
     };
   }
 
@@ -102,10 +103,6 @@ export class MediaStorageSupervisor {
     } finally {
       release();
     }
-  }
-
-  private writable(): boolean {
-    return !!this.configPath && !!this.reload;
   }
 
   private async apply(input: MediaStorageInput, actor: AuditActor): Promise<void> {
@@ -131,7 +128,9 @@ export class MediaStorageSupervisor {
     const next = MediaStorageSettings.merge(file, input);
 
     const restore = await MediaStorageSupervisor.snapshot(configPath);
-    const created = await BlobStorageTable.write(configPath, next);
+    const created = await ConfigFileAccess.writing(configPath, restore, () =>
+      BlobStorageTable.write(configPath, next)
+    );
     const { config, blob } = await this.openWritten(this.reload, configPath, restore);
 
     const replaced = this.service.useBlobStorage(blob);

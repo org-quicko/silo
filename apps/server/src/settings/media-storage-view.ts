@@ -32,4 +32,7 @@ export interface MediaStorageView {
    *  which case there is nothing to write and `writable` says so. */
   config_path?: string;
   writable: boolean;
+  /** Why a save cannot land, when one cannot: no file to write, or a path this
+   *  server has no write access to. The admin prints it as it stands. */
+  read_only_reason?: string;
 }

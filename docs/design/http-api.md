@@ -529,8 +529,13 @@ the file being obeyed rather than overruled.
 
 `drivers` is what *this process* can open, so a provider plugin's blob driver
 (§13.7) is offered without the admin carrying a second copy of the list.
-`writable` is false when the process was started with no config file, in which
-case a `PUT` is refused with a 400 saying so rather than guessing at a path.
+`writable` is false when the file cannot be written, and `read_only_reason` says
+which of the two it is: the process was started with no config file, or the path
+is one this server has no write access to (D50). The admin prints that sentence
+as it stands. Either way a `PUT` is a `400` saying so, and never a guess at a
+path. The probe is advisory — permissions change between a `GET` and a `PUT` —
+so a refusal at write time is reported the same way, naming the path and the
+remedy rather than answering `500 internal error`.
 
 `PUT` takes the same field names as a **whole document**, not a patch — the
 fields are few and all on one screen, so a `PUT` of what was read cannot leave a
@@ -654,6 +659,10 @@ separate failure modes.
 }
 ```
 
+`writable` and `read_only_reason` are §8.2's, and mean the same thing here: a
+file this process cannot write makes every section read-only, and the reason is
+the sentence the page shows.
+
 **The field list travels with the answer.** It is the spec `ConfigSections`
 holds, so a setting added there appears on the page with its label, its type and
 its restart behaviour intact. A form built from a second list written out in the
@@ -696,5 +705,6 @@ API and the grant model (§13.21) rather than a text field.
 The response is the view a fresh `GET` would give, already reflecting the applied
 change: the running server is repointed before it answers. Refusals are `400`
 (unknown driver, a body that is not a configuration, a configuration the driver
-cannot be opened with, or no config file to write), `403` without the claim.
+cannot be opened with, no config file to write, or a config file the filesystem
+refused the write to), `403` without the claim.
 Changes are appended to the audit trail as `media.configure`.

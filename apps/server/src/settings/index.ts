@@ -18,6 +18,8 @@
  *
  * Import from `settings`, never a file inside.
  */
+export type { ConfigFileAccessReport } from "./config-file-access";
+export { ConfigFileAccess } from "./config-file-access";
 export type { MediaStorageFacts } from "./media-storage-facts";
 export type { MediaStorageInput } from "./media-storage-input";
 export type { SettingsOverride } from "./settings-override";

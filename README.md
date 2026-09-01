@@ -294,6 +294,7 @@ max_files   = 5               # kept as silo.log.1 … silo.log.5
 
 | Environment variable | Overrides |
 |----------------------|-----------|
+| `SILO_CONFIG` | which file this table is read from and written to, below `--config` |
 | `SILO_LISTEN` | `listen` |
 | `SILO_DEFAULT_PROJECT`, `SILO_DEFAULT_ENV` | `default_project`, `default_env` |
 | `SILO_STORAGE_DRIVER`, `SILO_STORAGE_PATH` | `[storage]` |
@@ -1499,6 +1500,13 @@ under `/data/media`. Supply the mount at runtime with `-v`, Compose, or a
 platform volume; the Dockerfile intentionally declares no `VOLUME`, which keeps
 it compatible with platforms such as Railway. A `HEALTHCHECK` backed by
 `GET /api/health` is built in.
+
+The image also puts `silo.toml` on that volume, with `SILO_CONFIG=/data/silo.toml`.
+The settings APIs write that file, and its default path is `silo.toml` beside the
+process, which in the image is `/app` — owned by root while the server runs as
+`bun`, and replaced on every deploy. Point `SILO_CONFIG` somewhere else and it
+has to be somewhere this user can write, or the Settings pages report themselves
+read-only and say why. The file is created on the first save; it need not exist.
 
 Run silo in the **foreground** under Docker, systemd, or any other supervisor —
 that is what the image does, and it is what lets the supervisor see the process
