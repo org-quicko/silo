@@ -21,24 +21,51 @@
         {
           "method": "POST",
           "path": "/source",
-          "body": { "kind": "bytes", "max_bytes": 67108864 }
+          "body": {
+            "kind": "bytes",
+            "max_bytes": 67108864
+          }
         },
         {
           "method": "DELETE",
           "path": "/source"
         },
-        { "method": "GET", "path": "/files" },
+        {
+          "method": "GET",
+          "path": "/files"
+        },
         {
           "method": "POST",
           "path": "/files",
-          "body": { "kind": "bytes", "max_bytes": 67108864 }
+          "body": {
+            "kind": "bytes",
+            "max_bytes": 67108864
+          }
         },
-        { "method": "DELETE", "path": "/files" },
-        { "method": "GET", "path": "/plan" },
-        { "method": "GET", "path": "/targets" },
-        { "method": "POST", "path": "/imports" },
-        { "method": "GET", "path": "/imports" },
-        { "method": "GET", "path": "/imports/:id" }
+        {
+          "method": "DELETE",
+          "path": "/files"
+        },
+        {
+          "method": "GET",
+          "path": "/plan"
+        },
+        {
+          "method": "GET",
+          "path": "/targets"
+        },
+        {
+          "method": "POST",
+          "path": "/imports"
+        },
+        {
+          "method": "GET",
+          "path": "/imports"
+        },
+        {
+          "method": "GET",
+          "path": "/imports/:id"
+        }
       ]
     },
     "permissions": {
