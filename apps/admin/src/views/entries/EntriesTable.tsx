@@ -5,16 +5,12 @@ import { Formatters } from '../../utils/formatters'
 import type { Entry } from '../../api/types/entry'
 import type { MediaAsset } from '../../api/types/media-asset'
 import type { SearchSnippet } from '../../api/types/search-snippet'
+import { SchemaType } from '../../schema/schema-type'
 import { CellValue } from './CellValue'
 import { RowMenu } from './RowMenu'
 import { Snippets } from './Snippets'
 import table from '../../components/data/DataTable.module.css'
 import styles from './Entries.module.css'
-
-function isNumeric(schema: any, name: string): boolean {
-  const type = schema?.properties?.[name]?.type
-  return type === 'number' || type === 'integer'
-}
 
 /**
  * The entries grid itself — header, rows, empty state — split out of
@@ -63,6 +59,12 @@ export function EntriesTable({
 }) {
   const label = (e: Entry) => (primary ? String(e.data?.[primary] ?? Formatters.shortId(e.id)) : Formatters.shortId(e.id))
 
+  // Numbers render right-aligned in the cell (handoff 1e), so the heading and
+  // the cell's own em-dash follow them over: a left heading above a right
+  // column reads as two different columns, and a dash parked on the left of one
+  // reads as a different column again.
+  const numeric = new Set(extra.filter((column) => SchemaType.isNumeric(schema?.properties?.[column])))
+
   return (
     <div className="card">
       <div className={`${table.header} ${table.table}`} style={{ ['--cols' as any]: gridCols }}>
@@ -72,10 +74,7 @@ export function EntriesTable({
         {extra.map((c) => (
           <span
             key={c}
-            // Numbers render right-aligned in the cell (handoff 1e), so their
-            // heading follows them over — a left heading above a right column
-            // reads as two different columns.
-            className={`${table.sortable} ${isNumeric(schema, c) ? styles.numericHead : ''}`}
+            className={`${table.sortable} ${numeric.has(c) ? styles.numericHead : ''}`}
             onClick={() => onToggleSort(JsonPath.dataField(c))}
           >
             {c} {sortIcon(JsonPath.dataField(c))}
@@ -102,7 +101,7 @@ export function EntriesTable({
             </div>
           </div>
           {extra.map((c) => (
-            <div key={c} className={table.cell}>
+            <div key={c} className={`${table.cell} ${numeric.has(c) ? styles.numericCell : ''}`}>
               <CellValue schema={schema} name={c} value={e.data?.[c]} mediaById={mediaById} baseUrl={baseUrl} />
             </div>
           ))}

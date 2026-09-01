@@ -1,3 +1,5 @@
+import { SchemaType } from '../../schema/schema-type'
+
 /**
  * Which schema properties are eligible to be an extra table column, and the
  * default selection before the reader picks their own (handoff 1e "Default
@@ -30,8 +32,9 @@ export class Columns {
 
   private static isAutoSafe(prop: any): boolean {
     if (!prop) return false
-    if (prop.type === 'object') return false
-    if (prop.type === 'array') return prop.items?.type !== 'object'
+    const type = SchemaType.of(prop)
+    if (type === 'object') return false
+    if (type === 'array') return SchemaType.of(prop.items) !== 'object'
     return true
   }
 

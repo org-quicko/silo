@@ -45,6 +45,53 @@ from the API and from the admin — and the claims naming them follow (D51).
 
 **The most recent changes all landed on 2026-09-01.**
 
+**A visual-mode save no longer strips the nulls out of an imported
+collection.**
+`SchemaDraft` was the last reader still comparing `type` as a scalar, and the
+only one that also *writes*, which is what made it the damaging one: `kindOf`
+read `["integer", "null"]` as no known kind and fell through to `'string'`,
+and `build` maps **every** field through `applyKind`, whose default branch
+assigned the kind straight back onto `type`. One save of an imported schema
+from the visual editor — even one that only edited a description — rewrote
+every column to a bare `"string"`, and the collection then rejected the nulls
+already stored under it. `kindOf` reads through `SchemaType.of` now — as does
+the reference-list check beside it, which used to miss a nullable `["array",
+"null"]` and drop its `items` — and the nullability is carried on
+`SchemaField.nullable` rather than left to the spread of `raw` that
+`applyKind` overwrites: the round trip puts `["integer", "null"]` back, and it
+survives a *kind change* too, since which type a column holds and whether it
+may be blank are separate facts and the rows still need the second one. A
+genuine multi-type union (`["string", "number"]`) is a `construct` now,
+alongside `oneOf`/`anyOf`/`allOf` — no single control draws two types, so the
+subtree is left intact and the type column says `type union · edit in Code
+view`. **Still unfixed and adjacent:** a property with *no* `type` (what the
+Strapi importer writes for a `json` column) is drawn as a string and saved as
+one, narrowing "anything" the same way.
+
+**A nullable number is still a number: the entries table reads a property's
+declared type as the union JSON Schema allows.**
+`type` is a string *or an array of them*, and the array form is what imported
+content carries — the Strapi importer writes `["integer", "null"]` for every
+column, because a field left blank in Strapi is a `NULL`. Three readers in the
+entries view compared `type` against `'integer'`, so each was false for exactly
+the fields a real import produces. `org-quicko-countries` showed both halves of
+that: `numeric_code`'s values right-aligned (`CellValue` reads `typeof value`,
+per row) under a left-aligned heading, which reads as two different columns, and
+the filter builder offered the column the *string* ops — a `numeric_code` filter
+would have sent `"290"` for a field holding `290`, drawing correctly and matching
+nothing. `schema/schema-type.ts` is the one place that keyword is read now:
+`SchemaType.of` drops `"null"` and answers `null` for a genuine two-type union,
+which no cell can render as one thing. `EntriesTable`, `FilterFields.valueType`
+and `Columns.isAutoSafe` all read through it, and a numeric column is
+right-aligned end to end — heading *label*, values, and the dash an absent value
+shows, where the old rule lined the sort icon up with the numbers and left the
+dash on the far side of the column. Readers outside the entries view still
+compare `type` as a string and are **not** part of this change: the entry form's
+`BaseInputTemplate` (a nullable number gets a text input rather than a number
+one), `build-ui-schema.ts` and `media-value.ts` (widget selection), `ApiGuide`
+(its sample value). `SchemaDraft` was on that list too and is the paragraph
+above.
+
 **Search is one UI again.** The rework that moved results into a dropdown
 beneath the top-bar search left `views/search/CommandPalette.tsx`, its CSS
 Module and `palette-seed.ts` unmounted and unreferenced: `SmartSearch` had
