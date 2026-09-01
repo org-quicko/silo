@@ -22,7 +22,9 @@ than a link back to the instance you are migrating off.
    data.db  ──►  POST /source        the export, as bytes
    uploads/ ──►  GET  /files         which files it wants, and which arrived
                  POST /files?name=   one file's bytes, per file
-                 GET  /plan          one collection per list, editable
+                 GET  /plan          one collection per list, editable,
+                                     with the scopes it could be written into
+                 GET  /targets       those scopes on their own
                  POST /imports       run it, in the background
                  GET  /imports/:id   progress
 ```
@@ -34,10 +36,24 @@ than a link back to the instance you are migrating off.
    import actually references. Skip this and every media field keeps its Strapi
    URL instead.
 3. **Plan.** One silo collection per Strapi list, one entry per row, with a JSON
-   Schema derived from the source's own columns. Rename anything, untick what you
-   do not want, and choose per collection what happens if it already has entries.
+   Schema derived from the source's own columns. Choose the project and
+   environment, rename anything, untick what you do not want, and choose per
+   collection what happens if it already has entries.
 4. **Import.** Runs off the request that started it — 367 entries do not fit in a
    five-second dispatch budget — and the panel polls it.
+
+## Where an import goes
+
+**The plan says, and nothing else does.** The two selects at the top of the plan
+are filled from the projects and environments silo actually has (`GET /targets`),
+and the plan opens on the first of them.
+
+There is no configured target, and that is a fix rather than an omission. When
+`[plugins.config]` also named a `project` and an `env`, they were two answers to
+one question: the panel rebuilt its selects on every re-render — after staging the
+uploads, on every poll of a running import — and put them back to the configured
+scope, so an operator who retargeted a plan and then sent their files watched the
+import go somewhere else without being told.
 
 ## The mapping, and why
 
@@ -87,6 +103,19 @@ the same either way:
 
 Same `string` either way, so **import now and send the files later** is a
 re-import and not a schema migration.
+
+### Where the files land
+
+`media_folder` names a folder in silo's media library, `strapi` by default, and
+the first import **creates it** if it is not there. An asset naming a folder
+already implies one, so what the explicit record buys is a folder you can see in
+the library tree from the start, and one that outlives every file in it.
+
+Set it to the empty string for the library root. It used to end up there whatever
+the configuration said, because silo does not apply a config schema's `default` —
+the manifest advertised `strapi` and the plugin read a missing key as "root", so
+an operator who never wrote the key got several hundred hashed Strapi filenames in
+the root of their library.
 
 ### Why one file per request
 
@@ -181,8 +210,6 @@ claims     = [
 ]
 
   [plugins.config]
-  project        = "default"
-  env            = "prod"
   media_base_url = "https://cms.example.com"
   media_folder   = "strapi"
 ```
@@ -205,12 +232,16 @@ claims leaves a working importer that can only append and only link.
 
 | Key | |
 |-----|--|
-| `project`, `env` | where collections are created; the panel can override per run |
 | `collection_prefix` | prepended to every proposed name, e.g. `strapi_` |
 | `media_base_url` | the Strapi instance still serving `/uploads/…`, used for a file you did not supply. Empty leaves paths relative — a true statement about the source, where a guessed host would be a false one |
-| `media_folder` | where supplied uploads land in silo's media library, `strapi` by default. Empty means the root |
+| `media_folder` | where supplied uploads land in silo's media library, `strapi` by default, created on the first import. Empty means the root |
 | `work_dir` | where the export and the supplied uploads are staged. Defaults under the system temp dir, deliberately **not** the data directory: D5 promises that is only your content |
 | `version` | `published` (default) or `draft` |
+
+Nothing here names a target project or environment: that is chosen on the plan,
+against the scopes silo actually has. Every default above is applied by
+`PluginSettings`, because silo validates `[plugins.config]` without filling a
+schema's `default` in.
 
 ## Development
 
@@ -221,8 +252,35 @@ dependency. A plugin runs inside silo's own Bun worker and holds its privileges
 (§13.4).
 
 ```sh
+bun test plugins/silo-plugin-strapi-import   # from the repo root
 bun x tsc --noEmit -p tsconfig.json
 ```
+
+### Layout
+
+Five subjects, and a one-way dependency direction: `routes/` composes `worker/`,
+which owns the state the rest is reached through, and nothing below reaches back
+up.
+
+```
+src/
+├─ index.ts          activate/deactivate, and the four route groups spread onto one object
+├─ routes/           one file per group of routes — source, uploads, plan, imports
+├─ worker/           the state one worker holds, and the configuration it read
+├─ strapi/           reading the export: the database, its schema, versions, rows, media
+├─ staging/          where the .db and the supplied uploads live while a run needs them
+├─ silo/             writing into silo: media, multipart, collection names, target scopes
+├─ panel/            the admin panel, one inlined HTML file (the manifest allows one)
+└─ types/            silo-api.d.ts, verbatim from the host
+test/
+├─ support/          the synthetic Strapi database, a temp directory, a fake ctx
+└─ *.test.ts         one file per subject
+```
+
+The panel stays a single file with its CSS and script inlined, because
+`contributes.ui` names **one** HTML file: a directory would mean a static asset
+server inside the API, and every part of one is another way for plugin-authored
+bytes to be served from silo's own origin.
 
 ## Licence
 

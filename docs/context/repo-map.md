@@ -15,6 +15,8 @@ silo/
 │  └─ create-silo-plugin/     the published plugin scaffolder
 ├─ plugins/                   first-party plugins, one workspace package each
 │  └─ silo-plugin-strapi-import/  a Strapi 5 SQLite import — entries and media — with its own admin panel (D41)
+│     ├─ src/                     index.ts, then routes/ worker/ strapi/ staging/ silo/ panel/ types/
+│     └─ test/                    one file per subject, with support/ holding the synthetic export
 ├─ tools/                     build, packaging, seeding and version tooling
 ├─ packaging/                 Homebrew formula template and RPM inputs
 └─ docs/                      context/ (what is) and design/ (why)
@@ -80,6 +82,27 @@ script.
 | `packages/shared/src/claims/` | The claim protocol: `Claims` is the facade over `ClaimVocabulary`, `ClaimGrammar`, `ClaimPresets`, `ClaimAuthorizer` and `ClaimSummary`. Both the server and the UI evaluate claims through it and nothing else |
 | `packages/shared/src/` (rest) | `errors/`, `hooks/`, `json/`, `keys/`, `media/`, `query/`, `schema/`. `json/` holds `MergePatch` (RFC 7396), which lives here because the server *applies* a config patch and the admin UI has to *produce* one — two implementations either side of one endpoint agree until a nested key is deleted. `hooks/` holds the `HookName` vocabulary, which moved here when hook delivery became a claim (D34) — the grammar validates it and the UI renders it, so neither side may own a second copy; D36 added the collection-level `collection.afterDelete` to it. Something belongs here when both sides need it *or* when shared itself must produce it; anything importing `bun:*`, node builtins, `hono` or React does not |
 | `create-silo-plugin/src/` | The plugin scaffolder, published on its own. Nothing here may import from `apps/` or `packages/shared`, and nothing may use a `Bun.*` global — it runs under Node, and the facts it needs from silo are copied and drift-tested rather than imported. `render/` holds one class per generated file, and `plugin-routes.ts` holds the `--routes` grammar and the body ceiling it refuses against (D41) |
+
+## `plugins/`
+
+First-party plugins. Each is a workspace package that silo installs by copying,
+so its directory is the unit that travels: no build step, no runtime dependency
+on this repo, and `main` plus `contributes.ui.entry` are paths inside it.
+
+`silo-plugin-strapi-import/` is the only one, and it is organised the way the
+server is — a directory per subject, with a one-way dependency direction.
+
+| Path | What it is |
+|------|------------|
+| `src/index.ts` | `activate`/`deactivate`, and the four route groups spread onto the one object `defineSiloPlugin` takes |
+| `src/routes/` | One file per group — `SourceRoutes`, `UploadRoutes`, `PlanRoutes`, `ImportRoutes` — each answering with `static handlers()`, plus `RouteInput` for reading a body and refusing it as a 400 rather than a plugin fault |
+| `src/worker/` | The state one worker holds. `ImportRuntime` is the single live instance the routes reach through (built in `activate`, because that is the only thing that runs before them); `PluginSettings` reads `[plugins.config]` and is the one place a default takes effect, since silo validates the table without filling a schema's `default` in |
+| `src/strapi/` | Reading the export, and the whole of what silo needs to know about Strapi's storage layout: the read-only database handle, the content-type schema, `StrapiVersions` (the draft/published rule the importer is correct or wrong by), `StrapiComponents` (the table search that proves a candidate rather than guessing a plural), rows, columns, media. `StrapiSchema` is the other direction — one list assembled into the JSON Schema its collection is created with |
+| `src/staging/` | Where the `.db` and the supplied uploads live while a run needs them. Not under the data directory: D5 promises that is only the user's content |
+| `src/silo/` | Writing into silo. `MediaLibrary` turns a Strapi file into `silo://media/<id>` and declares the configured folder once per run, `MultipartBody` encodes an upload by hand because `ctx.fetch` takes a value and not a `FormData`, `SiloNames` owns silo's id rule, `SiloTargets` reads the projects and environments a plan could point at |
+| `src/panel/panel.html` | The admin panel, CSS and script inlined. One file because `contributes.ui` allows one: a directory would mean a static asset server inside the API (D41) |
+| `src/types/silo-api.d.ts` | The `silo:api` declarations, verbatim from `apps/server/src/plugins/host/silo-api-types.d.ts` |
+| `test/` | One file per subject, with `support/` holding the synthetic Strapi export, a temp directory helper and a fake `ctx` |
 
 ## `tools/`
 

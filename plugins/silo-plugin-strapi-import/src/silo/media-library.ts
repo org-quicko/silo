@@ -1,10 +1,10 @@
 import { createHash } from 'crypto'
 import type { SiloContext } from 'silo:api'
 import { MultipartBody } from './multipart-body'
-import type { StrapiList } from './strapi-inventory'
-import type { StrapiMediaFile } from './strapi-media'
-import { StrapiMedia } from './strapi-media'
-import type { UploadStore } from './upload-store'
+import type { StrapiList } from '../strapi/strapi-inventory'
+import type { StrapiMediaFile } from '../strapi/strapi-media'
+import { StrapiMedia } from '../strapi/strapi-media'
+import type { UploadStore } from '../staging/upload-store'
 
 /** What became of the media of one import. */
 export interface MediaOutcome {
@@ -71,6 +71,9 @@ export class MediaLibrary {
   /** Cleared by a 403 from the catalog listing, so an ungranted `media:read`
    *  costs one refused request rather than one per file. */
   private lookups = true
+  /** Whether the configured folder has been declared this run. One request, not
+   *  one per file — see `declareFolder`. */
+  private folderDeclared = false
   private readonly outcome: MediaOutcome = {
     uploaded: 0,
     matched: 0,
@@ -85,7 +88,8 @@ export class MediaLibrary {
   constructor(options: {
     ctx: SiloContext
     uploads: UploadStore
-    /** Where in silo's media library the imports land. */
+    /** Where in silo's media library the imports land, created once per run
+     *  before the first file goes in — see `declareFolder`. Empty is the root. */
     folder: string
     /** The Strapi instance still serving the uploads, for files not supplied. */
     baseUrl: string
@@ -225,8 +229,39 @@ export class MediaLibrary {
     return null
   }
 
+  /**
+   * Make the configured folder exist before the first file goes into it.
+   *
+   * An asset naming a folder already implies one (D20's existence rule), so this
+   * is not what puts the uploads in the right place — `folder` on the upload
+   * itself does that. What it adds is the **explicit** half: the folder shows up
+   * in the library's tree straight away, it survives every file in it being
+   * deleted, and an operator who configured `media_folder` sees the folder they
+   * named rather than one that appears only once something lands.
+   *
+   * Once per run, and never fatal. `POST /api/media/folders` takes the same
+   * `media:create` the upload does, so a refusal here is the refusal `upload`
+   * reports in full a moment later, and a plugin that stopped importing over a
+   * folder record would be refusing to do the job over the label on the drawer.
+   */
+  private async declareFolder(): Promise<void> {
+    if (this.folderDeclared || this.folder.length === 0) return
+    this.folderDeclared = true
+    try {
+      await this.ctx.fetch('/api/media/folders', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ path: this.folder }),
+      })
+    } catch {
+      // The upload below carries the folder too, so the files still land in it.
+    }
+  }
+
   /** One upload, or `null` with the reason recorded. */
   private async upload(file: StrapiMediaFile, bytes: Uint8Array): Promise<string | null> {
+    await this.declareFolder()
+
     const parts = [
       {
         name: 'file',

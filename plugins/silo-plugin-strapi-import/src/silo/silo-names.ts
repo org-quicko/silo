@@ -1,4 +1,4 @@
-import type { StrapiList } from './strapi-inventory'
+import type { StrapiList } from '../strapi/strapi-inventory'
 
 /**
  * Names silo will accept, and the one this importer proposes for a Strapi list.

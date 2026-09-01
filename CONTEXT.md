@@ -41,8 +41,26 @@ the whole library can be purged (D49). The three settings APIs now check that
 the file they write can be written, say why when it cannot, and a container
 names that file with `SILO_CONFIG` (D50).
 
-**The most recent change makes the settings APIs honest about the file they
-write, and gives a container a way to name it (D50, 2026-09-01).**
+**The most recent change is three fixes and a reorganisation in the Strapi
+importer, from one live run (2026-09-01).**
+Where an import goes is now the plan's to say and only the plan's: `project` and
+`env` left `[plugins.config]`, `SiloTargets` reads the scopes the grant can see,
+`GET /plan` answers with those beside the plan, and the panel's selects write into
+the plan so a re-render restores the operator's choice instead of overwriting it
+with the proposal — which is what used to send a retargeted import to
+`default`/`prod` the moment the uploads were staged. `media_folder` now takes
+effect: silo validates `[plugins.config]` without applying a schema's `default`,
+so the manifest's `strapi` never reached the worker and every import filled the
+library root; `PluginSettings` is the one place a default applies, and
+`MediaLibrary` declares the folder once per run before the first upload so it is
+in the library tree from the start. And the package is a directory per subject —
+`src/{routes,worker,strapi,staging,silo,panel,types}` with a `test/` tree beside
+it — where it had been twenty files and a 393-line `index.ts` in one directory.
+See [`plugins/silo-plugin-strapi-import`](plugins/silo-plugin-strapi-import) and
+the [repo map](docs/context/repo-map.md).
+
+**Before that came the settings APIs becoming honest about the file they
+write, and a container getting a way to name it (D50, 2026-09-01).**
 A silo deployed to Railway from this repo's Dockerfile answered `500 internal
 error` to `PUT /api/media/storage` and `PUT /api/settings/log`, while `GET` on
 both said `writable: true`. The config path defaulted to `silo.toml` beside the
