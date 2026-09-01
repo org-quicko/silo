@@ -49,24 +49,29 @@ from the API and from the admin — and the claims naming them follow (D51).
 collection.**
 `SchemaDraft` was the last reader still comparing `type` as a scalar, and the
 only one that also *writes*, which is what made it the damaging one: `kindOf`
-read `["integer", "null"]` as no known kind and fell through to `'string'`,
-and `build` maps **every** field through `applyKind`, whose default branch
-assigned the kind straight back onto `type`. One save of an imported schema
-from the visual editor — even one that only edited a description — rewrote
-every column to a bare `"string"`, and the collection then rejected the nulls
-already stored under it. `kindOf` reads through `SchemaType.of` now — as does
-the reference-list check beside it, which used to miss a nullable `["array",
-"null"]` and drop its `items` — and the nullability is carried on
-`SchemaField.nullable` rather than left to the spread of `raw` that
-`applyKind` overwrites: the round trip puts `["integer", "null"]` back, and it
-survives a *kind change* too, since which type a column holds and whether it
-may be blank are separate facts and the rows still need the second one. A
-genuine multi-type union (`["string", "number"]`) is a `construct` now,
-alongside `oneOf`/`anyOf`/`allOf` — no single control draws two types, so the
-subtree is left intact and the type column says `type union · edit in Code
-view`. **Still unfixed and adjacent:** a property with *no* `type` (what the
-Strapi importer writes for a `json` column) is drawn as a string and saved as
-one, narrowing "anything" the same way.
+read `["integer", "null"]` as no known kind and fell through to `'string'`, and
+`build` maps **every** field through `applyKind`, whose default branch assigned
+the kind straight back onto `type`. One save of an imported schema from the
+visual editor — even one that only edited a description — rewrote every column
+to a bare `"string"`, and the collection then rejected the nulls it already
+stored. `kindOf` reads through `SchemaType.of` now, as does the reference-list
+check beside it, which used to miss a nullable `["array", "null"]` and drop its
+`items`. Nullability rides on `SchemaField.nullable` rather than on the spread
+of `raw` that `applyKind` overwrites, so the round trip puts
+`["integer", "null"]` back, and it survives a *kind change* too: which type a
+column holds and whether it may be blank are separate facts, and the rows still
+need the second one. The other two shapes `type` can take now have answers of
+their own rather than one shared fallback. A property declaring **no** type is
+the `any` kind — a real option in the dropdown, written back as no `type` at
+all — because that is the honest schema for the `json` column
+`StrapiColumns.schemaFor` writes bare, where narrowing to `object` would refuse
+the arrays that are just as common. An array form naming anything other than
+one real type (`["string", "number"]`, or a lone `["null"]`) is a `construct`
+alongside `oneOf`/`anyOf`/`allOf`: the subtree is left intact and the type
+column says `type union · edit in Code view`, so no type is thrown away to make
+another one drawable. Between them `SchemaType.of`, `isUntyped` and
+`isUnresolved` are total over the keyword, which is what leaves no shape needing
+a guess.
 
 **A nullable number is still a number: the entries table reads a property's
 declared type as the union JSON Schema allows.**

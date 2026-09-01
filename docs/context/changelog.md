@@ -4,8 +4,8 @@
 > The *current* state is [CONTEXT.md](../../CONTEXT.md); this is how it got
 > there.
 
-- **The visual schema editor round-trips a nullable property, so a save no
-  longer strips the nulls out of an imported collection (2026-09-01).**
+- **The visual schema editor round-trips every shape `type` can take, so a save
+  no longer rewrites an imported collection (2026-09-01).**
   `SchemaDraft` was the reader the entries-view change above deliberately left
   alone, and the only one of them that also *writes* — which is what made it
   the damaging one rather than the cosmetic one. Two halves had to line up for
@@ -33,21 +33,32 @@
   reference *list* with `property.type === 'array'`, so a nullable one
   (`["array", "null"]` with `items.$ref`) read as a plain string field and
   saved as one, losing the `items` subtree along with the union.
-  A genuine multi-type union is treated as a `construct` rather than resolved:
-  `SchemaType.isMultiType` feeds `constructOf`, so `["string", "number"]` joins
-  `oneOf`/`anyOf`/`allOf` on the path that returns the original subtree
-  untouched and labels it `type union · edit in Code view`. Guessing a winner
-  there would throw the other type away, which is the shape of the bug being
-  fixed. `schema-draft.test.ts` pins the three cases the report named
+  The default branch was reached by two other shapes as well, and both got an
+  answer of their own rather than the shared fallback that was the whole
+  defect. A property declaring **no** type — what `StrapiColumns.schemaFor`
+  writes for a `json` column, where the honest schema is "anything" and
+  narrowing to `object` would refuse the arrays that are just as common — is
+  now the **`any` kind**, read by `SchemaType.isUntyped` and written back as no
+  `type` at all. It is a real entry in `FieldKindSelect` rather than a
+  construct, because unlike `oneOf` it *is* drawable and has no subtree to
+  preserve: an author can widen a typed column to `any` and narrow a `json` one
+  to `object` without leaving the visual editor, which the Code-view escape
+  hatch would have denied them. An **array form naming anything other than one
+  real type** is the case that genuinely cannot be drawn, and joins
+  `oneOf`/`anyOf`/`allOf` as a `construct`: `SchemaType.isUnresolved` feeds
+  `constructOf`, so `["string", "number"]` — and a degenerate lone `["null"]` —
+  keeps its original subtree and is labelled `type union · edit in Code view`.
+  Guessing a winner there would throw the other type away, which is the shape
+  of the bug being fixed. The three readers are deliberately **total** over the
+  keyword: `of` answers when it resolves to one type, `isUntyped` when there is
+  none, `isUnresolved` for the rest, and a test asserts exactly one of them
+  claims any given shape — that totality is what leaves no path back to a
+  fallback. `schema-draft.test.ts` pins the cases the report named
   (`["integer", "null"]`, `["string", "null"]`, `["string", "number"]`) plus
-  the two that would regress quietly: a plain `"string"` must stay a bare
-  scalar, and a whole imported document must come back unchanged from a save
-  that edits one description. **Knowingly left alone:** a property with no
-  `type` at all — what `StrapiColumns.schemaFor` writes for a `json` column,
-  where "anything" is the honest schema — still reads as `'string'` and saves
-  as `{"type": "string"}`. It is the same narrowing by the same default branch,
-  but it is a different question (an absent type is not a union), and folding
-  it in would change what a *blank* field means to the builder.
+  the ones that would regress quietly: a plain `"string"` must stay a bare
+  scalar, a bare `{}` must stay bare, and a whole imported document — nullable
+  columns and a `json` one — must come back unchanged from a save that edits
+  one description.
 
 - **A property's `type` is read as the union JSON Schema allows, so an imported
   nullable number is a number again (2026-09-01).**

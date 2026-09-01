@@ -10,6 +10,7 @@ export type SchemaFieldKind =
   | 'ref'
   | 'ref-array'
   | 'media'
+  | 'any'
 
 /** One property of a collection schema, as the visual builder edits it. */
 export interface SchemaField {
@@ -46,4 +47,5 @@ export const SchemaFieldLabels: Record<SchemaFieldKind, string> = {
   ref: 'reference',
   'ref-array': 'reference list',
   media: 'media',
+  any: 'any',
 }

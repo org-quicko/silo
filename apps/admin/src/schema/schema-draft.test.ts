@@ -55,6 +55,14 @@ describe('SchemaDraft', () => {
       expect(fields[1].construct).toBe('oneOf')
     })
 
+    test('reads a property that declares no type as `any`, not as a string', () => {
+      const { fields } = save({ payload: {}, title: { type: 'string' } })
+
+      expect(fields[0].kind).toBe('any')
+      expect(fields[0].construct).toBeUndefined()
+      expect(fields[1].kind).toBe('string')
+    })
+
     test('a blank field is not nullable', () => {
       expect(SchemaDraft.blankField().nullable).toBeFalse()
     })
@@ -121,6 +129,24 @@ describe('SchemaDraft', () => {
       expect(properties.cover).toEqual({ type: ['string', 'null'], 'x-silo-type': 'media' })
     })
 
+    test('a JSON column stays typeless, rather than narrowing to a string', () => {
+      const { properties } = save({ payload: { description: 'Whatever was there' } })
+
+      expect(properties.payload).toEqual({ description: 'Whatever was there' })
+    })
+
+    test('picking `any` widens a typed field, and picking a type narrows it back', () => {
+      const widened = save({ payload: { type: ['string', 'null'] } }, (fields) => {
+        fields[0].kind = 'any'
+      })
+      expect(widened.properties.payload).toEqual({})
+
+      const narrowed = save({ payload: {} }, (fields) => {
+        fields[0].kind = 'object'
+      })
+      expect(narrowed.properties.payload).toEqual({ type: 'object' })
+    })
+
     test('an imported collection survives a save that edits one description', () => {
       // The shape `StrapiColumns.schemaFor` writes for every column it imports.
       const imported = {
@@ -128,6 +154,8 @@ describe('SchemaDraft', () => {
         name: { type: ['string', 'null'] },
         independent: { type: ['boolean', 'null'] },
         created_at: { type: ['string', 'null'] },
+        // A `json` column: `StrapiColumns.schemaFor` declares no type at all.
+        metadata: {},
       }
       const { properties } = save(imported, (fields) => {
         fields[1].description = 'Country name'
