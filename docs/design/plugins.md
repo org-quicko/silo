@@ -2484,3 +2484,46 @@ attached to the line it came from and a CRLF config is not quietly rewritten.
 - **It does not touch what the plugin wrote.** Collections and entries a plugin
   created are data the instance owns; only the plugin goes. The confirmation says
   so, because that is the question somebody asks before pressing it.
+
+## 13.23 Observability is a core fact with a plugin presentation (D52)
+
+`plugins/silo-plugin-observability` is the second first-party package. It shows
+API volume, errors, latency, process resources and local storage, and it found a
+different missing boundary than the Strapi importer did: a worker can observe
+content lifecycle events, but it cannot honestly infer what happened at the
+HTTP boundary or how much memory the host process owns.
+
+The forcing consumer does **not** add an HTTP hook. Every request crossing into
+a plugin worker would put a timeout, a queue and a new failure mode on the
+workload being measured. It also does not tail the access log: request logging
+may be off, filtered by level, written in either format, or have no file at all.
+Instead the global request middleware records one bounded host-side aggregate,
+independently of whether it emits an access-log line, and exposes it through
+`GET /api/observability` behind `observability:read`.
+
+The plugin stays ordinary: one declared `GET /snapshot` route calls that core
+endpoint through `ctx.fetch`, and its sandboxed panel calls only its own route.
+There is no private host escape hatch and no first-party privilege. A remote
+metrics client can use the same endpoint and the same claim.
+
+The privacy and memory bounds are part of the contract:
+
+- series keys are the registered method and route pattern, never the requested
+  path, parameters or query;
+- callers, bodies, credentials, content and filesystem paths are never stored;
+- latency is a fixed histogram and the chart is sixty one-minute buckets, and a
+  percentile is clamped to the slowest request observed — a bucket boundary is
+  an estimate, not a measurement, and reporting one above the maximum beside it
+  is an impossible number rather than a conservative one;
+- directory scans are cached background work, never follow symlinks, and stop
+  after 50,000 entries;
+- the data and media figures are **disjoint**: `[blob_storage] path` defaults to
+  `<storage.path>/media`, so the data walk skips the media subtree rather than
+  counting it in both, which keeps the two numbers addable and spends the entry
+  budget once;
+- remote-provider capacity is `null`, because storage adapters have no common
+  capacity semantics and adding a port for one dashboard would be D7's
+  speculative interface;
+- everything resets at process start. Durable historical analytics can later
+  consume snapshots externally without turning every request into a database
+  write today.

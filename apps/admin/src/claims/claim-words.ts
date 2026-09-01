@@ -88,6 +88,7 @@ export class ClaimWords {
     [Claims.PluginsGrant]: 'approve what a plugin may do',
     [Claims.PluginsEnable]: 'turn plugins on and off',
     [Claims.AuditRead]: 'read the authority trail',
+    [Claims.ObservabilityRead]: 'read aggregate server health and API metrics',
     [Claims.HttpRoute]: 'serve its own HTTP routes',
   }
 

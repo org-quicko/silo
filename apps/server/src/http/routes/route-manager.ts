@@ -17,6 +17,8 @@ import { SearchRoutes } from "./search-routes";
 import { PluginRoutes } from "./plugin-routes";
 import { ExtRoutes } from "./ext-routes";
 import { AuditRoutes } from "./audit-routes";
+import { ObservabilityRoutes } from "./observability-routes";
+import type { Observability } from "../../observability";
 
 /**
  * Composes all route modules onto the app. Ordering matters for Hono's
@@ -34,7 +36,8 @@ export class RouteManager {
     plugins: PluginSupervisor,
     mediaStorage: MediaStorageSupervisor,
     mediaPolicy: MediaPolicySupervisor,
-    settings: ConfigSupervisor
+    settings: ConfigSupervisor,
+    observability: Observability
   ) {
     SessionRoutes.register(app);
     // Plugin *management* (D34/D38/D39), registered before the scoped param
@@ -45,6 +48,7 @@ export class RouteManager {
     // all of them — see `ExtRoutes` for why plugins are not let into this list.
     ExtRoutes.register(app, plugins);
     AuditRoutes.register(app, service);
+    ObservabilityRoutes.register(app, observability);
     SettingsRoutes.register(app, settings);
     KeysRoutes.register(app, service);
     TransferRoutes.register(app, service);

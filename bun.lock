@@ -74,6 +74,10 @@
       "name": "@silo/shared",
       "version": "0.3.0",
     },
+    "plugins/silo-plugin-observability": {
+      "name": "silo-plugin-observability",
+      "version": "0.3.0",
+    },
     "plugins/silo-plugin-strapi-import": {
       "name": "silo-plugin-strapi-import",
       "version": "0.3.0",
@@ -549,6 +553,8 @@
     "shell-quote": ["shell-quote@1.9.0", "", {}, "sha512-Iov+JwFv/2HcTpcwNMKd8+IWNb8tboQJNQTkAY/LLVK7gGH9jy+LGkVqPxfekHl+yMmiqXszdGWXgkfml7hjqA=="],
 
     "signal-exit": ["signal-exit@4.1.0", "", {}, "sha512-bzyZ1e88w9O1iNJbKnOlvYTrWPDl46O1bG0D3XInv+9tkPrxrN8jUUTiFlDkkmKWgn1M6CfIA13SuGqOa9Korw=="],
+
+    "silo-plugin-observability": ["silo-plugin-observability@workspace:plugins/silo-plugin-observability"],
 
     "silo-plugin-strapi-import": ["silo-plugin-strapi-import@workspace:plugins/silo-plugin-strapi-import"],
 
