@@ -164,7 +164,7 @@ declare module "silo:api" {
       schema(scope: SiloScope, collection: string): Promise<any>;
     };
     projects: {
-      /** The project ids the grant can see, as `items` — names, not objects. Environments are a call of their own: `GET {project}/environments`. */
+      /** The projects the grant can see, as `items` of `{id, name}` — `id` is the record's ULID and `name` is what every path addresses, so build a URL from `name` (D51). Environments are a call of their own: `GET {project}/environments`, and answer the same shape. */
       list(): Promise<SiloItemPage>;
     };
     media: {

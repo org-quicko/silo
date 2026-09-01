@@ -1,0 +1,101 @@
+.form {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding-top: 8px;
+  border-top: 1px solid var(--line);
+}
+
+.row {
+  display: flex;
+  align-items: flex-end;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.row label {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  flex: 1 1 14rem;
+  min-width: 0;
+  color: var(--text-2);
+  font-size: 12px;
+}
+
+.row input {
+  padding: 6px 10px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: var(--panel);
+  color: var(--text);
+  font-size: 13px;
+}
+
+.row input:focus {
+  border-color: var(--accent);
+  outline: none;
+}
+
+.hint {
+  margin: 0;
+  color: var(--text-3);
+  font-size: 12px;
+}
+
+.error {
+  margin: 0;
+  color: var(--bad);
+  font-size: 12px;
+}
+
+.claimLists {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  padding: 0 20px 4px;
+}
+
+.claimLists h4 {
+  margin: 0 0 6px;
+  color: var(--text-2);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.claimLists p {
+  margin: 0 0 6px;
+  color: var(--text-3);
+  font-size: 12px;
+}
+
+.claims {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  max-height: 11rem;
+  overflow-y: auto;
+}
+
+.claims code {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--text-2);
+  word-break: break-all;
+}
+
+.none {
+  font-style: italic;
+}
+
+.warning {
+  padding-left: 10px;
+  border-left: 2px solid color-mix(in oklab, var(--warn) 60%, transparent);
+}
+
+.warning h4 {
+  color: var(--warn);
+}

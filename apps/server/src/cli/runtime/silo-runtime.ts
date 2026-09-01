@@ -92,6 +92,27 @@ export class SiloRuntime {
     // config and the wrong one for a process that was handed one (D46).
     service.useMediaConfig(config.media);
 
+    // What `silo.toml` declares for each plugin, so a rename can refuse rather
+    // than leave the config half of a plugin's authority naming a scope that no
+    // longer exists. Silo does not rewrite `[[plugins]]` — D34 is explicit that
+    // an API able to write that file is a code-execution primitive — so the
+    // rename says so and stops (D51).
+    service.renames.useDeclaredPluginClaims(
+      new Map((config.plugins ?? []).map((plugin) => [plugin.name, plugin.claims ?? []]))
+    );
+
+    // Before plugins load, unlike the two media resumes in `serve-command`: a
+    // plugin boots on the authority its `_plugins` record holds, so a cascade
+    // replayed after it started would leave it running on claims that name a
+    // scope which no longer exists (D51).
+    const renames = await service.resumePendingRenames();
+    if (renames.resumed > 0 || renames.failed > 0) {
+      logger.info("finished pending scope renames", {
+        resumed: renames.resumed,
+        failed: renames.failed,
+      });
+    }
+
     // Extension plugins load only for `serve` (D31). Every other subcommand is
     // a one-shot against the data dir, and spinning a worker per plugin to run
     // an export would pay the cold start for hooks that will never fire —
@@ -117,6 +138,22 @@ export class SiloRuntime {
       config,
       reload,
       configPath,
+    });
+
+    // A rename rewrites the claims on a plugin's `_plugins` record, and a
+    // running plugin holds what it booted with — so it is restarted onto the
+    // rewritten grant rather than left acting on a scope that no longer exists
+    // (D51). Injected because the supervisor is the only thing that mutates the
+    // registry and sits above the service layer.
+    service.renames.usePluginRefresh(async (names) => {
+      for (const name of names) {
+        await supervisor.restart(name).catch((error: unknown) => {
+          logger.warn("could not restart plugin after a rename", {
+            plugin: name,
+            error: error instanceof Error ? error.message : String(error),
+          });
+        });
+      }
     });
     // The same `reload` the plugin supervisor gets, deliberately: a save that
     // re-read the file without this process's flags and environment would apply

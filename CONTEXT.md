@@ -17,7 +17,7 @@ can be cloned with one command.
 
 ## Where things stand
 
-*Last updated: 2026-09-01 (D50)*
+*Last updated: 2026-09-01 (D51)*
 
 Everything through M5 is built and shipping: collections and JSON Schema
 validation, entry CRUD with optimistic concurrency, the query AST and search
@@ -39,9 +39,38 @@ instead of a broken link (D48). Force now additionally requires
 or moved (with an opt-in merge past a collision) and deleted recursively, and
 the whole library can be purged (D49). The three settings APIs now check that
 the file they write can be written, say why when it cannot, and a container
-names that file with `SILO_CONFIG` (D50).
+names that file with `SILO_CONFIG` (D50). Projects, environments and
+collections are keyed records with ULIDs, so all three can be **renamed** —
+from the API and from the admin — and the claims naming them follow (D51).
 
-**The most recent change is three fixes and a reorganisation in the Strapi
+**The most recent change is that projects, environments and collections became
+ULID-keyed records, so their names can be renamed (D51, 2026-09-01).**
+A typo in any of the three names used to be permanent: none of them was a keyed
+entity, so `entries`, `schemas`, `media_references` and `entry_search` all
+repeated the names as literal columns and every rename would have been a cascade
+across the instance. All three are now records with a ULID primary key and a
+mutable `name`, every internal reference is by id, and a rename is one `UPDATE`
+of a `name` column that touches no entry, no index row and no blob. Three
+`PATCH` routes take `{name}`, bound to `?expected_id=` and previewable with
+`?dry_run=true`, behind a new `RenamePermissions` at the subject's own reach.
+`collections` **replaced** the `schemas` table rather than joining it, and its
+`schema` is `NOT NULL` — which is why an import carrying content with no schema
+beside it is now refused by name, and why `Storage.put` refuses an entry whose
+collection has no record. Those rules retire the `listSchemas ∪
+listEntryCollections` union in six places. **Claims stay name-based**, so the
+one cascade records do not remove is the claim rewrite, and it turns on one
+distinction: a literal segment is a reference and is rewritten, a wildcard
+segment is a pattern over names and never is — `collections:*/dev/*` means "any
+project's dev" and rewriting it would change authority everywhere, so it is
+reported as pattern-affected and left alone, in the response, the audit trail
+and the admin's confirm dialog. The rewrite is staged behind a
+`_scope_renames` marker that doubles as a name reservation and is replayed
+before plugins load; `silo.toml`'s `[[plugins]] claims` half is refused rather
+than rewritten, on D34's own reasoning. `FormatVersion` resets to `"1"` and
+there is **no migration** — export with the previous binary and re-import.
+See [D51](IMPLEMENTATION.md) and the six design docs it touches.
+
+**Before that came three fixes and a reorganisation in the Strapi
 importer, from one live run (2026-09-01).**
 Where an import goes is now the plan's to say and only the plan's: `project` and
 `env` left `[plugins.config]`, `SiloTargets` reads the scopes the grant can see,
@@ -59,8 +88,8 @@ it — where it had been twenty files and a 393-line `index.ts` in one directory
 See [`plugins/silo-plugin-strapi-import`](plugins/silo-plugin-strapi-import) and
 the [repo map](docs/context/repo-map.md).
 
-**Before that came the settings APIs becoming honest about the file they
-write, and a container getting a way to name it (D50, 2026-09-01).**
+**Before it, the settings APIs became honest about the file they
+write, and a container gained a way to name it (D50, 2026-09-01).**
 A silo deployed to Railway from this repo's Dockerfile answered `500 internal
 error` to `PUT /api/media/storage` and `PUT /api/settings/log`, while `GET` on
 both said `writable: true`. The config path defaulted to `silo.toml` beside the

@@ -6,6 +6,7 @@ import { ValidationError } from "@silo/shared/validation-error";
 import type { ValidationDetail } from "@silo/shared/validation-detail";
 import type { Storage } from "../ports/storage";
 import type { Scope } from "../domain/scope";
+import { CollectionSchemas } from "./collection-schemas";
 import { RemoteSchemaLoader } from "./remote-schema-loader";
 
 export interface SchemaValidatorOptions {
@@ -36,7 +37,7 @@ export class SchemaValidator {
   }
 
   async checkSchemaDoc(scope: Scope, collection: string, raw: any): Promise<void> {
-    const all = await this.store.listSchemas(scope);
+    const all = CollectionSchemas.map(await this.store.listCollections(scope));
     all.set(collection, raw);
     try {
       await this.compileFrom(all, collection);
@@ -52,7 +53,7 @@ export class SchemaValidator {
     const cacheKey = `${scope.key()}:${collection}`;
     let validateFn = this.cache.get(cacheKey);
     if (!validateFn) {
-      const all = await this.store.listSchemas(scope);
+      const all = CollectionSchemas.map(await this.store.listCollections(scope));
       if (!all.has(collection)) {
         throw new NotFoundError(`collection "${scope.key()}/${collection}" not found`);
       }

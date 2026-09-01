@@ -43,9 +43,11 @@ export function useScopeCopy(server: Server, destination: ScopeRef, claims: stri
     let alive = true
     api.projects
       .listEnvironments(server.url, server.apiKey, sourceProject)
-      .then((environments) => {
+      .then((records) => {
         if (!alive) return
-        const eligible = environments.filter(
+        const eligible = records
+          .map((record) => record.name)
+          .filter(
           (env) => !(sourceProject === destination.project && env === destination.env),
         )
         setSourceEnvironments(eligible)

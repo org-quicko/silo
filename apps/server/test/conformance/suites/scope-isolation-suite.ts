@@ -1,3 +1,4 @@
+import { CollectionSchemas } from "../../../src/core/schema/collection-schemas";
 import { describe, expect, test } from "bun:test";
 import { Scope } from "../../../src/core/domain/scope";
 import type { Entry } from "../../../src/core/domain/entry";
@@ -22,7 +23,7 @@ export class ScopeIsolationSuite {
         await store.putSchema(scope, qualified, schema);
         expect(await store.getSchema(scope, qualified)).toEqual(schema);
 
-        const all = await store.listSchemas(scope);
+        const all = CollectionSchemas.map(await store.listCollections(scope));
         expect(all.size).toBe(1);
         expect(all.has(qualified)).toBe(true);
         expect(all.get(qualified)).toEqual(schema);
@@ -30,7 +31,7 @@ export class ScopeIsolationSuite {
         // A second collection coexists independently
         const other = "pages";
         await store.putSchema(scope, other, { type: "object" });
-        const all2 = await store.listSchemas(scope);
+        const all2 = CollectionSchemas.map(await store.listCollections(scope));
         expect(all2.size).toBe(2);
         expect([...all2.keys()].sort()).toEqual([other, qualified].sort());
 
@@ -64,10 +65,15 @@ export class ScopeIsolationSuite {
         const otherListed = await store.list(scope, other, { limit: 50, offset: 0 });
         expect(otherListed.total).toBe(1);
 
+        // Emptied first: since D51 `deleteSchema` removes the collection
+        // *record*, and an entry referencing it is what the foreign key
+        // prevents — so the caller erases the entries, as `CollectionEraser`
+        // does.
+        await store.delete(scope, qualified, b.id);
         await store.deleteSchema(scope, qualified);
         await expect(store.getSchema(scope, qualified)).rejects.toThrow();
-        expect((await store.listSchemas(scope)).has(qualified)).toBe(false);
-        expect((await store.listSchemas(scope)).has(other)).toBe(true);
+        expect((CollectionSchemas.map(await store.listCollections(scope))).has(qualified)).toBe(false);
+        expect((CollectionSchemas.map(await store.listCollections(scope))).has(other)).toBe(true);
       });
 
       test("ScopeIsolation", async () => {
@@ -127,8 +133,14 @@ export class ScopeIsolationSuite {
         for (const [project, env] of [["zulu", "prod"], ["alpha", "staging"], ["alpha", "dev"]]) {
           await store.createEnvironment(project, env);
         }
-        expect(await store.listProjects()).toEqual(["alpha", "zulu"]);
-        expect(await store.listEnvironments("alpha")).toEqual(["dev", "staging"]);
+        expect((await store.listProjects()).map((record) => record.name)).toEqual([
+          "alpha",
+          "zulu",
+        ]);
+        expect((await store.listEnvironments("alpha")).map((record) => record.name)).toEqual([
+          "dev",
+          "staging",
+        ]);
         expect((await store.listScopes()).map((sc) => sc.key())).toEqual([
           "alpha/dev",
           "alpha/staging",

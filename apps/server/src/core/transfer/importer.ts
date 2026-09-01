@@ -9,6 +9,7 @@ import { FsBlobStorage } from "../../adapters/blob/fs-blob-storage";
 import { EntryUtils } from "../domain/entry-utils";
 import type { Meta } from "../domain/meta";
 import { ValidationError } from "@silo/shared/validation-error";
+import { ConflictError } from "../errors/conflict-error";
 import { NotFoundError } from "../errors/not-found-error";
 import { MediaRefs } from "../media/media-refs";
 import { SearchText } from "../search/search-text";
@@ -16,7 +17,7 @@ import { ForbiddenError } from "../errors/forbidden-error";
 import { SchemaValidator } from "../schema/schema-validator";
 import { FormatVersion } from "./format-version";
 import type { ExportManifest } from "./export-manifest";
-import { ImportWalker, type ScopedImport } from "./import-walker";
+import { ImportWalker, type ImportedProject, type ScopedImport } from "./import-walker";
 import { KeyUtils } from "../keys/key-utils";
 import type { ImportOptions } from "./import-options";
 import type { ImportResult } from "./import-result";
@@ -24,6 +25,9 @@ import type { ImportResult } from "./import-result";
 export interface ParsedImport {
   manifest: ExportManifest;
   scopes: ScopedImport[];
+  /** Projects the archive names, so one holding no environment survives the
+   *  round trip (D51). Absent when the caller built the unit in memory. */
+  projects?: ImportedProject[];
 }
 
 export class Importer {
@@ -39,8 +43,30 @@ export class Importer {
       );
     }
 
-    const scopes = await ImportWalker.walkProjects(src);
-    return { manifest, scopes };
+    const { projects, scopes } = await ImportWalker.walkProjects(src);
+    return { manifest, scopes, projects };
+  }
+
+  /**
+   * Creates a record, preferring the archive's id and falling back to a mint.
+   *
+   * The conflict matrix in one place (D51). A name that already exists keeps the
+   * **destination's** id and the archive's is ignored, because the path is the
+   * addressing authority. A name that does not exist takes the archive's id when
+   * it is well-formed and free, and a fresh one when the adapter refuses it —
+   * two instances that each minted their own `blog` can still exchange archives,
+   * which they could not if a duplicate id failed the whole import.
+   */
+  private static async createRecord<T>(
+    create: (id?: string) => Promise<T>,
+    id?: string
+  ): Promise<void> {
+    try {
+      await create(id);
+    } catch (caught) {
+      if (id === undefined || !(caught instanceof ConflictError)) throw caught;
+      await create(undefined);
+    }
   }
 
   static async executeImport(
@@ -68,6 +94,19 @@ export class Importer {
       validator = new SchemaValidator(store);
     }
 
+    // Projects first, and every project the archive names rather than only the
+    // ones a scope mentions: a project with no environment is not a scope, so
+    // it would otherwise be dropped (D51). Their ids come from the markers.
+    if (!opts.dryRun) {
+      for (const project of pi.projects ?? []) {
+        if (project.name.startsWith("_")) continue;
+        await Importer.createRecord(
+          (id) => store.createProject(project.name, id),
+          project.id
+        );
+      }
+    }
+
     for (const scoped of pi.scopes) {
       await Importer.executeScopedImport(store, scoped, pi.manifest, localMeta, mode, opts, response, validator);
     }
@@ -92,8 +131,11 @@ export class Importer {
     const { scope, schemas, entries } = scoped;
 
     if (!scope.isSystem() && !opts.dryRun) {
-      await store.createProject(scope.project);
-      await store.createEnvironment(scope.project, scope.env);
+      await Importer.createRecord(() => store.createProject(scope.project));
+      await Importer.createRecord(
+        (id) => store.createEnvironment(scope.project, scope.env, id),
+        scoped.envId
+      );
     }
 
     if (mode === "replace") {
@@ -113,7 +155,11 @@ export class Importer {
               }
               entriesLeft -= items.length;
             }
-            await store.deleteSchema(scope, colName).catch(() => {});
+            // The schema is **not** deleted. It used to be, and re-put a moment
+            // later — which under record keying destroys the collection record
+            // and mints a new id for the same collection, losing the identity
+            // the destination already had. `putSchema` below replaces the
+            // schema in place and keeps it (D51).
           }
         } catch (caught: any) {
           if (!(caught instanceof NotFoundError)) {
@@ -133,18 +179,27 @@ export class Importer {
               continue;
             }
             if (!opts.dryRun) {
-              await store.putSchema(scope, colName, remoteSchema);
+              await Importer.createRecord(
+                (id) => store.putSchema(scope, colName, remoteSchema, id),
+                scoped.collectionIds.get(colName)
+              );
             }
           }
         } else {
           if (!opts.dryRun) {
-            await store.putSchema(scope, colName, remoteSchema);
+            await Importer.createRecord(
+              (id) => store.putSchema(scope, colName, remoteSchema, id),
+              scoped.collectionIds.get(colName)
+            );
           }
         }
       } catch (caught: any) {
         if (caught instanceof NotFoundError) {
           if (!opts.dryRun) {
-            await store.putSchema(scope, colName, remoteSchema);
+            await Importer.createRecord(
+              (id) => store.putSchema(scope, colName, remoteSchema, id),
+              scoped.collectionIds.get(colName)
+            );
           }
         } else {
           throw caught;

@@ -21,7 +21,7 @@ React + TypeScript + Vite + RJSF (`@rjsf/core` + `@rjsf/validator-ajv8` for 2020
 2. **Entries list** (default main view) — table per collection, columns derived from top-level schema properties, sort/paginate via the list API, *New entry* button. Text runs the collection-reach `/search` (D30) rather than a `contains` on one column: results carry snippets naming the field each match came from, and the engine that answered is stated. A **filter builder** writes the Query AST (D29) over the schema's own fields, offering only the ops `@silo/shared` declares and only paths `JsonPath` can build; the AST travels in the URL as raw JSON, so a filtered view is linkable, and one it cannot draw — nesting, `not`, a hand-written filter — is shown read-only and still applied rather than quietly simplified. Everything on screen lives in the URL. **An absent `sort` means nobody chose one**, which is what lets a search rank by relevance and a listing fall back to newest-first; writing the default out would pin the view to a date order no search could override.
 3. **Command palette** (`⌘K`) — instance-wide search from anywhere in the shell. It asks for the whole instance rather than the scope on screen because the key already bounds it (`searchAccess`), groups hits by collection in the order the ranking gave, names the `project/env` only for results outside the current scope, and merges media in as its own group — the one place the two result sets meet.
 4. **Entry form** — RJSF-generated from the schema; per-subtree raw-JSON fallback for unrenderable constructs (D3); server validation errors mapped back onto fields.
-5. **Schema editor** — create/edit a collection's JSON Schema in a JSON editor (CodeMirror) with live validation of the schema document itself.
+5. **Schema editor** — create/edit a collection's JSON Schema in a JSON editor (CodeMirror) with live validation of the schema document itself. Since D51 an existing collection can also be **renamed** here, through the shared control described below: it is a statement about the collection's identity rather than its shape, so it is a separate request from Save and neither carries the other's changes.
 6. **Media** — a searchable library: a folder rail, a name/type filter bound to the `_media` query, and per-asset rename, move, and delete. Assets (never folders) are multi-selectable — a checkbox on each card or row, a header checkbox in list view that selects the current page only — and a selection bar appears once anything is checked: a count, Clear, and Delete, shown only to a key holding `media:delete`. Selection clears on folder change, page change, query change, and after a successful delete. A single-file trash click and a multi-select delete are the same path — one list, sometimes of one — through `POST /api/media/delete` (D48). The flow is at most two dialogs: a confirm dialog first, and if the server refuses because something is still referenced, that dialog is replaced by one naming what is still in use, with the existing claim-filtered referrer list per file, an opt-in checkbox, and a Force delete button — hidden, rather than merely disabled, whenever the server would refuse it anyway (`MediaForceAvailability`, D49): the key cannot see every referrer, or lacks `entries:update` on one it can see. Checking it and forcing never opens a third dialog, and only the ids still refused are retried. **Folder rows and tiles gain rename/move and delete actions of their own (D49)** — a clickable name region plus a separate actions cell or overlay, not a `<button>` wrapping the whole tile, since rename and delete are buttons too and cannot nest inside one. Rename reuses the same shape `RenameAssetDialog` does and attempts the move outright; only when the server refuses it as a collision (`409`) does a second dialog offer to merge the two folders instead (`MergeFolderDialog`, `useMediaRenameFolderFlow`, D49) — gated on `DangerConfirm`'s typed confirmation rather than a checkbox, because a merge is genuinely non-reversible (the two subtrees become indistinguishable, and renaming back cannot undo it), which is exactly what `DangerConfirm` is reserved for; an ordinary rename with no collision never asks for one. Delete goes through the identical two-dialog flow files use — `useMediaDeleteFlow` takes a folder path as well as an asset list, so there is one flow rather than a second pair of dialogs, and a folder's confirm dialog says it deletes everything inside rather than naming files. Without `?recursive=true` the server still refuses a non-empty folder, so a plain folder delete stays the trivial case it always was. **A low-emphasis "Purge library" action sits in the page head, deliberately not beside Upload** (D49): gated on `media:delete`, through `DangerConfirm` — reserved for actions no undo exists for — with confirm word `purge` and the force opt-in inside that same dialog, since purge has no bounded subject to check force availability against up front the way the in-use dialog can. Where the library *keeps* its bytes is a separate page under Settings → Media Library (D45), because it configures the instance rather than the content; purge stays here, on the content's own page, for the same reason in reverse.
 7. **Keys** — list (label, claims, prefix, created), revoke, and a dedicated creation page. Revoke is offered only for keys the current one could have minted (D37) and never for a plugin's managed key (D34), because the route refuses both. The creation page is one guided sentence: a label, a **reach** naming the project and env segments of the key's collection claims independently (one env · a whole project · one env across every project · the whole instance), and a **role** (`read` · `write` · `manage` · `root`). One Advanced disclosure adds what the sentence cannot say — narrowing to named collections, the instance capabilities (media, key management, transfer), and a raw claim editor that takes over from the guided controls when even those are not enough. Choosing a transfer capability composes in the instance-wide collection permissions D21 requires alongside it, rather than naming them in help text. Options the current key cannot delegate are disabled with the reason. The secret is shown once. Plugin management and the audit trail are capabilities here too (D38); an instance capability this page has no words for is still shown, flagged, rather than omitted from the summary — a claim set that renders as less than it grants is the one failure a pre-mint summary cannot afford.
 8. **Data transfer** — two pages at two blast radii. Under *Server*: claim-aware whole-instance export/import panels and direct copy from another running silo (merge/replace, data-only/data-plus-keys). Under *Environment*: copy from another environment of this instance (D22), preview-then-apply, gated on the scoped claims the copy exercises.
@@ -44,10 +44,10 @@ SERVER
 PROJECTS
   Projects                                       every project on the instance, and creating one
     [ project switcher ▾ · New project ]
-    General                                      id, environment count, delete behind a typed-name confirmation
+    General                                      id, name (renameable — D51), environment count, delete behind a typed-name confirmation
     Environments                                 this project's environments, and creating one
       [ environment switcher ▾ · New environment ]
-      General                                    scope, collections, open workspace, delete behind a typed-name confirmation
+      General                                    scope, id, name (renameable — D51), collections, open workspace, delete behind a typed-name confirmation
       Data Transfer                              copy from another environment (D22)
 APPLICATION
   Appearance                                     colour mode, theme, fonts, accent
@@ -68,6 +68,30 @@ environment list. Both nested blocks start collapsed and open when the route
 enters them. Projects and Environments are indexes: a row opens that item's own
 page, and deleting lives only there, behind a typed-name confirmation, rather
 than as a button in a list.
+
+**Renaming (D51)** lives on those same General pages, in the Identity card,
+replacing the copy that used to say the id was fixed — a project, environment
+and collection each carry a stable ULID and a mutable name now, and the card
+shows both. All three use one control, `settings/rename/`, so they ask the same
+question the same way, and it is a **two-step** flow rather than a text field
+with a Save. The first request is a `?dry_run=true`, and what comes back is what
+earns the second step: a rename rewrites claim strings, and some claims name the
+subject through a *wildcard ancestor* — those are not rewritten, because a claim
+whose project segment is `*` and whose env segment is the literal `dev` means
+"any project's dev" and moving it would change authority everywhere, yet its
+reach does change. So the confirm dialog prints two lists: claims that will
+follow the rename, and claims whose reach changes although nothing rewrites
+them. Nothing else in the product would ever tell an operator about the second,
+which is the whole reason the preview exists. The control is **hidden**, not
+merely disabled, for a key that cannot rename — the same rule the delete buttons
+follow, since an affordance the server will refuse is worse than no affordance —
+and the reason is printed in its place. The route additionally checks the *new*
+name and, for a collection, `schema:update` on every referrer, neither of which
+the page can know, so those refusals arrive from the server and the form prints
+them rather than pretending to have predicted them. After a successful rename the
+URL follows the new name and `ScopeMemory` is cleared, since it is keyed by name
+and would otherwise send the next unscoped page back to a scope that no longer
+exists.
 
 The scope prefix is identical to the workspace routes and to the HTTP API's
 `/api/projects/{project}/environments/{env}/…`, with `settings` as the tail, so a

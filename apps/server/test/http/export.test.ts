@@ -128,7 +128,7 @@ describe("Export / Import Tests", () => {
       expect(await fs.readFile(entryFile, "utf8")).toBeTruthy();
 
       const manifest = JSON.parse(await fs.readFile(path.join(expDir, "manifest.json"), "utf8"));
-      expect(manifest.format_version).toBe("2");
+      expect(manifest.format_version).toBe(FormatVersion);
       expect(manifest.collections[`${Scope.Default.key()}/posts`]).toBe(1);
 
       // Import back into fresh SQLite store

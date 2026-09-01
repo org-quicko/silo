@@ -3,12 +3,13 @@ import { Claims } from "@silo/shared/claims";
 import { ValidationError } from "@silo/shared/validation-error";
 import type { Claim } from "@silo/shared/claim";
 import type { PluginRoute } from "../../plugins/manifest/plugin-route";
+import { SystemCollections } from "../domain/system-collections";
 import type { PluginGrant } from "./plugin-grant";
 
 /** The reserved collection, the digest, and the two set comparisons every
  *  grant decision is made of. */
 export class PluginGrantUtils {
-  static readonly PluginsCollection = "_plugins";
+  static readonly PluginsCollection = SystemCollections.Plugins;
 
   /**
    * A stable digest of what a manifest **asks for**, not of the whole package.

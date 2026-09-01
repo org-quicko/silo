@@ -4,6 +4,7 @@ import { router } from '../../router/router'
 import { Routes } from '../../router/routes'
 import type { SettingsRoute } from '../../router/route'
 import type { Server } from '../servers/server'
+import { ScopeMemory } from '../../utils/scope-memory'
 import { KeysView } from '../keys/Keys'
 import { PluginsView } from '../plugins/Plugins'
 import { PluginDetailView } from '../plugins/PluginDetail'
@@ -42,6 +43,8 @@ export function SettingsView({ server, route, onUpdateServer, onDeleteServer, on
     scope,
     projects,
     environments,
+    projectRecords,
+    environmentRecords,
     loadingProjects,
     loadingEnvironments,
     reloadProjects,
@@ -109,8 +112,16 @@ export function SettingsView({ server, route, onUpdateServer, onDeleteServer, on
             key={route.project}
             server={server}
             project={route.project}
+            projectId={projectRecords.find((record) => record.name === route.project)?.id ?? ''}
             environments={environments}
             claims={claims}
+            onRenamed={async (name) => {
+              await reloadProjects()
+              // The URL still names the old project, so it has to follow —
+              // and `ScopeMemory` is keyed by name too (D51).
+              ScopeMemory.forget(serverId)
+              router.navigate(Routes.projectSettings(serverId, name, 'general'))
+            }}
             onDeleted={() => {
               reloadProjects()
               router.navigate(Routes.servers())
@@ -135,8 +146,14 @@ export function SettingsView({ server, route, onUpdateServer, onDeleteServer, on
             key={`${route.project}/${route.env}`}
             server={server}
             scope={{ project: route.project, env: route.env }}
+            envId={environmentRecords.find((record) => record.name === route.env)?.id ?? ''}
             collections={collections}
             claims={claims}
+            onRenamed={async (name) => {
+              await reloadEnvironments()
+              ScopeMemory.forget(serverId)
+              router.navigate(Routes.envSettings(serverId, route.project, name, 'general'))
+            }}
             onDeleted={() => {
               reloadEnvironments()
               router.navigate(Routes.projectSettings(serverId, route.project, 'environments'))

@@ -106,6 +106,50 @@ export class CollectionsRoutes {
     app.put("/api/projects/:project/environments/:env/collections/:name/schema", putSchemaHandler);
     app.put("/api/projects/:project/envs/:env/collections/:name/schema", putSchemaHandler);
 
+    // Rename a collection.
+    //
+    // Distinct from the other two renames in one way: `$ref`s address
+    // collections by name, so this rewrites every referring schema as well
+    // (D51) — which is why it also asks for `collections:schema:update` on each
+    // of them, up front, rather than discovering the refusal half way through.
+    const renameHandler = async (c: Context) => {
+      const scope = RouteAuth.getScope(c);
+      const from = c.req.param("name") || "";
+      const body = await c.req.json().catch(() => null);
+      if (!body || typeof body !== "object" || !body.name || typeof body.name !== "string") {
+        throw new ValidationError("invalid body: (want {name})");
+      }
+      const to = body.name;
+
+      RouteAuth.requireRename(c, "a collection", scope.project, scope.env, from);
+      for (const referrer of await service.collections.referrers(scope, from)) {
+        RouteAuth.requireCollectionClaim(
+          c,
+          scope.project,
+          scope.env,
+          referrer,
+          Claims.CollectionSchemaUpdate,
+        );
+      }
+
+      if (c.req.query("dry_run") === "true") {
+        return c.json(await service.renames.previewCollection(scope, from, to));
+      }
+
+      RouteAuth.requireRename(c, "a collection", scope.project, scope.env, to);
+      const preview = await service.renames.renameCollection(
+        scope,
+        from,
+        to,
+        RouteAuth.getActor(c),
+        c.req.query("expected_id") || undefined,
+      );
+      return c.json(preview);
+    };
+
+    app.patch("/api/projects/:project/environments/:env/collections/:name", renameHandler);
+    app.patch("/api/projects/:project/envs/:env/collections/:name", renameHandler);
+
     const deleteHandler = async (c: Context) => {
       const scope = RouteAuth.getScope(c);
       const name = c.req.param("name") || "";

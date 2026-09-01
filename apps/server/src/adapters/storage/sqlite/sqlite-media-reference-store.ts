@@ -1,6 +1,6 @@
 import type { Database } from "bun:sqlite";
-import type { Entry } from "../../../core/domain/entry";
 import type { MediaUsage } from "../../../core/media/media-usage";
+import type { CollectionAddress } from "./sqlite-scope-resolver";
 
 /**
  * The `media_references` table (D23).
@@ -9,10 +9,25 @@ import type { MediaUsage } from "../../../core/media/media-usage";
  * its references land together or not at all, which is the whole reason usages
  * sit on the `Storage` port rather than in a layer above it. A crash must never
  * leave a media file deletable while an entry still names it.
+ *
+ * Rows are keyed by record id since D51, with a cascading foreign key to the
+ * entry, so no `purgeProject`/`purgeEnvironment` is needed: deleting the
+ * entries takes their references along.
  */
 export class SqliteMediaReferenceStore {
   /** Matches the default page size the media routes ask for. */
   private static readonly FallbackLimit = 50;
+
+  /**
+   * `MediaUsage` is public — the 409 body enumerates it — so the read side
+   * joins back to the record tables for names. The join is also what keeps the
+   * ordering on the names: sorting by ULID and mapping afterwards would move a
+   * page boundary relative to what the caller sees.
+   */
+  private static readonly Joined = `FROM media_references r
+    JOIN projects p ON p.id = r.project_id
+    JOIN environments v ON v.id = r.env_id
+    JOIN collections c ON c.id = r.collection_id`;
 
   private readonly database: Database;
 
@@ -21,35 +36,24 @@ export class SqliteMediaReferenceStore {
   }
 
   /** Replaces every reference an entry makes. Transactional with the entry. */
-  replaceForEntry(entry: Entry, mediaIds: string[]): void {
-    this.purgeEntry(entry.project, entry.env, entry.collection, entry.id);
+  replaceForEntry(address: CollectionAddress, entryId: string, mediaIds: string[]): void {
+    this.purgeEntry(address.collectionId, entryId);
     if (mediaIds.length === 0) return;
 
     const insert = this.database.prepare(
-      `INSERT OR IGNORE INTO media_references (media_id, project, env, collection, entry_id)
+      `INSERT OR IGNORE INTO media_references
+         (media_id, project_id, env_id, collection_id, entry_id)
        VALUES (?, ?, ?, ?, ?)`
     );
     for (const mediaId of mediaIds) {
-      insert.run(mediaId, entry.project, entry.env, entry.collection, entry.id);
+      insert.run(mediaId, address.projectId, address.envId, address.collectionId, entryId);
     }
   }
 
-  purgeEntry(project: string, env: string, collection: string, entryId: string): void {
+  purgeEntry(collectionId: string, entryId: string): void {
     this.database
-      .prepare(
-        `DELETE FROM media_references WHERE project = ? AND env = ? AND collection = ? AND entry_id = ?`
-      )
-      .run(project, env, collection, entryId);
-  }
-
-  purgeProject(project: string): void {
-    this.database.prepare(`DELETE FROM media_references WHERE project = ?`).run(project);
-  }
-
-  purgeEnvironment(project: string, env: string): void {
-    this.database
-      .prepare(`DELETE FROM media_references WHERE project = ? AND env = ?`)
-      .run(project, env);
+      .prepare(`DELETE FROM media_references WHERE collection_id = ? AND entry_id = ?`)
+      .run(collectionId, entryId);
   }
 
   /** Media ids reach SQL as bound parameters, like every other value. */
@@ -72,10 +76,11 @@ export class SqliteMediaReferenceStore {
 
     const items = this.database
       .prepare(
-        `SELECT media_id, project, env, collection, entry_id
-         FROM media_references
-         WHERE media_id IN (${placeholders})
-         ORDER BY project, env, collection, entry_id
+        `SELECT r.media_id AS media_id, p.name AS project, v.name AS env,
+                c.name AS collection, r.entry_id AS entry_id
+         ${SqliteMediaReferenceStore.Joined}
+         WHERE r.media_id IN (${placeholders})
+         ORDER BY p.name, v.name, c.name, r.entry_id
          LIMIT ? OFFSET ?`
       )
       .all(...mediaIds, limit, offset) as MediaUsage[];

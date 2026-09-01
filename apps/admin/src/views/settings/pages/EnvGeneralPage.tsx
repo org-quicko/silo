@@ -10,26 +10,33 @@ import type { Collection } from '../../../api/types/collection'
 import type { ScopeRef } from '../../../api/types/scope-ref'
 import { router } from '../../../router/router'
 import { Routes } from '../../../router/routes'
+import { RenameForm } from '../rename/RenameForm'
 import { TopBar } from '../../shell/TopBar'
 import type { Server } from '../../servers/server'
 import styles from '../SettingsView.module.css'
 
 /**
- * One environment: what it holds, how to address it, and how to delete it.
- * Like a project it carries no metadata of its own (D18/D20), so there is
- * nothing to rename.
+ * One environment: what it holds, what it is called, how to address it, and how
+ * to delete it.
+ *
+ * Like a project it is a record with a stable ULID and a mutable name since
+ * D51, so the Contents card carries a rename.
  */
 export function EnvGeneralPage({
   server,
   scope,
+  envId,
   collections,
   claims,
+  onRenamed,
   onDeleted,
 }: {
   server: Server
   scope: ScopeRef
+  envId: string
   collections: Collection[]
   claims: string[]
+  onRenamed: (name: string) => void | Promise<void>
   onDeleted: () => void
 }) {
   const [confirming, setConfirming] = useState(false)
@@ -46,6 +53,11 @@ export function EnvGeneralPage({
     scope.project,
     scope.env,
   )
+  // A create at the new name and a delete at the old, across the environment
+  // (D51).
+  const canRename =
+    envId.length > 0 &&
+    Claims.hasScopeWide(claims, Claims.RenamePermissions, scope.project, scope.env)
 
   const remove = async () => {
     setBusy(true)
@@ -125,7 +137,29 @@ export function EnvGeneralPage({
                   /api/projects/{scope.project}/environments/{scope.env}
                 </span>
               </div>
+              <div className={styles.diagCard}>
+                <span className={styles.diagLabel}>Environment id</span>
+                <span className={styles.diagMono}>{envId || '—'}</span>
+              </div>
             </div>
+
+            <RenameForm
+              subject={{ noun: 'environment', currentName: scope.env, id: envId }}
+              allowed={canRename}
+              unavailableReason={`This key cannot rename ${scope.env}. A rename retires the old name and introduces a new one, so it needs collections:create and collections:delete across the environment.`}
+              rename={(name, dryRun) =>
+                api.projects.renameEnvironment(
+                  server.url,
+                  server.apiKey,
+                  scope.project,
+                  scope.env,
+                  name,
+                  envId,
+                  dryRun,
+                )
+              }
+              onRenamed={onRenamed}
+            />
 
             {collections.length > 0 && (
               <div className={styles.claimsBlock}>

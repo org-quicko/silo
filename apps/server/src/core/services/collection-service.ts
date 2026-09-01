@@ -8,7 +8,9 @@ import { ConflictError } from "../errors/conflict-error";
 import { NotFoundError } from "../errors/not-found-error";
 import type { WriteContext } from "../hooks/write-context";
 import { WriteContexts } from "../hooks/write-contexts";
+import { CollectionSchemas } from "../schema/collection-schemas";
 import { SchemaBundler } from "../schema/schema-bundler";
+import { SchemaRefRewrite } from "../schema/schema-ref-rewrite";
 import { CollectionEvents } from "./support/collection-events";
 import { CollectionEraser } from "./support/collection-eraser";
 import { SchemaRegistry } from "./support/schema-registry";
@@ -25,11 +27,10 @@ export class CollectionService {
   /** Every user collection in `scope`, sorted by name. System collections are
    *  reserved and never listed (D12/D18). */
   async list(scope: Scope): Promise<Collection[]> {
-    const schemas = await this.context.store.listSchemas(scope);
     const collections: Collection[] = [];
-    for (const [name, schema] of schemas.entries()) {
-      if (EntryUtils.isSystemCollection(name)) continue;
-      collections.push({ name, schema });
+    for (const record of await this.context.store.listCollections(scope)) {
+      if (EntryUtils.isSystemCollection(record.name)) continue;
+      collections.push({ id: record.id, name: record.name, schema: record.schema });
     }
     collections.sort((left, right) => left.name.localeCompare(right.name));
     return collections;
@@ -37,7 +38,12 @@ export class CollectionService {
 
   async get(scope: Scope, name: string): Promise<Collection> {
     CollectionService.refuseSystemCollection(scope, name);
-    return { name, schema: await this.context.store.getSchema(scope, name) };
+
+    const record = await this.context.store.findCollection(scope, name);
+    if (!record) {
+      throw new NotFoundError(`collection "${scope.key()}/${name}" not found`);
+    }
+    return { id: record.id, name: record.name, schema: record.schema };
   }
 
   /** Creates or replaces a collection's schema, bundling its `$ref`s first. */
@@ -61,9 +67,69 @@ export class CollectionService {
     await this.context.schemaRegistry.checkSchemaDoc(scope, name, bundledSchema);
 
     return this.context.withWriteLock(async () => {
-      await this.context.store.putSchema(scope, name, bundledSchema);
+      const record = await this.context.store.putSchema(scope, name, bundledSchema);
       this.context.schemaRegistry.invalidate();
-      return { name, schema: bundledSchema };
+      return { id: record.id, name: record.name, schema: record.schema };
+    });
+  }
+
+  /**
+   * Every collection whose schema references `name`, the renamed one included
+   * (D51) — what a rename has to rewrite, and what the route checks
+   * `collections:schema:update` against before it starts.
+   */
+  async referrers(scope: Scope, name: string): Promise<string[]> {
+    return this.findSchemaReferrers(scope, name, true);
+  }
+
+  /**
+   * Renames a collection, and repoints every `$ref` to it.
+   *
+   * `$ref`s still address collections **by name**, so a rename is not the pure
+   * record update the project and environment ones are: every referring schema
+   * has to be rewritten, and its bundled `$defs` — which `SchemaBundler` keys by
+   * collection name — rebuilt rather than patched.
+   *
+   * The order matters. The substitutions are computed first, so a malformed
+   * result fails before anything is written; the record is renamed next, because
+   * `SchemaBundler` resolves `silo://collections/<to>` against the store and
+   * would find nothing until it is; then each schema is bundled, validated and
+   * written. All inside the write lock, so nothing observes the moment where the
+   * schemas still name the old collection.
+   */
+  async rename(scope: Scope, id: string, from: string, to: string): Promise<void> {
+    CollectionService.refuseSystemCollection(scope, from);
+    if (!Claims.isCollectionName(to)) {
+      throw new ValidationError(
+        `invalid collection name "${to}": want lowercase letter first, then [a-z0-9_-], max 64 chars`
+      );
+    }
+
+    await this.context.withWriteLock(async () => {
+      const referrers = await this.findSchemaReferrers(scope, from, true);
+      const pending = new Map<string, any>();
+      for (const referrer of referrers) {
+        const current = await this.context.store.getSchema(scope, referrer);
+        pending.set(referrer, SchemaRefRewrite.apply(current, from, to));
+      }
+
+      await this.context.store.renameCollection(id, to);
+      this.context.schemaRegistry.invalidate();
+
+      for (const [referrer, schema] of pending) {
+        // The renamed collection's own schema now lives under the new name.
+        const target = referrer === from ? to : referrer;
+        const bundled = await SchemaBundler.bundle(
+          scope,
+          schema,
+          this.context.store,
+          this.context.schemaRegistry.remoteLoader,
+          this.context.schemaRegistry.allowRemoteRefs
+        );
+        await this.context.schemaRegistry.checkSchemaDoc(scope, target, bundled);
+        await this.context.store.putSchema(scope, target, bundled);
+      }
+      this.context.schemaRegistry.invalidate();
     });
   }
 
@@ -118,14 +184,25 @@ export class CollectionService {
     );
   }
 
-  /** Collections in `scope` whose schema `$ref`s `silo://collections/<name>`,
-   *  with or without a fragment. */
-  private async findSchemaReferrers(scope: Scope, name: string): Promise<string[]> {
+  /**
+   * Collections in `scope` whose schema `$ref`s `silo://collections/<name>`,
+   * with or without a fragment.
+   *
+   * `includeSelf` because the two callers want different sets. A **delete**
+   * asks who else would break, so the collection going away is not a referrer.
+   * A **rename** has to rewrite every reference to the old name, and a schema
+   * that `$ref`s itself holds one of them (D51).
+   */
+  private async findSchemaReferrers(
+    scope: Scope,
+    name: string,
+    includeSelf = false
+  ): Promise<string[]> {
     const url = SchemaRegistry.schemaUrl(name);
-    const schemas = await this.context.store.listSchemas(scope);
+    const schemas = CollectionSchemas.map(await this.context.store.listCollections(scope));
     const referrers: string[] = [];
     for (const [other, schema] of schemas.entries()) {
-      if (other === name) continue;
+      if (other === name && !includeSelf) continue;
       if (CollectionService.schemaRefsUrl(schema, url)) referrers.push(other);
     }
     return referrers.sort();

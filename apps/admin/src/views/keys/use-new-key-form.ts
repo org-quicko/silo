@@ -75,7 +75,8 @@ export function useNewKeyForm(
     setLoadingEnvironments(true)
     api.projects
       .listEnvironments(url, apiKey, project)
-      .then((items) => {
+      .then((records) => {
+        const items = records.map((record) => record.name)
         if (!alive) return
         setEnvironments(items)
         setEnv((current) => (items.includes(current) ? current : (items[0] ?? '')))

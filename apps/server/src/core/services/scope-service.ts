@@ -1,5 +1,7 @@
 import { SchemaAccess } from "@silo/shared/schema-access";
 import { ValidationError } from "@silo/shared/validation-error";
+import type { EnvironmentRecord } from "../domain/environment-record";
+import type { ProjectRecord } from "../domain/project-record";
 import type { ScopeCollection } from "../domain/scope-collection";
 import { Scope } from "../domain/scope";
 import { ConflictError } from "../errors/conflict-error";
@@ -8,6 +10,7 @@ import { WriteContexts } from "../hooks/write-contexts";
 import type { CollectionService } from "./collection-service";
 import { CollectionEvents } from "./support/collection-events";
 import { CollectionEraser } from "./support/collection-eraser";
+import type { ScopeRenameCascade } from "./support/scope-rename-cascade";
 import type { ServiceContext } from "./support/service-context";
 
 /** One collection a scope delete erased, carried out of the write lock so the
@@ -26,13 +29,19 @@ interface Erased {
 export class ScopeService {
   private readonly context: ServiceContext;
   private readonly collections: CollectionService;
+  private readonly renames: ScopeRenameCascade;
 
   /** Derived from schema content, so it is dropped whenever schemas change. */
   private publicScopeCache: ReadonlyMap<string, ReadonlySet<string>> | null = null;
 
-  constructor(context: ServiceContext, collections: CollectionService) {
+  constructor(
+    context: ServiceContext,
+    collections: CollectionService,
+    renames: ScopeRenameCascade
+  ) {
     this.context = context;
     this.collections = collections;
+    this.renames = renames;
     context.schemaRegistry.onInvalidate(() => {
       this.publicScopeCache = null;
     });
@@ -58,19 +67,65 @@ export class ScopeService {
       );
     }
 
+    // Seeded once per instance, recorded durably (D51). Recreating the scope
+    // whenever it is *missing* resurrects it after a delete — and, now that the
+    // name is mutable, after a rename too: rename `default` to `main`, restart,
+    // and an empty `default` is back. Deriving the answer from "does the
+    // instance hold any project" has the same fault one step further out.
+    if ((await this.context.store.meta()).defaults_initialized) return;
+
     await this.context.withWriteLock(async () => {
-      await this.context.store.createProject(scope.project);
       await this.context.store.createEnvironment(scope.project, scope.env);
+      await this.context.store.markDefaultsInitialized();
     });
   }
 
-  async listProjects(): Promise<string[]> {
+  async listProjects(): Promise<ProjectRecord[]> {
     return this.context.store.listProjects();
   }
 
-  async createProject(project: string): Promise<void> {
+  async createProject(project: string): Promise<ProjectRecord> {
     Scope.validateProject(project);
-    await this.context.withWriteLock(() => this.context.store.createProject(project));
+    // A name still held by an unfinished claim cascade cannot be taken, or the
+    // replay would rewrite claims that now legitimately point at this new
+    // record (D51).
+    await this.renames.assertNameFree("project", project);
+    return this.context.withWriteLock(() => this.context.store.createProject(project));
+  }
+
+  /**
+   * Renames a project by its id.
+   *
+   * The schema registry is dropped afterwards, and not because any schema
+   * changed: `SchemaValidator` caches compiled validators under
+   * `${scope.key()}:${collection}`, so a later project taking the freed name
+   * would otherwise be validated by whatever the old one had compiled. It also
+   * clears `publicScopeCache`, which is keyed by name for the same reason.
+   */
+  async renameProject(id: string, name: string): Promise<void> {
+    Scope.validateProject(name);
+    await this.context.withWriteLock(async () => {
+      await this.context.store.renameProject(id, name);
+      this.context.schemaRegistry.invalidate();
+    });
+  }
+
+  async renameEnvironment(id: string, name: string): Promise<void> {
+    Scope.validateEnv(name);
+    await this.context.withWriteLock(async () => {
+      await this.context.store.renameEnvironment(id, name);
+      this.context.schemaRegistry.invalidate();
+    });
+  }
+
+  async findProject(name: string): Promise<ProjectRecord | null> {
+    Scope.validateProject(name);
+    return this.context.store.findProject(name);
+  }
+
+  async findEnvironment(project: string, env: string): Promise<EnvironmentRecord | null> {
+    const scope = Scope.of(project, env);
+    return this.context.store.findEnvironment(scope.project, scope.env);
   }
 
   async deleteProject(
@@ -86,8 +141,8 @@ export class ScopeService {
       // discovering that a later one still holds content, leaving the project
       // half-deleted and the request reporting failure.
       const plans: Array<{ scope: Scope; collections: ScopeCollection[] }> = [];
-      for (const env of await this.context.store.listEnvironments(project)) {
-        const scope = Scope.of(project, env);
+      for (const environment of await this.context.store.listEnvironments(project)) {
+        const scope = Scope.of(project, environment.name);
         plans.push({ scope, collections: await this.collectionsIn(scope) });
       }
 
@@ -118,17 +173,17 @@ export class ScopeService {
     await this.dispatchErased(erased, "project", writeContext);
   }
 
-  async listEnvironments(project: string): Promise<string[]> {
+  async listEnvironments(project: string): Promise<EnvironmentRecord[]> {
     Scope.validateProject(project);
     return this.context.store.listEnvironments(project);
   }
 
-  async createEnvironment(project: string, env: string): Promise<Scope> {
+  async createEnvironment(project: string, env: string): Promise<EnvironmentRecord> {
     const scope = Scope.of(project, env);
-    await this.context.withWriteLock(() =>
-      this.context.store.createEnvironment(project, env)
+    await this.renames.assertNameFree("environment", scope.env);
+    return this.context.withWriteLock(() =>
+      this.context.store.createEnvironment(scope.project, scope.env)
     );
-    return scope;
   }
 
   async deleteEnvironment(
@@ -212,15 +267,17 @@ export class ScopeService {
     return found;
   }
 
-  /** Every collection in `scope`, from both sides of the schema/entry split,
-   *  with each one's entry count. */
+  /**
+   * Every collection in `scope`, with each one's entry count.
+   *
+   * One read since D51: a collection is a record, so the schema/entry union
+   * this used to need — for the collection an import could leave holding
+   * entries and no schema — has nothing left to add.
+   */
   private async collectionsIn(scope: Scope): Promise<ScopeCollection[]> {
-    const names = [
-      ...new Set([
-        ...(await this.context.store.listSchemas(scope)).keys(),
-        ...(await this.context.store.listEntryCollections(scope)),
-      ]),
-    ].sort();
+    const names = (await this.context.store.listCollections(scope))
+      .map((record) => record.name)
+      .sort();
 
     const collections: ScopeCollection[] = [];
     for (const name of names) {

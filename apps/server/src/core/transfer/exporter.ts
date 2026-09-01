@@ -5,6 +5,9 @@ import { c } from "tar";
 import type { Storage } from "../ports/storage";
 import type { BlobStorage } from "../ports/blob-storage";
 import { FsBlobStorage } from "../../adapters/blob/fs-blob-storage";
+// The fs layout *is* the archive format (D5), so the archive's file and marker
+// names come from the one place that grammar is stated.
+import { FsLayout } from "../../adapters/storage/fs/fs-layout";
 import { EntryUtils } from "../domain/entry-utils";
 import { Scope } from "../domain/scope";
 import type { Entry } from "../domain/entry";
@@ -120,35 +123,67 @@ export class Exporter {
     withKeys: boolean | undefined,
     colCounts: Record<string, number>
   ): Promise<void> {
-    const schemas = await store.listSchemas(scope);
-    // Entries are enumerated independently of schemas, not derived from them.
-    // Two kinds of collection have entries and no schema and would otherwise
-    // be dropped from every archive: the system collections (`_keys`), and
-    // any collection a previous import created from a `content/<name>/`
-    // directory that had no `schemas/` counterpart. `skipCollection` still
-    // decides what is *allowed* out, so `_keys` stays behind --with-keys.
-    const contentCols = [
-      ...new Set([...schemas.keys(), ...(await store.listEntryCollections(scope))]),
-    ]
-      .filter((n) => !Exporter.skipCollection(n, withKeys))
-      .sort();
+    // One read. Before D51 this was a union with `listEntryCollections`,
+    // because a collection could hold entries and have no schema; every
+    // collection is a record now, so there is nothing that union would add.
+    // `skipCollection` still decides what is *allowed* out, so `_keys` stays
+    // behind --with-keys.
+    const records = (await store.listCollections(scope))
+      .filter((record) => !Exporter.skipCollection(record.name, withKeys))
+      .sort((left, right) => left.name.localeCompare(right.name));
 
+    const scopeDir = path.join(dest, "projects", scope.project, scope.env);
     if (!scope.isSystem()) {
-      await fs.mkdir(path.join(dest, "projects", scope.project, scope.env), { recursive: true });
-    }
-
-    for (const colName of contentCols) {
-      colCounts[`${scope.key()}/${colName}`] = await Exporter.exportEntries(store, dest, scope, colName);
-    }
-
-    for (const [colName, schema] of schemas.entries()) {
-      if (Exporter.skipCollection(colName, withKeys)) {
-        continue;
+      await fs.mkdir(scopeDir, { recursive: true });
+      const environment = await store.findEnvironment(scope.project, scope.env);
+      if (environment) {
+        await Exporter.writeMarker(
+          path.join(scopeDir, FsLayout.EnvMarker),
+          environment.id,
+          environment.created_at
+        );
       }
-      const schemaPath = path.join(dest, "projects", scope.project, scope.env, "schemas", `${colName}.schema.json`);
-      await fs.mkdir(path.dirname(schemaPath), { recursive: true });
-      await fs.writeFile(schemaPath, JSON.stringify(schema, null, 2), "utf8");
     }
+
+    for (const record of records) {
+      colCounts[`${scope.key()}/${record.name}`] = await Exporter.exportEntries(
+        store,
+        dest,
+        scope,
+        record.name
+      );
+    }
+
+    for (const record of records) {
+      const schemasDir = path.join(scopeDir, "schemas");
+      await fs.mkdir(schemasDir, { recursive: true });
+      await fs.writeFile(
+        path.join(schemasDir, `${record.name}${FsLayout.SchemaSuffix}`),
+        JSON.stringify(record.schema, null, 2),
+        "utf8"
+      );
+      // The collection's id travels beside its schema, so an import can
+      // preserve it rather than minting a new one (D51).
+      await Exporter.writeMarker(
+        path.join(schemasDir, `.${record.name}${FsLayout.CollectionMarkerSuffix}`),
+        record.id,
+        record.created_at
+      );
+    }
+  }
+
+  /** A record's id, in the same marker shape the fs adapter reads. */
+  private static async writeMarker(
+    filePath: string,
+    id: string,
+    createdAt: Date
+  ): Promise<void> {
+    await fs.mkdir(path.dirname(filePath), { recursive: true });
+    await fs.writeFile(
+      filePath,
+      JSON.stringify({ id, created_at: createdAt.toISOString() }),
+      "utf8"
+    );
   }
 
   static async exportDir(
@@ -171,6 +206,20 @@ export class Exporter {
     // listScopes() never reports the system scope — system data is opt-in
     // (D18).
     const scopes = [...(await store.listScopes()), Scope.System];
+
+    // Projects first, and every project rather than only those a scope names:
+    // `listScopes()` answers (project, env) pairs, so a project holding no
+    // environment at all could never appear in it and was silently dropped from
+    // every archive (D51). Its marker is also what carries its id.
+    for (const project of await store.listProjects()) {
+      const projectDir = path.join(dest, "projects", project.name);
+      await fs.mkdir(projectDir, { recursive: true });
+      await Exporter.writeMarker(
+        path.join(projectDir, FsLayout.ProjectMarker),
+        project.id,
+        project.created_at
+      );
+    }
 
     for (const scope of scopes) {
       await Exporter.exportScope(store, dest, scope, opts.withKeys, colCounts);

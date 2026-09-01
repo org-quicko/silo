@@ -2,6 +2,7 @@ import { describe, test, expect } from "bun:test";
 import { Database } from "bun:sqlite";
 import { runStorageTestSuite } from "../conformance/storage-conformance";
 import { SqliteStore } from "../../src/adapters/storage/sqlite/sqlite-store";
+import { FormatVersion } from "../../src/core/transfer/format-version";
 import fs from "fs/promises";
 import path from "path";
 import os from "os";
@@ -24,7 +25,7 @@ runStorageTestSuite(
 );
 
 describe("SqliteStore data-dir format guard", () => {
-  test("refuses a pre-D18 db stamped format_version 1 rather than crashing on a missing column", async () => {
+  test("refuses a pre-D51 db stamped format_version 2 rather than crashing on a missing column", async () => {
     const dir = await fs.mkdtemp(path.join(os.tmpdir(), "silo-sqlite-guard-"));
     try {
       const dbPath = path.join(dir, "silo.db");
@@ -39,11 +40,11 @@ describe("SqliteStore data-dir format guard", () => {
         );
       `);
       db.prepare(
-        `INSERT INTO meta (key, value) VALUES ('instance_id', 'x'), ('last_seq', '0'), ('format_version', '1')`
+        `INSERT INTO meta (key, value) VALUES ('instance_id', 'x'), ('last_seq', '0'), ('format_version', '2')`
       ).run();
       db.close();
 
-      await expect(SqliteStore.open(dbPath)).rejects.toThrow(/format_version "1"/);
+      await expect(SqliteStore.open(dbPath)).rejects.toThrow(/format_version "2"/);
     } finally {
       await fs.rm(dir, { recursive: true, force: true }).catch(() => {});
     }
@@ -89,7 +90,7 @@ describe("SqliteStore data-dir format guard", () => {
       const row = db.prepare(`SELECT value FROM meta WHERE key = 'format_version'`).get() as
         | { value: string }
         | undefined;
-      expect(row?.value).toBe("2");
+      expect(row?.value).toBe(FormatVersion);
       db.close();
     } finally {
       await fs.rm(dir, { recursive: true, force: true }).catch(() => {});

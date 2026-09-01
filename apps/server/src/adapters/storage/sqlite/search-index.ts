@@ -24,7 +24,7 @@ export class SearchIndex {
    * triggers. Together with the extractor version and the tokenizer it forms
    * the stamp; a change in any of them rebuilds everything.
    */
-  static readonly EngineVersion = 1;
+  static readonly EngineVersion = 2;
   /** Bumped when `SearchText.extract` would produce different text. */
   static readonly ExtractorVersion = 1;
   static readonly StampKey = "search_index_version";
@@ -66,17 +66,19 @@ export class SearchIndex {
 
     db.exec(`
       CREATE TABLE IF NOT EXISTS ${SearchIndex.Documents} (
-        docid      INTEGER PRIMARY KEY,
-        project    TEXT NOT NULL,
-        env        TEXT NOT NULL,
-        collection TEXT NOT NULL,
-        entry_id   TEXT NOT NULL,
-        label      TEXT NOT NULL,
-        body       TEXT NOT NULL,
-        UNIQUE (project, env, collection, entry_id)
+        docid         INTEGER PRIMARY KEY,
+        project_id    TEXT NOT NULL,
+        env_id        TEXT NOT NULL,
+        collection_id TEXT NOT NULL,
+        entry_id      TEXT NOT NULL,
+        label         TEXT NOT NULL,
+        body          TEXT NOT NULL,
+        UNIQUE (collection_id, entry_id),
+        FOREIGN KEY (collection_id, entry_id)
+          REFERENCES entries(collection_id, id) ON DELETE CASCADE
       );
       CREATE INDEX IF NOT EXISTS idx_entry_search_scope
-        ON ${SearchIndex.Documents}(project, env, collection);
+        ON ${SearchIndex.Documents}(env_id, collection_id);
       CREATE VIRTUAL TABLE IF NOT EXISTS ${SearchIndex.Fts} USING fts5(
         label, body,
         content = '${SearchIndex.Documents}',
@@ -148,7 +150,10 @@ export class SearchIndex {
     };
     if (docs.n > 0) return false;
     const entries = db
-      .prepare(`SELECT COUNT(*) AS n FROM entries WHERE project != '_system'`)
+      .prepare(
+        `SELECT COUNT(*) AS n FROM entries e JOIN projects p ON p.id = e.project_id
+         WHERE SUBSTR(p.name, 1, 1) != '_'`
+      )
       .get() as { n: number };
     return entries.n > 0;
   }

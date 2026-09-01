@@ -28,6 +28,21 @@ export class StorageTestContext {
     return this.current;
   }
 
+  /**
+   * Ensures the collection exists, so an entry can be written into it.
+   *
+   * Since D51 a collection is a record with a `NOT NULL` schema, and `put`
+   * refuses a collection that has none — writing an unvalidated entry into an
+   * undefined collection is the state the invariant exists to rule out. The
+   * suites that are *about* entries should not each restate that, so the fixture
+   * does it; `EntryRefusedWithoutItsCollection` is where the rule itself is
+   * pinned.
+   */
+  async ensureCollection(store: Storage, scope: Scope, collection: string): Promise<void> {
+    if (await store.findCollection(scope, collection)) return;
+    await store.putSchema(scope, collection, { type: "object" });
+  }
+
   /** Writes an entry with a deterministic timestamp `seconds` into 2026-01-01,
    *  so sort order is fixed without any test having to say so. */
   async putEntry(
@@ -37,6 +52,7 @@ export class StorageTestContext {
     seconds: number,
     data: any
   ): Promise<Entry> {
+    await this.ensureCollection(store, scope, collection);
     const timestamp = new Date(Date.UTC(2026, 0, 1, 0, 0, seconds));
     const entry: Entry = {
       id: EntryUtils.newID(),

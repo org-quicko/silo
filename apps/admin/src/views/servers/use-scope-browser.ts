@@ -45,7 +45,7 @@ export function useScopeBrowser(servers: Server[], initial: ScopeSelection) {
 
     api.projects
       .list(server.url, server.apiKey)
-      .then((items) => !cancelled && setProjects(items))
+      .then((items) => !cancelled && setProjects(items.map((record) => record.name)))
       .catch((failure: any) => {
         if (cancelled) return
         setProjects([])
@@ -71,7 +71,7 @@ export function useScopeBrowser(servers: Server[], initial: ScopeSelection) {
 
     api.projects
       .listEnvironments(server.url, server.apiKey, project)
-      .then((items) => !cancelled && setEnvironments(items))
+      .then((items) => !cancelled && setEnvironments(items.map((record) => record.name)))
       .catch((failure: any) => {
         if (cancelled) return
         setEnvironments([])

@@ -46,6 +46,21 @@ export class FsEntryStore {
     EntryUtils.assertSafeSegment(entry.collection, "collection");
     EntryUtils.assertSafeSegment(entry.id, "id");
 
+    // The collection has to exist as a record. Its schema is `NOT NULL`, so
+    // nothing here could create one, and an entry in a collection with no
+    // schema is the state that invariant exists to rule out (D51). The scope
+    // itself is still created implicitly, by `putSchema`.
+    const marker = this.layout.collectionMarkerFileIn(
+      entry.project,
+      entry.env,
+      entry.collection
+    );
+    if (!(await FsFiles.exists(marker))) {
+      throw new NotFoundError(
+        `collection "${entry.project}/${entry.env}/${entry.collection}" not found`
+      );
+    }
+
     entry.seq = await this.manifest.nextSeq();
 
     const document = {

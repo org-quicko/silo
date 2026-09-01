@@ -1,20 +1,26 @@
 import fs from "fs/promises";
 import path from "path";
 import { EntryUtils } from "../../../core/domain/entry-utils";
+import type { EnvironmentRecord } from "../../../core/domain/environment-record";
+import type { ProjectRecord } from "../../../core/domain/project-record";
 import { Scope } from "../../../core/domain/scope";
+import { ConflictError } from "../../../core/errors/conflict-error";
+import { NotFoundError } from "../../../core/errors/not-found-error";
 import { FsFiles } from "./fs-files";
 import { FsLayout } from "./fs-layout";
+import { FsMarker } from "./fs-marker";
 
 /**
- * Projects and environments as directories plus marker files.
+ * Projects and environments as directories plus marker files (D51).
  *
- * A project or env can be created before it holds anything (D20), so "exists"
- * is not the same question as "has content". SQLite answers it with rows; this
- * adapter has only directories, and a directory alone is ambiguous — the tree
- * is left behind just the same when a scope's last schema and entry are
- * deleted, because nothing prunes it. A marker file written by the create call
- * separates the two, so both adapters agree: **a scope exists exactly when it
- * was created explicitly or still holds content.**
+ * The marker is no longer only evidence that a scope was created explicitly: it
+ * holds the record's **id**, so it is now required, and a directory without one
+ * is not a scope. That replaces D20's rule, where a scope existed if it was
+ * created *or* still held content — a reading that has no answer to "what is
+ * this scope's id".
+ *
+ * A rename is one `fs.rename` of the directory, atomic on one filesystem, and
+ * the marker inside travels untouched.
  */
 export class FsScopeStore {
   private readonly layout: FsLayout;
@@ -23,47 +29,108 @@ export class FsScopeStore {
     this.layout = layout;
   }
 
-  async createProject(project: string): Promise<void> {
-    EntryUtils.assertSafeSegment(project, "project");
-    const projectDir = this.layout.projectDir(project);
+  async createProject(name: string, id?: string): Promise<ProjectRecord> {
+    EntryUtils.assertSafeSegment(name, "project");
+
+    const existing = await this.findProject(name);
+    if (existing) return existing;
+
+    const projectDir = this.layout.projectDir(name);
     await fs.mkdir(projectDir, { recursive: true });
-    await FsScopeStore.writeMarker(projectDir, FsLayout.ProjectMarker);
+    const marker = await FsMarker.write(
+      path.join(projectDir, FsLayout.ProjectMarker),
+      await this.claimId(id, "project")
+    );
+    return { id: marker.id, name, created_at: marker.created_at, updated_at: marker.created_at };
   }
 
-  async listProjects(): Promise<string[]> {
-    const names: string[] = [];
-    for (const project of await FsFiles.readSubdirs(this.layout.projectsDir)) {
-      if (await this.projectExists(project)) names.push(project);
+  async listProjects(): Promise<ProjectRecord[]> {
+    const records: ProjectRecord[] = [];
+    for (const name of await FsFiles.readSubdirs(this.layout.projectsDir)) {
+      const record = await this.findProject(name);
+      if (record) records.push(record);
     }
-    return names;
+    return records.sort((left, right) => left.name.localeCompare(right.name));
   }
 
-  async deleteProject(project: string): Promise<void> {
-    EntryUtils.assertSafeSegment(project, "project");
-    await fs.rm(this.layout.projectDir(project), { recursive: true, force: true });
+  async findProject(name: string): Promise<ProjectRecord | null> {
+    const marker = await FsMarker.read(
+      path.join(this.layout.projectDir(name), FsLayout.ProjectMarker)
+    );
+    if (!marker) return null;
+    return { id: marker.id, name, created_at: marker.created_at, updated_at: marker.created_at };
   }
 
-  async createEnvironment(project: string, env: string): Promise<void> {
+  async renameProject(id: string, name: string): Promise<void> {
+    EntryUtils.assertSafeSegment(name, "project");
+
+    const current = await this.projectById(id);
+    if (current.name === name) return;
+    if (await this.findProject(name)) {
+      throw new ConflictError(`project "${name}" already exists`);
+    }
+    await fs.rename(this.layout.projectDir(current.name), this.layout.projectDir(name));
+  }
+
+  async deleteProject(name: string): Promise<void> {
+    EntryUtils.assertSafeSegment(name, "project");
+    await fs.rm(this.layout.projectDir(name), { recursive: true, force: true });
+  }
+
+  /** The project marker is written too, so a project reached only through
+   *  `createEnvironment` is listed — the same rule SQLite's insert implies. */
+  async createEnvironment(project: string, env: string, id?: string): Promise<EnvironmentRecord> {
     EntryUtils.assertSafeSegment(project, "project");
     EntryUtils.assertSafeSegment(env, "env");
 
-    // The project row is implied by the environment row in SQLite, so mirror
-    // that here: a project reached only through `createEnvironment` is listed
-    // by both adapters.
-    const projectDir = this.layout.projectDir(project);
+    const parent = await this.createProject(project);
+    const existing = await this.readEnvironment(parent.id, project, env);
+    if (existing) return existing;
+
     const envDir = this.layout.envDir(project, env);
     await fs.mkdir(envDir, { recursive: true });
-    await FsScopeStore.writeMarker(projectDir, FsLayout.ProjectMarker);
-    await FsScopeStore.writeMarker(envDir, FsLayout.EnvMarker);
+    const marker = await FsMarker.write(
+      path.join(envDir, FsLayout.EnvMarker),
+      await this.claimId(id, "env")
+    );
+    return {
+      id: marker.id,
+      project_id: parent.id,
+      name: env,
+      created_at: marker.created_at,
+      updated_at: marker.created_at,
+    };
   }
 
-  async listEnvironments(project: string): Promise<string[]> {
-    EntryUtils.assertSafeSegment(project, "project");
-    const names: string[] = [];
+  async listEnvironments(project: string): Promise<EnvironmentRecord[]> {
+    const parent = await this.findProject(project);
+    if (!parent) return [];
+
+    const records: EnvironmentRecord[] = [];
     for (const env of await FsFiles.readSubdirs(this.layout.projectDir(project))) {
-      if (await this.envExists(project, env)) names.push(env);
+      const record = await this.readEnvironment(parent.id, project, env);
+      if (record) records.push(record);
     }
-    return names;
+    return records.sort((left, right) => left.name.localeCompare(right.name));
+  }
+
+  async findEnvironment(project: string, env: string): Promise<EnvironmentRecord | null> {
+    const parent = await this.findProject(project);
+    return parent ? this.readEnvironment(parent.id, project, env) : null;
+  }
+
+  async renameEnvironment(id: string, name: string): Promise<void> {
+    EntryUtils.assertSafeSegment(name, "env");
+
+    const found = await this.environmentById(id);
+    if (found.record.name === name) return;
+    if (await this.findEnvironment(found.project, name)) {
+      throw new ConflictError(`environment "${name}" already exists in this project`);
+    }
+    await fs.rename(
+      this.layout.envDir(found.project, found.record.name),
+      this.layout.envDir(found.project, name)
+    );
   }
 
   async deleteEnvironment(project: string, env: string): Promise<void> {
@@ -74,11 +141,13 @@ export class FsScopeStore {
 
   async listScopes(): Promise<Scope[]> {
     const scopes: Scope[] = [];
-
     for (const project of await FsFiles.readSubdirs(this.layout.projectsDir)) {
-      for (const env of await FsFiles.readSubdirs(this.layout.projectDir(project))) {
-        if (!(await this.envExists(project, env))) continue;
+      if (!(await this.findProject(project))) continue;
 
+      for (const env of await FsFiles.readSubdirs(this.layout.projectDir(project))) {
+        if (!(await FsMarker.read(path.join(this.layout.envDir(project, env), FsLayout.EnvMarker)))) {
+          continue;
+        }
         // A directory pair that does not conform to the id grammar (a
         // hand-edited data dir, a bug elsewhere) is skipped rather than
         // allowed to crash every caller — export in particular.
@@ -97,53 +166,72 @@ export class FsScopeStore {
     return scopes;
   }
 
-  async envExists(project: string, env: string): Promise<boolean> {
-    const envDir = this.layout.envDir(project, env);
-    if (await FsFiles.exists(path.join(envDir, FsLayout.EnvMarker))) return true;
-    return FsScopeStore.hasContent(envDir);
+  /** Creates the project and environment records if they are missing. */
+  async ensureScope(scope: Scope): Promise<EnvironmentRecord> {
+    return this.createEnvironment(scope.project, scope.env);
   }
 
-  async projectExists(project: string): Promise<boolean> {
-    const projectDir = this.layout.projectDir(project);
-    if (await FsFiles.exists(path.join(projectDir, FsLayout.ProjectMarker))) return true;
-
-    for (const env of await FsFiles.readSubdirs(projectDir)) {
-      if (await this.envExists(project, env)) return true;
+  /**
+   * Which project holds this id.
+   *
+   * A scan, because the tree is organised by name — the price of a layout a
+   * human can read, and bounded by the number of projects. The fs adapter is
+   * O(n)-per-query by design (D5, §6.3).
+   */
+  private async projectById(id: string): Promise<ProjectRecord> {
+    for (const record of await this.listProjects()) {
+      if (record.id === id) return record;
     }
-    return false;
+    throw new NotFoundError(`no project with id "${id}"`);
   }
 
-  /** Written only when absent, mirroring SQLite's `INSERT OR IGNORE`: creating
-   *  an existing project must not reset its recorded creation time. */
-  private static async writeMarker(dir: string, name: string): Promise<void> {
-    const marker = path.join(dir, name);
-    if (await FsFiles.exists(marker)) return;
-    await FsFiles.writeAtomic(
-      marker,
-      JSON.stringify({ created_at: EntryUtils.now().toISOString() })
-    );
-  }
-
-  /** Whether a scope directory still holds a schema or an entry. */
-  private static async hasContent(scopeDir: string): Promise<boolean> {
-    const schemas = await FsFiles.readNames(path.join(scopeDir, "schemas"));
-    if (schemas.some((name) => FsScopeStore.isLiveFile(name, FsLayout.SchemaSuffix))) {
-      return true;
-    }
-
-    const contentDir = path.join(scopeDir, "content");
-    for (const collection of await FsFiles.readNames(contentDir)) {
-      const files = await FsFiles.readNames(path.join(contentDir, collection));
-      if (files.some((name) => FsScopeStore.isLiveFile(name, FsLayout.EntrySuffix))) {
-        return true;
+  private async environmentById(
+    id: string
+  ): Promise<{ project: string; record: EnvironmentRecord }> {
+    for (const project of await this.listProjects()) {
+      for (const record of await this.listEnvironments(project.name)) {
+        if (record.id === id) return { project: project.name, record };
       }
     }
-    return false;
+    throw new NotFoundError(`no environment with id "${id}"`);
   }
 
-  /** A dotfile is either a marker or an in-flight `.<name>-<rand>.tmp`, and
-   *  neither is content. */
-  private static isLiveFile(name: string, suffix: string): boolean {
-    return !name.startsWith(".") && name.endsWith(suffix);
+  private async readEnvironment(
+    projectId: string,
+    project: string,
+    env: string
+  ): Promise<EnvironmentRecord | null> {
+    const marker = await FsMarker.read(
+      path.join(this.layout.envDir(project, env), FsLayout.EnvMarker)
+    );
+    if (!marker) return null;
+    return {
+      id: marker.id,
+      project_id: projectId,
+      name: env,
+      created_at: marker.created_at,
+      updated_at: marker.created_at,
+    };
+  }
+
+  /**
+   * A supplied id, checked against the projects and environments on disk, or a
+   * fresh one. The same rule SQLite states: an archive's id is preserved when
+   * it is free and refused when it is not, never silently replaced.
+   */
+  private async claimId(id: string | undefined, label: string): Promise<string> {
+    if (id === undefined) return EntryUtils.newID();
+    EntryUtils.assertSafeSegment(id, `${label} id`);
+    if (id.startsWith("_")) {
+      throw new ConflictError(`record id "${id}" is reserved`);
+    }
+
+    for (const project of await this.listProjects()) {
+      if (project.id === id) throw new ConflictError(`record id "${id}" is already in use`);
+      for (const env of await this.listEnvironments(project.name)) {
+        if (env.id === id) throw new ConflictError(`record id "${id}" is already in use`);
+      }
+    }
+    return id;
   }
 }

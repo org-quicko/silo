@@ -37,7 +37,7 @@ export function PluginGrantScope({
     let live = true
     api.projects
       .listEnvironments(url, apiKey, value.project)
-      .then((list) => live && setEnvironments(list))
+      .then((list) => live && setEnvironments(list.map((record) => record.name)))
       .catch(() => live && setEnvironments([]))
     return () => {
       live = false
