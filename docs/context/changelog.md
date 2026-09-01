@@ -4,6 +4,83 @@
 > The *current* state is [CONTEXT.md](../../CONTEXT.md); this is how it got
 > there.
 
+- **The visual schema editor round-trips a nullable property, so a save no
+  longer strips the nulls out of an imported collection (2026-09-01).**
+  `SchemaDraft` was the reader the entries-view change above deliberately left
+  alone, and the only one of them that also *writes* — which is what made it
+  the damaging one rather than the cosmetic one. Two halves had to line up for
+  the corruption: `kindOf` matched `property.type` against `SchemaFieldLabels`
+  as a scalar, so `["integer", "null"]` hit no label and fell through to the
+  `'string'` default, and `build` maps **every** field through
+  `toProperty`/`applyKind` — not just edited ones — whose default branch did
+  `property.type = field.kind`. So opening an imported collection in the visual
+  editor and saving *anything*, a description typo included, rewrote every
+  column from `["integer", "null"]` to `"string"`, and the collection then
+  refused the nulls it already stored: content that imported fine became
+  content that would not save. `kindOf` reads through `SchemaType.of` now.
+  Writing it back needed somewhere to put the fact, because `toProperty`
+  spreads `field.raw` and then `applyKind` assigns over `type` — so `raw`
+  cannot be what carries it. `SchemaField.nullable` is that place, read by
+  `toField` through the new `SchemaType.isNullable` and applied by a `setType`
+  helper every branch of `applyKind` goes through (`media`, `enum` and
+  `ref-array` write a type too, and a nullable one of those is just as real).
+  Kind and nullability stay **independent**: switching an imported integer to a
+  string writes `["string", "null"]`, because the dropdown says what the column
+  holds and the rows underneath still say it may be blank. `ref` is the one
+  branch that cannot honour it — a `$ref` carries no `type` — so the fact stays
+  on the field and reappears if the author picks a drawable kind again. The
+  third scalar read in the same file went with them: `toField` detected a
+  reference *list* with `property.type === 'array'`, so a nullable one
+  (`["array", "null"]` with `items.$ref`) read as a plain string field and
+  saved as one, losing the `items` subtree along with the union.
+  A genuine multi-type union is treated as a `construct` rather than resolved:
+  `SchemaType.isMultiType` feeds `constructOf`, so `["string", "number"]` joins
+  `oneOf`/`anyOf`/`allOf` on the path that returns the original subtree
+  untouched and labels it `type union · edit in Code view`. Guessing a winner
+  there would throw the other type away, which is the shape of the bug being
+  fixed. `schema-draft.test.ts` pins the three cases the report named
+  (`["integer", "null"]`, `["string", "null"]`, `["string", "number"]`) plus
+  the two that would regress quietly: a plain `"string"` must stay a bare
+  scalar, and a whole imported document must come back unchanged from a save
+  that edits one description. **Knowingly left alone:** a property with no
+  `type` at all — what `StrapiColumns.schemaFor` writes for a `json` column,
+  where "anything" is the honest schema — still reads as `'string'` and saves
+  as `{"type": "string"}`. It is the same narrowing by the same default branch,
+  but it is a different question (an absent type is not a union), and folding
+  it in would change what a *blank* field means to the builder.
+
+- **A property's `type` is read as the union JSON Schema allows, so an imported
+  nullable number is a number again (2026-09-01).**
+  `type` is a string *or an array of them*, and the array form is what content
+  from an import carries: `StrapiColumns.schemaFor` writes `["integer", "null"]`
+  for every integer column, because a field left blank in Strapi's admin is a
+  `NULL` and refusing those would refuse most real content. Three readers in the
+  entries view compared it against `'integer'` — `EntriesTable`'s own
+  `isNumeric`, `FilterFields.valueType` and `Columns.isAutoSafe` — so each was
+  false for exactly the fields a real import produces, and nothing looked broken
+  enough to name: `org-quicko-countries` drew `numeric_code`'s **values**
+  right-aligned, because `CellValue` decides that from `typeof value` per row,
+  under a heading still aligned left, which is the "two different columns" the
+  header comment already warned about. The quieter half was the filter builder,
+  which offered the column the *string* ops: `FilterModel.coerce` would then have
+  sent `"290"` for a field holding `290`, a filter that draws correctly, sends
+  correctly, and matches nothing. The keyword now has one reader,
+  `schema/schema-type.ts` — `SchemaType.of` drops `"null"` and answers `null` for
+  a genuine two-type union (`["string", "number"]`), because no cell, op list or
+  input can render two types as one thing and guessing which one wins is how the
+  original defect got written. Alignment moved with it: a numeric column is
+  right-aligned end to end (`.numericCell` beside `.numericHead`), the heading is
+  `row-reverse` rather than merely pushed right so the *label* is what lines up
+  with the numbers instead of the sort icon, and the em-dash an absent value
+  shows sits with the numbers rather than on the far side of its own column —
+  which a nullable column has plenty of by construction. Deliberately left
+  alone: the readers in `forms/` (`BaseInputTemplate`, `build-ui-schema.ts`,
+  `media-value.ts`), `ApiGuide`'s sample value, and `SchemaDraft`. That last one
+  is the one worth fixing next and is not cosmetic — `kindOf` reads a nullable
+  integer as a `string` kind and `build` rewrites *every* field on save, so one
+  visual-mode save of an imported schema collapses `["integer", "null"]` to
+  `"string"` and the collection then rejects the nulls it already stores.
+
 - **The `⌘K` command palette is gone; the smart bar is the only search UI
   (2026-09-01).**
   The rework that moved results into a dropdown beneath the bar left

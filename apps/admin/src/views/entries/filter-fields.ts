@@ -1,5 +1,6 @@
 import { JsonPath } from '@silo/shared/json-path'
 import type { FilterValueType } from '../../query/filter-model'
+import { SchemaType } from '../../schema/schema-type'
 
 /** One thing a filter row can address, ready for a menu. */
 export interface FilterField {
@@ -92,12 +93,18 @@ export class FilterFields {
     return field.isArray ? ArrayFieldOps : FilterOpsByType[field.type]
   }
 
-  /** The value type a row should compare with, from the property's JSON Schema type/format. */
+  /**
+   * The value type a row should compare with, from the property's JSON Schema
+   * type/format. Read through `SchemaType`, because a nullable number is
+   * `["integer", "null"]` and offering it the string ops would send `"290"` for
+   * a field holding `290` — a filter that draws fine and matches nothing.
+   */
   static valueType(property: any): FilterValueType {
     if (Array.isArray(property?.enum) && property.enum.every((v: unknown) => typeof v === 'string')) return 'enum'
-    if (property?.type === 'string' && property?.format === 'date-time') return 'date-time'
-    if (property?.type === 'number' || property?.type === 'integer') return 'number'
-    if (property?.type === 'boolean') return 'boolean'
+    const type = SchemaType.of(property)
+    if (type === 'string' && property?.format === 'date-time') return 'date-time'
+    if (SchemaType.isNumeric(property)) return 'number'
+    if (type === 'boolean') return 'boolean'
     return 'string'
   }
 
@@ -106,7 +113,7 @@ export class FilterFields {
     // An array is addressed through its elements: `eq($.data.tags[*], "go")`
     // asks whether any tag is "go", while a path to the array itself compares
     // against the whole list and matches nothing (D29 — values are scalars).
-    if (property?.type === 'array') {
+    if (SchemaType.of(property) === 'array') {
       const itemType = FilterFields.valueType(property?.items)
       return { path: `${base}[*]`, label: `${name} (any)`, type: itemType, isArray: true }
     }

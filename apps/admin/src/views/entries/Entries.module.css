@@ -23,7 +23,11 @@
 .menuButton:hover { background: var(--panel-2); color: var(--text-2); }
 .menuCell { position: relative; }
 .relativeTime { font-size: 12.5px; }
-.numericHead { justify-content: flex-end; }
+/* A numeric column is right-aligned end to end — heading, values, and the dash
+   an absent value shows. The heading is reversed rather than merely pushed
+   right so the *label* is what lines up with the numbers, not the sort icon. */
+.numericHead { flex-direction: row-reverse; }
+.numericCell { text-align: right; }
 /* The empty-state message borrows .cell for its padding but is a paragraph,
    not a column: it opts back out of the single-line clipping. */
 .noResults { padding: 40px 16px; color: var(--text-3); text-align: center; white-space: normal; }
