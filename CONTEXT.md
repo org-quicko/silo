@@ -17,7 +17,7 @@ can be cloned with one command.
 
 ## Where things stand
 
-*Last updated: 2026-09-01 (D52)*
+*Last updated: 2026-09-02 (D52)*
 
 Everything through M5 is built and shipping: collections and JSON Schema
 validation, entry CRUD with optimistic concurrency, the query AST and search
@@ -46,7 +46,22 @@ process now also reports on *itself*: a bounded operating snapshot behind a new
 `observability:read` claim, drawn by a second first-party plugin that holds no
 privilege a third-party one could not ask for (D52).
 
-**The most recent changes all landed on 2026-09-01.**
+**The most recent change landed on 2026-09-02; everything before it on
+2026-09-01.**
+
+**A staged Strapi upload gets a name no other upload can take (2026-09-02).**
+`SourceStore` named each staged `.db` from `Date.now()` alone, so two uploads
+inside one millisecond — which is every pair not waiting on a human — got the
+*same* path, and the second overwrote the first while `put` returned a path the
+caller already held. `SourceStore.nextName` now carries the base-36 stamp
+forward a tick when the clock has not moved and appends four random characters:
+distinct within a process by the stamp, distinct across restarts by the tail,
+and still sorted in write order, which is the whole of how `recover` picks the
+newest. The `source-<n>.db` grammar is unchanged, so the sweep and the recovery
+pass still see every file they own. A test that puts fifty times with no sleep
+between now holds the property; the two tests that slept to dodge the collision
+no longer do, and cover same-millisecond writes instead.
+
 
 **silo can say what it is doing, without a metrics stack and without letting a
 dashboard become a content reader (D52).**
