@@ -5,10 +5,11 @@ import type { SearchSnippet } from '../../api/types/search-snippet'
 import { Routes } from '../../router/routes'
 import { Formatters } from '../../utils/formatters'
 import { ValueTitle } from '../../utils/value-title'
+import type { ScopeMatch } from './scope-match'
 
 export interface PaletteItem {
   id: string
-  kind: 'entry' | 'media'
+  kind: 'collection' | 'entry' | 'media'
   title: string
   subtitle: string
   snippets: SearchSnippet[]
@@ -20,12 +21,19 @@ export interface PaletteGroup {
   label: string
   /** `project/env` when the group lies outside the scope on screen, else null. */
   scope: string | null
-  kind: 'entry' | 'media'
+  kind: 'collection' | 'entry' | 'media'
   items: PaletteItem[]
 }
 
 /**
- * The palette's two result sets, arranged for reading.
+ * The bar's three result sets, arranged for reading.
+ *
+ * **Collections come first, and never from the server.** The bar promises to
+ * search collections as well as their contents, and a collection is a name the
+ * session already holds — asking an index for it would be a second request to
+ * answer a question the sidebar's own list already answers. They lead because
+ * they are navigation rather than content: a reader typing a collection's name
+ * wants the collection, and there are at most a handful of them.
  *
  * **Media is a separate group, and only here.** The server keeps it out of the
  * entry index on purpose (D30): it is instance-global with its own `media:*`
@@ -38,11 +46,46 @@ export interface PaletteGroup {
  * throw away the ranking that the search just did.
  */
 export class PaletteResults {
+  /**
+   * Collections are cheap to match and would otherwise push the entry hits —
+   * the thing a search is usually for — under the fold.
+   */
+  private static readonly CollectionLimit = 5
+
+  /**
+   * `collections` is last although it reads first: it is the newest of the
+   * three result sets and every other caller passes none.
+   */
   static build(
     hits: readonly SearchHit[],
     assets: readonly MediaAsset[],
     ctx: { serverId: string; scope: ScopeRef },
+    collections: readonly ScopeMatch[] = [],
   ): PaletteGroup[] {
+    const leading: PaletteGroup[] = []
+    if (collections.length > 0) {
+      leading.push({
+        key: 'collections',
+        label: 'Collections',
+        scope: null,
+        kind: 'collection',
+        items: collections.slice(0, PaletteResults.CollectionLimit).map((match) => ({
+          id: `collection:${ctx.scope.project}/${ctx.scope.env}/${match.name}`,
+          kind: 'collection' as const,
+          title: match.name,
+          // A collection that matched on one of its *fields* says which, since
+          // its own name does not explain why it is on screen.
+          subtitle: match.matchedField
+            ? `field: ${match.matchedField}`
+            : match.count != null
+              ? `${match.count} ${match.count === 1 ? 'entry' : 'entries'}`
+              : 'Collection',
+          snippets: [],
+          href: Routes.entries(ctx.serverId, ctx.scope.project, ctx.scope.env, match.name),
+        })),
+      })
+    }
+
     const groups = new Map<string, PaletteGroup>()
 
     for (const hit of hits) {
@@ -71,7 +114,7 @@ export class PaletteResults {
       })
     }
 
-    const result = [...groups.values()]
+    const result = [...leading, ...groups.values()]
     if (assets.length > 0) {
       result.push({
         key: 'media',

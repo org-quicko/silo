@@ -43,8 +43,28 @@ names that file with `SILO_CONFIG` (D50). Projects, environments and
 collections are keyed records with ULIDs, so all three can be **renamed** —
 from the API and from the admin — and the claims naming them follow (D51).
 
-**The most recent change is that projects, environments and collections became
-ULID-keyed records, so their names can be renamed (D51, 2026-09-01).**
+**The most recent changes all landed on 2026-09-01.**
+
+**Search is one UI again.** The rework that moved results into a dropdown
+beneath the top-bar search left `views/search/CommandPalette.tsx`, its CSS
+Module and `palette-seed.ts` unmounted and unreferenced: `SmartSearch` had
+already absorbed everything the `⌘K` overlay did, so all three are deleted
+rather than re-mounted and `⌘K` focuses the bar. The `Palette*` names in
+`views/search/palette-results.ts` stay — that file is the bar's own result
+builder. Two defects in the same rework are fixed with it. Its text was being
+sent as `?query=` while §5.5 names the parameter `q`, so a server process older
+than the rename saw no text at all — and since a text-less search is a
+legitimate filter-only one, it answered with every entry the key could read,
+newest first, which made a scope-wide search read as a page of whichever
+collection was written last. The wire name is `q` on both sides again; the
+admin's call sites still name the field `query`. And the bar now lists the
+**collections** it always promised to search, as a leading group matched from
+the session's own collection list through the `@`-mention popup's ranker,
+capped at five and suppressed while a chip has already narrowed the search to
+one collection.
+
+**Projects, environments and collections became ULID-keyed records, so their
+names can be renamed (D51).**
 A typo in any of the three names used to be permanent: none of them was a keyed
 entity, so `entries`, `schemas`, `media_references` and `entry_search` all
 repeated the names as literal columns and every rename would have been a cascade
