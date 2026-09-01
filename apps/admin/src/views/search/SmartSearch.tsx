@@ -136,7 +136,7 @@ export function SmartSearch({
     const ticket = ++seq.current
     setLoading(true)
     Promise.all([
-      api.search.run(url, apiKey, target, { q: query, limit: ENTRY_LIMIT }),
+      api.search.run(url, apiKey, target, { query, limit: ENTRY_LIMIT }),
       canReadMedia && !chip
         ? api.media.list(url, apiKey, { q: query, limit: MEDIA_LIMIT }).catch(() => ({ items: [] as MediaAsset[] }))
         : Promise.resolve({ items: [] as MediaAsset[] }),

@@ -94,7 +94,7 @@ export function useEntriesData({
             apiKey,
             { kind: 'collection', scope, collection },
             {
-              q: q.trim(),
+              query: q.trim(),
               filter,
               // Omitted rather than defaulted: a supplied sort beats
               // relevance (§5.5), so sending one "just to be explicit" would

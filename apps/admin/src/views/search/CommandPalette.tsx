@@ -115,7 +115,7 @@ export function CommandPalette({
     const ticket = ++seq.current
     setLoading(true)
     Promise.all([
-      api.search.run(url, apiKey, target, { q: query, limit: ENTRY_LIMIT }),
+      api.search.run(url, apiKey, target, { query, limit: ENTRY_LIMIT }),
       // Media is a second, independent search with its own claims — and it is
       // not "inside" any one collection, so a scoped hand-off skips it rather
       // than surfacing assets from outside the collection the chip named.

@@ -31,7 +31,7 @@ export class SearchApi {
     query: SearchQuery = {},
   ): Promise<SearchPage> {
     const params = new QueryParams()
-      .set('q', query.q)
+      .set('query', query.query ?? query.q)
       .json('filter', query.filter)
       // Omitted rather than defaulted: §5.5 gives a supplied sort precedence
       // over relevance, so sending one "just to be explicit" would silently

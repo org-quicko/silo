@@ -131,6 +131,25 @@ describe.each(["scan", "fts5"] as const)("search API (%s engine)", (engine) => {
       expect(where(a)).toEqual(where(b));
     });
 
+    test("accepts ?query= parameter identically to ?q=", async () => {
+      const bodyInstance = await search("/api/search?query=pricing", rootKey);
+      expect(where(bodyInstance)).toEqual([
+        "acme/prod/posts:Acme pricing",
+        "default/prod/pages:About",
+        "default/prod/posts:Pricing changes",
+        "default/staging/posts:Staging pricing draft",
+      ]);
+
+      const bodyScope = await search(
+        "/api/projects/default/environments/prod/search?query=pricing",
+        rootKey
+      );
+      expect(where(bodyScope)).toEqual([
+        "default/prod/pages:About",
+        "default/prod/posts:Pricing changes",
+      ]);
+    });
+
     test("a collection search is not captured by the entry-detail route", async () => {
       // `/collections/{name}/{id}` would otherwise swallow this with id="search".
       const response = await app.request(
