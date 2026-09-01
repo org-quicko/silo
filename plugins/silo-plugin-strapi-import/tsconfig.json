@@ -1,9 +1,9 @@
 {
   // Editor support only. A silo plugin has no build step — silo transpiles
-  // `index.ts` itself — so nothing here is ever compiled, and `noEmit` keeps a
-  // stray `tsc` from littering a .js file beside the source silo actually runs.
+  // `src/index.ts` itself — so nothing here is ever compiled, and `noEmit` keeps
+  // a stray `tsc` from littering a .js file beside the source silo actually runs.
   //
-  // `silo-api.d.ts` is picked up by the include below; it is what makes
+  // `src/types/silo-api.d.ts` is picked up by the include below; it is what makes
   // `import { defineSiloPlugin } from "silo:api"` resolve in an editor even
   // though the module has no file on disk.
   //
@@ -23,5 +23,5 @@
     "skipLibCheck": true,
     "noEmit": true
   },
-  "include": ["./*.ts"]
+  "include": ["src/**/*.ts", "src/**/*.d.ts", "test/**/*.ts"]
 }

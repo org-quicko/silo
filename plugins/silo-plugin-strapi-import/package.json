@@ -3,14 +3,14 @@
   "version": "0.3.0",
   "description": "Import a Strapi 5 SQLite export into silo collections, from a panel in the admin",
   "type": "module",
-  "main": "index.ts",
+  "main": "src/index.ts",
   "license": "AGPL-3.0-or-later",
   "silo": {
     "silo": "^0.3",
     "contributes": {
       "runtime": true,
       "ui": {
-        "entry": "./panel.html",
+        "entry": "./src/panel/panel.html",
         "title": "Import from Strapi"
       },
       "routes": [
@@ -78,17 +78,6 @@
     "config": {
       "type": "object",
       "properties": {
-        "project": {
-          "type": "string",
-          "title": "Target project",
-          "description": "Where imported collections are created. The panel can override this per run.",
-          "default": "default"
-        },
-        "env": {
-          "type": "string",
-          "title": "Target environment",
-          "default": "prod"
-        },
         "collection_prefix": {
           "type": "string",
           "title": "Collection name prefix",
@@ -103,7 +92,7 @@
         "media_folder": {
           "type": "string",
           "title": "Media library folder",
-          "description": "Where supplied uploads land in silo's media library. Keeps a few hundred hashed Strapi filenames out of the library root. Empty means the root.",
+          "description": "Where supplied uploads land in silo's media library, created on the first import if it is not there. Keeps a few hundred hashed Strapi filenames out of the library root. Empty means the root.",
           "default": "strapi"
         },
         "work_dir": {

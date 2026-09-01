@@ -182,7 +182,7 @@
     node.textContent = message
   }
 
-  const state = { source: null, inventory: null, files: null, plan: null, targets: null, job: null, timer: null }
+  const state = { source: null, inventory: null, files: null, plan: null, targets: [], job: null, timer: null }
 
   function bytes(n) {
     if (n < 1024) return n + ' B'
@@ -413,14 +413,18 @@
 
   /* ------------------------------------------------------------------ plan */
 
+  /**
+   * The plan, the scopes it could target, and what uploads are staged.
+   *
+   * `/plan` carries the targets with it rather than the panel asking `/targets`
+   * separately: the proposed project and environment are the first of those
+   * targets, so the two answers have to come from one read or the selects can
+   * open on a scope the plan does not name.
+   */
   async function loadPlan() {
-    const [plan, targets, files] = await Promise.all([
-      silo.json('/plan'),
-      silo.json('/targets'),
-      silo.json('/files'),
-    ])
+    const [plan, files] = await Promise.all([silo.json('/plan'), silo.json('/files')])
     state.plan = plan.plan
-    state.targets = targets
+    state.targets = plan.targets || []
     state.files = files
   }
 
@@ -428,40 +432,53 @@
     return (state.inventory ? state.inventory.lists : []).find((list) => list.id === id)
   }
 
+  /**
+   * The two selects at the top of the plan.
+   *
+   * **The plan owns the choice, not the DOM.** `render()` runs on every upload
+   * and on every poll of a running import, and it used to rebuild these two
+   * selects and then set them back to the plan's *proposed* scope — so an
+   * operator who chose a project and then staged their uploads had the choice
+   * silently reverted, and the import went to whatever silo proposed. The
+   * `change` handlers below write into `state.plan`, and this reads from it, so
+   * a re-render puts back what the operator picked.
+   */
   function renderTargets() {
-    const items = (state.targets && state.targets.items) || []
-    const project = $('project')
-    project.innerHTML = ''
-    for (const entry of items) {
-      const option = document.createElement('option')
-      option.value = entry.id || entry.name
-      option.textContent = entry.id || entry.name
-      project.appendChild(option)
-    }
-    if (state.plan) project.value = state.plan.project
-    if (!project.value && items.length > 0) project.value = items[0].id || items[0].name
+    fill($('project'), state.targets.map((entry) => entry.id), state.plan.project)
+    state.plan.project = $('project').value
     renderEnvs()
   }
 
   function renderEnvs() {
-    const items = (state.targets && state.targets.items) || []
-    const chosen = items.find((entry) => (entry.id || entry.name) === $('project').value)
-    const envs = (chosen && (chosen.environments || chosen.envs)) || []
-    const select = $('env')
-    select.innerHTML = ''
-    for (const entry of envs) {
-      const name = typeof entry === 'string' ? entry : entry.id || entry.name
-      const option = document.createElement('option')
-      option.value = name
-      option.textContent = name
-      select.appendChild(option)
-    }
-    if (state.plan && [...select.options].some((option) => option.value === state.plan.env)) {
-      select.value = state.plan.env
-    }
+    const chosen = state.targets.find((entry) => entry.id === state.plan.project)
+    fill($('env'), (chosen && chosen.environments) || [], state.plan.env)
+    state.plan.env = $('env').value
   }
 
-  $('project').addEventListener('change', renderEnvs)
+  /** Rebuild a select's options, keeping `chosen` selected when it is still one
+   *  of them and falling back to the first when it is not. */
+  function fill(select, values, chosen) {
+    select.innerHTML = ''
+    for (const value of values) {
+      const option = document.createElement('option')
+      option.value = value
+      option.textContent = value
+      select.appendChild(option)
+    }
+    select.value = values.includes(chosen) ? chosen : values[0] || ''
+  }
+
+  $('project').addEventListener('change', () => {
+    state.plan.project = $('project').value
+    // The environments belong to the project, so choosing one re-reads them and
+    // the plan's env follows to whatever the new project actually has.
+    state.plan.env = ''
+    renderEnvs()
+  })
+
+  $('env').addEventListener('change', () => {
+    state.plan.env = $('env').value
+  })
 
   function renderSteps() {
     const body = $('steps')
@@ -546,17 +563,9 @@
     alert_('')
     $('run').disabled = true
     try {
-      state.job = await silo.json('/imports', {
-        method: 'POST',
-        body: {
-          project: $('project').value,
-          env: $('env').value,
-          version: state.plan.version,
-          mediaBaseUrl: state.plan.mediaBaseUrl,
-          mediaFolder: state.plan.mediaFolder,
-          steps: state.plan.steps,
-        },
-      })
+      // `state.plan` and not the selects: the plan is what the operator edited,
+      // and the selects write into it as they change.
+      state.job = await silo.json('/imports', { method: 'POST', body: state.plan })
       poll()
     } catch (caught) {
       alert_(caught.message || String(caught))

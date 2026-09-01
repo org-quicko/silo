@@ -4,6 +4,48 @@
 > The *current* state is [CONTEXT.md](../../CONTEXT.md); this is how it got
 > there.
 
+- **The Strapi importer's target is the plan's, its uploads land in the folder
+  that was configured, and the package is a directory per subject (2026-09-01).**
+  Three bugs from one live run, and none of them was in the importing.
+  **The target scope was configured *and* chosen**, which is two answers to one
+  question: `[plugins.config]` carried `project` and `env`, `GET /plan` proposed
+  them, and the panel rebuilt its two selects on every `render()` — after staging
+  the uploads, on every 700 ms poll of a running import — putting them back to the
+  proposal each time. An operator who retargeted a plan and then sent their files
+  watched the import go to `default`/`prod` without being told. Both keys are gone
+  from the config schema; `SiloTargets` (new, in `src/silo/`) reads the projects
+  and environments the grant can see, `GET /plan` now answers with those targets
+  beside the plan so the selects and the proposal cannot disagree, and the panel's
+  `change` handlers write into `state.plan` so a re-render restores the operator's
+  choice rather than overwriting it. A plan with no scope on it is refused by
+  naming the two selects — `SiloTargets.defaultOf([])` proposes nothing rather
+  than the plausible `default`/`prod`, because a guess is what produced an import
+  that went somewhere instead of one that said it had nowhere to go.
+  **`media_folder` was documentation.** Silo validates `[plugins.config]` against
+  the manifest's JSON Schema and hands it over as written — `PluginConfigValidator`
+  compiles Ajv without `useDefaults`, and nothing else fills a `default` in — so
+  the manifest's `"default": "strapi"` never reached the worker, and the plugin's
+  own fallback said `""`. Every import put several hundred hashed Strapi filenames
+  in the root of a library whose owner had been told otherwise. `PluginSettings`
+  (new, in `src/worker/`) is now the one place a default takes effect and states
+  each of them beside the manifest's, and `MediaLibrary` declares the folder with
+  `POST /api/media/folders` once per run before the first upload — the upload's own
+  `folder` field is what files the asset, but the explicit record is what makes the
+  folder visible in the library tree from the first import and what keeps it there
+  once every file in it is deleted.
+  **And the package was twenty files in one directory.** It is now `src/` with a
+  directory per subject — `routes/`, `worker/`, `strapi/`, `staging/`, `silo/`,
+  `panel/`, `types/` — and a `test/` tree with one file per subject beside a
+  `support/` holding the synthetic export. `index.ts` went from 393 lines of route
+  bodies to `activate`, `deactivate` and four `Routes.handlers()` spreads;
+  `ImportRuntime` holds the state those routes reach through. The panel stays one
+  inlined HTML file, because `contributes.ui` allows one (D41).
+  The collection name the plan proposes was the fourth report and needed no
+  change: `SiloNames.forList` already carries a component uid whole, so
+  `org-quicko.bank` proposes `org-quicko-bank` and not `bank`. That was fixed the
+  day before, in `refactor: improve naming conventions and validation`, and the
+  screen showing `bank` was a worker that had not been restarted since.
+
 - **The settings APIs check that they can write `silo.toml`, say why when they
   cannot, and a container can name the file with `SILO_CONFIG` (D50, 2026-09-01).**
   An instance deployed to Railway from this repo's Dockerfile answered `500 internal error` to

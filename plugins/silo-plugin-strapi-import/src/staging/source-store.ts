@@ -1,5 +1,4 @@
 import fs from 'fs/promises'
-import os from 'os'
 import path from 'path'
 
 /** What is staged, as the panel shows it. */
@@ -50,22 +49,14 @@ export class SourceStore {
 
   /**
    * Public, because `UploadStore` stages Strapi's uploads under the same root and
-   * the two have to agree about where it is — resolved once here rather than
-   * derived twice, where a restart could recover half a state.
+   * the two have to agree about where it is — resolved once by `PluginSettings`
+   * rather than derived twice, where a restart could recover half a state.
    */
   readonly directory: string
   private staged: StagedSource | null = null
 
-  constructor(workDir: string | undefined) {
-    this.directory = SourceStore.directoryFor(workDir)
-  }
-
-  /** The staging root: `work_dir` if the operator set one, else a directory of
-   *  our own under the system temp dir. */
-  static directoryFor(workDir: string | undefined): string {
-    return workDir && workDir.trim().length > 0
-      ? workDir.trim()
-      : path.join(os.tmpdir(), 'silo-strapi-import')
+  constructor(directory: string) {
+    this.directory = directory
   }
 
   current(): StagedSource | null {

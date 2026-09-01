@@ -1,7 +1,8 @@
-import { SiloNames } from './silo-names'
-import type { StrapiInventory } from './strapi-inventory'
-import type { StrapiVersion } from './strapi-versions'
-import { StrapiVersions } from './strapi-versions'
+import type { SiloScope } from 'silo:api'
+import { SiloNames } from '../silo/silo-names'
+import type { StrapiInventory } from '../strapi/strapi-inventory'
+import type { StrapiVersion } from '../strapi/strapi-versions'
+import { StrapiVersions } from '../strapi/strapi-versions'
 
 /** What to do about a target collection that already has entries. */
 export type ImportMode = 'append' | 'replace' | 'skip'
@@ -19,6 +20,8 @@ export interface ImportStep {
 }
 
 export interface ImportPlan {
+  /** The scope this plan writes into. Chosen on the plan against the projects
+   *  that exist (`SiloTargets`), never configured. */
   project: string
   env: string
   version: StrapiVersion
@@ -50,12 +53,18 @@ export interface ImportPlan {
 export class ImportPlans {
   static readonly Modes: readonly ImportMode[] = ['append', 'replace', 'skip']
 
-  /** What silo would do with this export if nobody edited anything. */
+  /**
+   * What silo would do with this export if nobody edited anything.
+   *
+   * `scope` is where the plan points *before* anybody edits it — the first
+   * project silo answers with, not a configured one. Which scope an import
+   * writes into is the operator's to choose on the plan, so there is nowhere
+   * else for the answer to come from.
+   */
   static propose(
     inventory: StrapiInventory,
     defaults: {
-      project: string
-      env: string
+      scope: SiloScope
       prefix: string
       mediaBaseUrl: string
       mediaFolder: string
@@ -73,8 +82,8 @@ export class ImportPlans {
     }))
 
     return {
-      project: defaults.project,
-      env: defaults.env,
+      project: defaults.scope.project,
+      env: defaults.scope.env,
       version: inventory.version,
       mediaBaseUrl: defaults.mediaBaseUrl,
       mediaFolder: defaults.mediaFolder,
@@ -124,13 +133,35 @@ export class ImportPlans {
     }
     if (steps.length === 0) throw new Error('no steps are included, so there is nothing to import')
 
+    const scope = ImportPlans.scope(body)
     return {
-      project: SiloNames.check(body.project, 'project'),
-      env: SiloNames.check(body.env, 'env'),
+      project: scope.project,
+      env: scope.env,
       version,
       mediaBaseUrl: typeof body.mediaBaseUrl === 'string' ? body.mediaBaseUrl : '',
       mediaFolder: ImportPlans.folder(body.mediaFolder),
       steps,
+    }
+  }
+
+  /**
+   * Where the plan says it is going, or a refusal.
+   *
+   * Named apart from the two `SiloNames.check` calls it makes because "no target
+   * was chosen" is a different mistake from "that is not a usable id", and the
+   * operator fixes it in a different place — the two selects at the top of the
+   * plan rather than the text they typed.
+   */
+  private static scope(body: Record<string, unknown>): SiloScope {
+    if (!body.project || !body.env) {
+      throw new Error(
+        'choose the project and environment this import writes into. A plan says where it is ' +
+          'going, and silo has no default for it to fall back on.',
+      )
+    }
+    return {
+      project: SiloNames.check(body.project, 'project'),
+      env: SiloNames.check(body.env, 'env'),
     }
   }
 

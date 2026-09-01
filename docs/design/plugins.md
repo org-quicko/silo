@@ -351,6 +351,24 @@ silo plugin doctor               load everything, report failures, exit
 
 All three are read-only and need no network, and they stay that way.
 
+**`[plugins.config]` is validated, not completed.** `PluginConfigValidator`
+compiles the manifest's schema with Ajv and checks the operator's table against
+it; it does not run with `useDefaults`, and nothing downstream fills one in
+either — `PluginGrantUtils.configFor` picks the stored override *or* the file's
+block, whole. So a `"default"` in a config schema is a fact for the settings form
+and for `silo plugin info`, and a key nobody wrote arrives at `ctx.config` as
+`undefined`.
+
+That is the honest behaviour for a document somebody edits — the config in force
+is one table a person wrote, not a computation over two — but it means **a plugin
+states its own defaults in code**, and a fallback that disagrees with the manifest
+is a silent misconfiguration. The Strapi importer found this the expensive way:
+its manifest advertised `media_folder: "strapi"` while the code read a missing key
+as the library root, so every import filed several hundred hashed filenames
+somewhere the operator had been told they would not be. Its `PluginSettings` is
+the shape to copy — one class, every default named once, and a test asserting each
+against what the manifest declares.
+
 **`silo add` is the installer, and it landed after 1.0 (D32).** 1.0 shipped "a
 plugin is a directory you place and list" because a package manager — registry
 resolution, integrity pinning, a lockfile, a signature policy — is the largest

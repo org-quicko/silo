@@ -1,12 +1,13 @@
 import type { SiloContext } from 'silo:api'
-import type { MediaOutcome } from './media-library'
-import { MediaLibrary } from './media-library'
+import type { MediaOutcome } from '../silo/media-library'
+import { MediaLibrary } from '../silo/media-library'
 import type { ImportPlan, ImportStep } from './import-plan'
-import type { StrapiInventory, StrapiList } from './strapi-inventory'
-import { StrapiInventory as Inventory } from './strapi-inventory'
-import { StrapiRows } from './strapi-rows'
-import { StrapiDatabase } from './strapi-database'
-import type { UploadStore } from './upload-store'
+import type { StrapiInventory, StrapiList } from '../strapi/strapi-inventory'
+import { StrapiInventory as Inventory } from '../strapi/strapi-inventory'
+import { StrapiSchema } from '../strapi/strapi-schema'
+import { StrapiRows } from '../strapi/strapi-rows'
+import { StrapiDatabase } from '../strapi/strapi-database'
+import type { UploadStore } from '../staging/upload-store'
 
 export type ImportState = 'running' | 'done' | 'failed'
 
@@ -242,7 +243,7 @@ export class ImportJob {
     list: StrapiList,
   ): Promise<'write' | 'skip'> {
     if (!(await this.exists(scope, step.collection))) {
-      await this.create(scope, step.collection, Inventory.schemaFor(list))
+      await this.create(scope, step.collection, StrapiSchema.forList(list))
       step.detail = `created "${step.collection}"`
       return 'write'
     }
