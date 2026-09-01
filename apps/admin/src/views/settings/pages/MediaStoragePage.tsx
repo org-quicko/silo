@@ -159,9 +159,8 @@ export function MediaStoragePage({ server, claims }: { server: Server; claims: s
                   <div className={styles.notice}>
                     <AlertTriangle size={14} />
                     <span>
-                      This server was started without a config file, so there is nothing to write
-                      to. Set the <code>SILO_BLOB_*</code> variables, or start it with{' '}
-                      <code>--config</code>.
+                      {view.read_only_reason ??
+                        'This server cannot write its config file, so this form is read-only.'}
                     </span>
                   </div>
                 )}

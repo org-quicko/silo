@@ -1,5 +1,6 @@
 import fs from "fs/promises";
 import { TOML } from "bun";
+import { ValidationError } from "@silo/shared/validation-error";
 import { ConfigScaffold } from "./config-scaffold";
 
 /**
@@ -17,6 +18,11 @@ import { ConfigScaffold } from "./config-scaffold";
  *    what was asked for.
  *  - Lines are split on `"\n"` only, so a `"\r"` stays attached to its line
  *    and a CRLF file is not quietly rewritten to LF around the edit.
+ *
+ * A refusal is a `ValidationError`, not a plain one: every one of them is a
+ * statement about the document an operator has to go and fix, and the settings
+ * APIs answering `500 internal error` to "edit the table by hand" would hide
+ * the only sentence worth reading.
  *
  * What it does not do is preserve comments *inside* the table it replaces: the
  * whole span goes, including silo's own. That is the honest cost of editing a
@@ -116,7 +122,7 @@ export class TomlTableEdit {
     try {
       parsed = TOML.parse(after);
     } catch (caught) {
-      throw new Error(
+      throw new ValidationError(
         `writing [${edit.table}] to ${configPath} would have produced a file TOML cannot ` +
           `read (${(caught as Error).message}), so nothing was written.`
       );
@@ -128,14 +134,14 @@ export class TomlTableEdit {
     };
 
     if (rest(TOML.parse(before)) !== rest(parsed)) {
-      throw new Error(
+      throw new ValidationError(
         `writing [${edit.table}] to ${configPath} would have changed the rest of the file, ` +
           `so nothing was written. Edit the table by hand.`
       );
     }
 
     if (!edit.verify(parsed?.[edit.table])) {
-      throw new Error(
+      throw new ValidationError(
         `[${edit.table}] did not read back as it was written in ${configPath}, ` +
           `so nothing was written.`
       );

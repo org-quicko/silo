@@ -32,7 +32,7 @@ Usage:
   silo help
 
 Common flags:
-  --config path     TOML config file (default: silo.toml if present)
+  --config path     TOML config file (default: $SILO_CONFIG, else silo.toml if present)
   --data dir        data directory (default ./silo_data)
   --driver name     storage driver: sqlite | fs (default sqlite)
   --blob-path dir   media directory for the fs blob driver (default <data>/media)
@@ -99,7 +99,8 @@ installed, and what it was verified as, is recorded in
 loads exactly what silo.toml names. A running server picks up an added plugin
 on POST /api/plugins/rescan, or at its next start — never on its own.
 
-Environment overrides: SILO_LISTEN, SILO_DEFAULT_PROJECT, SILO_DEFAULT_ENV,
+Environment overrides: SILO_CONFIG (the config file itself, below --config),
+SILO_LISTEN, SILO_DEFAULT_PROJECT, SILO_DEFAULT_ENV,
 SILO_STORAGE_DRIVER, SILO_STORAGE_PATH, SILO_BLOB_DRIVER, SILO_BLOB_PATH,
 SILO_BLOB_S3_*, SILO_AUTH_DISABLED, SILO_SCHEMA_ALLOW_REMOTE_REFS,
 SILO_LOG_LEVEL, SILO_LOG_FILE, SILO_LOG_FORMAT, SILO_LOG_REQUESTS,

@@ -8,6 +8,7 @@ import type { AuditActor } from "../core/audit/audit-actor";
 import { AsyncMutex } from "../core/services/support/async-mutex";
 import type { SiloService } from "../core/services/silo-service";
 import type { Logger } from "../logging/logger";
+import { ConfigFileAccess } from "./config-file-access";
 import { ConfigSectionSettings } from "./config-section-settings";
 import type { ConfigSectionView } from "./config-section-view";
 import type { ConfigSettingsView } from "./config-settings-view";
@@ -66,15 +67,20 @@ export class ConfigSupervisor {
   }
 
   async view(): Promise<ConfigSettingsView> {
+    // Asked once and handed down: every section's `writable` is this same
+    // answer narrowed by whether the section itself is written at all, and
+    // probing the file per section would ask the filesystem four times for it.
+    const access = await ConfigFileAccess.report(this.configPath, !!this.reload);
+
     const sections: ConfigSectionView[] = [];
     for (const section of ConfigSections.All) {
-      sections.push(await this.sectionView(section));
+      sections.push(await this.sectionView(section, access.writable));
     }
 
     return {
       sections,
       ...(this.configPath ? { config_path: this.configPath } : {}),
-      writable: this.writable(),
+      ...access,
       restart_pending: sections.some((section) => section.restart_pending.length > 0),
     };
   }
@@ -95,11 +101,10 @@ export class ConfigSupervisor {
     }
   }
 
-  private writable(): boolean {
-    return !!this.configPath && !!this.reload;
-  }
-
-  private async sectionView(section: ConfigSection): Promise<ConfigSectionView> {
+  private async sectionView(
+    section: ConfigSection,
+    fileWritable: boolean
+  ): Promise<ConfigSectionView> {
     const file = this.configPath ? await SectionTable.read(this.configPath, section) : null;
     const inForce = ConfigSupervisor.valuesOf(this.running, section);
 
@@ -111,7 +116,7 @@ export class ConfigSupervisor {
       file: file ?? {},
       in_force: inForce,
       overrides: ConfigSectionSettings.overrides(section, file, inForce),
-      writable: section.writable && this.writable(),
+      writable: section.writable && fileWritable,
       // Against the file rather than against a fresh reload, so a table edited
       // by hand since the start is reported too. An env var cannot change under
       // a running process, so the file is the only thing that can have moved.
@@ -148,7 +153,9 @@ export class ConfigSupervisor {
     const next = ConfigSectionSettings.merge(file, input);
 
     const restore = await ConfigSupervisor.snapshot(configPath);
-    const created = await SectionTable.write(configPath, section, next);
+    const created = await ConfigFileAccess.writing(configPath, restore, () =>
+      SectionTable.write(configPath, section, next)
+    );
 
     let config: Config;
     try {

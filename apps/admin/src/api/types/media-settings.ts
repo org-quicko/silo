@@ -36,6 +36,8 @@ export interface MediaPolicyView {
   default_extensions: string[]
   config_path?: string
   writable: boolean
+  /** Why a save cannot land, when one cannot. See `MediaStorageView`. */
+  read_only_reason?: string
 }
 
 /** What `PUT /api/media/settings` accepts. An omitted field is cleared, not

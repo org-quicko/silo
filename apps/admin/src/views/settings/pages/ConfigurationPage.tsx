@@ -78,9 +78,8 @@ export function ConfigurationPage({ server, claims }: { server: Server; claims: 
               <div className={styles.notice}>
                 <AlertTriangle size={14} />
                 <span>
-                  This server was started without a config file, so there is nothing to write to.
-                  Start it with <code>--config</code>, or set the matching{' '}
-                  <code>SILO_*</code> variables.
+                  {view.read_only_reason ??
+                    'This server cannot write its config file, so these settings are read-only.'}
                 </span>
               </div>
             )}

@@ -4,6 +4,30 @@
 > The *current* state is [CONTEXT.md](../../CONTEXT.md); this is how it got
 > there.
 
+- **The settings APIs check that they can write `silo.toml`, say why when they
+  cannot, and a container can name the file with `SILO_CONFIG` (D50, 2026-09-01).**
+  An instance deployed to Railway from this repo's Dockerfile answered `500 internal error` to
+  `PUT /api/media/storage` and `PUT /api/settings/log` while `GET` on both reported
+  `writable: true` and `config_path: "silo.toml"`. That path resolves inside `/app`, which the
+  image owns as root while the server runs as `bun`, so `ConfigScaffold` creating the file was
+  `EACCES` and the HTTP handler's last branch turned it into a body with no reason in it.
+  `CliOptions.configPath` now reads `SILO_CONFIG` below `--config` and above the default, since an
+  image someone else built has no argv to edit; it deliberately does not make a missing file an
+  error the way `--config` does, because a fresh volume has none and the first save creates it. The
+  Dockerfile sets `SILO_CONFIG=/data/silo.toml`, on the volume with the database and the media,
+  `/app` being both unwritable and replaced on every deploy. `ConfigFileAccess` (new, in
+  `settings/`) probes the path for the view — the file's own write access, or the nearest ancestor
+  directory that exists, since the scaffold creates the rest — so `writable` stops meaning "was I
+  handed a path", and `MediaStorageView`, `MediaPolicyView` and `ConfigSettingsView` carry a
+  `read_only_reason` the two admin pages print in place of the sentence they used to assert.
+  `ConfigFileAccess.writing` wraps all three table writes: it restores the file on any failure and
+  turns a recognised errno (`EACCES`, `EPERM`, `EROFS`, `ENOSPC`, `ENOTDIR`, `EISDIR`, `ELOOP`,
+  `ENOENT`) into a `ValidationError` naming the path and the remedy, while anything with no errno
+  keeps its own type and its `500`. `TomlTableEdit`'s three refusals became `ValidationError`s for
+  the same reason: they are sentences an operator has to act on, not faults. The probe is advisory
+  and the write is the authority, because permissions change and volumes fill between a `GET` and a
+  `PUT`.
+
 - **Folder merge no longer leaves a duplicate `_media_folders` record, and the
   merge dialog names its own verb (D49 audit fix, 2026-08-31).**
   `MediaFolderMoveService` writes folder records put-then-delete so a crash leaves a duplicate
