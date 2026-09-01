@@ -25,7 +25,6 @@ import { MediaValue } from '../../forms/widgets/media-value'
 import { SiloRefs } from '../../schema/silo-refs'
 import { TopBar } from '../shell/TopBar'
 import { SmartSearch } from '../search/SmartSearch'
-import type { PaletteSeed } from '../search/palette-seed'
 import styles from './EntryForm.module.css'
 
 // Convert server ValidationDetails (JSON Pointer paths) into RJSF extraErrors.
@@ -62,8 +61,6 @@ interface Props {
   onSaved: () => void
   onCancel: () => void
   onDeleted: () => void
-  onOpenPalette: (seed: PaletteSeed) => void
-  onNavigateToCollection: (name: string, q: string) => void
 }
 
 export function EntryForm({
@@ -79,8 +76,6 @@ export function EntryForm({
   onSaved,
   onCancel,
   onDeleted,
-  onOpenPalette,
-  onNavigateToCollection,
 }: Props) {
   // SiloRefs inlines silo://collections/* refs as internal pointers (RJSF and
   // its ajv8 validator only follow #/... pointers) and strips $schema, which
@@ -163,11 +158,11 @@ export function EntryForm({
         search={
           <SmartSearch
             serverId={serverId}
+            url={url}
+            apiKey={apiKey}
             scope={scope}
-            collection={collection.name}
+            claims={claims}
             collections={collections.map((c) => ({ name: c.name, count: null, schema: c.schema }))}
-            onNavigateToCollection={onNavigateToCollection}
-            onOpenPalette={onOpenPalette}
           />
         }
       >

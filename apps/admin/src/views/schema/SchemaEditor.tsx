@@ -14,7 +14,6 @@ import { Segmented } from '../../components/controls/Segmented'
 import { DangerConfirm } from '../../components/modal/DangerConfirm'
 import { TopBar } from '../shell/TopBar'
 import { SmartSearch } from '../search/SmartSearch'
-import type { PaletteSeed } from '../search/palette-seed'
 import { RenameForm } from '../settings/rename/RenameForm'
 import { CollectionRail } from './CollectionRail'
 import { FieldList } from './FieldList'
@@ -35,8 +34,6 @@ interface Props {
   onSaved: (name: string) => void
   onCancel: () => void
   onDeleted: () => void
-  onOpenPalette: (seed: PaletteSeed) => void
-  onNavigateToCollection: (name: string, q: string) => void
 }
 
 export function SchemaEditorView({
@@ -52,8 +49,6 @@ export function SchemaEditorView({
   onSaved,
   onCancel,
   onDeleted,
-  onOpenPalette,
-  onNavigateToCollection,
 }: Props) {
   const draft = useSchemaDraft(collection)
 
@@ -155,11 +150,11 @@ export function SchemaEditorView({
         search={
           <SmartSearch
             serverId={serverId}
+            url={url}
+            apiKey={apiKey}
             scope={scope}
-            collection={collection?.name ?? null}
+            claims={claims}
             collections={collections.map((c) => ({ name: c.name, count: null, schema: c.schema }))}
-            onNavigateToCollection={onNavigateToCollection}
-            onOpenPalette={onOpenPalette}
           />
         }
       >
