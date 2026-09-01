@@ -1501,6 +1501,13 @@ platform volume; the Dockerfile intentionally declares no `VOLUME`, which keeps
 it compatible with platforms such as Railway. A `HEALTHCHECK` backed by
 `GET /api/health` is built in.
 
+Without a volume at that path, `/data` is part of the container and a new
+deployment starts on an empty one: a new database, no collections, no media, and
+a **new root key printed in the logs**, since silo mints one exactly when an
+instance has no keys of its own. A root key that changes on every deploy is that
+symptom and not a policy — mount the volume at the data directory and the first
+one carries on.
+
 The image also puts `silo.toml` on that volume, with `SILO_CONFIG=/data/silo.toml`.
 The settings APIs write that file, and its default path is `silo.toml` beside the
 process, which in the image is `/app` — owned by root while the server runs as
