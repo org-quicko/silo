@@ -4,6 +4,59 @@
 > The *current* state is [CONTEXT.md](../../CONTEXT.md); this is how it got
 > there.
 
+- **The `⌘K` command palette is gone; the smart bar is the only search UI
+  (2026-09-01).**
+  The rework that moved results into a dropdown beneath the bar left
+  `views/search/CommandPalette.tsx`, its CSS Module and `palette-seed.ts` in
+  the tree with nothing mounting them. `SmartSearch` had already absorbed the
+  whole of what the overlay did — the same `api.search.run` call, the same
+  `PaletteResults`/`SnippetView` pipeline, the same keyboard walk — and `⌘K`
+  focuses the bar now rather than opening anything. All three are **deleted
+  rather than re-mounted**: the alternative was two UIs answering one question
+  from one pipeline, free to drift apart on every later change to it, and the
+  overlay's own reason for existing is gone — it searched the whole instance
+  because it had no page to sit on, where the bar is already in the scope the
+  sidebar and breadcrumbs put the reader in. `PaletteSeed` went with them; it
+  existed only to carry the typed text and the scope chip *across* to the
+  overlay, and an in-place dropdown reads both from the state it already
+  renders from. The `Palette*` names in `views/search/palette-results.ts`
+  stay — that file is the bar's result builder and always was; only the second
+  consumer it once had is gone. The sidebar's `⌘K` trigger is struck from
+  `docs/design/admin-ui.md` too: that button became the `⌥F` collection filter
+  earlier and the doc had not caught up.
+
+- **The top-bar search reaches the whole scope again, and lists the collections
+  it promised (2026-09-01).**
+  Two defects in the same day's search rework, one of them a silent one.
+  **The text stopped arriving.** The admin had been changed to send its query as
+  `?query=`, but §5.5 names that parameter `q` and that is what the routes read.
+  A server process started before the rename therefore saw *no text at all* —
+  and a search with no text is a legitimate filter-only search (§5.5), so it
+  answered with every entry the key can read, ordered `-$.updated_at`. The first
+  page of that is whichever collection was written last, which is why a
+  scope-wide search for "United" came back as a page of Indian states. **That is
+  the failure direction D19/D30 exists to prevent**: a parameter the far side
+  does not recognize *widened* the search rather than failing it, and no error
+  said so — the reason the reach lives in the path is that a forgotten parameter
+  must not be able to do this. Renaming a wire parameter also silently coupled
+  the admin to a server restart, which is what turned a same-tree change into a
+  bug. The wire name is `q` on both sides again, `SearchQuery.query` stays the
+  only field the admin's own call sites name, and `search-api.test.ts` pins the
+  built request URL so the rename cannot come back unnoticed.
+  **Collections are results now.** The bar says "Search collections, entries,
+  media…" and listed only the last two. `PaletteResults.build` takes ranked
+  `ScopeMatch`es and emits them as a **leading** group: they are navigation
+  rather than content, and there are at most a handful. They are matched from
+  the session's own collection list through the same `ScopeMatcher.rank` the
+  `@`-mention popup uses — no second request, and no second definition of what
+  "matches a collection" means, including its field-name matches, which the row
+  names (`field: gst_code`) since the collection's own name does not explain why
+  it is on screen. Capped at five so the entry hits stay above the fold, and
+  suppressed entirely while a chip is set: the reader has already narrowed to
+  one collection, and offering a list of collections would undo that. The
+  `Searching…` row now waits on the entry search alone, since a matched
+  collection fills the list before the request returns.
+
 - **Projects, environments and collections became ULID-keyed records, so all
   three can be renamed (D51, 2026-09-01).**
   A typo in any of the three names was permanent, and the cause was that none

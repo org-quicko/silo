@@ -41,7 +41,7 @@ export class SearchRoutes {
 
       const response = await service.search.run(
         {
-          q: c.req.query("query") || c.req.query("q") || undefined,
+          q: c.req.query("q") || undefined,
           project,
           env,
           collection,

@@ -13,7 +13,7 @@ describe('SearchApi', () => {
     ).toBe('/api/projects/proj/environments/prod/collections/posts/search')
   })
 
-  test('sends query param as ?query=', async () => {
+  test('sends the search text as ?q=, the name the API documents', async () => {
     let requestedUrl = ''
     const fakeTransport = {
       request: async (_url: string, _key: string, path: string) => {
@@ -23,6 +23,6 @@ describe('SearchApi', () => {
     } as unknown as HttpTransport
     const api = new SearchApi(fakeTransport)
     await api.run('http://localhost', 'secret', { kind: 'instance' }, { query: 'test' })
-    expect(requestedUrl).toBe('/api/search?query=test')
+    expect(requestedUrl).toBe('/api/search?q=test')
   })
 })

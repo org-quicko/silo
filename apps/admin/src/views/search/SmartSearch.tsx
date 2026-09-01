@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { CornerDownLeft, FileText, Image, Search, TriangleAlert } from 'lucide-react'
+import { CornerDownLeft, Database, FileText, Image, Search, TriangleAlert } from 'lucide-react'
 import { Claims } from '@silo/shared/claims'
 import { api } from '../../api/silo-api'
 import type { MediaAsset } from '../../api/types/media-asset'
@@ -72,10 +72,27 @@ export function SmartSearch({
 
   const canReadMedia = Claims.has(claims, Claims.MediaRead)
 
-  const groups = useMemo(
-    () => PaletteResults.build(hits, assets, { serverId, scope }),
+  const recentOrder = useMemo(
+    () => CollectionVisits.recent(serverId, scope.project, scope.env),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [hits, assets, serverId, scope.project, scope.env],
+    [serverId, scope.project, scope.env],
+  )
+
+  // Collections are matched here rather than asked of the server: the session
+  // already holds every name, so the bar can keep the half of its promise that
+  // needs no request. Only while it is searching the whole scope — once a chip
+  // has narrowed it to one collection, offering a list of collections would
+  // undo the narrowing the reader just asked for.
+  const groups = useMemo(
+    () =>
+      PaletteResults.build(
+        hits,
+        assets,
+        { serverId, scope },
+        chip || !query ? [] : ScopeMatcher.rank(query, collections, recentOrder),
+      ),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [hits, assets, chip, query, collections, recentOrder, serverId, scope.project, scope.env],
   )
   const items = useMemo(() => PaletteResults.flatten(groups), [groups])
 
@@ -167,11 +184,6 @@ export function SmartSearch({
     setMention(null)
   }
 
-  const recentOrder = useMemo(
-    () => (scope ? CollectionVisits.recent(serverId, scope.project, scope.env) : []),
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [serverId, scope.project, scope.env],
-  )
   const matchCount = mention ? ScopeMatcher.rank(mention.query, collections, recentOrder).length : 0
 
   const onChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -355,7 +367,7 @@ export function SmartSearch({
             )}
 
             <div className={styles.results} ref={listRef}>
-              {loading && items.length === 0 && (
+              {loading && hits.length === 0 && assets.length === 0 && (
                 <div className={styles.loading}>Searching…</div>
               )}
               {!loading && items.length === 0 && !error && (
@@ -365,7 +377,7 @@ export function SmartSearch({
               {groups.map((group) => (
                 <div key={group.key} className={styles.group}>
                   <div className={styles.groupHead}>
-                    {group.kind === 'media' ? <Image size={12} /> : <FileText size={12} />}
+                    <GroupIcon kind={group.kind} />
                     <span className={styles.groupLabel}>{group.label}</span>
                     {group.scope && <span className={styles.groupScope}>{group.scope}</span>}
                   </div>
@@ -398,6 +410,12 @@ export function SmartSearch({
       )}
     </div>
   )
+}
+
+function GroupIcon({ kind }: { kind: 'collection' | 'entry' | 'media' }) {
+  if (kind === 'collection') return <Database size={12} />
+  if (kind === 'media') return <Image size={12} />
+  return <FileText size={12} />
 }
 
 function Snippet({ snippet }: { snippet: SearchSnippet }) {

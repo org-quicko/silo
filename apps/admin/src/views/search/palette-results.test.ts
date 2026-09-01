@@ -37,6 +37,12 @@ const asset = (filename: string): MediaAsset => ({
   updated_at: '',
 })
 
+const match = (name: string, over: { count?: number | null; matchedField?: string | null } = {}) => ({
+  name,
+  count: over.count ?? null,
+  matchedField: over.matchedField ?? null,
+})
+
 describe('PaletteResults.build', () => {
   test('groups by collection, keeping the order the ranking gave', () => {
     const groups = PaletteResults.build(
@@ -87,13 +93,49 @@ describe('PaletteResults.build', () => {
     expect(PaletteResults.build([bare], [], ctx)[0].items[0].title).toBe('01J8XQ4Z…B3D')
   })
 
+  test('matched collections lead, since they are navigation rather than content', () => {
+    const groups = PaletteResults.build([hit({ id: 'a' })], [asset('logo.png')], ctx, [
+      match('posts', { count: 12 }),
+    ])
+    expect(groups.map((g) => g.kind)).toEqual(['collection', 'entry', 'media'])
+    expect(groups[0].items[0].title).toBe('posts')
+    expect(groups[0].items[0].subtitle).toBe('12 entries')
+    // The name is what matched, so the link is the collection itself — carrying
+    // the query in would land the reader on a list of nothing.
+    expect(groups[0].items[0].href).toBe(
+      '/servers/s1/projects/acme/environments/prod/collections/posts',
+    )
+  })
+
+  test('a collection that matched on a field says which one', () => {
+    const groups = PaletteResults.build([], [], ctx, [match('orders', { matchedField: 'customer_id' })])
+    expect(groups[0].items[0].subtitle).toBe('field: customer_id')
+  })
+
+  test('no collections means no heading, and none is the default', () => {
+    expect(PaletteResults.build([hit({ id: 'a' })], [], ctx, [])).toHaveLength(1)
+    expect(PaletteResults.build([hit({ id: 'a' })], [], ctx)).toHaveLength(1)
+  })
+
+  test('at most five collections, so the entry hits stay above the fold', () => {
+    const groups = PaletteResults.build(
+      [hit({ id: 'a' })],
+      [],
+      ctx,
+      ['a', 'b', 'c', 'd', 'e', 'f', 'g'].map((n) => match(n)),
+    )
+    expect(groups[0].items.map((i) => i.title)).toEqual(['a', 'b', 'c', 'd', 'e'])
+  })
+
   test('flatten walks the groups in reading order, which is what the arrow keys follow', () => {
     const groups = PaletteResults.build(
       [hit({ id: 'a' }), hit({ id: 'b', collection: 'notes' })],
       [asset('logo.png')],
       ctx,
+      [match('posts')],
     )
     expect(PaletteResults.flatten(groups).map((i) => i.id)).toEqual([
+      'collection:acme/prod/posts',
       'entry:acme/prod/posts/a',
       'entry:acme/prod/notes/b',
       'media:m_logo.png',
