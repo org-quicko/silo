@@ -44,20 +44,28 @@ describe('staging an uploaded database', () => {
     }
   })
 
+  test('successive uploads never share a name, however fast they arrive', async () => {
+    // No sleep on purpose: fifty puts land well inside one millisecond, which a
+    // name that was only a millisecond clock could not tell apart — it handed
+    // out one path fifty times and each upload overwrote the last.
+    const paths = new Set<string>()
+    for (let at = 0; at < 50; at++) {
+      paths.add((await store.put('x.db', new Uint8Array([at]))).path)
+    }
+    expect(paths.size).toBe(50)
+  })
+
   test('sweeps what it replaced, so the directory does not grow', async () => {
     for (let at = 0; at < 4; at++) {
       await store.put('x.db', new Uint8Array([at]))
-      // Distinct names come from a millisecond clock, so two writes inside one
-      // tick would collide — which the sweep would then delete out from under
-      // the current source.
-      await Bun.sleep(2)
     }
     expect(await staged()).toHaveLength(1)
   })
 
   test('recovers the newest after a restart, and forgets everything on clear', async () => {
+    // Both inside one millisecond, so this covers the ordering `recover` needs
+    // rather than waiting for the clock to supply it.
     await store.put('old.db', new Uint8Array([1]))
-    await Bun.sleep(2)
     const newest = await store.put('new.db', new Uint8Array([2, 2]))
 
     const restarted = new SourceStore(tempDir)

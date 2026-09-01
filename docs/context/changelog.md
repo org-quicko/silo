@@ -4,6 +4,44 @@
 > The *current* state is [CONTEXT.md](../../CONTEXT.md); this is how it got
 > there.
 
+- **A staged Strapi upload can no longer overwrite the one before it
+  (2026-09-02).**
+  `SourceStore.put` named each staged `.db` `source-<Date.now() in base 36>.db`.
+  Two uploads inside the same millisecond therefore produced one path: the second
+  `writeFile` landed on the first file, `put` returned a path its caller already
+  held, and the sweep — which keeps exactly the name it was handed — left one
+  file where there should have been two. It surfaced as a flaky
+  `source-store.test.ts` (`second.path` equal to `first.path` whenever the clock
+  did not tick between the two calls), but the failure was the store's, not the
+  test's: the millisecond gap the names depended on was only ever supplied by
+  whatever work happened to sit between two uploads.
+  `SourceStore.nextName` replaces the bare clock read. The stamp is carried
+  forward by a tick when `Date.now()` has not moved, so names are strictly
+  increasing within a process, and four random base-36 characters follow it, so
+  a restarted process cannot land on a name the previous one used. Ordering is
+  the reason the stamp still leads and stays fixed-width: `recover` picks the
+  newest staged file by sorting names, and that is the only thing standing
+  between a restart and adopting a stale export. The `source-` prefix and `.db`
+  suffix are untouched, so `sweep` and the recovery pass still match every file
+  they own.
+  The tests changed with it. A new case puts fifty times with no sleep and
+  asserts fifty distinct paths — deterministic against the old code, where all
+  fifty collapsed to one. The `Bun.sleep(2)` in the sweep and recovery tests is
+  gone: those sleeps were working around the bug, and without them both cases now
+  exercise same-millisecond writes, which is where the ordering `recover` needs
+  is actually at risk.
+  `put`'s doc comment was rewritten in the same pass, having described a
+  write-then-rename removed some time ago: it claimed the upload was staged under
+  a temporary name and moved into place, that the destination was deleted first
+  to dodge `fs.rename`'s `EPERM` on Windows, and that `staged` was cleared for
+  the duration — none of which the body did, and an inline comment two lines
+  below already contradicted the first two. It now says what happens (a fresh
+  name, a direct write, a best-effort sweep) and why the mid-upload window is
+  safe: the previously staged file is readable until the sweep, so no reader is
+  handed a path that is briefly missing. The Windows history that justifies a new
+  name at all stays where it belongs, on the `Prefix` block, rather than being
+  restated.
+
 - **Operating metrics are a bounded core snapshot, drawn by an ordinary
   first-party plugin (D52, 2026-09-01).**
   `GET /api/observability` reports what the process has done — API counters

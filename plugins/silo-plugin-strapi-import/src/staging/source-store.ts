@@ -47,6 +47,31 @@ export class SourceStore {
   private static readonly Prefix = 'source-'
   private static readonly Suffix = '.db'
 
+  /** The last `<n>` handed out, so the next one is always larger. Static, so
+   *  two stores sharing a directory still cannot hand out the same name. */
+  private static previousStamp = 0
+
+  /**
+   * The next `source-<n>.db`, where `<n>` is a base-36 millisecond stamp that
+   * never repeats followed by four random characters.
+   *
+   * A bare `Date.now()` was a bug: two uploads inside one millisecond — which
+   * is every pair that is not waiting on a human — produced the *same* name, so
+   * the second silently overwrote the first instead of landing beside it, and
+   * the sweep then had one file where the caller held two paths. The stamp is
+   * carried forward a tick when the clock has not moved, which keeps names
+   * distinct *and* sorted in write order — the whole of how `recover` picks the
+   * newest. The random tail extends that across restarts, where a stamp the
+   * process no longer remembers cannot be carried forward.
+   */
+  private static nextName(): string {
+    SourceStore.previousStamp = Math.max(Date.now(), SourceStore.previousStamp + 1)
+    const tail = Math.trunc(Math.random() * 36 ** 4)
+      .toString(36)
+      .padStart(4, '0')
+    return `${SourceStore.Prefix}${SourceStore.previousStamp.toString(36)}-${tail}${SourceStore.Suffix}`
+  }
+
   /**
    * Public, because `UploadStore` stages Strapi's uploads under the same root and
    * the two have to agree about where it is — resolved once by `PluginSettings`
@@ -73,39 +98,28 @@ export class SourceStore {
   }
 
   /**
-   * Write an upload, replacing whatever was there.
+   * Stage an upload and make it the current source.
    *
-   * Written to a temporary name and moved into place, so a failed or partial
-   * write cannot leave a truncated database where a valid one was — the same rule
-   * silo's own installer follows about staging inside the destination so the
-   * final step is a move.
+   * A fresh name from `nextName`, a direct write, then a best-effort sweep of
+   * everything older. Nothing is renamed and nothing is overwritten: the name is
+   * new every time, so there is no destination to clear first, and a
+   * write-then-rename would buy no atomicity that writing to an unused path does
+   * not already have.
    *
-   * **The destination is removed before the move, and that is a Windows fix
-   * rather than tidiness.** `fs.rename` over an existing file is a replace on
-   * POSIX and fails `EPERM` on Windows, which is how the second upload of a
-   * session answered 500 — a plugin fault on an operation that had already
-   * written every byte correctly. Deleting first is portable and keeps the
-   * property that matters: the incoming file is complete before anything the
-   * reader can see changes.
-   *
-   * `staged` is cleared for the duration, so a request arriving in the window
-   * where neither file is in place is told there is no source — which is true —
-   * rather than being handed a path that is briefly missing.
+   * That is also what keeps a reader safe mid-upload. The file already staged is
+   * untouched until the sweep, so a request arriving during the write is handed
+   * the old source rather than a path that is briefly missing, and `staged` only
+   * moves once the new file is whole. Why the name is new each time rather than
+   * reused is on `Prefix` above.
    */
   async put(name: string, bytes: Uint8Array): Promise<StagedSource> {
-    const target = path.join(
-      this.directory,
-      `${SourceStore.Prefix}${Date.now().toString(36)}${SourceStore.Suffix}`,
-    )
+    const target = path.join(this.directory, SourceStore.nextName())
 
     try {
       // `mkdir` is inside the try, not before it: an unusable `work_dir` fails
       // here rather than at the write, and a raw ENOTDIR is not an answer an
       // operator can act on.
       await fs.mkdir(this.directory, { recursive: true })
-      // Written straight to its final name: nothing exists there to replace, so
-      // the write-then-rename this used to do bought no atomicity and cost a
-      // deletion that could fail.
       await fs.writeFile(target, bytes)
     } catch (caught: any) {
       throw new Error(
@@ -165,9 +179,9 @@ export class SourceStore {
       return null
     }
 
-    // Newest wins, by name — the suffix is a base-36 timestamp, so the names sort
-    // the way they were written. Then the rest are swept, which is where a file
-    // that was locked during an earlier upload finally goes.
+    // Newest wins, by name — `<n>` leads with a base-36 timestamp of a fixed
+    // width, so the names sort the way they were written. Then the rest are
+    // swept, which is where a file locked during an earlier upload finally goes.
     const staged = entries
       .filter((entry) => entry.startsWith(SourceStore.Prefix) && entry.endsWith(SourceStore.Suffix))
       .sort()
