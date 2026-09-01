@@ -46,6 +46,30 @@ type Entry struct {
 
 A collection = a name + a JSON Schema draft 2020-12 document. Schemas are stored *through the storage adapter* (so the UI can edit them) and exported as plain files (so git workflows work).
 
+Since D51 a collection is a **keyed record**: a ULID that never changes, and a
+`name` that is a mutable label, unique within its environment. The schema is not
+a separate row — `collections` replaced the `schemas` table rather than joining
+it, because two tables would give "does this collection exist" two answers that
+can drift apart. The `schema` column is **`NOT NULL`**: a collection cannot
+exist without one, `putSchema` is the only thing that brings a record into being
+and `deleteSchema` is what ends it. Two consequences follow and are stated here
+rather than discovered in the field. An import carrying `content/<name>/` with no
+`schemas/<name>.schema.json` is **refused by name** — silo used to accept it, and
+inventing a permissive `{"type":"object"}` to satisfy the column would silently
+accept anything into a collection the operator believes is validated. And
+`Storage.put` **refuses an entry whose collection has no record**: a project and
+an environment are pure containers and are still created implicitly, but nothing
+implicit can invent a schema. That state was never reachable through the HTTP
+API, which has always required a schema to create a collection; it was reachable
+only through import and a direct `put`, and it was the reason two enumerations
+(`listSchemas` and `listEntryCollections`) existed everywhere one would do.
+
+Renaming a collection is therefore a one-row update — but not *only* that, because
+`$ref`s still address collections by **name**. The rename repoints every
+referring schema, self-references included, and rebuilds the `$defs` keys
+`SchemaBundler` derives from collection names by stripping and re-bundling rather
+than patching. See §8 for the route and its authority.
+
 **Validation** — full spec compliance via `github.com/santhosh-tekuri/jsonschema/v6` (complete 2020-12 support). Compiled validators are cached in memory, invalidated on schema update.
 
 **`$ref` policy** — refs resolve only against: (a) the same document (`#/$defs/...`), (b) other collections in this instance via `silo://collections/<name>`. **Remote http(s) refs are rejected by default** (opt-in via config) — network fetching during validation is a determinism and security hazard, and would break offline imports.
@@ -168,6 +192,8 @@ caller-supplied id can ever start with `_`. The one reserved scope,
 `Scope.System` (`_system`/`_system`), is built through a private constructor
 that bypasses that validation.
 
-v1 has four system collections, all living in `Scope.System`: **`_keys`** (§8); — since D23 — **`_media`** and **`_media_folders`** (§8.1); and — since D49 — **`_media_folder_moves`**, which holds a folder rename in flight and is empty in the ordinary case (§8.1). Reusing the doc model here means adapters, the export engine, and the conformance suite cover system data with no extra code — the reserved scope is stored exactly like any other, with no special-cased path in any adapter. (D19 added a second, `_projects`, to record scopes declared but not yet filled; D20 replaced it with first-class project/env storage and it no longer exists.)
+There are **seven** system collections, all living in `Scope.System`: **`_keys`** (§8); — since D23 — **`_media`** and **`_media_folders`** (§8.1); — since D38 — **`_audit`** (§8); — since D34 — **`_plugins`** (§13); — since D49 — **`_media_folder_moves`**, which holds a folder rename in flight and is empty in the ordinary case (§8.1); and — since D51 — **`_scope_renames`**, which holds a rename's claim cascade in flight and is likewise empty in the ordinary case (§8). Reusing the doc model here means adapters, the export engine, and the conformance suite cover system data with no extra code — the reserved scope is stored exactly like any other, with no special-cased path in any adapter. (D19 added `_projects`, to record scopes declared but not yet filled; D20 replaced it with first-class project/env storage and it no longer exists.)
 
-None of them has a schema, so they never appear in `ListSchemas` and have to be reachable wherever content collections are enumerated (`Exporter`, and `Storage.ListEntryCollections` for the general case). `_keys` is a credential, so it stays behind `--with-keys`; `_media`, `_media_folders` and `_media_folder_moves` are ordinary data and are **always** exported, because an archive that carried media bytes but not their filenames and folders would restore a library with no organization in it — and, for the third, because an archive taken mid-rename holds the half-moved subtree either way, so carrying the marker is what lets the restored instance finish the move instead of keeping a split nothing has a record of. An empty project needs no collection of its own to survive a round trip: since D20 it exists as a stored project/env record, `listScopes()` reports it, and the archive carries it as a bare `projects/<p>/<e>/` directory.
+Since D51 they are **named once**, in `SystemCollections`, and seeded into both adapters. That is not tidiness: `entries.collection_id` is a foreign key, so a system collection needs a `collections` row before anything can be written into it, and a list assembled by hand at each seeding site is a list that will disagree with itself. Their ids are the reserved names rather than minted ULIDs, so `_keys` addresses identically on every instance and an archive naming it needs no translation — which is also why the create paths refuse a supplied `_`-prefixed id, and why nothing has to scan the reserved scope for collisions. `SystemCollections.isKnown` is deliberately **not** the same question as `EntryUtils.isSystemCollection`: the latter asks whether a name is `_`-prefixed and reserves the whole namespace, and remains the security boundary; an unknown `_`-prefixed name is still reserved and still refused, it just has no row.
+
+None of them has a *real* schema. Each row carries `{"x-silo-system": true}` — `x-silo-*` is reserved for silo (§5.2), which is the honest way to say the row exists for referential integrity — and nothing validates against it, because system writes reach `store.put` directly and never pass through `EntryService`. They still have to be reachable wherever content collections are enumerated (`Exporter`, and `Storage.ListEntryCollections` for the general case). `_keys` is a credential, so it stays behind `--with-keys`; `_media`, `_media_folders` and `_media_folder_moves` are ordinary data and are **always** exported, because an archive that carried media bytes but not their filenames and folders would restore a library with no organization in it — and, for the third, because an archive taken mid-rename holds the half-moved subtree either way, so carrying the marker is what lets the restored instance finish the move instead of keeping a split nothing has a record of. An empty project needs no collection of its own to survive a round trip: since D20 it exists as a stored project/env record, `listScopes()` reports it, and the archive carries it as a `projects/<p>/<e>/` directory — since D51 with its `.silo-project` and `.silo-env` markers, which is what carries the records' ids. A project holding **no environment at all** finally travels too: `listScopes()` answers pairs and could never name one, so `Exporter` now walks `listProjects()` as well.

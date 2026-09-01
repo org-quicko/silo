@@ -1,19 +1,23 @@
 import { Database } from "bun:sqlite";
 import fs from "fs/promises";
 import path from "path";
+import type { CollectionRecord } from "../../../core/domain/collection-record";
 import type { Entry } from "../../../core/domain/entry";
+import type { EnvironmentRecord } from "../../../core/domain/environment-record";
 import type { Meta } from "../../../core/domain/meta";
+import type { ProjectRecord } from "../../../core/domain/project-record";
 import type { Scope } from "../../../core/domain/scope";
 import type { MediaUsage } from "../../../core/media/media-usage";
 import type { DerivedIndex } from "../../../core/ports/derived-index";
 import type { Storage } from "../../../core/ports/storage";
 import type { Query } from "../../../core/query/query";
 import { SearchIndex, type SearchIndexOptions } from "./search-index";
+import { SqliteCollectionStore } from "./sqlite-collection-store";
 import { SqliteEntryStore } from "./sqlite-entry-store";
 import { SqliteMediaReferenceStore } from "./sqlite-media-reference-store";
 import { SqliteMetaStore } from "./sqlite-meta-store";
 import { SqliteMigrations } from "./sqlite-migrations";
-import { SqliteSchemaStore } from "./sqlite-schema-store";
+import { SqliteScopeResolver } from "./sqlite-scope-resolver";
 import { SqliteScopeStore } from "./sqlite-scope-store";
 import { SqliteSearchDocumentStore } from "./sqlite-search-document-store";
 import { SqliteSearcher } from "./sqlite-searcher";
@@ -30,8 +34,9 @@ import { SqliteSearcher } from "./sqlite-searcher";
 export class SqliteStore implements Storage {
   private readonly database: Database;
   private readonly meta_: SqliteMetaStore;
+  private readonly resolver: SqliteScopeResolver;
   private readonly scopes: SqliteScopeStore;
-  private readonly schemas: SqliteSchemaStore;
+  private readonly collections: SqliteCollectionStore;
   private readonly entries: SqliteEntryStore;
   private readonly mediaReferences: SqliteMediaReferenceStore;
 
@@ -51,15 +56,17 @@ export class SqliteStore implements Storage {
     this.rebuildDue = rebuildDue;
 
     this.meta_ = new SqliteMetaStore(database);
+    this.resolver = new SqliteScopeResolver(database);
     this.mediaReferences = new SqliteMediaReferenceStore(database);
-    this.schemas = new SqliteSchemaStore(database);
     this.entries = new SqliteEntryStore(
       database,
       this.meta_,
       this.mediaReferences,
-      new SqliteSearchDocumentStore(database, indexing)
+      new SqliteSearchDocumentStore(database, indexing),
+      this.resolver
     );
-    this.scopes = new SqliteScopeStore(database, this.entries);
+    this.scopes = new SqliteScopeStore(database, this.entries, this.resolver);
+    this.collections = new SqliteCollectionStore(database, this.resolver, this.scopes);
   }
 
   static async open(
@@ -73,8 +80,8 @@ export class SqliteStore implements Storage {
     try {
       SqliteMigrations.applyPragmas(database);
       SqliteMigrations.guardFormatVersion(database);
-      SqliteMigrations.applyDdl(database);
-      SqliteMigrations.seedMeta(database);
+      SqliteMigrations.initialize(database);
+      SqliteMigrations.assertIntegrity(database);
 
       const indexing = search.enabled && SearchIndex.available(database);
       return new SqliteStore(database, indexing, SqliteStore.prepareIndex(database, search, indexing));
@@ -90,6 +97,10 @@ export class SqliteStore implements Storage {
 
   async meta(): Promise<Meta> {
     return this.meta_.read();
+  }
+
+  async markDefaultsInitialized(): Promise<void> {
+    this.meta_.markDefaultsInitialized();
   }
 
   /** True when the index exists but has not been filled yet. */
@@ -115,24 +126,44 @@ export class SqliteStore implements Storage {
     this.rebuildDue = false;
   }
 
-  async createProject(project: string): Promise<void> {
-    this.scopes.createProject(project);
+  async createProject(name: string, id?: string): Promise<ProjectRecord> {
+    return this.scopes.createProject(name, id);
   }
 
-  async listProjects(): Promise<string[]> {
+  async listProjects(): Promise<ProjectRecord[]> {
     return this.scopes.listProjects();
   }
 
-  async deleteProject(project: string): Promise<void> {
-    this.scopes.deleteProject(project);
+  async findProject(name: string): Promise<ProjectRecord | null> {
+    return this.scopes.findProject(name);
   }
 
-  async createEnvironment(project: string, env: string): Promise<void> {
-    this.scopes.createEnvironment(project, env);
+  async renameProject(id: string, name: string): Promise<void> {
+    this.scopes.renameProject(id, name);
   }
 
-  async listEnvironments(project: string): Promise<string[]> {
+  async deleteProject(name: string): Promise<void> {
+    this.scopes.deleteProject(name);
+  }
+
+  async createEnvironment(
+    project: string,
+    env: string,
+    id?: string
+  ): Promise<EnvironmentRecord> {
+    return this.scopes.createEnvironment(project, env, id);
+  }
+
+  async listEnvironments(project: string): Promise<EnvironmentRecord[]> {
     return this.scopes.listEnvironments(project);
+  }
+
+  async findEnvironment(project: string, env: string): Promise<EnvironmentRecord | null> {
+    return this.scopes.findEnvironment(project, env);
+  }
+
+  async renameEnvironment(id: string, name: string): Promise<void> {
+    this.scopes.renameEnvironment(id, name);
   }
 
   async deleteEnvironment(project: string, env: string): Promise<void> {
@@ -143,20 +174,33 @@ export class SqliteStore implements Storage {
     return this.scopes.listScopes();
   }
 
-  async putSchema(scope: Scope, collection: string, schema: any): Promise<void> {
-    this.schemas.put(scope, collection, schema);
+  async listCollections(scope: Scope): Promise<CollectionRecord[]> {
+    return this.collections.list(scope);
+  }
+
+  async findCollection(scope: Scope, collection: string): Promise<CollectionRecord | null> {
+    return this.collections.find(scope, collection);
+  }
+
+  async renameCollection(id: string, name: string): Promise<void> {
+    this.collections.rename(id, name);
+  }
+
+  async putSchema(
+    scope: Scope,
+    collection: string,
+    schema: any,
+    id?: string
+  ): Promise<CollectionRecord> {
+    return this.collections.put(scope, collection, schema, id);
   }
 
   async getSchema(scope: Scope, collection: string): Promise<any> {
-    return this.schemas.get(scope, collection);
-  }
-
-  async listSchemas(scope: Scope): Promise<Map<string, any>> {
-    return this.schemas.list(scope);
+    return this.collections.get(scope, collection);
   }
 
   async deleteSchema(scope: Scope, collection: string): Promise<void> {
-    this.schemas.delete(scope, collection);
+    this.collections.delete(scope, collection);
   }
 
   async put(entry: Entry, derived: DerivedIndex): Promise<void> {

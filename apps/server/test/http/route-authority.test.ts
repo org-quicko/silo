@@ -108,7 +108,9 @@ describe("route authority (D37)", () => {
         headers: auth(key),
       });
       expect(refused.status).toBe(403);
-      expect(await service.scopes.listProjects()).toContain("default");
+      expect((await service.scopes.listProjects()).map((record) => record.name)).toContain(
+        "default",
+      );
 
       const wider = await mint([
         Claims.collection("default", "*", "*", Claims.CollectionDelete),

@@ -3,6 +3,7 @@ import type { Entry } from "../domain/entry";
 import { Scope } from "../domain/scope";
 import type { Storage } from "../ports/storage";
 import { EntryNodes } from "../query/entry-nodes";
+import { CollectionSchemas } from "../schema/collection-schemas";
 import { JsonPath } from "@silo/shared/json-path";
 import type { SearchAccess } from "./search-access";
 import type { SearchHit } from "./search-hit";
@@ -143,12 +144,10 @@ export class ScanSearcher implements Searcher {
       if (request.project && scope.project !== request.project) continue;
       if (request.env && scope.env !== request.env) continue;
 
-      const schemas = await this.store.listSchemas(scope);
+      // One read: since D51 every collection has a record, so there is no
+      // collection holding searchable entries that this could miss.
+      const schemas = CollectionSchemas.map(await this.store.listCollections(scope));
       const names = new Set<string>(schemas.keys());
-      // An import archive can carry entries with no schema, and those are
-      // still searchable content — schema-derived listings alone would miss
-      // them entirely.
-      for (const name of await this.store.listEntryCollections(scope)) names.add(name);
 
       for (const name of [...names].sort()) {
         if (EntryUtils.isSystemCollection(name)) continue;

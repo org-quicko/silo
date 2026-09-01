@@ -61,10 +61,18 @@ export class SiloTargets {
     return items.map(SiloTargets.idOf).filter((id: string) => id.length > 0)
   }
 
-  /** A list of scopes comes back as ids, and an older silo answered objects. */
+  /**
+   * The **name**, which is what a URL is built from.
+   *
+   * Since D51 a scope listing answers `{id, name}` where `id` is the record's
+   * ULID, so preferring `id` — as this did — would put a ULID into
+   * `/api/projects/<...>/environments` and 404 on every project. `name` first,
+   * then `id`, then a bare string, so an older silo answering plain names still
+   * works.
+   */
   private static idOf(entry: unknown): string {
     if (typeof entry === 'string') return entry
     const record = entry as { id?: unknown; name?: unknown } | null
-    return String(record?.id ?? record?.name ?? '')
+    return String(record?.name ?? record?.id ?? '')
   }
 }

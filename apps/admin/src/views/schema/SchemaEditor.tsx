@@ -15,6 +15,7 @@ import { DangerConfirm } from '../../components/modal/DangerConfirm'
 import { TopBar } from '../shell/TopBar'
 import { SmartSearch } from '../search/SmartSearch'
 import type { PaletteSeed } from '../search/palette-seed'
+import { RenameForm } from '../settings/rename/RenameForm'
 import { CollectionRail } from './CollectionRail'
 import { FieldList } from './FieldList'
 import styles from './SchemaEditor.module.css'
@@ -75,6 +76,19 @@ export function SchemaEditorView({
   const canDelete =
     !!collection &&
     Claims.ForcedDeletePermissions.every((permission) =>
+      Claims.has(
+        claims,
+        Claims.collection(scope.project, scope.env, collection.name, permission),
+      ),
+    )
+
+  // A create at the new name and a delete at the old, on this collection (D51).
+  // The route additionally asks for `schema:update` on every collection whose
+  // schema `$ref`s this one, which is not knowable here — so that refusal
+  // arrives from the server and the form prints it.
+  const canRename =
+    !!collection &&
+    Claims.RenamePermissions.every((permission) =>
       Claims.has(
         claims,
         Claims.collection(scope.project, scope.env, collection.name, permission),
@@ -182,6 +196,35 @@ export function SchemaEditorView({
             placeholder="e.g. blog_posts"
             value={name}
             onChange={(e) => setName(e.target.value.toLowerCase().replace(/[^a-z0-9_-]/g, ''))}
+          />
+        </div>
+      )}
+
+      {/*
+        A rename here rather than beside the schema fields: it is a statement
+        about the collection's identity, not about its shape, and it rewrites
+        every `$ref` pointing at it (D51). Save is unaffected — the two are
+        separate requests and neither carries the other's changes.
+      */}
+      {collection && (
+        <div className={`field ${styles.nameField}`}>
+          <label className="field-label">Collection name</label>
+          <RenameForm
+            subject={{ noun: 'collection', currentName: collection.name, id: collection.id }}
+            allowed={canRename}
+            unavailableReason={`This key cannot rename ${collection.name}. A rename retires the old name and introduces a new one, and repoints every schema that references it.`}
+            rename={(next, dryRun) =>
+              api.collections.rename(
+                url,
+                apiKey,
+                scope,
+                collection.name,
+                next,
+                collection.id,
+                dryRun,
+              )
+            }
+            onRenamed={onSaved}
           />
         </div>
       )}

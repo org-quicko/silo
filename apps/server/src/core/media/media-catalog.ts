@@ -1,5 +1,6 @@
 import { MediaRef } from "@silo/shared/media-ref";
 import type { Entry } from "../domain/entry";
+import { SystemCollections } from "../domain/system-collections";
 import type { MediaAsset } from "./media-asset";
 import type { MediaAssetView } from "./media-asset-view";
 import type { MediaFolderMove } from "./media-folder-move";
@@ -16,11 +17,11 @@ import type { MediaLinks } from "./media-links";
  * filenames and folders would restore a library with no organisation in it.
  */
 export class MediaCatalog {
-  static readonly Collection = "_media";
-  static readonly FoldersCollection = "_media_folders";
+  static readonly Collection = SystemCollections.Media;
+  static readonly FoldersCollection = SystemCollections.MediaFolders;
   /** In-flight folder moves (D49). Staged like a deletion, because a rename
    *  spans more records than any adapter can write atomically. */
-  static readonly MovesCollection = "_media_folder_moves";
+  static readonly MovesCollection = SystemCollections.MediaFolderMoves;
 
   /** The public URL for an asset — by id, so a rename never invalidates it.
    *  Relative, which is what a caller holding no `[media]` configuration and no

@@ -3,11 +3,12 @@ import { KeyFormat } from "@silo/shared/key-format";
 import { Claims } from "@silo/shared/claims";
 import type { ClaimPreset } from "@silo/shared/claim-preset";
 import { ValidationError } from "@silo/shared/validation-error";
+import { SystemCollections } from "../domain/system-collections";
 import type { KeyInfo } from "./key-info";
 import type { KeyMintOptions } from "./key-mint-options";
 
 export class KeyUtils {
-  static readonly KeysCollection = "_keys";
+  static readonly KeysCollection = SystemCollections.Keys;
 
   static parsePreset(value: string): ClaimPreset {
     if (Claims.isPreset(value)) return value;

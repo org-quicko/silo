@@ -9,6 +9,7 @@ import { SqliteCompiler } from "./sqlite-compiler";
 import type { SqliteMediaReferenceStore } from "./sqlite-media-reference-store";
 import type { SqliteMetaStore } from "./sqlite-meta-store";
 import { SqliteRowMapper } from "./sqlite-row-mapper";
+import type { SqliteScopeResolver } from "./sqlite-scope-resolver";
 import type { SqliteSearchDocumentStore } from "./sqlite-search-document-store";
 
 /**
@@ -19,47 +20,65 @@ import type { SqliteSearchDocumentStore } from "./sqlite-search-document-store";
  * port contract both adapters enforce identically, so an import archive cannot
  * plant a malformed id that behaves differently depending on which adapter is
  * running.
+ *
+ * Rows are addressed by record id (D51) and the envelope's names come from the
+ * caller, so a rename moves nothing here.
  */
 export class SqliteEntryStore {
   /** Matches the default page size the Query AST normalises to. */
   private static readonly FallbackLimit = 50;
 
-  private static readonly Columns =
-    "id, project, env, collection, rev, seq, created_at, updated_at, data";
+  private static readonly Columns = "id, rev, seq, created_at, updated_at, data";
 
   private readonly database: Database;
   private readonly meta: SqliteMetaStore;
   private readonly mediaReferences: SqliteMediaReferenceStore;
   private readonly searchDocuments: SqliteSearchDocumentStore;
+  private readonly resolver: SqliteScopeResolver;
 
   constructor(
     database: Database,
     meta: SqliteMetaStore,
     mediaReferences: SqliteMediaReferenceStore,
-    searchDocuments: SqliteSearchDocumentStore
+    searchDocuments: SqliteSearchDocumentStore,
+    resolver: SqliteScopeResolver
   ) {
     this.database = database;
     this.meta = meta;
     this.mediaReferences = mediaReferences;
     this.searchDocuments = searchDocuments;
+    this.resolver = resolver;
   }
 
-  /** The entry, its media references and its index document, in one
-   *  transaction. */
+  /**
+   * The entry, its media references and its index document, in one transaction.
+   *
+   * The collection has to exist. Its schema is `NOT NULL`, so nothing here
+   * could create one — and an entry written into a collection with no schema is
+   * precisely the state the invariant exists to prevent (D51). Projects and
+   * environments are still created implicitly, by `putSchema`.
+   */
   put(entry: Entry, derived: DerivedIndex): void {
     EntryUtils.assertSafeSegment(entry.project, "project");
     EntryUtils.assertSafeSegment(entry.env, "env");
     EntryUtils.assertSafeSegment(entry.collection, "collection");
     EntryUtils.assertSafeSegment(entry.id, "id");
 
+    const address = this.resolver.requireCollectionIn(
+      entry.project,
+      entry.env,
+      entry.collection
+    );
+
     this.database.transaction(() => {
       entry.seq = this.meta.nextSeq();
 
       this.database
         .prepare(
-          `INSERT INTO entries (${SqliteEntryStore.Columns})
+          `INSERT INTO entries
+             (id, project_id, env_id, collection_id, rev, seq, created_at, updated_at, data)
            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-           ON CONFLICT (project, env, collection, id) DO UPDATE SET
+           ON CONFLICT (collection_id, id) DO UPDATE SET
              rev = excluded.rev,
              seq = excluded.seq,
              updated_at = excluded.updated_at,
@@ -67,9 +86,9 @@ export class SqliteEntryStore {
         )
         .run(
           entry.id,
-          entry.project,
-          entry.env,
-          entry.collection,
+          address.projectId,
+          address.envId,
+          address.collectionId,
           entry.rev,
           entry.seq,
           SqliteRowMapper.isoDate(entry.created_at),
@@ -77,14 +96,8 @@ export class SqliteEntryStore {
           JSON.stringify(entry.data)
         );
 
-      this.mediaReferences.replaceForEntry(entry, derived.usages);
-      this.searchDocuments.write(
-        entry.project,
-        entry.env,
-        entry.collection,
-        entry.id,
-        derived.search
-      );
+      this.mediaReferences.replaceForEntry(address, entry.id, derived.usages);
+      this.searchDocuments.write(address, entry.id, derived.search);
     })();
   }
 
@@ -92,33 +105,32 @@ export class SqliteEntryStore {
     EntryUtils.assertSafeSegment(collection, "collection");
     EntryUtils.assertSafeSegment(id, "id");
 
+    const collectionId = this.resolver.collectionId(scope, collection);
+    if (collectionId === null) throw SqliteEntryStore.notFound(scope, collection, id);
+
     const row = this.database
       .prepare(
         `SELECT ${SqliteEntryStore.Columns} FROM entries
-         WHERE project = ? AND env = ? AND collection = ? AND id = ?`
+         WHERE collection_id = ? AND id = ?`
       )
-      .get(scope.project, scope.env, collection, id) as any;
+      .get(collectionId, id) as any;
 
     if (!row) throw SqliteEntryStore.notFound(scope, collection, id);
-    return SqliteRowMapper.toEntry(row);
+    return SqliteRowMapper.toScopedEntry(row, scope, collection);
   }
 
+  /** The entry's media references and index row go with it, through the
+   *  `ON DELETE CASCADE` those two tables declare. */
   delete(scope: Scope, collection: string, id: string): void {
     EntryUtils.assertSafeSegment(collection, "collection");
     EntryUtils.assertSafeSegment(id, "id");
 
-    let changes = 0;
-    this.database.transaction(() => {
-      changes = this.database
-        .prepare(
-          `DELETE FROM entries WHERE project = ? AND env = ? AND collection = ? AND id = ?`
-        )
-        .run(scope.project, scope.env, collection, id).changes;
-      if (changes === 0) return;
+    const collectionId = this.resolver.collectionId(scope, collection);
+    if (collectionId === null) throw SqliteEntryStore.notFound(scope, collection, id);
 
-      this.mediaReferences.purgeEntry(scope.project, scope.env, collection, id);
-      this.searchDocuments.purgeEntry(scope.project, scope.env, collection, id);
-    })();
+    const changes = this.database
+      .prepare(`DELETE FROM entries WHERE collection_id = ? AND id = ?`)
+      .run(collectionId, id).changes;
 
     if (changes === 0) throw SqliteEntryStore.notFound(scope, collection, id);
   }
@@ -126,8 +138,11 @@ export class SqliteEntryStore {
   list(scope: Scope, collection: string, query: Query): { items: Entry[]; total: number } {
     EntryUtils.assertSafeSegment(collection, "collection");
 
-    let where = "project = ? AND env = ? AND collection = ?";
-    const whereArgs: any[] = [scope.project, scope.env, collection];
+    const collectionId = this.resolver.collectionId(scope, collection);
+    if (collectionId === null) return { items: [], total: 0 };
+
+    let where = "collection_id = ?";
+    const whereArgs: any[] = [collectionId];
     if (query.filter) {
       const { cond, args } = SqliteCompiler.buildFilter(query.filter);
       where += ` AND (${cond})`;
@@ -152,34 +167,36 @@ export class SqliteEntryStore {
       )
       .all(...whereArgs, ...orderArgs, limit, offset) as any[];
 
-    return { items: rows.map((row) => SqliteRowMapper.toEntry(row)), total };
+    return {
+      items: rows.map((row) => SqliteRowMapper.toScopedEntry(row, scope, collection)),
+      total,
+    };
   }
 
+  /** Collection **names**, so the join to `collections` is what answers. */
   listCollections(scope: Scope): string[] {
+    const envId = this.resolver.environmentId(scope.project, scope.env);
+    if (envId === null) return [];
+
     const rows = this.database
       .prepare(
-        `SELECT DISTINCT collection FROM entries
-         WHERE project = ? AND env = ?
-         ORDER BY collection`
+        `SELECT DISTINCT c.name AS name
+         FROM entries e JOIN collections c ON c.id = e.collection_id
+         WHERE e.env_id = ?
+         ORDER BY c.name`
       )
-      .all(scope.project, scope.env) as { collection: string }[];
-    return rows.map((row) => row.collection);
+      .all(envId) as { name: string }[];
+    return rows.map((row) => row.name);
   }
 
-  /** Called from inside `SqliteScopeStore`'s delete transaction. */
-  purgeProject(project: string): void {
-    this.database.prepare(`DELETE FROM entries WHERE project = ?`).run(project);
-    this.mediaReferences.purgeProject(project);
-    this.searchDocuments.purgeProject(project);
+  /** Called from inside `SqliteScopeStore`'s delete transaction, by record id. */
+  purgeProject(projectId: string): void {
+    this.database.prepare(`DELETE FROM entries WHERE project_id = ?`).run(projectId);
   }
 
-  /** Called from inside `SqliteScopeStore`'s delete transaction. */
-  purgeEnvironment(project: string, env: string): void {
-    this.database
-      .prepare(`DELETE FROM entries WHERE project = ? AND env = ?`)
-      .run(project, env);
-    this.mediaReferences.purgeEnvironment(project, env);
-    this.searchDocuments.purgeEnvironment(project, env);
+  /** Called from inside `SqliteScopeStore`'s delete transaction, by record id. */
+  purgeEnvironment(envId: string): void {
+    this.database.prepare(`DELETE FROM entries WHERE env_id = ?`).run(envId);
   }
 
   private static notFound(scope: Scope, collection: string, id: string): NotFoundError {

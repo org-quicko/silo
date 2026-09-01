@@ -11,6 +11,7 @@
     "./access-level": "./src/claims/access-level.ts",
     "./claim": "./src/claims/claim.ts",
     "./claim-preset": "./src/claims/claim-preset.ts",
+    "./claim-rewrite": "./src/claims/claim-rewrite.ts",
     "./claims": "./src/claims/claims.ts",
     "./collection-claim": "./src/claims/collection-claim.ts",
     "./collection-permission": "./src/claims/collection-permission.ts",

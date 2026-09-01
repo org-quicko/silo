@@ -4,6 +4,95 @@
 > The *current* state is [CONTEXT.md](../../CONTEXT.md); this is how it got
 > there.
 
+- **Projects, environments and collections became ULID-keyed records, so all
+  three can be renamed (D51, 2026-09-01).**
+  A typo in any of the three names was permanent, and the cause was that none
+  of them was a keyed entity: `entries`, `schemas`, `media_references` and
+  `entry_search` each repeated the names as literal columns. All three are now
+  records with a ULID primary key and a mutable `name`, every internal
+  reference is by id, and a rename is one `UPDATE` of a `name` column — no
+  entry, index row or blob moves, and `seq`, `rev`, timestamps and entry ids are
+  all preserved. `PATCH /api/projects/{p}`, `PATCH .../environments/{e}` (both
+  spellings) and `PATCH .../collections/{c}` take `{name}`, are bound to
+  `?expected_id=` so a request delayed in flight cannot rename whatever took the
+  name meanwhile, and answer a preview under `?dry_run=true`. Authority is a new
+  `RenamePermissions = [collections:create, collections:delete]` at the
+  subject's own reach, checked at **both** names.
+  **`collections` replaced the `schemas` table** rather than joining it — two
+  tables would give "does this collection exist" two answers that can drift —
+  and its `schema` column is `NOT NULL`. That costs two things, both stated
+  rather than discovered: an archive carrying `content/<name>/` with no
+  `schemas/<name>.schema.json` is **refused by name** instead of having a
+  permissive schema invented for it, and `Storage.put` **refuses an entry whose
+  collection has no record** (a project and an environment are pure containers
+  and are still created implicitly; a collection is not). The seven system
+  collections are named once in `SystemCollections` and seeded into both
+  adapters with `{"x-silo-system": true}` and the reserved names as their ids.
+  Together those rules retire the `listSchemas ∪ listEntryCollections` union in
+  `CollectionService`, `ScopeService.collectionsIn`, `Exporter`, `ScopeCopier`,
+  `ScanSearcher` and `SqliteSearcher.reindex`.
+  SQLite relationships are composite (`environments(project_id, id)`,
+  `collections(project_id, env_id, id)`, entries referencing that triple,
+  `media_references`/`entry_search` referencing the entry pair
+  `ON DELETE CASCADE`), `PRAGMA foreign_keys` is on, `foreign_key_check` runs at
+  open, and DDL, seeding and the format stamp are one transaction. Resolution is
+  per adapter on purpose: SQLite caches name→id and drops it whole on any write,
+  the fs adapter caches nothing and reads markers per operation, because that
+  adapter exists for `rsync` and `git checkout` (D23's argument). On disk the
+  layout still uses names — it is the export format and is meant to be read —
+  so ids live in `.silo-project`, `.silo-env` and a new
+  `schemas/.<collection>.silo-collection`, which `Exporter` writes and
+  `ImportWalker` reads, minting when absent and keeping the destination's id
+  where the name already exists. Two long-standing transfer bugs go with it: a
+  project holding no environment is finally exported (`listScopes()` answers
+  pairs and could never name one), and replace-import stops deleting a schema
+  before re-putting it, which under record keying destroyed the record and
+  reminted its id. `FormatVersion` resets to `"1"` and there is **no
+  migration** — both adapters refuse an older directory with the message they
+  already had.
+  **Claims stay name-based**, because a ULID fails the claim grammar's id
+  pattern and ULID claims would be unreadable and would break the
+  cross-instance key portability `--with-keys` exists for. So the one cascade
+  records do not remove is the claim rewrite, and it turns on a single
+  distinction: **a literal segment is a reference and is rewritten; a wildcard
+  segment is a pattern over names and never is.** `collections:*/dev/*` already
+  matches scopes that do not exist yet, which is what per-segment wildcards are
+  for (D19), so rewriting it to `*/prod/*` would silently change authority in
+  every project — and leaving it alone genuinely changes what the key reaches.
+  Both readings are correct and neither is a rewrite, so the answer is
+  disclosure: `ClaimRewrite` (pure, in `shared`) reports those separately, and
+  the route, the response, the audit `detail` and the admin's confirm dialog all
+  print both lists. Completeness is a correctness requirement rather than a
+  nicety, because D34 checks `hooks:` claims before an event crosses into a
+  worker, so a missed rewrite stops hook delivery with no error anyone sees. The
+  cascade covers `_keys` and `_plugins`, staged behind a `_scope_renames` marker
+  carrying the **enumerated record ids** — a bounded worklist, not a re-derived
+  query, which would rewrite the wrong records if a new project took the freed
+  name first — and the marker **doubles as a name reservation**, which is what
+  makes `resumePending` safe to be non-fatal. It runs before plugins load,
+  unlike the two media resumes, since a plugin boots on the authority its record
+  holds; one whose grant moved is restarted onto it. `silo.toml`'s
+  `[[plugins]] claims` half is **refused rather than rewritten**, on D34's own
+  reasoning that an API able to write that file is a code-execution primitive
+  wearing a management claim.
+  A **collection** rename additionally rewrites the schema graph: `$ref`
+  strings including self-references, and the `$defs` keys `SchemaBundler`
+  derives from collection names — stripped and re-bundled rather than patched,
+  validated before anything is written, and asking for
+  `collections:schema:update` on every referrer up front. On the filesystem it
+  is the one rename that is not a single syscall, so the destination marker
+  carries `moving_from` and `FsCollectionStore.resumePending` finishes it at the
+  next open; recovery is decidable because the id is in both places — a
+  destination marker holding this id is this rename half-done, any other id is a
+  real collision. `SqliteSearcher` keeps its claim predicate as a name
+  comparison in the same statement as the match, over record tables joined
+  through subqueries that **rename their columns**, because all three carry
+  `id`/`name`/`created_at` and the shared compiler emits envelope columns
+  unqualified. `Meta` gains `defaults_initialized`, so `initDefaults` seeds once
+  per instance and a renamed or deleted default is not resurrected at the next
+  start. D20's derived existence rule is **superseded**: a scope exists exactly
+  when its record does, and emptying one no longer removes it.
+
 - **The Strapi importer's target is the plan's, its uploads land in the folder
   that was configured, and the package is a directory per subject (2026-09-01).**
   Three bugs from one live run, and none of them was in the importing.

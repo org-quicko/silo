@@ -31,10 +31,20 @@ export class SqliteMetaStore {
     const lastSeq = this.database
       .prepare(`SELECT CAST(value AS INTEGER) as seq FROM meta WHERE key = 'last_seq'`)
       .get() as { seq: number } | undefined;
+    const seeded = this.database
+      .prepare(`SELECT value FROM meta WHERE key = 'defaults_initialized'`)
+      .get() as { value: string } | undefined;
 
     return {
       instance_id: instanceId ? instanceId.value : "",
       last_seq: lastSeq ? lastSeq.seq : 0,
+      defaults_initialized: seeded ? seeded.value === "1" : false,
     };
+  }
+
+  markDefaultsInitialized(): void {
+    this.database
+      .prepare(`INSERT OR REPLACE INTO meta (key, value) VALUES ('defaults_initialized', '1')`)
+      .run();
   }
 }
