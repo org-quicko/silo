@@ -9,8 +9,9 @@
 export class SchemaType {
   /**
    * The single type a property is, `"null"` dropped — or `null` when it
-   * declares none, or genuinely allows two (`["string", "number"]`), which no
-   * reader here can render as one thing.
+   * declares none, or names anything other than one real type
+   * (`["string", "number"]`), which no reader here can render as one thing.
+   * `isUntyped` and `isUnresolved` tell those two apart.
    */
   static of(property: any): string | null {
     const declared = property?.type
@@ -34,15 +35,30 @@ export class SchemaType {
   }
 
   /**
-   * Whether the declared type names two or more real types (`"null"` aside).
+   * Whether the property declares no type at all.
    *
-   * This is the case `of` cannot answer, and no single control can draw: it is
-   * left to Code view rather than guessed at.
+   * A real state, not a malformed one: the honest schema for a Strapi `json`
+   * column is "anything", and narrowing it to `object` would refuse the arrays
+   * that are just as common. Distinct from the union `of` cannot resolve,
+   * which declares *too much* rather than nothing.
    */
-  static isMultiType(property: any): boolean {
+  static isUntyped(property: any): boolean {
+    const declared = property?.type
+    return !(typeof declared === 'string' || Array.isArray(declared))
+  }
+
+  /**
+   * Whether `type` is an array form `of` cannot resolve to one type: two or
+   * more real ones (`["string", "number"]`), or none (`["null"]`).
+   *
+   * With `of` and `isUntyped` this makes the classification total — every
+   * shape `type` can take has one answer — so a writer never has to fall back
+   * on a guess.
+   */
+  static isUnresolved(property: any): boolean {
     const declared = property?.type
     if (!Array.isArray(declared)) return false
-    return declared.filter((type) => typeof type === 'string' && type !== 'null').length > 1
+    return declared.filter((type) => typeof type === 'string' && type !== 'null').length !== 1
   }
 
   /** Both of JSON Schema's number types, which every reader here treats alike. */

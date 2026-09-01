@@ -31,7 +31,9 @@ export interface SchemaDraftState {
  * rewrites `type` from the field's kind, so `["integer", "null"]` has to be
  * read out and written back deliberately or every field of an imported
  * collection would come back a bare scalar and reject the nulls already
- * stored under it.
+ * stored under it. The `any` kind is the other half of writing `type`
+ * honestly: a property that declares none accepts anything, and the builder
+ * says so and writes none back rather than settling on `string`.
  */
 export class SchemaDraft {
   static readonly Default = {
@@ -134,6 +136,8 @@ export class SchemaDraft {
     // array of them, and the array form is what every imported field carries.
     const type = SchemaType.of(property)
     if (type && SchemaFieldLabels[type as SchemaFieldKind]) return type as SchemaFieldKind
+    // No type declared is a state of its own, not a missing `string`.
+    if (SchemaType.isUntyped(property)) return 'any'
     return 'string'
   }
 
@@ -142,7 +146,7 @@ export class SchemaDraft {
     if (property?.oneOf) return 'oneOf'
     if (property?.anyOf) return 'anyOf'
     if (property?.allOf) return 'allOf'
-    if (SchemaType.isMultiType(property)) return 'type union'
+    if (SchemaType.isUnresolved(property)) return 'type union'
     return undefined
   }
 
@@ -169,6 +173,13 @@ export class SchemaDraft {
     }
 
     switch (field.kind) {
+      case 'any':
+        // No `type` keyword at all, which is the honest schema for a JSON
+        // column: it holds whatever the author put there, and `object` would
+        // refuse the arrays that are just as common. Already permits null, so
+        // there is no union to rebuild.
+        drop('type', 'enum', '$ref', 'items', MediaField.TypeKeyword)
+        return
       case 'media':
         setType('string')
         property[MediaField.TypeKeyword] = MediaField.MediaType

@@ -12,6 +12,7 @@ const OPTIONS: Array<{ value: SchemaFieldKind; label: string }> = [
   { value: 'ref', label: 'Reference' },
   { value: 'ref-array', label: 'Reference list' },
   { value: 'media', label: 'Media' },
+  { value: 'any', label: 'Any' },
 ]
 
 interface Props {
