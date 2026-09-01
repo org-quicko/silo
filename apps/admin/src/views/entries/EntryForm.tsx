@@ -12,6 +12,7 @@ import { Formatters } from '../../utils/formatters'
 import type { Collection } from '../../api/types/collection'
 import type { Entry } from '../../api/types/entry'
 import type { ScopeRef } from '../../api/types/scope-ref'
+import { Routes } from '../../router/routes'
 import { Modal } from '../../components/modal/Modal'
 import { ModalActions } from '../../components/modal/ModalActions'
 import { ModalBody } from '../../components/modal/ModalBody'
@@ -72,7 +73,7 @@ export function EntryForm({
   apiKey,
   scope,
   claims,
-  backTo,
+  backTo: _backTo,
   onSaved,
   onCancel,
   onDeleted,
@@ -182,15 +183,14 @@ export function EntryForm({
       </TopBar>
 
       <div className={`content ${styles.content}`}>
-        <Breadcrumb
-          crumbs={[
-            { label: 'Collections', to: backTo },
-            { label: collection.name, to: backTo },
-            { label: entry ? 'Edit entry' : 'New entry' },
-          ]}
-        />
         <div className={styles.shell}>
           <div className={styles.main}>
+            <Breadcrumb
+              crumbs={[
+                { label: 'Collections', to: Routes.collections(serverId, scope.project, scope.env) },
+                { label: collection.name },
+              ]}
+            />
             {formError && (
               <div className="banner banner-bad">
                 <span>{formError}</span>

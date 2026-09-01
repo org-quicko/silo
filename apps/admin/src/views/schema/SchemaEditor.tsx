@@ -9,6 +9,7 @@ import { Claims } from '@silo/shared/claims'
 import { api } from '../../api/silo-api'
 import type { Collection } from '../../api/types/collection'
 import type { ScopeRef } from '../../api/types/scope-ref'
+import { Routes } from '../../router/routes'
 import { Toggle } from '../../components/controls/Toggle'
 import { Segmented } from '../../components/controls/Segmented'
 import { DangerConfirm } from '../../components/modal/DangerConfirm'
@@ -44,7 +45,7 @@ export function SchemaEditorView({
   apiKey,
   scope,
   claims,
-  backTo,
+  backTo: _backTo,
   entryCount,
   onSaved,
   onCancel,
@@ -166,17 +167,23 @@ export function SchemaEditorView({
         </Button>
       </TopBar>
       <div className={`content ${styles.content}`}>
-        <Breadcrumb
-          crumbs={
-            collection
-              ? [{ label: 'Collections', to: backTo }, { label: collection.name, to: backTo }, { label: 'Edit collection' }]
-              : [{ label: 'Collections', to: backTo }, { label: 'New collection' }]
-          }
-        />
         <div className={styles.shell}>
           <div className={`${styles.main} ${collection ? '' : styles.mainSolo}`}>
             <div className={styles.layout}>
-          <div className={`page-head ${styles.pageHeader}`}>
+              <Breadcrumb
+                crumbs={
+                  collection
+                    ? [
+                        { label: 'Collections', to: Routes.collections(serverId, scope.project, scope.env) },
+                        { label: collection.name },
+                      ]
+                    : [
+                        { label: 'Collections', to: Routes.collections(serverId, scope.project, scope.env) },
+                        { label: 'New collection' },
+                      ]
+                }
+              />
+              <div className={`page-head ${styles.pageHeader}`}>
             <div className="page-title-group">
               <h2 className="page-title">{collection ? 'Edit collection' : 'New collection'}</h2>
               <span className="page-sub">Define the collection with JSON Schema draft 2020-12.</span>

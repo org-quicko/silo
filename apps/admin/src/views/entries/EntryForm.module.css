@@ -12,7 +12,7 @@
   flex: 1;
   flex-direction: column;
   gap: 22px;
-  padding: 26px 30px;
+  padding: 22px 24px;
   border-right: 1px solid var(--line);
 }
 
