@@ -10,7 +10,7 @@
   display: flex;
   min-width: 0;
   flex: 1;
-  padding: 26px 30px;
+  padding: 22px 24px;
   border-right: 1px solid var(--line);
 }
 
