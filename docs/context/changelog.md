@@ -4,6 +4,65 @@
 > The *current* state is [CONTEXT.md](../../CONTEXT.md); this is how it got
 > there.
 
+- **Operating metrics are a bounded core snapshot, drawn by an ordinary
+  first-party plugin (D52, 2026-09-01).**
+  `GET /api/observability` reports what the process has done — API counters
+  grouped by Hono's *registered route pattern*, status classes, latency
+  histograms, sixty one-minute chart buckets, memory and cumulative CPU, and
+  cached local storage sizes — behind a new read-only `observability:read`
+  claim carried by `manage` and `root`. `apps/server/src/observability/` is the
+  accumulator: `RequestMetrics` over `LatencyHistogram`, plus `StorageMetrics`
+  for the directory and filesystem probes. `LoggingMiddleware` feeds it from the
+  point it already owned — one completed request, one timer — but on a switch
+  independent of `[log] requests`, so an operator gets metrics without an access
+  log and either without a restart. It measures `/api/` only, and reads
+  `c.req.routePath` *after* `next()`, which is what makes `/entries/01ABC…` and
+  `/entries/01XYZ…` one series and an unmatched path `/api/*` rather than
+  itself.
+  `plugins/silo-plugin-observability/` is the second first-party package and
+  holds **no** privilege a third-party one could not ask for: one declared
+  `GET /snapshot` that calls the core endpoint through `ctx.fetch`, and a
+  sandboxed panel that calls only that route. A remote dashboard can use the
+  same endpoint and the same claim. The panel's charts answer the pointer —
+  a minute on the traffic chart, a latency band, a status class — through one
+  shared tooltip positioned `fixed`, because an in-flow tooltip would grow
+  `body.scrollHeight`, which is the number the admin sizes the frame from, so
+  pointing at something would move it. The status mix gained real bars beside
+  its proportion strip, the traffic chart re-fits its `viewBox` to the box the
+  card gives it rather than letterboxing a fixed aspect into it, and every
+  panel carries an `i` explaining its own numbers in two lines.
+  The bounds are the product, not an implementation detail: route patterns keep
+  ids and project names out of the series space, endpoints past 256 collapse to
+  one `* <other>` row, the chart prunes to sixty minutes, latency is a fixed
+  histogram rather than retained requests, directory walks follow no symlink and
+  stop at 50,000 entries, and remote-provider capacity is `null` rather than
+  guessed. No request parameter, query string, caller, body, credential, content
+  or filesystem path enters the accumulator — the API test asserts the snapshot
+  does not contain the path it was configured with.
+  Three defects were fixed in review before this landed. A **percentile could
+  read above the maximum beside it**: `LatencyHistogram.percentile` returned the
+  bucket's upper boundary unclamped, so ten 3ms requests answered
+  `p95 = 5, max = 3` — and since a healthy silo puts nearly every request in the
+  1–5ms buckets, that was the *normal* display rather than an edge case, printed
+  side by side in one endpoints row. The bound is clamped to the slowest request
+  actually observed; where the maximum is the looser of the two, the boundary
+  still wins. The **media library was counted twice**: `[blob_storage] path`
+  defaults to `<storage.path>/media`, so the data-directory walk already
+  contained every media byte, and the panel drew the two as peer cards a reader
+  would add — a 40 GiB library showed as "data 42 GiB" beside "media 40 GiB".
+  `StorageMetrics.directory` now takes a subtree to skip and `sample` passes the
+  media root when it is strictly nested, which keeps `files` and the truncation
+  cap honest as well as `bytes`; a library pinned outside the data directory is
+  unaffected, and one pointed at the data directory *itself* is left alone
+  rather than reported as empty. And the plugin shipped a **hand-written 49-line
+  `silo:api`** instead of silo's own 319-line file: its `SiloPluginDefinition`
+  was a bare `[name: string]` index signature, so a mistyped route key or a
+  wrong handler arity typechecked clean, and `ValidationError`/`ForbiddenError`
+  were not declared at all. It carries the canonical file now, and
+  `first-party-plugin-drift.test.ts` holds **both** first-party plugins to it,
+  byte for byte, the way `create-silo-plugin-drift.test.ts` already held the
+  scaffolder's copy.
+
 - **The visual schema editor round-trips every shape `type` can take, so a save
   no longer rewrites an imported collection (2026-09-01).**
   `SchemaDraft` was the reader the entries-view change above deliberately left

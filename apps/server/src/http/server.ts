@@ -16,6 +16,7 @@ import { PluginRegistry, PluginSupervisor, ProviderRegistry } from "../plugins";
 import { ConfigSupervisor, MediaPolicySupervisor, MediaStorageSupervisor } from "../settings";
 import { ConfigLoader } from "../config/config-loader";
 import { UiAssets } from "./ui-assets";
+import { Observability } from "../observability";
 
 /** How to build the app. An options object rather than a fourth and fifth
  *  positional argument, two of which would be bare booleans. */
@@ -58,6 +59,13 @@ export interface SiloServerOptions {
    *  and defaulted for `mediaStorage`'s reason: "this process was not started
    *  from a config file" is a true answer the page can render. */
   settings?: ConfigSupervisor;
+
+  /**
+   * The process-local metrics accumulator exposed by `/api/observability`.
+   * Embedders may supply one with storage probes configured; the default still
+   * records HTTP/process metrics and reports local storage as unavailable.
+   */
+  observability?: Observability;
 }
 
 /** Builds and owns the Hono app: middleware, API routes, and UI static serving. */
@@ -70,6 +78,7 @@ export class SiloServer {
   private readonly mediaStorage: MediaStorageSupervisor;
   private readonly mediaPolicy: MediaPolicySupervisor;
   private readonly settings: ConfigSupervisor;
+  private readonly observability: Observability;
 
   constructor(service: SiloService, options: SiloServerOptions) {
     this.service = service;
@@ -116,6 +125,7 @@ export class SiloServer {
         logger: options.logger,
         config: ConfigLoader.defaultConfig(),
       });
+    this.observability = options.observability ?? new Observability();
   }
 
   build(): Hono {
@@ -125,7 +135,7 @@ export class SiloServer {
     // request logging off pays nothing per request for the decision.
     // Always installed; the logger decides per request, so `[log] requests` can
     // be switched from the settings API without a restart (D47).
-    app.use("*", LoggingMiddleware.create(this.logger));
+    app.use("*", LoggingMiddleware.create(this.logger, this.observability));
 
     // Enable CORS
     app.use("/api/*", cors());
@@ -145,7 +155,8 @@ export class SiloServer {
       this.plugins,
       this.mediaStorage,
       this.mediaPolicy,
-      this.settings
+      this.settings,
+      this.observability
     );
 
     // Global Error Handler

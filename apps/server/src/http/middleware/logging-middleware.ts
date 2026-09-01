@@ -1,6 +1,7 @@
 import type { Context, Next } from "hono";
 import { InjectedPrincipals } from "../auth/injected-principals";
 import type { Logger } from "../../logging/logger";
+import type { Observability } from "../../observability";
 
 /**
  * One log line per request: method, path, status, and how long it took.
@@ -12,12 +13,15 @@ import type { Logger } from "../../logging/logger";
  * they were diagnosing.
  */
 export class LoggingMiddleware {
-  static create(logger: Logger) {
+  static create(logger: Logger, observability?: Observability) {
     return async (c: Context, next: Next) => {
-      if (!logger.requests) return await next();
+      const observe = observability !== undefined && c.req.path.startsWith("/api/");
+      if (!logger.requests && !observe) return await next();
 
-      const start = Date.now();
+      const start = performance.now();
       await next();
+
+      const durationMs = Math.max(0, performance.now() - start);
 
       /**
        * Which plugin, when a plugin is what made the request (D35).
@@ -30,13 +34,31 @@ export class LoggingMiddleware {
        */
       const plugin = InjectedPrincipals.of(c)?.key.owner?.name;
 
-      logger.info("request", {
-        method: c.req.method,
-        path: c.req.path,
-        status: c.res.status,
-        ms: Date.now() - start,
-        ...(plugin ? { plugin } : {}),
-      });
+      if (observe) {
+        // `routePath` is the registered Hono pattern, not the requested path:
+        // `/entries/01ABC…` and `/entries/01XYZ…` therefore share one bounded
+        // series, and neither id reaches whoever reads the metrics. The API
+        // catch-all is named as such rather than exposing the unmatched path.
+        const matched = c.req.routePath;
+        observability.record({
+          completedAt: Date.now(),
+          method: c.req.method,
+          route: matched === "/*" || matched === "" ? "/api/*" : matched,
+          status: c.res.status,
+          durationMs,
+          internal: plugin !== undefined,
+        });
+      }
+
+      if (logger.requests) {
+        logger.info("request", {
+          method: c.req.method,
+          path: c.req.path,
+          status: c.res.status,
+          ms: Math.round(durationMs),
+          ...(plugin ? { plugin } : {}),
+        });
+      }
     };
   }
 }

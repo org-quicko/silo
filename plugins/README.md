@@ -11,7 +11,7 @@ the same contract as any third-party plugin (D31, `IMPLEMENTATION.md` §13):
 - The host is reached through the `silo:api` virtual module, so a plugin
   declares no dependency on silo itself.
 
-Scaffold one with `bun run --cwd packages/create-silo-plugin dev`, or from an
+Scaffold one with `bun run packages/create-silo-plugin/src/main.ts`, or from an
 npm install of `create-silo-plugin`.
 
 Nothing here is loaded automatically. A plugin runs when it is placed under
@@ -23,6 +23,7 @@ Nothing here is loaded automatically. A plugin runs when it is placed under
 | | |
 |---|---|
 | [`silo-plugin-strapi-import`](silo-plugin-strapi-import) | Imports a Strapi 5 SQLite export into silo collections — entries, and the uploads they reference — driven from a panel in the admin. |
+| [`silo-plugin-observability`](silo-plugin-observability) | Shows normalized API traffic, errors and latency alongside process memory and bounded local-storage measurements. |
 
 ## Why a first-party plugin is worth the space
 

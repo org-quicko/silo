@@ -17,7 +17,7 @@ can be cloned with one command.
 
 ## Where things stand
 
-*Last updated: 2026-09-01 (D51)*
+*Last updated: 2026-09-01 (D52)*
 
 Everything through M5 is built and shipping: collections and JSON Schema
 validation, entry CRUD with optimistic concurrency, the query AST and search
@@ -41,9 +41,53 @@ the whole library can be purged (D49). The three settings APIs now check that
 the file they write can be written, say why when it cannot, and a container
 names that file with `SILO_CONFIG` (D50). Projects, environments and
 collections are keyed records with ULIDs, so all three can be **renamed** —
-from the API and from the admin — and the claims naming them follow (D51).
+from the API and from the admin — and the claims naming them follow (D51). The
+process now also reports on *itself*: a bounded operating snapshot behind a new
+`observability:read` claim, drawn by a second first-party plugin that holds no
+privilege a third-party one could not ask for (D52).
 
 **The most recent changes all landed on 2026-09-01.**
+
+**silo can say what it is doing, without a metrics stack and without letting a
+dashboard become a content reader (D52).**
+`GET /api/observability` answers one bounded snapshot of the running process:
+API counters grouped by Hono's **registered route pattern**, status classes,
+latency histograms, sixty one-minute chart buckets, memory and cumulative CPU,
+and cached local-storage sizes. `apps/server/src/observability/` holds the
+accumulator — `RequestMetrics` over `LatencyHistogram`, and `StorageMetrics` for
+the directory and filesystem probes. `LoggingMiddleware` feeds it from the point
+it already owned, one completed request and one timer, but on a switch
+independent of `[log] requests`: metrics without an access log, an access log
+without metrics, and neither needing a restart. The route sits behind
+`observability:read`, a fixed claim carried by `manage` and `root` and grantable
+to a plugin — separate from `settings:configure` so inspecting health never
+implies rewriting `silo.toml`.
+What it deliberately does *not* collect is the point. Series keys are the
+registered pattern and never the requested path, so `/entries/01ABC…` and
+`/entries/01XYZ…` are one series and an id reaches nobody; endpoints past 256
+collapse into a single `* <other>` row; the chart prunes to sixty minutes;
+latency is a fixed histogram rather than retained requests; directory walks
+follow no symlink and stop at 50,000 entries; and remote-provider capacity is
+`null` rather than estimated, because no two storage adapters agree on what
+billable size means. Request parameters, query strings, caller identities,
+bodies, credentials, content and filesystem paths never enter it.
+`plugins/silo-plugin-observability/` is the presentation and nothing more: one
+declared `GET /snapshot` calling the core endpoint through `ctx.fetch`, and a
+sandboxed panel calling only that route. There is no first-party escape hatch,
+and a remote dashboard can use the same endpoint with the same claim.
+Three review fixes are part of it. A **percentile no longer reads above the
+maximum printed beside it** — the histogram returned a bucket's upper boundary
+unclamped, and since a healthy silo puts nearly every request in the 1–5ms
+buckets, `p95 = 5` next to `max = 3` was the ordinary display rather than an
+edge case. The **media library is counted once** — `[blob_storage] path`
+defaults to `<storage.path>/media`, so the data-directory walk already contained
+every media byte while the panel drew the two as peer cards a reader would add;
+the walk now skips the media subtree when it is strictly nested, which keeps
+`files` and the entry cap honest as well as `bytes`. And the plugin carries
+silo's own 319-line `silo:api` rather than a hand-written reduction that had
+degraded `SiloPluginDefinition` to a bare index signature;
+`first-party-plugin-drift.test.ts` now holds both first-party plugins to it byte
+for byte, as `create-silo-plugin-drift.test.ts` already held the scaffolder's.
 
 **A visual-mode save no longer strips the nulls out of an imported
 collection.**
