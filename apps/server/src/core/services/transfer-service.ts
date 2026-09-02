@@ -61,14 +61,41 @@ export class TransferService {
     });
   }
 
+  /**
+   * An archive from a path or a `Buffer`. The parameter used to say
+   * `ReadableStream | any` and a stream was the one thing it could not take —
+   * `importTarGzStream` below is that case.
+   */
   async importTarGz(
-    reader: ReadableStream | any,
+    source: string | Buffer,
     options: ImportOptions
   ): Promise<ImportResult> {
     return this.context.withWriteLock(async () => {
       const result = await Importer.importTarGz(
         this.context.store,
-        reader,
+        source,
+        options,
+        this.context.blobStorage
+      );
+      this.context.schemaRegistry.invalidate();
+      return result;
+    });
+  }
+
+  /**
+   * An archive that arrives as a stream — an upload body, or another
+   * instance's export. Nothing is buffered whole, so peak memory does not
+   * scale with the source's media library. The write lock is held for the
+   * whole transfer, extraction included, exactly as the buffered path held it.
+   */
+  async importTarGzStream(
+    archive: ReadableStream<Uint8Array>,
+    options: ImportOptions
+  ): Promise<ImportResult> {
+    return this.context.withWriteLock(async () => {
+      const result = await Importer.importTarGzStream(
+        this.context.store,
+        archive,
         options,
         this.context.blobStorage
       );

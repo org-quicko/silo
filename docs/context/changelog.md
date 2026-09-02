@@ -4,6 +4,55 @@
 > The *current* state is [CONTEXT.md](../../CONTEXT.md); this is how it got
 > there.
 
+- **Importing and copying an archive no longer have to fit in memory either
+  (2026-09-02).** The entry below made export streaming and left the receiving
+  side as the same problem mirrored: `/api/import` did
+  `Buffer.from(await c.req.arrayBuffer())`, and `HttpSiloClient.exportArchive`
+  did the same to the source's response — so `/api/copy` had a source that
+  streamed and a destination that undid it, allocating as much memory as the
+  source instance's media library.
+
+  `Importer.importTarGzStream` is the counterpart to `exportTarGzStream`. `tar.x`
+  with no `file` is a writable parser, so extraction is a pump: write each chunk,
+  wait for `drain` when it asks, and finish on the `end` it emits only once the
+  input has ended *and* its pending-write count has reached zero — that last part
+  is what guarantees `importDir` never walks a half-extracted tree. No
+  intermediate `.tar.gz` is written, which also removed the one the old `Buffer`
+  branch wrote and deleted; that branch now goes through the same extraction as a
+  single chunk, since a `Buffer` is already whole and has nothing left to stream.
+  The *extracted* tree still lands in a temp dir, because `importDir` walks a
+  directory and an archive is not ordered for a single pass.
+
+  A tar-level failure is recorded and rethrown rather than raced as a rejection.
+  This is load-bearing, not tidiness: on a truncated upload the correct pump
+  fails with `zlib: unexpected end of file` and extracts nothing, while dropping
+  that error surfaced an ENOENT on a `manifest.json` that was never written — a
+  downstream symptom that says nothing about the upload being truncated. The test
+  asserts the gzip message for exactly that reason; a bare `rejects.toThrow()`
+  passed against both.
+
+  `/api/import` hands the request body straight through, and **the admin sends
+  the archive as a raw body instead of a `FormData` part**. That is what makes
+  the admin's own import stream: a form has to be parsed before the archive
+  inside it can be found, so the multipart branch is still bounded by whatever
+  the runtime does with a large upload. It stays for callers already posting one,
+  and now takes the part's own `stream()` rather than a second full copy of it.
+  A request with no body at all is a 400 rather than an empty-archive tar
+  failure.
+
+  `exportArchiveStream` replaces `exportArchive` on the copy client. The one
+  thing the buffered version got for free was seeing that an archive was empty,
+  so that check is kept by pulling the first chunk before answering and putting
+  it back at the head of the stream the caller gets — a peek that forgot to
+  restore it would corrupt every copy, which the copy tests and a byte-for-byte
+  unit test both catch. Zero-length chunks are skipped rather than mistaken for
+  the end of the stream.
+
+  `TransferService.importTarGz` also stopped lying about its parameter: it was
+  typed `ReadableStream | any` and a `ReadableStream` was the one thing it could
+  not take. It is `string | Buffer` now, with the stream case on
+  `importTarGzStream` beside it.
+
 - **A whole-instance export no longer has to fit in memory (2026-09-02).**
   `GET /api/export` read the finished tarball into one `Buffer` and answered
   with it. An archive is assembled in a temp tree that holds a copy of every

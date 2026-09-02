@@ -10,6 +10,7 @@ import { SiloService } from "../../src/core/services/silo-service";
 import { Scope } from "../../src/core/domain/scope";
 import { SiloServer } from "../../src/http/server";
 import { Logger } from "../../src/logging/logger";
+import { HttpSiloClient } from "../../src/adapters/http/http-silo-client";
 
 describe("Server copy API", () => {
   let tempDir: string;
@@ -163,5 +164,79 @@ describe("Server copy API", () => {
     expect((await destinationService.entries.get(Scope.Default, "notes", sourceEntry.id)).data.text).toBe("copied");
     expect((await destinationService.keys.authenticate(destinationKey)).claims).toEqual(["*"]);
     await expect(destinationService.keys.authenticate(sourceKey)).rejects.toThrow();
+  });
+});
+
+describe("the copy source client", () => {
+  const streamOf = (chunks: Uint8Array[]): ReadableStream<Uint8Array> =>
+    new ReadableStream<Uint8Array>({
+      start(controller) {
+        for (const chunk of chunks) controller.enqueue(chunk);
+        controller.close();
+      },
+    });
+
+  const clientFor = (response: Response) =>
+    new HttpSiloClient("http://source.invalid", "key", async () => response);
+
+  const drain = async (stream: ReadableStream<Uint8Array>): Promise<Buffer> => {
+    const chunks: Uint8Array[] = [];
+    const reader = stream.getReader();
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      chunks.push(value);
+    }
+    return Buffer.concat(chunks);
+  };
+
+  test("hands back every byte, including the one it peeked at", async () => {
+    // The empty-archive check reads the first chunk before answering, so the
+    // bytes it consumed have to reappear at the head of the stream — a peek
+    // that forgot to put them back would corrupt every copy.
+    const chunks = [
+      new Uint8Array([0x1f, 0x8b, 0x08, 0x00]),
+      new Uint8Array([1, 2, 3]),
+      new Uint8Array([4, 5]),
+    ];
+    const client = clientFor(new Response(streamOf(chunks), { status: 200 }));
+
+    const archive = await drain(await client.exportArchiveStream(false));
+    expect([...archive]).toEqual([0x1f, 0x8b, 0x08, 0x00, 1, 2, 3, 4, 5]);
+  });
+
+  test("refuses an archive with no bytes in it", async () => {
+    const client = clientFor(new Response(streamOf([]), { status: 200 }));
+    await expect(client.exportArchiveStream(false)).rejects.toThrow(
+      "empty export archive"
+    );
+  });
+
+  test("refuses an archive that is only empty chunks", async () => {
+    // A zero-length chunk is not the end of a stream, so the check keeps
+    // pulling rather than reading one and calling the archive non-empty.
+    const client = clientFor(
+      new Response(streamOf([new Uint8Array(), new Uint8Array()]), { status: 200 })
+    );
+    await expect(client.exportArchiveStream(false)).rejects.toThrow(
+      "empty export archive"
+    );
+  });
+
+  test("sees past leading empty chunks to the bytes behind them", async () => {
+    const client = clientFor(
+      new Response(streamOf([new Uint8Array(), new Uint8Array([7, 8])]), { status: 200 })
+    );
+    const archive = await drain(await client.exportArchiveStream(false));
+    expect([...archive]).toEqual([7, 8]);
+  });
+
+  test("still reports a source that refused the export", async () => {
+    const client = clientFor(
+      new Response(JSON.stringify({ error: { message: "nope" } }), { status: 403 })
+    );
+    await expect(client.exportArchiveStream(false)).rejects.toThrow(
+      "source silo key must permit export"
+    );
   });
 });

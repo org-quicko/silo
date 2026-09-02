@@ -49,6 +49,24 @@ privilege a third-party one could not ask for (D52).
 **The most recent change landed on 2026-09-02; everything before it on
 2026-09-01.**
 
+**Importing and copying an archive no longer have to fit in memory either
+(2026-09-02).** The export side had just been made streaming, which left the
+receiving side as the mirror of the same problem: `/api/import` read the upload
+into one `Buffer`, and `HttpSiloClient` read the source's export response into
+another — so a copy allocated as much memory as the source instance's media
+library on the destination, undoing the streaming the source had just started
+doing. `Importer.importTarGzStream` feeds the stream straight to `tar.x`, no
+intermediate `.tar.gz` and one chunk at a time, finishing on the `end` tar emits
+only once every file it opened is written, so the walk that follows never sees a
+half-extracted tree. `/api/import` passes the request body through; the admin
+sends the archive as a raw body rather than a form part, since a form has to be
+parsed before the archive inside it can be read, and the multipart branch stays
+for callers already posting one. `/api/copy` is streamed end to end through
+`exportArchiveStream`, which keeps the old empty-archive check by peeking the
+first chunk and putting it back at the head of the stream. A truncated upload now
+fails with the gzip error itself and extracts nothing, where dropping that error
+reported an ENOENT on a `manifest.json` that was never written.
+
 **A whole-instance export no longer has to fit in memory (2026-09-02).**
 `GET /api/export` read the finished tarball into one `Buffer` before answering.
 An archive is assembled in a temp tree that holds a copy of every media byte, so

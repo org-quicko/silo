@@ -34,12 +34,19 @@
 - **Validation off by default** on import: fidelity first — the source instance accepted this data, possibly under an older schema. `--validate` opts into strict checking; it validates each entry against its own scope's schema.
 - The `_keys` guard is scope-aware only in the sense that it looks for `_keys` under any scope in the archive — an archive containing `_keys` anywhere still requires the importing key to hold `keys:import` (`ForbiddenError` otherwise), same as before D18.
 - **Legacy archives** — not applicable pre-1.0: an unrecognized `format_version` is rejected outright (§6.2/§6.3), never migrated. D18 bumped the format to `"2"` with no dual-format reader.
+- **An archive is streamed in, not buffered.** `/api/import` takes the request body as a stream and feeds it straight to `tar.x`, so no intermediate `.tar.gz` is written and nothing bigger than one chunk is held: the mirror of the export change in §7.1, and for the same reason — an archive carries every media byte, so reading one whole cost as much memory as the *source* instance's library. Both shapes of upload are accepted: a raw body, which is what the admin sends and the only truly streaming one, and a `multipart/form-data` `file` part, which is still bounded by whatever the runtime does with a large form since the part cannot be found without parsing the body that holds it. The *extracted* tree still lands in a temp dir, because `importDir` walks a directory and an archive is not ordered for a single pass. A truncated upload fails with the gzip error itself and extracts nothing, so it cannot half-import — which is a sharper failure than §7.2's non-atomicity warning covers, not an exception to it.
 - **Imports are not atomic.** There is no transaction spanning the walk: an archive that fails partway (a rejected path segment per §6.1, a disk error) leaves everything written up to that point in place, and the caller gets the error instead of an `ImportResult`, so the counts of what landed are lost. Failing loudly mid-import is the deliberate trade against the alternative — accepting malformed addressing to keep the run going — but it means a failed import must be treated as "unknown state, re-run or restore", not "no-op". `--dry-run` walks and reports without writing, which is the way to check an untrusted archive first. Atomic import would need either a staging area or a transactional `Storage` method, neither of which exists pre-1.0.
 
 ### 7.3 Direct server copy
 
 `POST /api/copy` (`transfer:copy`) pulls `/api/export` from another running silo and feeds
-that archive to the same importer used by file uploads. The request supplies the
+that archive to the same importer used by file uploads. The pull is **streamed end to
+end** — the source streams its export and the destination loads from that stream, where
+it used to read the response into a `Buffer` first and so undo the source's streaming on
+the receiving side. The one thing the buffered form got for free was noticing an empty
+archive; that check is kept by peeking the first chunk and putting it back at the head of
+the stream, so an empty source is still a clear error rather than a tar failure. The
+request supplies the
 source base URL, a source API key with `transfer:export`, merge/replace mode, dry-run, conflict
 preference, and whether `_keys` should be included. Schemas, entries, and media
 are always copied. Source credentials are used only for the outbound export

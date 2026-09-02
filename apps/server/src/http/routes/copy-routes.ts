@@ -30,8 +30,11 @@ export class CopyRoutes {
       if (body.with_keys === true) RouteAuth.requireClaim(c, Claims.KeysImport);
 
       const source = new HttpSiloClient(body.source_url, body.source_api_key);
-      const archive = await source.exportArchive(body.with_keys === true);
-      const result = await service.transfer.importTarGz(archive, {
+      // Streamed end to end: the source streams its export, and this loads
+      // from that stream rather than reading it whole first, so a copy costs
+      // one chunk of memory instead of the source's whole media library.
+      const archive = await source.exportArchiveStream(body.with_keys === true);
+      const result = await service.transfer.importTarGzStream(archive, {
         mode: body.mode,
         dryRun: body.dry_run,
         validate: body.validate,
