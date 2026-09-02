@@ -39,6 +39,15 @@ export class TransferService {
     await Exporter.exportTarGz(this.context.store, writer, options, this.context.blobStorage);
   }
 
+  /**
+   * The archive as a stream, for a caller that can pass one straight to a
+   * response body — nothing is buffered whole, so peak memory does not scale
+   * with the media library.
+   */
+  async exportTarGzStream(options: ExportOptions): Promise<ReadableStream<Uint8Array>> {
+    return Exporter.exportTarGzStream(this.context.store, options, this.context.blobStorage);
+  }
+
   async importDir(source: string, options: ImportOptions): Promise<ImportResult> {
     return this.context.withWriteLock(async () => {
       const result = await Importer.importDir(

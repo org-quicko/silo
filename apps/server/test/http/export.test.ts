@@ -8,6 +8,9 @@ import { Exporter } from "../../src/core/transfer/exporter";
 import { Importer } from "../../src/core/transfer/importer";
 import { AuditUtils } from "../../src/core/audit/audit-utils";
 import { SiloService } from "../../src/core/services/silo-service";
+import { FsBlobStorage } from "../../src/adapters/blob/fs-blob-storage";
+import { SiloServer } from "../../src/http/server";
+import { Logger } from "../../src/logging/logger";
 import { FormatVersion } from "../../src/core/transfer/format-version";
 import { EntryUtils } from "../../src/core/domain/entry-utils";
 import { Scope } from "../../src/core/domain/scope";
@@ -24,6 +27,30 @@ const newEntry = (scope: Scope, collection: string, ts: Date, data: any): Entry 
   updated_at: ts,
   data,
 });
+
+/**
+ * A blob too big to gzip into a single chunk, cheap to build: one random block
+ * repeated, so it is large without being slow or compressible to nothing.
+ */
+const randomBlob = (size: number): Uint8Array => {
+  const block = 65536;
+  const data = new Uint8Array(size);
+  crypto.getRandomValues(data.subarray(0, Math.min(block, size)));
+  for (let offset = block; offset < size; offset += block) {
+    data.set(data.subarray(0, Math.min(block, size - offset)), offset);
+  }
+  return data;
+};
+
+/**
+ * How many export temp trees exist right now. A streamed archive outlives the
+ * call that created it, so cleanup is the stream's job — this is what checks
+ * it actually happens.
+ */
+const countExportTempDirs = async (): Promise<number> => {
+  const names = await fs.readdir(os.tmpdir());
+  return names.filter((name) => name.startsWith("silo-export-")).length;
+};
 
 describe("Export / Import Tests", () => {
   test("ExportImportTarGzRoundTrip", async () => {
@@ -513,6 +540,184 @@ describe("system collections stay out of archives", () => {
       expect(collections).not.toContain("_plugins");
 
       await store.close();
+    } finally {
+      await fs.rm(tempDir, { recursive: true, force: true }).catch(() => {});
+    }
+  });
+});
+
+describe("the export tarball streams rather than buffering", () => {
+  // The HTTP export path used to read the finished tarball into one Buffer,
+  // which made peak memory scale with the media library (D5 puts every media
+  // byte in the archive). These cover the streamed replacement: that it is a
+  // real archive, that it arrives in pieces rather than all at once, and that
+  // the temp tree it is built from does not outlive it.
+  test("ExportTarGzStreamsInChunksAndCleansUp", async () => {
+    const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "silo-export-test-"));
+    try {
+      const store = await SqliteStore.open(path.join(tempDir, "src.db"));
+      await store.putSchema(Scope.Default, "posts", { type: "object" });
+      const time1 = new Date(Date.UTC(2026, 0, 1, 10, 0, 0));
+      const e1 = newEntry(Scope.Default, "posts", time1, { title: "hello" });
+      await store.put(e1, { usages: [], search: null });
+
+      // Well past one gzip chunk: a small archive would fit in a single chunk
+      // and prove nothing about streaming.
+      const mediaDir = path.join(tempDir, "media");
+      const blobs = new FsBlobStorage(mediaDir);
+      const big = randomBlob(4 * 1024 * 1024);
+      await blobs.put("big.bin", big);
+
+      const before = await countExportTempDirs();
+
+      const stream = await Exporter.exportTarGzStream(
+        store,
+        { siloVersion: "0.1.0-test", exportedAt: time1 },
+        mediaDir
+      );
+
+      const chunks: Uint8Array[] = [];
+      const reader = stream.getReader();
+      for (;;) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        chunks.push(value);
+      }
+      expect(chunks.length).toBeGreaterThan(1);
+
+      const archive = Buffer.concat(chunks);
+      // gzip magic — the stream is the tarball itself, not a description of it.
+      expect(archive[0]).toBe(0x1f);
+      expect(archive[1]).toBe(0x8b);
+
+      // The temp tree the archive was built from is gone once the stream ends.
+      expect(await countExportTempDirs()).toBe(before);
+
+      // And it is importable, media included.
+      const tarPath = path.join(tempDir, "streamed.tar.gz");
+      await fs.writeFile(tarPath, archive);
+      const destStore = await SqliteStore.open(path.join(tempDir, "dest.db"));
+      const destBlobs = new FsBlobStorage(path.join(tempDir, "dest-media"));
+      const response = await Importer.importTarGz(
+        destStore,
+        tarPath,
+        { mode: "replace" },
+        destBlobs
+      );
+      expect(response.added).toBe(1);
+      expect((await destStore.get(Scope.Default, "posts", e1.id)).data).toEqual(e1.data);
+      expect((await destBlobs.get("big.bin"))?.size).toBe(big.length);
+
+      await store.close();
+      await destStore.close();
+    } finally {
+      await fs.rm(tempDir, { recursive: true, force: true }).catch(() => {});
+    }
+  });
+
+  test("ExportTarGzWritesToAWriterInChunks", async () => {
+    const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "silo-export-test-"));
+    try {
+      const store = await SqliteStore.open(path.join(tempDir, "src.db"));
+      await store.putSchema(Scope.Default, "posts", { type: "object" });
+      const time1 = new Date(Date.UTC(2026, 0, 1, 10, 0, 0));
+      const e1 = newEntry(Scope.Default, "posts", time1, { title: "hello" });
+      await store.put(e1, { usages: [], search: null });
+
+      const mediaDir = path.join(tempDir, "media");
+      await new FsBlobStorage(mediaDir).put("big.bin", randomBlob(4 * 1024 * 1024));
+
+      // A writer rather than a path. It must be fed chunk by chunk, and the
+      // exporter must not close what it did not open.
+      const written: Uint8Array[] = [];
+      let closed = false;
+      const writer = {
+        write: async (chunk: Uint8Array) => {
+          written.push(chunk);
+        },
+        close: async () => {
+          closed = true;
+        },
+      };
+
+      await Exporter.exportTarGz(
+        store,
+        writer,
+        { siloVersion: "0.1.0-test", exportedAt: time1 },
+        mediaDir
+      );
+
+      expect(written.length).toBeGreaterThan(1);
+      expect(closed).toBe(false);
+
+      const archive = Buffer.concat(written);
+      const tarPath = path.join(tempDir, "written.tar.gz");
+      await fs.writeFile(tarPath, archive);
+      const destStore = await SqliteStore.open(path.join(tempDir, "dest.db"));
+      const response = await Importer.importTarGz(destStore, tarPath, { mode: "replace" });
+      expect(response.added).toBe(1);
+
+      await store.close();
+      await destStore.close();
+    } finally {
+      await fs.rm(tempDir, { recursive: true, force: true }).catch(() => {});
+    }
+  });
+
+  test("ExportTarGzRejectsAWriterItCannotWriteTo", async () => {
+    const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "silo-export-test-"));
+    try {
+      const store = await SqliteStore.open(path.join(tempDir, "src.db"));
+      // An object with no write method reached the write call and failed as a
+      // TypeError; a null writer threw before the check meant to catch it.
+      await expect(Exporter.exportTarGz(store, {}, {})).rejects.toThrow(
+        "unsupported writer type"
+      );
+      await expect(Exporter.exportTarGz(store, null, {})).rejects.toThrow(
+        "unsupported writer type"
+      );
+      await store.close();
+    } finally {
+      await fs.rm(tempDir, { recursive: true, force: true }).catch(() => {});
+    }
+  });
+
+  test("HttpExportStreamsAnImportableArchive", async () => {
+    const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "silo-export-test-"));
+    try {
+      const store = await SqliteStore.open(path.join(tempDir, "silo.db"));
+      const service = new SiloService(store, { mediaDir: path.join(tempDir, "media") });
+      const rootKey = await service.keys.bootstrap();
+      await service.collections.putSchema(Scope.Default, "posts", { type: "object" });
+      const app = new SiloServer(service, {
+        version: "test",
+        authDisabled: false,
+        logger: Logger.silent(),
+      }).build();
+
+      const before = await countExportTempDirs();
+
+      const httpResponse = await app.request("/api/export", {
+        headers: { Authorization: `Bearer ${rootKey}` },
+      });
+      expect(httpResponse.status).toBe(200);
+      expect(httpResponse.headers.get("Content-Type")).toBe("application/gzip");
+
+      const archive = Buffer.from(await httpResponse.arrayBuffer());
+      expect(archive[0]).toBe(0x1f);
+      expect(archive[1]).toBe(0x8b);
+      expect(await countExportTempDirs()).toBe(before);
+
+      const tarPath = path.join(tempDir, "http.tar.gz");
+      await fs.writeFile(tarPath, archive);
+      const destStore = await SqliteStore.open(path.join(tempDir, "dest.db"));
+      // Nothing there before the import, so the assertion after it means something.
+      await expect(destStore.getSchema(Scope.Default, "posts")).rejects.toThrow("not found");
+      await Importer.importTarGz(destStore, tarPath, { mode: "replace" });
+      expect(await destStore.getSchema(Scope.Default, "posts")).toEqual({ type: "object" });
+
+      await store.close();
+      await destStore.close();
     } finally {
       await fs.rm(tempDir, { recursive: true, force: true }).catch(() => {});
     }

@@ -1,11 +1,7 @@
 import type { Context } from "hono";
 import { Claims } from "@silo/shared/claims";
-import fs from "fs/promises";
-import path from "path";
-import os from "os";
 import type { SiloService } from "../../core/services/silo-service";
 import { ValidationError } from "@silo/shared/validation-error";
-import { EntryUtils } from "../../core/domain/entry-utils";
 import { RouteAuth } from "../auth/route-auth";
 
 export class TransferRoutes {
@@ -20,18 +16,16 @@ export class TransferRoutes {
       RouteAuth.requireClaim(c, Claims.MediaRead);
       const withKeys = c.req.query("with_keys") === "true";
       if (withKeys) RouteAuth.requireClaim(c, Claims.KeysExport);
-      const tempFile = path.join(os.tmpdir(), `silo-export-${EntryUtils.newID()}.tar.gz`);
-
-      await service.transfer.exportTarGz(tempFile, {
-        withKeys,
-      });
-
-      const fileBuffer = await fs.readFile(tempFile);
-      await fs.unlink(tempFile);
+      // Streamed rather than read into a Buffer: an archive carries the whole
+      // media library, so buffering it made the response cost as much memory
+      // as the instance holds and failed on a small host instead of merely
+      // being slow. The export walk is awaited inside, so a storage or blob
+      // error still becomes an error response rather than a truncated body.
+      const archive = await service.transfer.exportTarGzStream({ withKeys });
 
       c.header("Content-Type", "application/gzip");
       c.header("Content-Disposition", 'attachment; filename="silo-export.tar.gz"');
-      return c.body(fileBuffer);
+      return c.body(archive);
     });
 
     app.post("/api/import", async (c: Context) => {

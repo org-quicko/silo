@@ -49,6 +49,22 @@ privilege a third-party one could not ask for (D52).
 **The most recent change landed on 2026-09-02; everything before it on
 2026-09-01.**
 
+**A whole-instance export no longer has to fit in memory (2026-09-02).**
+`GET /api/export` read the finished tarball into one `Buffer` before answering.
+An archive is assembled in a temp tree that holds a copy of every media byte, so
+the response cost as much memory as the media library takes on disk — an export
+that should have merely been slow on a small host failed outright instead. The
+route now hands Hono a stream: `Exporter.exportTarGzStream` gzips `tar.c`
+straight into the response body, writes no intermediate `.tar.gz`, and holds
+nothing bigger than one gzip chunk, with the consumer's backpressure carried
+back to the tar walk. The temp tree is removed when the stream ends, errors, or
+the client disconnects mid-download. The export *walk* still finishes before the
+first byte goes out, so a storage or blob failure is still an error response
+rather than a truncated archive, and the bytes are the same reproducible tarball
+`silo export --out` writes. `exportTarGz`'s writer branch streams off the same
+path instead of buffering, and its unreachable second `else if` — the same
+condition as the first — is gone.
+
 **An entry form shows how deep it is (2026-09-02).** A component three levels
 down was drawn exactly like a top-level one: RJSF tells a template nothing about
 where in the tree it sits, so every array item card carried the same surface as
