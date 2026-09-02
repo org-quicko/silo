@@ -1,7 +1,7 @@
 import fs from "fs/promises";
 import path from "path";
 import os from "os";
-import { c } from "tar";
+import { c, type Pack } from "tar";
 import type { Storage } from "../ports/storage";
 import type { BlobStorage } from "../ports/blob-storage";
 import { FsBlobStorage } from "../../adapters/blob/fs-blob-storage";
@@ -265,42 +265,126 @@ export class Exporter {
     );
   }
 
+  /**
+   * The tarball, as a stream.
+   *
+   * `exportDir` copies every media byte into the temp tree, so a
+   * whole-instance archive is as large as the media library. Handing that back
+   * as one `Buffer` put the whole archive in memory at once, which on a small
+   * host failed the export outright rather than merely running it slowly.
+   * Streaming holds nothing bigger than a gzip chunk, and `tar.c` writes no
+   * intermediate `.tar.gz` to unlink afterwards either.
+   *
+   * The temp tree is removed when the stream ends, errors, or is cancelled —
+   * the last case being a client that disconnects mid-download. Only the walk
+   * is awaited here: `exportDir` is where storage and blob errors surface, so
+   * a failing export still reports before a single byte has been written, and
+   * a caller that has already sent headers can only truncate on a later
+   * gzip-level error.
+   */
+  static async exportTarGzStream(
+    store: Storage,
+    opts: ExportOptions,
+    blobStorage?: BlobStorage | string
+  ): Promise<ReadableStream<Uint8Array>> {
+    const tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), "silo-export-"));
+    try {
+      await Exporter.exportDir(store, tmpDir, opts, blobStorage);
+      const files = await fs.readdir(tmpDir);
+      const pack = c({ gzip: true, cwd: tmpDir }, files);
+      return Exporter.streamPack(pack, tmpDir);
+    } catch (error) {
+      // The stream owns the temp tree once it exists; until then this does.
+      await fs.rm(tmpDir, { recursive: true, force: true });
+      throw error;
+    }
+  }
+
+  /**
+   * `tar.c`'s output as a web stream, cleaning up `tmpDir` when it is done
+   * with.
+   *
+   * The pack is a Minipass, which flows as soon as a `data` listener is
+   * attached — so it is paused immediately and only resumed on `pull`, which
+   * is what carries the consumer's backpressure back to the tar walk.
+   */
+  private static streamPack(
+    pack: Pack,
+    tmpDir: string
+  ): ReadableStream<Uint8Array> {
+    const cleanup = () => {
+      void fs.rm(tmpDir, { recursive: true, force: true });
+    };
+
+    return new ReadableStream<Uint8Array>({
+      start(controller) {
+        pack.on("data", (chunk: Buffer) => {
+          controller.enqueue(chunk);
+          if ((controller.desiredSize ?? 1) <= 0) pack.pause();
+        });
+        pack.on("end", () => {
+          controller.close();
+          cleanup();
+        });
+        pack.on("error", (error: unknown) => {
+          controller.error(error);
+          cleanup();
+        });
+        pack.pause();
+      },
+      pull() {
+        pack.resume();
+      },
+      cancel() {
+        pack.destroy();
+        cleanup();
+      },
+    });
+  }
+
+  /**
+   * The tarball, to a file path or to a writer.
+   *
+   * A string path is handed straight to `tar.c`, which writes it itself. Any
+   * other writer is fed from `exportTarGzStream`, one chunk at a time — each
+   * `write` is awaited, so a slow writer slows the walk rather than piling the
+   * archive up in memory. The writer is written to and not closed; whoever
+   * opened it owns closing it.
+   */
   static async exportTarGz(
     store: Storage,
     w: any,
     opts: ExportOptions,
     blobStorage?: BlobStorage | string
   ): Promise<void> {
-    const tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), "silo-export-"));
+    if (typeof w === "string") {
+      const tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), "silo-export-"));
+      try {
+        await Exporter.exportDir(store, tmpDir, opts, blobStorage);
+        await c({ gzip: true, cwd: tmpDir, file: w }, await fs.readdir(tmpDir));
+      } finally {
+        await fs.rm(tmpDir, { recursive: true, force: true });
+      }
+      return;
+    }
+
+    if (typeof w?.write !== "function") {
+      throw new Error("unsupported writer type");
+    }
+
+    const reader = (
+      await Exporter.exportTarGzStream(store, opts, blobStorage)
+    ).getReader();
     try {
-      await Exporter.exportDir(store, tmpDir, opts, blobStorage);
-      const files = await fs.readdir(tmpDir);
-
-      if (typeof w === "string") {
-        await c({
-          gzip: true,
-          cwd: tmpDir,
-          file: w,
-        }, files);
-      } else {
-        const tmpTar = path.join(tmpDir, "export.tar.gz");
-        await c({
-          gzip: true,
-          cwd: tmpDir,
-          file: tmpTar,
-        }, files);
-
-        const tarData = await fs.readFile(tmpTar);
-        if (w.write) {
-          await w.write(tarData);
-        } else if (typeof w === "object" && "write" in w) {
-          await w.write(tarData);
-        } else {
-          throw new Error("unsupported writer type");
-        }
+      for (;;) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        await w.write(value);
       }
     } finally {
-      await fs.rm(tmpDir, { recursive: true, force: true });
+      // Releasing the lock is not enough on a partial read: cancel is what
+      // tears the tar walk down and removes the temp tree.
+      await reader.cancel();
     }
   }
 }

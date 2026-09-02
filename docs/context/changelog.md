@@ -4,6 +4,45 @@
 > The *current* state is [CONTEXT.md](../../CONTEXT.md); this is how it got
 > there.
 
+- **A whole-instance export no longer has to fit in memory (2026-09-02).**
+  `GET /api/export` read the finished tarball into one `Buffer` and answered
+  with it. An archive is assembled in a temp tree that holds a copy of every
+  media byte, so the response cost as much memory as the media library takes on
+  disk: an export that should have been merely slow on a small host failed
+  outright instead. The design doc's "streams (no full-dataset buffering)" was
+  true of `silo export --out`, which hands its path to `tar.c`, and aspirational
+  on the one surface where it mattered most.
+
+  `Exporter.exportTarGzStream` is the new shape — gzip `tar.c` straight into a
+  `ReadableStream`, write no intermediate `.tar.gz` at all, and let the route
+  return it as the response body. The pack is paused as soon as its `data`
+  listener is attached and resumed on `pull`, so the consumer's backpressure
+  reaches the tar walk rather than the archive piling up ahead of it, and peak
+  memory is one gzip chunk. The temp tree is the stream's to clean up, on `end`,
+  on `error`, and on `cancel` — the last being a client that disconnects
+  mid-download, which the old route could not represent.
+
+  What did *not* change is where errors land. `exportDir` is awaited before the
+  stream is returned, so the walk that touches storage and blobs still completes
+  before a single byte is sent: a failing export is an error response, not a
+  truncated archive. Only a later gzip-level failure can truncate. The bytes are
+  identical — the same reproducible tarball `--out` writes.
+
+  `exportTarGz` keeps both of its branches and buffers in neither. A string path
+  still goes to `tar.c` directly; any other writer is now drained from
+  `exportTarGzStream` a chunk at a time, each `write` awaited, and is not closed
+  by the exporter since the exporter did not open it. Its dead arm is gone:
+  `if (w.write)` followed by `else if (typeof w === "object" && "write" in w)`
+  tested the same thing twice, so the second was unreachable and the
+  `"unsupported writer type"` throw beneath it was only ever reached for a
+  falsy `write` — a `null` writer hit a `TypeError` first. The check is
+  `typeof w?.write !== "function"` now, and that error is reachable.
+
+  Tests cover what a buffered implementation would pass: that the stream and the
+  writer both deliver more than one chunk, that no `silo-export-*` temp tree
+  survives the stream, and that `GET /api/export`'s body is a gzip archive that
+  imports.
+
 - **An entry form shows how deep it is (2026-09-02).**
   A component three levels down was drawn exactly like a top-level one. RJSF
   tells a template nothing about where in the tree it sits, so every array item
