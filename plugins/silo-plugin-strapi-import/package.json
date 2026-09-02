@@ -72,7 +72,7 @@
       "required": [
         {
           "claim": "collections:*/*/*:create",
-          "reason": "To create one collection per Strapi list — the plan names each of them before anything is written."
+          "reason": "To create one collection per Strapi content type — the plan names each of them before anything is written."
         },
         {
           "claim": "collections:*/*/*:schema:read",

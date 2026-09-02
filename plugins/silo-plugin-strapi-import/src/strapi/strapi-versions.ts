@@ -1,4 +1,4 @@
-import type { StrapiContentType, StrapiDatabase } from './strapi-database'
+import type { StrapiDatabase, StrapiStoredType } from './strapi-database'
 
 export type StrapiVersion = 'published' | 'draft'
 
@@ -39,7 +39,7 @@ export class StrapiVersions {
    */
   static entityIds(
     source: StrapiDatabase,
-    contentType: StrapiContentType,
+    contentType: StrapiStoredType,
     version: StrapiVersion,
   ): number[] {
     const all = StrapiVersions.query(source, contentType.table)

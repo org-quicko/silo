@@ -42,13 +42,22 @@ export interface ImportPlan {
  * `ImportPlans.read`, so "what will happen" is always a document somebody could
  * have read.
  *
- * The default mapping is **one collection per list, one entry per row**, and that
- * is a real modelling decision rather than a mechanical translation. A Strapi
- * single type holding a repeatable component is a table wearing a single type as
- * a hat: the alternative — one entry holding a 251-element array — is faithful to
- * the source and wrong for the destination, because it is one `rev` for the whole
- * table, unsearchable per row, and not how anybody would model it if they were
- * starting here.
+ * The default mapping is **one collection per content type, one entry per
+ * document, components nested inside it** — Strapi's own model, carried across
+ * rather than reinterpreted.
+ *
+ * This is the second answer to that question. The first lifted every repeatable
+ * component into a collection of its own, on the reasoning that a single type
+ * holding one is "a table wearing a single type as a hat" and that an entry
+ * holding a 251-element array is one `rev` for the whole table and unsearchable
+ * per row. Both of those are still true, and they cost less than what the
+ * flattening did: a component holding a component became a collection of rows
+ * whose own children were nowhere, a component with no scalar columns became a
+ * collection with an empty schema, one component reached from two content types
+ * became two collections fighting over one name, and a collection type's
+ * components were split away from the entries that own them. Fidelity first;
+ * an operator who wants a component as its own collection can still get there
+ * from an entry, and nobody can get the nesting back from a split.
  */
 export class ImportPlans {
   static readonly Modes: readonly ImportMode[] = ['append', 'replace', 'skip']
@@ -124,8 +133,8 @@ export class ImportPlans {
       if (!step.include) continue
       if (seen.has(step.collection)) {
         throw new Error(
-          `two steps both write into "${step.collection}". One collection per list, or the ` +
-            `second import would silently interleave with the first.`,
+          `two steps both write into "${step.collection}". One collection per content type, ` +
+            `or the second import would silently interleave with the first.`,
         )
       }
       seen.add(step.collection)

@@ -200,7 +200,7 @@ export class ImportJob {
           // Media first, and per row rather than per list: an upload that answers
           // 403 has to stop the *uploading* without stopping the import, and the
           // entry that follows holds whatever value the file actually got.
-          await this.media.attach(row.entry, list, row.media)
+          await this.media.attach(row.entry, row.media)
           await this.ctx.entries.create(scope, step.collection, row.entry)
           step.written++
         } catch (caught: any) {

@@ -1,9 +1,10 @@
 import { createHash } from 'crypto'
 import type { SiloContext } from 'silo:api'
 import { MultipartBody } from './multipart-body'
-import type { StrapiList } from '../strapi/strapi-inventory'
 import type { StrapiMediaFile } from '../strapi/strapi-media'
 import { StrapiMedia } from '../strapi/strapi-media'
+import type { StrapiMediaSlot } from '../strapi/strapi-media-slot'
+import { StrapiMediaSlots } from '../strapi/strapi-media-slot'
 import type { UploadStore } from '../staging/upload-store'
 
 /** What became of the media of one import. */
@@ -101,32 +102,31 @@ export class MediaLibrary {
   }
 
   /**
-   * Fill one entry's media fields.
+   * Fill one entry's media fields, wherever in it they are.
    *
    * Done here rather than in `StrapiRows` because it is the only asynchronous
    * step in shaping a row, and pushing it into the reader would make a database
-   * read hold a handle open across an HTTP call for every file it found.
+   * read hold a handle open across an HTTP call for every file it found. A slot
+   * carries the path rather than a field name because most of a real export's
+   * media is on a *nested* component — `validation.issue`'s two icons live two
+   * levels down, inside an array inside an array.
    */
-  async attach(
-    entry: Record<string, unknown>,
-    list: StrapiList,
-    files: Record<string, StrapiMediaFile[]>,
-  ): Promise<void> {
-    for (const field of list.media) {
-      const found = files[field.name] ?? []
-      if (field.multiple) {
+  async attach(entry: Record<string, unknown>, slots: readonly StrapiMediaSlot[]): Promise<void> {
+    for (const slot of slots) {
+      if (slot.multiple) {
         const values: string[] = []
-        for (const file of found) {
+        for (const file of slot.files) {
           const ref = await this.ref(file)
           if (ref !== null) values.push(ref)
         }
-        entry[field.name] = values
+        StrapiMediaSlots.assign(entry, slot.path, values)
         continue
       }
       // A field with no file is `null`, not absent: an absent key and a cleared
       // one read the same to every consumer, and only one of them is what the
       // source says.
-      entry[field.name] = found.length === 0 ? null : await this.ref(found[0]!)
+      const value = slot.files.length === 0 ? null : await this.ref(slot.files[0]!)
+      StrapiMediaSlots.assign(entry, slot.path, value)
     }
   }
 
