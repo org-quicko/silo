@@ -4,6 +4,60 @@
 > The *current* state is [CONTEXT.md](../../CONTEXT.md); this is how it got
 > there.
 
+- **The Strapi importer carries components, single types and long table names
+  (2026-09-02).**
+  Three failures against a live 45-content-type export, and one of them was the
+  mapping rather than a bug in it.
+
+  **Components are nested inside the entry now**, at whatever depth the source
+  has them, instead of each repeatable component being lifted into a collection
+  of its own. The flattening read well on the one shape it was designed against
+  and had no answer for the rest: a component holding a component became a
+  collection of rows whose children were nowhere (`validation.item` imported its
+  `entity` and dropped all 988 `validation.issue` rows under it), a component
+  with no scalar columns of its own became a collection with an empty schema
+  (`com-quicko-app-store.connection`, which holds nothing but an `oauth`), one
+  component reached from two content types became two collections fighting over
+  one proposed name, and a collection type's components were split away from the
+  entries that own them. A **single type is now a collection with one entry**
+  holding its components, which is what Strapi itself does with it. `StrapiShape`
+  is the new artifact: one description covering a content type and a component
+  alike, since Strapi stores them the same way, read recursively from the tables,
+  the `_cmps` join tables and `files_related_mph`. `StrapiEntries` walks it
+  breadth-first — one query per level per field, not one per row — and
+  `StrapiSchema` turns it into nested objects and arrays. Dynamic zones come
+  across as one array whose items carry Strapi's `__component`, and **not** as a
+  `oneOf`: every branch is an open object, so more than one matches and `oneOf`
+  would fail exactly when the data is right.
+
+  Media moved with it. A media field is no longer a key on the entry but a *path*
+  into it, because most of a real export's attachments are on a nested component
+  — this one had 1646 of them two levels below the content type that owns them,
+  and the previous version never reached that component, so it never asked the
+  operator for those files either. `StrapiMediaSlot` carries
+  `["items", 3, "issues", 11, "mobile_icon"]` and `MediaLibrary.attach` follows
+  it.
+
+  **A content type whose `collectionName` is over 55 characters was reported as
+  missing from an export holding every one of its rows.** Strapi caps a database
+  identifier at 55 and shortens anything longer to its first 50 plus a digest, so
+  `com_quicko_it_file_2026_incomes_bnp_settlements_templates` is stored as
+  `…_settlements_teec0f2` and the schema keeps the long name. `StrapiIdentifiers`
+  resolves the two spellings. The digest is **shake256**, which is worth writing
+  down because the four better guesses are all wrong: sha256, sha1, md5 and
+  sha3-256 each produce five plausible characters and none of them produce
+  Strapi's. `StrapiComponents` gained the same as a last search tier, narrowed by
+  the surviving prefix since the name it would have to hash is the pluralised
+  table name it is looking for.
+
+  Last, `StrapiFields` reads the content-manager's per-component configuration —
+  the only place an export names a component's fields, since component *schemas*
+  live in the project's `src/components/*.json` and never travel. A field
+  declared there and never filled has no rows to be read from, so it lands in
+  the collection as an untyped property rather than as a field an operator can
+  see in Strapi and not in silo. What no source in the export can say is that
+  field's kind, so nothing guesses at it.
+
 - **A staged Strapi upload can no longer overwrite the one before it
   (2026-09-02).**
   `SourceStore.put` named each staged `.db` `source-<Date.now() in base 36>.db`.

@@ -20,24 +20,23 @@ export class SiloNames {
   private static readonly Disallowed = /[^a-z0-9_-]+/g
 
   /**
-   * The proposed collection name for one list: the source's own uid, carried
-   * whole rather than shortened to its last segment.
+   * The proposed collection name for one list: the content type's own uid,
+   * carried whole rather than shortened to its last segment.
    *
-   * The component's uid and not the content type's, because `org-quicko.bank`
-   * inside `Org-quicko-bank` is the thing being imported and the wrapper single
-   * type is Strapi's way of holding a table rather than part of what it holds.
+   * The content type's and not a component's, now that a component is nested in
+   * the entry rather than lifted into a collection of its own. What the operator
+   * sees on the plan is therefore what they see in Strapi's own sidebar, which is
+   * the only name they can check the plan against.
    *
-   * Whole, because the namespace is the half that makes the name a name.
-   * `org-quicko.bank` shortened to `bank` proposes the one collection every other
-   * import will also want, in an instance where collections are flat and Strapi's
-   * are not — and Strapi namespaces components precisely because two of them are
-   * called the same short word.
+   * Whole, because the namespace is the half that makes the name a name. A uid
+   * shortened to its last segment proposes the one collection every other import
+   * will also want, in an instance where collections are flat and Strapi's are
+   * not.
    */
   static forList(list: StrapiList): string {
-    const source = list.component ?? list.contentType
-    // `api::` is Strapi's plumbing rather than part of the name. A component's
-    // namespace is the opposite of that, and is kept.
-    const segments = source.replace(/^[A-Za-z0-9_-]+::/, '').split('.')
+    // `api::` is Strapi's plumbing rather than part of the name. The namespace
+    // after it is the opposite of that, and is kept.
+    const segments = list.contentType.replace(/^[A-Za-z0-9_-]+::/, '').split('.')
 
     const parts: string[] = []
     for (const segment of segments) {

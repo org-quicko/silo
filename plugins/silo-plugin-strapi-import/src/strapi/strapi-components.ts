@@ -1,4 +1,5 @@
 import type { StrapiDatabase } from './strapi-database'
+import { StrapiIdentifiers } from './strapi-identifiers'
 
 /**
  * Which physical table holds the rows of a component uid.
@@ -22,7 +23,7 @@ import type { StrapiDatabase } from './strapi-database'
  * be wrong on exactly the tables nobody thought to test.
  *
  * So the table is **searched for and then proved**: candidates are proposed by
- * three matchers in confidence order, and a candidate only wins if it actually
+ * four matchers in confidence order, and a candidate only wins if it actually
  * contains the rows the join table points at. A search that cannot be proved
  * returns `null` rather than a guess, and the caller reports that — an
  * unresolvable component is a line on the panel, where a wrong one would be a
@@ -56,6 +57,11 @@ export class StrapiComponents {
       candidates.filter((table) => table === stem),
       candidates.filter((table) => StrapiComponents.singular(table) === StrapiComponents.singular(stem)),
       candidates.filter((table) => table.startsWith(stem)),
+      // A name Strapi had to shorten shares only its first 50 characters with
+      // the uid it was derived from, so neither a prefix nor a plural reaches
+      // it. Last tier because it is the widest: the proof below is what makes
+      // it safe.
+      candidates.filter((table) => StrapiIdentifiers.sharePrefix(table, stem)),
     ]
 
     for (const tier of tiers) {

@@ -49,7 +49,50 @@ privilege a third-party one could not ask for (D52).
 **The most recent change landed on 2026-09-02; everything before it on
 2026-09-01.**
 
-**A staged Strapi upload gets a name no other upload can take (2026-09-02).**
+**The Strapi importer carries a whole Strapi model, not the flat half of it
+(2026-09-02).** Run against a live 45-content-type export, it lost data three
+ways, and the largest of them was the mapping rather than a bug in it. It lifted
+every repeatable component into a **collection of its own**, which read well on
+the one shape it was designed against and had no answer for the rest: a
+component holding a component became a collection whose children were nowhere
+(`validation.item` imported its `entity` and dropped all 988 `validation.issue`
+rows beneath it), a component with no scalar columns became a collection with an
+empty schema, one component reached from two content types became two
+collections fighting over one name, and a collection type's components were
+split away from the entries that own them.
+
+**Components are nested inside the entry now**, at whatever depth the source has
+them, and a **single type is a collection with one entry** holding its own — what
+Strapi itself does with it. `StrapiShape` is the artifact that made it one job
+rather than two: a content type and a component are stored the same way, so one
+description covers both, read recursively from the tables, the `_cmps` join
+tables and `files_related_mph`. `StrapiEntries` walks it breadth-first — one
+query per level per field, never one per row — and `StrapiSchema` emits nested
+objects and arrays. A dynamic zone becomes one array whose items carry Strapi's
+`__component`, deliberately not a `oneOf`: every branch is an open object, so
+more than one matches and `oneOf` fails exactly when the data is right.
+
+Media moved with it, and that is where the flattening had been quietly costing
+the most. A media field is a **path** into the entry rather than a key on it,
+because most of a real export's attachments hang off a nested component — 1646
+of them, two levels below the content type that owns them, on a component the
+old reader never reached and therefore never asked the operator to supply files
+for.
+
+Two smaller fixes came off the same run. Strapi caps a table name at 55
+characters and shortens anything longer to its first 50 plus a **shake256**
+digest, so a content type whose `collectionName` is 57 characters was reported
+as missing from an export holding every one of its rows; `StrapiIdentifiers`
+resolves both spellings, and the hash is worth naming because sha256, sha1, md5
+and sha3-256 all produce five plausible characters and none of them produce
+Strapi's. And `StrapiFields` reads the content-manager's per-component
+configuration — the only place an export names a component's fields at all,
+since component *schemas* live in the project's `src/components/*.json` and
+never travel — so a field declared there and never filled arrives as an untyped
+property rather than as a field an operator can see in Strapi and not in silo.
+
+**Before that, a staged Strapi upload got a name no other upload can take
+(2026-09-02).**
 `SourceStore` named each staged `.db` from `Date.now()` alone, so two uploads
 inside one millisecond — which is every pair not waiting on a human — got the
 *same* path, and the second overwrote the first while `put` returned a path the

@@ -4,8 +4,9 @@ Import a **Strapi 5** SQLite export into silo collections, from a screen inside
 the silo admin.
 
 Point it at the `.db` a `strapi transfer` produces, and it reads what is in
-there, proposes one silo collection per Strapi list, lets you rename and narrow
-that plan, and then writes it — with progress, per collection.
+there, proposes one silo collection per Strapi content type — single types
+included, components nested inside the entry — lets you rename and narrow that
+plan, and then writes it, with progress per collection.
 
 silo's first first-party plugin, and the reason three things exist in silo's
 plugin system that did not before (D41/§13.20): a route may be handed **bytes**,
@@ -22,7 +23,7 @@ than a link back to the instance you are migrating off.
    data.db  ──►  POST /source        the export, as bytes
    uploads/ ──►  GET  /files         which files it wants, and which arrived
                  POST /files?name=   one file's bytes, per file
-                 GET  /plan          one collection per list, editable,
+                 GET  /plan          one collection per content type, editable,
                                      with the scopes it could be written into
                  GET  /targets       those scopes on their own
                  POST /imports       run it, in the background
@@ -35,10 +36,11 @@ than a link back to the instance you are migrating off.
    never the files, so the panel asks for the folder and sends the ones the
    import actually references. Skip this and every media field keeps its Strapi
    URL instead.
-3. **Plan.** One silo collection per Strapi list, one entry per row, with a JSON
-   Schema derived from the source's own columns. Choose the project and
-   environment, rename anything, untick what you do not want, and choose per
-   collection what happens if it already has entries.
+3. **Plan.** One silo collection per Strapi content type, one entry per document,
+   with a JSON Schema derived from the source's own tables — nested, where the
+   source nests. Choose the project and environment, rename anything, untick what
+   you do not want, and choose per collection what happens if it already has
+   entries.
 4. **Import.** Runs off the request that started it — 367 entries do not fit in a
    five-second dispatch budget — and the panel polls it.
 
@@ -57,29 +59,63 @@ import go somewhere else without being told.
 
 ## The mapping, and why
 
-A Strapi single type holding a repeatable component is **a table wearing a single
-type as a hat**. So `org-quicko.bank` inside `Org-quicko-bank` becomes an
-`org-quicko-bank` collection with one entry per bank, not one entry holding a
-29-element array.
+**One silo collection per Strapi content type, one entry per document, with the
+components nested inside it.** A single type is a collection holding one entry,
+which is what Strapi does with it — a table with a row in it — so the shape you
+edit in Strapi is the shape you get in silo.
 
-That is a modelling decision, not a mechanical translation, and the alternative
-is defensible right up to the point of being useful: an array in one entry is
-faithful to the source, and it is also one `rev` for the whole table,
-unsearchable per row, and not how anyone would model it starting from silo.
+A component becomes an object, a repeatable one an array of objects, and a
+dynamic zone an array whose items carry Strapi's own `__component`. All the way
+down: `validation.item` holding a list of `validation.issue`, each holding two
+media fields, arrives as exactly that.
 
-**The name is carried whole.** The component's uid and not the single type's, and
-with its namespace kept: `org-quicko.bank` proposes `org-quicko-bank`, not `bank`.
-Strapi namespaces components because two of them are called the same short word,
-and silo's collections are flat, so the short name is the one the *next* import
-will also want. `api::` is dropped, and a segment that only repeats the one before
-it goes with it, so `api::article.article` still proposes `article`. Rename
-anything on the plan; `collection_prefix` prepends to all of them.
+**This is the second answer to that question.** The first lifted every repeatable
+component into a collection of its own, reasoning that a single type wrapping one
+is "a table wearing a single type as a hat" and that one entry holding a
+251-element array is one `rev` for the whole table and unsearchable per row. Both
+of those are still true. They cost less than the flattening did, measured against
+a real 45-content-type export:
+
+| what the source had | what the flattening did |
+| :-- | :-- |
+| a component holding a component | a collection of the outer rows, with the inner ones nowhere — 988 `validation.issue` rows dropped without a word |
+| a component with no columns of its own | a collection with an empty schema and one blank entry per row |
+| one component used by two content types | two collections proposing the same name, and a plan that refuses itself |
+| a collection type with components | the components split away from the entries that own them |
+
+Fidelity first. An operator who wants a component as its own collection can get
+there from an entry; nobody can get the nesting back from a split.
+
+**The name is the content type's, carried whole.** `api::` is dropped and a
+segment that only repeats the one before it goes with it, so
+`api::article.article` proposes `article` and `api::blog.article` proposes
+`blog-article`. That is the name Strapi's own sidebar shows, which is the only
+name you can check a plan against. `collection_prefix` prepends to all of them.
 
 **Nothing of Strapi's identity is carried.** No `strapi_id`, no `document_id`.
 Silo mints its own id (D2) and nothing on either side resolves a Strapi one, so a
 column holding one is a field that looks like a key and is not. A re-import
-matches on content or it does not match at all, which is what the plan's `replace`
-is for.
+matches on content or it does not match at all, which is what the plan's
+`replace` is for.
+
+### What the export does not say
+
+A content type's schema is in the export. **A component's is not** — it lives in
+the project's `src/components/*.json`, which a database export does not carry —
+so a component's shape is read from its data: its table's columns are its
+scalars, its `_cmps` join table names its children, and `files_related_mph` names
+its files.
+
+That leaves one gap, and the content-manager's per-component configuration closes
+half of it. That record names every field of every component, so a field that was
+declared and never filled still reaches the imported collection — as a property
+with **no type**, because naming a field and knowing what goes in it are two
+different claims and the export only supports the first. `com-quicko-app-store.connection`
+imports with `oauth` typed and `credential` and `api` present and open.
+
+The half that stays open: a nested component's `repeatable` is inferred from
+whether any one row holds more than one child, the way a media field's `multiple`
+already was. A content type's own fields never need that — its schema says.
 
 ## Media
 
@@ -159,7 +195,7 @@ pointing at another content type's `document_id`, and silo's `x-silo-ref` has no
 integrity enforcement yet (§12.5) — so a faithful import would write ids nothing
 resolves. Relations are reported under the inventory's `skipped` and left out.
 
-## The trap it exists to avoid
+## The traps it exists to avoid
 
 **Strapi 5 stores a separate copy of every component row per document version.**
 A 29-item list is 58 rows in `components_…`, half owned by the draft copy and
@@ -167,13 +203,15 @@ half by the published one, with the media attached to both. Reading the componen
 table directly imports every row twice — and it fails *silently*: no error, no
 duplicate id, just twice as much content.
 
-Every count on the plan and every row read goes through `StrapiVersions` and the
-join table, filtered by version. That is one function on purpose: two copies of
-the clause would be two chances to fix one of them.
+`StrapiVersions` names the entity ids of the version being imported, once, at the
+top — and every component row in the tree is reached *from* one of those ids
+through a join table. So the draft copies are not filtered out at each depth,
+they are never reached, and the trap is closed by shape rather than by a clause
+repeated everywhere and eventually fixed in only one place.
 
-The second trap is smaller and just as invisible. Strapi names a component's
-table from a *pluralised* form of its uid, and the mapping lives in the project's
-`src/components/*.json` rather than in the export:
+**The second trap: a component's table is named from a *pluralised* form of its
+uid**, and the mapping lives in the project's `src/components/*.json` rather than
+in the export:
 
 | uid | table |
 | :-- | :-- |
@@ -183,9 +221,25 @@ table from a *pluralised* form of its uid, and the mapping lives in the project'
 
 A prefix match handles the first and third and fails the second; a singularising
 match handles the first two and fails the third. So `StrapiComponents` **searches
-and then proves**: candidates from three matchers in confidence order, and a
+and then proves**: candidates from four matchers in confidence order, and a
 candidate only wins if it contains the rows the join table points at. What cannot
-be proved is reported as unresolved rather than guessed.
+be proved is reported as unresolved rather than guessed — on the plan, beside the
+collection whose entries will be missing that field.
+
+**The third trap: a table is not always called what the schema calls it.** Strapi
+caps a database identifier at 55 characters and shortens anything longer to its
+first 50 plus a five-character digest, while the content-type schema keeps the
+long name:
+
+| `collectionName` | the table |
+| :-- | :-- |
+| `com_quicko_it_file_2026_incomes_bnp_settlements_templates` | `com_quicko_it_file_2026_incomes_bnp_settlements_te**ec0f2**` |
+
+Asking whether `collectionName` is a table therefore reports a content type as
+missing from an export that holds every one of its rows. `StrapiIdentifiers`
+answers both spellings. The digest is **shake256**, which is the whole reason it
+is a file rather than a `slice`: sha256, sha1, md5 and sha3-256 each produce five
+entirely plausible characters, and none of them produce Strapi's.
 
 ## Install
 
@@ -267,7 +321,7 @@ src/
 ├─ index.ts          activate/deactivate, and the four route groups spread onto one object
 ├─ routes/           one file per group of routes — source, uploads, plan, imports
 ├─ worker/           the state one worker holds, and the configuration it read
-├─ strapi/           reading the export: the database, its schema, versions, rows, media
+├─ strapi/           reading the export: the database, identifiers, versions, shapes, entries, media
 ├─ staging/          where the .db and the supplied uploads live while a run needs them
 ├─ silo/             writing into silo: media, multipart, collection names, target scopes
 ├─ panel/            the admin panel, one inlined HTML file (the manifest allows one)
