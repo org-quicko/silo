@@ -347,28 +347,113 @@ export class Importer {
     return response;
   }
 
+  /**
+   * Load an archive that arrives as a stream — an upload body, or another
+   * instance's `/api/export` response.
+   *
+   * An archive carries every media byte, so reading one into a `Buffer` first
+   * cost as much memory as the source instance's library and failed a large
+   * import outright on a small host. `tar.x` is fed the stream directly: no
+   * intermediate `.tar.gz` is written and nothing bigger than one chunk is
+   * held, though the *extracted* tree still lands in a temp dir, since
+   * `importDir` walks a directory and the archive is not ordered for a
+   * single pass.
+   */
+  static async importTarGzStream(
+    store: Storage,
+    archive: ReadableStream<Uint8Array>,
+    opts: ImportOptions,
+    blobStorage?: BlobStorage | string
+  ): Promise<ImportResult> {
+    const tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), "silo-import-"));
+    try {
+      await Importer.extractStream(archive, tmpDir);
+      return await Importer.importDir(store, tmpDir, opts, blobStorage);
+    } finally {
+      await fs.rm(tmpDir, { recursive: true, force: true });
+    }
+  }
+
+  /**
+   * Extract a streamed tarball into `dest`.
+   *
+   * `tar.x` with no `file` is a writable parser, so this is a pump: write each
+   * chunk, wait for `drain` when it asks, and finish on the `end` it emits
+   * only once the input has ended *and* every file it opened has been written
+   * (its own pending-write count is what guarantees that, so the walk that
+   * follows never sees a half-extracted tree).
+   *
+   * A tar-level failure is recorded rather than raced as a rejection: the pump
+   * stops at the next chunk and rethrows it, so a truncated or corrupt upload
+   * surfaces as that error instead of an unhandled one.
+   */
+  private static async extractStream(
+    archive: ReadableStream<Uint8Array>,
+    dest: string
+  ): Promise<void> {
+    const unpack = x({ cwd: dest });
+
+    let failure: unknown;
+    const finished = new Promise<void>((resolve) => {
+      unpack.on("end", () => resolve());
+      unpack.on("error", (error: unknown) => {
+        failure = error;
+        resolve();
+      });
+    });
+
+    const reader = archive.getReader();
+    try {
+      for (;;) {
+        if (failure) throw failure;
+        const { done, value } = await reader.read();
+        if (done) break;
+        if (!unpack.write(value)) {
+          await new Promise<void>((resolve) => unpack.once("drain", () => resolve()));
+        }
+      }
+      unpack.end();
+      await finished;
+      if (failure) throw failure;
+    } finally {
+      // A partial read leaves the source open; the extracted tree is the
+      // caller's to remove either way.
+      await reader.cancel().catch(() => {});
+    }
+  }
+
+  /**
+   * Load an archive from a path, or from a `Buffer` a caller already holds.
+   *
+   * A path is handed to `tar.x`, which reads it itself. A `Buffer` is already
+   * whole in memory, so there is nothing left to stream — it goes through the
+   * same extraction as one chunk, which is what removed the temp `.tar.gz`
+   * this branch used to write and delete.
+   */
   static async importTarGz(
     store: Storage,
     tarballPathOrBuffer: string | Buffer,
     opts: ImportOptions,
     blobStorage?: BlobStorage | string
   ): Promise<ImportResult> {
+    if (typeof tarballPathOrBuffer !== "string") {
+      const buffer = tarballPathOrBuffer;
+      return Importer.importTarGzStream(
+        store,
+        new ReadableStream<Uint8Array>({
+          start(controller) {
+            controller.enqueue(buffer);
+            controller.close();
+          },
+        }),
+        opts,
+        blobStorage
+      );
+    }
+
     const tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), "silo-import-"));
     try {
-      if (typeof tarballPathOrBuffer === "string") {
-        await x({
-          file: tarballPathOrBuffer,
-          cwd: tmpDir,
-        });
-      } else {
-        const tmpTar = path.join(tmpDir, "import.tar.gz");
-        await fs.writeFile(tmpTar, tarballPathOrBuffer);
-        await x({
-          file: tmpTar,
-          cwd: tmpDir,
-        });
-        await fs.rm(tmpTar);
-      }
+      await x({ file: tarballPathOrBuffer, cwd: tmpDir });
       return await Importer.importDir(store, tmpDir, opts, blobStorage);
     } finally {
       await fs.rm(tmpDir, { recursive: true, force: true });

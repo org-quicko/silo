@@ -25,7 +25,7 @@ Hono web framework on Bun. JSON everywhere. Admin UI served at `/`; API under `/
 | GET | `/api/search` | search the instance |
 | POST | `/api/search/reindex` | rebuild the index; export-level read claims |
 | GET | `/api/export` | streams tar.gz (`transfer:export` + `media:read`; `keys:export` when including keys) |
-| POST | `/api/import?mode=` | accepts tar.gz (`transfer:import` + `media:create`, plus `media:delete` in replace mode; archives containing keys also require `keys:import`) |
+| POST | `/api/import?mode=` | streams in a tar.gz — a raw body, or a `multipart/form-data` `file` part (`transfer:import` + `media:create`, plus `media:delete` in replace mode; archives containing keys also require `keys:import`) |
 | POST | `/api/copy` | pulls and imports another silo (`{source_url, source_api_key, mode, with_keys, dry_run, validate, prefer}`; `transfer:copy`) |
 | GET / POST | `/api/keys` | list (`keys:read`) / create (`keys:create`); create returns the secret exactly once |
 | DELETE | `/api/keys/{id}` | revoke a key (`keys:revoke`, **and** the authority to have minted it — D37) |

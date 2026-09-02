@@ -35,12 +35,14 @@ export class TransferApi {
       .set('dry_run', options.dryRun)
       .set('prefer', options.prefer)
 
-    const form = new FormData()
-    form.append('file', file)
-
+    // The file is the body, not a form part. A `FormData` upload has to be
+    // parsed as a form on the server before the archive inside it can be read,
+    // which put the whole thing in memory there; a `File` body is streamed by
+    // the browser and by the route. `/api/import` still accepts multipart.
     return this.transport.request<ImportResult>(url, key, `/api/import${params}`, {
       method: 'POST',
-      body: form,
+      headers: { 'Content-Type': 'application/gzip' },
+      body: file,
     })
   }
 

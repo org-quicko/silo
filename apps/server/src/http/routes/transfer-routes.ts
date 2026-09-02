@@ -46,23 +46,34 @@ export class TransferRoutes {
       const dryRun = c.req.query("dry_run") === "true";
       const prefer = c.req.query("prefer") as "local" | "remote" | undefined;
 
-      let buffer: Buffer;
+      // Both branches hand the importer a stream rather than a `Buffer`. An
+      // archive carries every media byte, so reading the upload whole cost as
+      // much memory as the source instance's library.
+      let archive: ReadableStream<Uint8Array>;
       const contentType = c.req.header("Content-Type") || "";
 
       if (contentType.startsWith("multipart/form-data")) {
+        // `parseBody` reads the form to find the part, so this branch is still
+        // bounded by whatever the runtime does with a large upload — taking
+        // the part's own stream drops the second full copy on top of it, and
+        // is as far as a multipart body goes without a streaming parser. The
+        // admin sends the archive as a raw body for exactly this reason; the
+        // branch stays for `curl -F` and anything else already posting a form.
         const body = await c.req.parseBody();
         const file = body.file as any;
-        if (!file) {
+        if (!file || typeof file.stream !== "function") {
           throw new ValidationError("missing file in form data");
         }
-        const arrayBuffer = await file.arrayBuffer();
-        buffer = Buffer.from(arrayBuffer);
+        archive = file.stream();
       } else {
-        const arrayBuffer = await c.req.arrayBuffer();
-        buffer = Buffer.from(arrayBuffer);
+        const raw = c.req.raw.body;
+        if (!raw) {
+          throw new ValidationError("missing archive in request body");
+        }
+        archive = raw;
       }
 
-      const response = await service.transfer.importTarGz(buffer, {
+      const response = await service.transfer.importTarGzStream(archive, {
         mode,
         validate,
         dryRun,

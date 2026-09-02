@@ -42,14 +42,32 @@ const randomBlob = (size: number): Uint8Array => {
   return data;
 };
 
-/**
- * How many export temp trees exist right now. A streamed archive outlives the
- * call that created it, so cleanup is the stream's job — this is what checks
- * it actually happens.
- */
-const countExportTempDirs = async (): Promise<number> => {
+/** How many of a transfer's temp trees exist right now. */
+const countTempDirs = async (prefix: string): Promise<number> => {
   const names = await fs.readdir(os.tmpdir());
-  return names.filter((name) => name.startsWith("silo-export-")).length;
+  return names.filter((name) => name.startsWith(prefix)).length;
+};
+
+/**
+ * Waits for the temp-tree count to come back to `target`.
+ *
+ * A streamed archive outlives the call that created it, so removing its tree
+ * is the stream's own job and nothing can await it — polling is what tells
+ * "cleaned up a moment later" apart from "leaked", where reading the count
+ * once only races it. The tmpdir holds other runs' leftovers, so this is a
+ * return to a baseline rather than a count of zero.
+ */
+const expectTempDirsSettle = async (prefix: string, target: number): Promise<void> => {
+  const deadline = Date.now() + 5000;
+  for (;;) {
+    const count = await countTempDirs(prefix);
+    if (count <= target) return;
+    if (Date.now() > deadline) {
+      expect(count).toBe(target);
+      return;
+    }
+    await new Promise((resolve) => setTimeout(resolve, 25));
+  }
 };
 
 describe("Export / Import Tests", () => {
@@ -568,7 +586,7 @@ describe("the export tarball streams rather than buffering", () => {
       const big = randomBlob(4 * 1024 * 1024);
       await blobs.put("big.bin", big);
 
-      const before = await countExportTempDirs();
+      const before = await countTempDirs("silo-export-");
 
       const stream = await Exporter.exportTarGzStream(
         store,
@@ -591,7 +609,7 @@ describe("the export tarball streams rather than buffering", () => {
       expect(archive[1]).toBe(0x8b);
 
       // The temp tree the archive was built from is gone once the stream ends.
-      expect(await countExportTempDirs()).toBe(before);
+      await expectTempDirsSettle("silo-export-", before);
 
       // And it is importable, media included.
       const tarPath = path.join(tempDir, "streamed.tar.gz");
@@ -695,7 +713,7 @@ describe("the export tarball streams rather than buffering", () => {
         logger: Logger.silent(),
       }).build();
 
-      const before = await countExportTempDirs();
+      const before = await countTempDirs("silo-export-");
 
       const httpResponse = await app.request("/api/export", {
         headers: { Authorization: `Bearer ${rootKey}` },
@@ -706,7 +724,7 @@ describe("the export tarball streams rather than buffering", () => {
       const archive = Buffer.from(await httpResponse.arrayBuffer());
       expect(archive[0]).toBe(0x1f);
       expect(archive[1]).toBe(0x8b);
-      expect(await countExportTempDirs()).toBe(before);
+      await expectTempDirsSettle("silo-export-", before);
 
       const tarPath = path.join(tempDir, "http.tar.gz");
       await fs.writeFile(tarPath, archive);
@@ -718,6 +736,178 @@ describe("the export tarball streams rather than buffering", () => {
 
       await store.close();
       await destStore.close();
+    } finally {
+      await fs.rm(tempDir, { recursive: true, force: true }).catch(() => {});
+    }
+  });
+});
+
+describe("an archive can be loaded from a stream, not only a buffer", () => {
+  /** An archive on disk, with a media blob in it, and the pieces to check. */
+  const archiveWithMedia = async (tempDir: string) => {
+    const store = await SqliteStore.open(path.join(tempDir, "src.db"));
+    await store.putSchema(Scope.Default, "posts", { type: "object" });
+    const time1 = new Date(Date.UTC(2026, 0, 1, 10, 0, 0));
+    const entry = newEntry(Scope.Default, "posts", time1, { title: "hello" });
+    await store.put(entry, { usages: [], search: null });
+
+    const mediaDir = path.join(tempDir, "media");
+    const blob = randomBlob(4 * 1024 * 1024);
+    await new FsBlobStorage(mediaDir).put("big.bin", blob);
+
+    const tarPath = path.join(tempDir, "archive.tar.gz");
+    await Exporter.exportTarGz(
+      store,
+      tarPath,
+      { siloVersion: "0.1.0-test", exportedAt: time1 },
+      mediaDir
+    );
+    await store.close();
+    return { tarPath, entry, blob };
+  };
+
+  test("ImportTarGzStreamLoadsAndCleansUp", async () => {
+    const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "silo-import-test-"));
+    try {
+      const { tarPath, entry, blob } = await archiveWithMedia(tempDir);
+
+      const before = await countTempDirs("silo-import-");
+
+      const destStore = await SqliteStore.open(path.join(tempDir, "dest.db"));
+      const destBlobs = new FsBlobStorage(path.join(tempDir, "dest-media"));
+      const response = await Importer.importTarGzStream(
+        destStore,
+        Bun.file(tarPath).stream(),
+        { mode: "replace" },
+        destBlobs
+      );
+
+      expect(response.added).toBe(1);
+      expect((await destStore.get(Scope.Default, "posts", entry.id)).data).toEqual(entry.data);
+      // The media rides in the archive, so a streamed load has to land it too.
+      expect((await destBlobs.get("big.bin"))?.size).toBe(blob.length);
+      // The extracted tree is gone, and no `import.tar.gz` was ever written.
+      await expectTempDirsSettle("silo-import-", before);
+
+      await destStore.close();
+    } finally {
+      await fs.rm(tempDir, { recursive: true, force: true }).catch(() => {});
+    }
+  });
+
+  test("ImportTarGzStreamRefusesATruncatedArchive", async () => {
+    const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "silo-import-test-"));
+    try {
+      const { tarPath } = await archiveWithMedia(tempDir);
+      // Half an archive. The gzip failure has to be the error that comes out:
+      // a pump that dropped it reported the *downstream* symptom instead — an
+      // ENOENT on the `manifest.json` that was never extracted — which says
+      // nothing about the upload being truncated.
+      const whole = await fs.readFile(tarPath);
+      const half = whole.subarray(0, Math.floor(whole.length / 2));
+
+      const destStore = await SqliteStore.open(path.join(tempDir, "dest.db"));
+      const before = await countTempDirs("silo-import-");
+
+      await expect(
+        Importer.importTarGzStream(
+          destStore,
+          new ReadableStream<Uint8Array>({
+            start(controller) {
+              controller.enqueue(half);
+              controller.close();
+            },
+          }),
+          { mode: "replace" }
+        )
+      ).rejects.toThrow("unexpected end of file");
+      await expectTempDirsSettle("silo-import-", before);
+
+      await destStore.close();
+    } finally {
+      await fs.rm(tempDir, { recursive: true, force: true }).catch(() => {});
+    }
+  });
+
+  test("HttpImportAcceptsARawBodyAndAForm", async () => {
+    const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "silo-import-test-"));
+    try {
+      const { tarPath, entry, blob } = await archiveWithMedia(tempDir);
+      const archive = await fs.readFile(tarPath);
+
+      const load = async (init: RequestInit) => {
+        const store = await SqliteStore.open(
+          path.join(tempDir, `dest-${EntryUtils.newID()}.db`)
+        );
+        const mediaDir = path.join(tempDir, `dest-media-${EntryUtils.newID()}`);
+        const service = new SiloService(store, { mediaDir });
+        const rootKey = await service.keys.bootstrap();
+        const app = new SiloServer(service, {
+          version: "test",
+          authDisabled: false,
+          logger: Logger.silent(),
+        }).build();
+
+        const response = await app.request("/api/import?mode=replace", {
+          method: "POST",
+          ...init,
+          headers: {
+            Authorization: `Bearer ${rootKey}`,
+            ...((init.headers as Record<string, string>) || {}),
+          },
+        });
+        const body = (await response.json()) as any;
+        return { status: response.status, body, store, mediaDir };
+      };
+
+      // The raw body is the streaming path, and what the admin now sends.
+      const raw = await load({
+        headers: { "Content-Type": "application/gzip" },
+        body: archive,
+      });
+      expect(raw.status).toBe(200);
+      expect(raw.body.added).toBe(1);
+      expect((await raw.store.get(Scope.Default, "posts", entry.id)).data).toEqual(entry.data);
+      expect((await new FsBlobStorage(raw.mediaDir).get("big.bin"))?.size).toBe(blob.length);
+      await raw.store.close();
+
+      // A form still works, for callers already posting one.
+      const form = new FormData();
+      form.append("file", new Blob([archive]), "silo-export.tar.gz");
+      const multipart = await load({ body: form });
+      expect(multipart.status).toBe(200);
+      expect(multipart.body.added).toBe(1);
+      expect((await multipart.store.get(Scope.Default, "posts", entry.id)).data).toEqual(
+        entry.data
+      );
+      await multipart.store.close();
+    } finally {
+      await fs.rm(tempDir, { recursive: true, force: true }).catch(() => {});
+    }
+  });
+
+  test("HttpImportRefusesARequestWithNoBody", async () => {
+    const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "silo-import-test-"));
+    try {
+      const store = await SqliteStore.open(path.join(tempDir, "silo.db"));
+      const service = new SiloService(store, { mediaDir: path.join(tempDir, "media") });
+      const rootKey = await service.keys.bootstrap();
+      const app = new SiloServer(service, {
+        version: "test",
+        authDisabled: false,
+        logger: Logger.silent(),
+      }).build();
+
+      const response = await app.request("/api/import", {
+        method: "POST",
+        headers: { Authorization: `Bearer ${rootKey}`, "Content-Type": "application/gzip" },
+      });
+      expect(response.status).toBe(400);
+      expect((await response.json()) as any).toMatchObject({
+        error: { message: expect.stringContaining("missing archive") },
+      });
+
+      await store.close();
     } finally {
       await fs.rm(tempDir, { recursive: true, force: true }).catch(() => {});
     }
