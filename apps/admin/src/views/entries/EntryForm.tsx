@@ -171,32 +171,29 @@ export function EntryForm({
             collections={collections.map((c) => ({ name: c.name, count: null, schema: c.schema }))}
           />
         }
-      >
-        {dirty && (
-          <span className={styles.unsaved}>
-            <span className={styles.unsavedDot} /> Unsaved changes
-          </span>
-        )}
-        <Button variant="secondary" onClick={onCancel}>
-          Discard
-        </Button>
-        {canSave && (
-          <Button variant="primary" onClick={() => formRef.current?.submit()} disabled={saving}>
-            {saving ? 'Saving…' : 'Save entry'}
-          </Button>
-        )}
-      </TopBar>
+      />
 
       <div className={`content ${styles.content}`}>
         <div className={styles.shell}>
           <div className={styles.main}>
-            <Breadcrumb
-              crumbs={[
-                { label: 'Collections', to: Routes.collections(serverId, scope.project, scope.env) },
-                { label: collection.name, to: backTo },
-                { label: entry ? Formatters.shortId(entry.id) : 'New entry' },
-              ]}
-            />
+            {/* Crumbs and heading are one block, so the column's gap falls after
+                the pair and the heading lands exactly where the entries list
+                puts the collection name. A title that moves between pages reads
+                as the page jumping. */}
+            <div>
+              <Breadcrumb
+                crumbs={[
+                  { label: 'Collections', to: Routes.collections(serverId, scope.project, scope.env) },
+                  { label: collection.name, to: backTo },
+                  { label: entry ? Formatters.shortId(entry.id) : 'New entry' },
+                ]}
+              />
+              <div className={`page-head ${styles.pageHead}`}>
+                <div className="page-title-group">
+                  <h2 className="page-title">{entry ? 'Edit entry' : 'New entry'}</h2>
+                </div>
+              </div>
+            </div>
             {formError && (
               <div className="banner banner-bad">
                 <span>{formError}</span>
@@ -265,17 +262,34 @@ export function EntryForm({
               </div>
             )}
 
-            {entry && canDelete && (
-              <>
-                <div className={styles.divider} />
-                <Button variant="dangerGhost" onClick={() => setShowDelete(true)}>
-                  <Trash2 size={14} /> Delete entry
-                </Button>
-                <span className={styles.caption}>
-                  Deleting removes the row and bumps the collection revision. This can't be undone.
+            {/* Every action the page has, in one block under what it is acting
+                on: the top bar belongs to the scope-wide search. */}
+            <div className={styles.divider} />
+            <div className={styles.actions}>
+              {dirty && (
+                <span className={styles.unsaved}>
+                  <span className={styles.unsavedDot} /> Unsaved changes
                 </span>
-              </>
-            )}
+              )}
+              {canSave && (
+                <Button variant="primary" onClick={() => formRef.current?.submit()} disabled={saving}>
+                  {saving ? 'Saving…' : 'Save entry'}
+                </Button>
+              )}
+              <Button variant="secondary" onClick={onCancel}>
+                Discard
+              </Button>
+              {entry && canDelete && (
+                <>
+                  <Button variant="dangerGhost" onClick={() => setShowDelete(true)}>
+                    <Trash2 size={14} /> Delete entry
+                  </Button>
+                  <span className={styles.caption}>
+                    Deleting removes the row and bumps the collection revision. This can't be undone.
+                  </span>
+                </>
+              )}
+            </div>
           </div>
         </div>
       </div>

@@ -23,6 +23,16 @@
 .menuButton:hover { background: var(--panel-2); color: var(--text-2); }
 .menuCell { position: relative; }
 .relativeTime { font-size: 12.5px; }
+/* A resizable heading. It anchors the handle on its right edge, and its own
+   hover is what reveals that handle's hairline; text selection is off so a drag
+   never paints the heading blue. */
+.headCell { position: relative; min-width: 0; user-select: none; }
+/* A heading narrowed past its own name ends in an ellipsis rather than painting
+   over the column beside it, the way the cells under it already do. */
+.headLabel { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.headCell svg { flex: none; }
+.headCell:hover { --resizer-line: var(--line-2); }
+
 /* A numeric column is right-aligned end to end — heading, values, and the dash
    an absent value shows. The heading is reversed rather than merely pushed
    right so the *label* is what lines up with the numbers, not the sort icon. */

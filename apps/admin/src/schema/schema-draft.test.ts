@@ -184,4 +184,30 @@ describe('SchemaDraft', () => {
       })
     })
   })
+
+  describe('reorder', () => {
+    const named = (names: string[]) => names.map((name) => ({ ...SchemaDraft.blankField(), name }))
+    const names = (fields: { name: string }[]) => fields.map((field) => field.name)
+
+    test('lifts a field out and drops it at the target', () => {
+      expect(names(SchemaDraft.reorder(named(['a', 'b', 'c', 'd']), 0, 2))).toEqual(['b', 'c', 'a', 'd'])
+      expect(names(SchemaDraft.reorder(named(['a', 'b', 'c', 'd']), 3, 1))).toEqual(['a', 'd', 'b', 'c'])
+    })
+
+    test('a move to where it already is, or off the ends, changes nothing', () => {
+      expect(names(SchemaDraft.reorder(named(['a', 'b']), 1, 1))).toEqual(['a', 'b'])
+      expect(names(SchemaDraft.reorder(named(['a', 'b']), 0, 5))).toEqual(['a', 'b'])
+      expect(names(SchemaDraft.reorder(named(['a', 'b']), -1, 0))).toEqual(['a', 'b'])
+    })
+
+    // The open editor has to follow its own field rather than its old position.
+    test('reorderIndex tracks a field through the move', () => {
+      expect(SchemaDraft.reorderIndex(0, 0, 2)).toBe(2)
+      expect(SchemaDraft.reorderIndex(1, 0, 2)).toBe(0)
+      expect(SchemaDraft.reorderIndex(2, 0, 2)).toBe(1)
+      expect(SchemaDraft.reorderIndex(3, 0, 2)).toBe(3)
+      expect(SchemaDraft.reorderIndex(1, 3, 1)).toBe(2)
+      expect(SchemaDraft.reorderIndex(0, 3, 1)).toBe(0)
+    })
+  })
 })

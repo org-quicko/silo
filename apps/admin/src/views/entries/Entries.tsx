@@ -24,6 +24,7 @@ import { EntriesHeader } from './EntriesHeader'
 import { EntriesPager } from './EntriesPager'
 import { EntriesToolbar } from './EntriesToolbar'
 import { EntryLabels } from './entry-labels'
+import { useColumnWidths } from './use-column-widths'
 import { useEntriesData } from './use-entries-data'
 import { useMediaColumns } from './use-media-columns'
 import styles from './Entries.module.css'
@@ -94,7 +95,7 @@ export function EntriesView({
   const canEdit = can(Claims.CollectionEntriesUpdate)
   const canDelete = can(Claims.CollectionEntriesDelete)
   const canEditSchema = can(Claims.CollectionSchemaUpdate)
-  const gridCols = `minmax(0,1.9fr) ${extra.map(() => 'minmax(0,1fr)').join(' ')} minmax(0,0.8fr) 44px`
+  const { widths, setWidth, resetWidth } = useColumnWidths(serverId, scope, collection.name)
 
   const { entries, snippets, total, truncated, error, loading, reload } = useEntriesData({
     url,
@@ -279,7 +280,9 @@ export function EntriesView({
               primary={primary}
               sub={sub}
               extra={extra}
-              gridCols={gridCols}
+              widths={widths}
+              onResizeColumn={setWidth}
+              onResetColumn={resetWidth}
               mediaById={mediaById}
               baseUrl={baseUrl}
               snippets={snippets}
