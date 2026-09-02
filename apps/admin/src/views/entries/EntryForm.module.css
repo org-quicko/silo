@@ -1,8 +1,10 @@
 .content { padding: 0; }
 
+/* The rail is the page's second column, not a box beside the form: it runs the
+   full height of the view however short the form is. */
 .shell {
   display: flex;
-  min-height: 0;
+  min-height: 100%;
   align-items: stretch;
 }
 
@@ -25,6 +27,10 @@
   padding: 26px 22px;
   background: var(--panel);
 }
+
+/* The column already spaces its children; the shared page head must not add
+   a second gap under itself. */
+.pageHead { margin-bottom: 0; }
 
 .group { display: flex; flex-direction: column; gap: 12px; }
 
@@ -49,9 +55,12 @@
 
 .captionLeft { text-align: left; }
 
+.actions { display: flex; flex-direction: column; gap: 10px; }
+
 .unsaved {
   display: flex;
   align-items: center;
+  justify-content: center;
   gap: 6px;
   color: var(--warn);
   font-size: 12px;

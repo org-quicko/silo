@@ -1,7 +1,12 @@
+/* The nesting ladder: --nest-depth (set by the template) is how deep this card
+   sits, and every level steps its surface and its edge one shade lighter, so a
+   card inside a card no longer looks like the card holding it. */
 .item {
-  border: 1px solid var(--line-2);
+  --nest-step: min(var(--nest-depth, 0), 4);
+
+  border: 1px solid color-mix(in oklab, var(--line-2), var(--text-3) calc(var(--nest-step) * 12%));
   border-radius: var(--radius-sm);
-  background: var(--panel);
+  background: color-mix(in oklab, var(--panel), var(--line) calc(var(--nest-step) * 24%));
 }
 
 /* Scalar items keep the flat layout: content left, actions right. */
@@ -94,7 +99,7 @@
   display: flex;
   flex-direction: column;
   padding: 16px 14px 14px;
-  border-top: 1px solid var(--line);
+  border-top: 1px solid color-mix(in oklab, var(--line), var(--text-3) calc(var(--nest-step) * 12%));
 }
 
 .body[hidden] {

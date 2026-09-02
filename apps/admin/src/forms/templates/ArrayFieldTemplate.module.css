@@ -13,6 +13,7 @@
 
 .head {
   display: flex;
+  flex-wrap: wrap;
   align-items: baseline;
   gap: 12px;
 }
@@ -28,6 +29,7 @@
   color: var(--text-3);
   font-family: var(--font-ui);
   font-size: 11.5px;
+  white-space: nowrap;
   cursor: pointer;
 }
 

@@ -37,7 +37,7 @@ export function ArrayFieldTemplate(props: any) {
   return (
     <fieldset className={styles.fieldset} id={fieldPathId.$id}>
       <div className={styles.head}>
-        <ArrayFieldTitleTemplate fieldPathId={fieldPathId} title={title} required={required} schema={schema} uiSchema={uiSchema} registry={registry} />
+        <ArrayFieldTitleTemplate fieldPathId={fieldPathId} title={title} count={items.length} required={required} schema={schema} uiSchema={uiSchema} registry={registry} />
         {collapsible.length > 1 && (
           <button
             type="button"

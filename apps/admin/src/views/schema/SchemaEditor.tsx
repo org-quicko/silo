@@ -158,37 +158,36 @@ export function SchemaEditorView({
             collections={collections.map((c) => ({ name: c.name, count: null, schema: c.schema }))}
           />
         }
-      >
-        <Button variant="secondary" onClick={onCancel}>
-          Cancel
-        </Button>
-        <Button variant="primary" onClick={save} disabled={saving || !valid}>
-          {saving ? 'Saving…' : collection ? 'Save schema' : 'Create collection'}
-        </Button>
-      </TopBar>
+      />
       <div className={`content ${styles.content}`}>
         <div className={styles.shell}>
-          <div className={`${styles.main} ${collection ? '' : styles.mainSolo}`}>
+          <div className={styles.main}>
             <div className={styles.layout}>
-              <Breadcrumb
-                crumbs={
-                  collection
-                    ? [
-                        { label: 'Collections', to: Routes.collections(serverId, scope.project, scope.env) },
-                        { label: collection.name },
-                      ]
-                    : [
-                        { label: 'Collections', to: Routes.collections(serverId, scope.project, scope.env) },
-                        { label: 'New collection' },
-                      ]
-                }
-              />
-              <div className={`page-head ${styles.pageHeader}`}>
-            <div className="page-title-group">
-              <h2 className="page-title">{collection ? 'Edit collection' : 'New collection'}</h2>
-              <span className="page-sub">Define the collection with JSON Schema draft 2020-12.</span>
-            </div>
-          </div>
+              {/* Crumbs and heading are one block, so the column's gap falls after
+                  the pair and the heading lands exactly where the entries list
+                  puts the collection name. A title that moves between pages reads
+                  as the page jumping. */}
+              <div>
+                <Breadcrumb
+                  crumbs={
+                    collection
+                      ? [
+                          { label: 'Collections', to: Routes.collections(serverId, scope.project, scope.env) },
+                          { label: collection.name },
+                        ]
+                      : [
+                          { label: 'Collections', to: Routes.collections(serverId, scope.project, scope.env) },
+                          { label: 'New collection' },
+                        ]
+                  }
+                />
+                <div className={`page-head ${styles.pageHeader}`}>
+                  <div className="page-title-group">
+                    <h2 className="page-title">{collection ? 'Edit collection' : 'New collection'}</h2>
+                    <span className="page-sub">Define the collection with JSON Schema draft 2020-12.</span>
+                  </div>
+                </div>
+              </div>
 
       {!collection && (
         <div className={`field ${styles.nameField}`}>
@@ -276,6 +275,7 @@ export function SchemaEditorView({
             expanded={draft.expanded}
             onExpand={draft.setExpanded}
             onChangeField={draft.updateField}
+            onMoveField={draft.moveField}
             onRemoveField={draft.removeField}
             onAddField={draft.addField}
           />
@@ -301,20 +301,28 @@ export function SchemaEditorView({
             </div>
           </div>
 
-          {collection && (
-            <CollectionRail
-              collection={collection}
-              scope={scope}
-              fieldCount={draft.fieldCount}
-              entryCount={entryCount}
-              requiresAuth={draft.requiresAuth}
-              canDelete={canDelete}
-              onDelete={() => {
-                setDeleteError('')
-                setShowDelete(true)
-              }}
-            />
-          )}
+          <CollectionRail
+            collection={collection}
+            scope={scope}
+            fieldCount={draft.fieldCount}
+            entryCount={entryCount}
+            requiresAuth={draft.requiresAuth}
+            canDelete={canDelete}
+            onDelete={() => {
+              setDeleteError('')
+              setShowDelete(true)
+            }}
+            actions={
+              <>
+                <Button variant="primary" onClick={save} disabled={saving || !valid}>
+                  {saving ? 'Saving…' : collection ? 'Save schema' : 'Create collection'}
+                </Button>
+                <Button variant="secondary" onClick={onCancel}>
+                  Cancel
+                </Button>
+              </>
+            }
+          />
         </div>
       </div>
 

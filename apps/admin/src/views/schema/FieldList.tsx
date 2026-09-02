@@ -1,3 +1,4 @@
+import { useState } from 'react'
 import { Plus } from 'lucide-react'
 import type { Collection } from '../../api/types/collection'
 import { Button } from '../../components/buttons/Button'
@@ -13,6 +14,7 @@ interface Props {
   expanded: number | null
   onExpand: (index: number | null) => void
   onChangeField: (index: number, patch: Partial<SchemaField>) => void
+  onMoveField: (from: number, to: number) => void
   onRemoveField: (index: number) => void
   onAddField: () => void
 }
@@ -24,9 +26,14 @@ export function FieldList({
   expanded,
   onExpand,
   onChangeField,
+  onMoveField,
   onRemoveField,
   onAddField,
 }: Props) {
+  // The row being dragged, by index. It follows its own field as the list
+  // reorders under the pointer, so passing over a row is the drop.
+  const [dragging, setDragging] = useState<number | null>(null)
+
   return (
     <div className={styles.builder}>
       {fields.length === 0 && (
@@ -38,7 +45,15 @@ export function FieldList({
           <FieldRow
             field={field}
             expanded={expanded === index}
+            dragging={dragging === index}
             onToggle={() => onExpand(expanded === index ? null : index)}
+            onDragStart={() => setDragging(index)}
+            onDragEnd={() => setDragging(null)}
+            onDragOverRow={() => {
+              if (dragging === null || dragging === index) return
+              onMoveField(dragging, index)
+              setDragging(index)
+            }}
           />
           {expanded === index && (
             <FieldEditor

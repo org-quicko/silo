@@ -49,6 +49,53 @@ privilege a third-party one could not ask for (D52).
 **The most recent change landed on 2026-09-02; everything before it on
 2026-09-01.**
 
+**An entry form shows how deep it is (2026-09-02).** A component three levels
+down was drawn exactly like a top-level one: RJSF tells a template nothing about
+where in the tree it sits, so every array item card carried the same surface as
+the card holding it, and a nested object was a dim label with its fields flush
+under it — `connection_method.oauth.url` read as three top-level fields.
+`NestingDepthContext` carries the depth (a labelled object group and an expanded
+array item each add one) and the templates publish it to CSS as `--nest-depth`.
+Every level steps a card's surface and its edge one shade lighter, holding at
+four so the deep end stays dark, and a labelled group's fields now sit in an
+indented rail that steps with it.
+
+**The entries table can be read at whatever width its content needs
+(2026-09-02).** A column was whatever fraction of the table the schema's shape
+gave it, so a `sub_category` holding `senior_citizen_self_or_dependent` was an
+ellipsis in every row. Each column's right edge is now a drag handle:
+`ColumnWidths` holds the width between a floor and whatever leaves every other
+column its own floor, `useColumnWidths` keeps it in `localStorage` per
+collection — one reader's ergonomics on one screen, so it stays out of the URL
+that makes a view shareable — and a double-click hands the column back. The
+handle draws a hairline at the weight of the row rules, brighter under the
+pointer; a heading narrowed past its own name ellipsises instead of painting
+over its neighbour. `Updated` and the actions cell keep their sizes, so the row
+still fills the table.
+
+**A schema field with seventeen enum values is one row again (2026-09-02).**
+The visual builder printed every value in the row's summary line, so one field
+wrapped to a ten-line block and its longest value ran under the type badges
+beside it. An enum past four values now leads with how many there are, and the
+row's two lines end in an ellipsis with the whole summary as their tooltip. In
+the open editor a long value wraps inside its own chip, since there it is the
+thing being edited. **The row itself is the control now** — a click anywhere on
+it opens the field, where before only a 14px gear did — and **the grip finally
+drags**: `SchemaDraft.reorder` moves a field and `reorderIndex` keeps the open
+editor on its own field. Property order is what every generated form and table
+reads, so the builder can now set it.
+
+**And a page's actions moved out of the top bar (2026-09-02).** The entries list
+already kept its own under the bar while an entry and a collection's schema put
+Save and Discard *in* it, beside the search. The bar is the search's now on every
+page that has one: an entry form and the schema editor carry every action they
+have — Save, Discard/Cancel, Delete — as one block in their right rail, under
+the facts the rail already stated, and that rail runs the full height of the
+view rather than stopping where its content does. The three pages also stopped
+disagreeing about where a heading goes: the collection name, `Edit entry` and
+`Edit collection` all land in the same place, since a title that moves between
+pages reads as the page jumping.
+
 **The Strapi importer carries a whole Strapi model, not the flat half of it
 (2026-09-02).** Run against a live 45-content-type export, it lost data three
 ways, and the largest of them was the mapping rather than a bug in it. It lifted

@@ -86,6 +86,27 @@ export class SchemaDraft {
   }
 
   /** A blank field, ready for the author to name. */
+  /**
+   * The field list with `from` lifted out and dropped at `to`. Property order is
+   * the order every generated form and table reads, so this is what a reorder in
+   * the builder actually changes.
+   */
+  static reorder(fields: readonly SchemaField[], from: number, to: number): SchemaField[] {
+    const next = [...fields]
+    if (from === to || from < 0 || to < 0 || from >= next.length || to >= next.length) return next
+    const [moved] = next.splice(from, 1)
+    next.splice(to, 0, moved)
+    return next
+  }
+
+  /** Where an index ends up after that same move — how the open editor follows its field. */
+  static reorderIndex(index: number, from: number, to: number): number {
+    if (index === from) return to
+    if (from < index && index <= to) return index - 1
+    if (to <= index && index < from) return index + 1
+    return index
+  }
+
   static blankField(): SchemaField {
     return {
       name: '',

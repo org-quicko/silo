@@ -1,12 +1,13 @@
 import { MoreHorizontal } from 'lucide-react'
-import { JsonPath } from '@silo/shared/json-path'
-import type { ReactNode } from 'react'
+import { useRef, type ReactNode } from 'react'
 import { Formatters } from '../../utils/formatters'
 import type { Entry } from '../../api/types/entry'
 import type { MediaAsset } from '../../api/types/media-asset'
 import type { SearchSnippet } from '../../api/types/search-snippet'
 import { SchemaType } from '../../schema/schema-type'
 import { CellValue } from './CellValue'
+import { ColumnWidths } from './column-widths'
+import { EntriesTableHead } from './EntriesTableHead'
 import { EntryLabels } from './entry-labels'
 import { RowMenu } from './RowMenu'
 import { Snippets } from './Snippets'
@@ -24,7 +25,9 @@ export function EntriesTable({
   primary,
   sub,
   extra,
-  gridCols,
+  widths,
+  onResizeColumn,
+  onResetColumn,
   mediaById,
   baseUrl,
   snippets,
@@ -43,7 +46,10 @@ export function EntriesTable({
   primary: string | null
   sub: string | null
   extra: readonly string[]
-  gridCols: string
+  /** Column name → the width its reader dragged it to; absent means the table sizes it. */
+  widths: Record<string, number>
+  onResizeColumn: (name: string, width: number) => void
+  onResetColumn: (name: string) => void
   mediaById: Record<string, MediaAsset>
   baseUrl?: string
   snippets: Record<string, SearchSnippet[]>
@@ -72,33 +78,35 @@ export function EntriesTable({
   // reads as a different column again.
   const numeric = new Set(extra.filter((column) => SchemaType.isNumeric(schema?.properties?.[column])))
 
+  // `--cols` sits on the card and inherits, so a drag can repaint the grid by
+  // writing one property on one element rather than re-rendering every row per
+  // frame. The label column and `Updated` are two of the data columns a width
+  // has to be left for.
+  const card = useRef<HTMLDivElement>(null)
+  const resize = {
+    clamp: (width: number) => ColumnWidths.clamp(width, ColumnWidths.max(card.current?.clientWidth ?? 0, extra.length + 2)),
+    preview: (name: string, width: number) =>
+      card.current?.style.setProperty('--cols', ColumnWidths.template(extra, { ...widths, [name]: width })),
+    commit: onResizeColumn,
+    reset: onResetColumn,
+  }
+
   return (
-    <div className="card">
-      <div className={`${table.header} ${table.table}`} style={{ ['--cols' as any]: gridCols }}>
-        <span className={table.sortable} onClick={() => primary && onToggleSort(JsonPath.dataField(primary))}>
-          {primary || 'ID'} {primary && sortIcon(JsonPath.dataField(primary))}
-        </span>
-        {extra.map((c) => (
-          <span
-            key={c}
-            className={`${table.sortable} ${numeric.has(c) ? styles.numericHead : ''}`}
-            onClick={() => onToggleSort(JsonPath.dataField(c))}
-          >
-            {c} {sortIcon(JsonPath.dataField(c))}
-          </span>
-        ))}
-        <span className={table.sortable} onClick={() => onToggleSort(JsonPath.UpdatedAt)}>
-          Updated {sortIcon(JsonPath.UpdatedAt)}
-        </span>
-        <span />
-      </div>
+    <div className="card" ref={card} style={{ ['--cols' as any]: ColumnWidths.template(extra, widths) }}>
+      <EntriesTableHead
+        primary={primary}
+        extra={extra}
+        numeric={numeric}
+        sortIcon={sortIcon}
+        onToggleSort={onToggleSort}
+        resize={resize}
+      />
 
       {entries.map((e) => (
         <div
           key={e.id}
           className={`${table.row} ${table.clickable}`}
           onClick={() => onEditEntry(e)}
-          style={{ ['--cols' as any]: gridCols }}
         >
           <div className={table.cell}>
             <div className={table.primary}>

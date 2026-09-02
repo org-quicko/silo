@@ -1,10 +1,11 @@
-import { useContext, useEffect, useState } from 'react'
+import { useContext, useEffect, useState, type CSSProperties } from 'react'
 import { AlertCircle, ChevronRight } from 'lucide-react'
 import { getTemplate } from '@rjsf/utils'
 import { SiloRefs } from '../../schema/silo-refs'
 import { ValueTitle } from '../../utils/value-title'
 import { ArrayItemHeaderContext } from './ArrayItemHeaderContext'
 import { ArrayItemsContext } from './ArrayItemsContext'
+import { NestingDepthContext } from './NestingDepthContext'
 import styles from './ArrayFieldItemTemplate.module.css'
 
 // Slate array item. Composite items — a reference list, an inline object
@@ -18,6 +19,7 @@ export function ArrayFieldItemTemplate(props: any) {
   const uiOptions = registry.getUiOptions?.(uiSchema) || {}
   const ArrayFieldItemButtonsTemplate = getTemplate('ArrayFieldItemButtonsTemplate', registry, uiOptions)
   const ctx = useContext(ArrayItemsContext)
+  const depth = useContext(NestingDepthContext)
   const title = ValueTitle.of(schema, uiSchema, ctx?.data?.[index])
   const composite = schema?.type === 'object' || !!schema?.properties || !!schema?.[SiloRefs.markerKey]
   // An item with nothing to show in its header is one the user still has to
@@ -39,6 +41,10 @@ export function ArrayFieldItemTemplate(props: any) {
     return () => report?.(itemKey, null)
   }, [composite, report, itemKey, open])
 
+  // The card sits on the surface its own depth earns; what it contains is a
+  // level deeper still.
+  const surface = { '--nest-depth': depth } as CSSProperties
+
   const toolbar = hasToolbar ? (
     <div className={styles.toolbar}>
       <ArrayFieldItemButtonsTemplate {...buttonsProps} />
@@ -47,7 +53,7 @@ export function ArrayFieldItemTemplate(props: any) {
 
   if (!composite) {
     return (
-      <div className={`${styles.item} ${styles.row} ${className || ''}`}>
+      <div className={`${styles.item} ${styles.row} ${className || ''}`} style={surface}>
         <div className={styles.content}>{children}</div>
         {toolbar}
       </div>
@@ -56,7 +62,7 @@ export function ArrayFieldItemTemplate(props: any) {
 
   const bodyId = `${buttonsProps.fieldPathId.$id}__body`
   return (
-    <div className={`${styles.item} ${open ? styles.open : ''} ${className || ''}`}>
+    <div className={`${styles.item} ${open ? styles.open : ''} ${className || ''}`} style={surface}>
       <div className={styles.header}>
         <button
           type="button"
@@ -74,7 +80,9 @@ export function ArrayFieldItemTemplate(props: any) {
         {toolbar}
       </div>
       <div id={bodyId} className={styles.body} hidden={!open}>
-        <ArrayItemHeaderContext.Provider value={buttonsProps.fieldPathId.$id}>{children}</ArrayItemHeaderContext.Provider>
+        <ArrayItemHeaderContext.Provider value={buttonsProps.fieldPathId.$id}>
+          <NestingDepthContext.Provider value={depth + 1}>{children}</NestingDepthContext.Provider>
+        </ArrayItemHeaderContext.Provider>
       </div>
     </div>
   )

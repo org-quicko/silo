@@ -4,6 +4,96 @@
 > The *current* state is [CONTEXT.md](../../CONTEXT.md); this is how it got
 > there.
 
+- **An entry form shows how deep it is (2026-09-02).**
+  A component three levels down was drawn exactly like a top-level one. RJSF
+  tells a template nothing about where in the tree it sits, so every array item
+  card carried the same surface and the same edge as the card holding it, and a
+  nested object was a dim mono label with its fields flush under it: on a real
+  imported entry, `connection_method.oauth.url` read as three top-level fields,
+  and an array of components inside an array of components was a stack of
+  identical cards.
+
+  `NestingDepthContext` is the missing notion of position — a labelled object
+  group and an expanded array item each add one level — and the two templates
+  that draw containers publish it to CSS as `--nest-depth`. From there it is one
+  rule in each stylesheet: a card's surface and border step one shade lighter per
+  level, and a labelled group's fields sit in an indented rail whose line steps
+  the same way. Both hold at four levels, because a ladder that keeps lightening
+  ends up brighter than the text on it.
+
+  The group label goes from `--text-3` to `--text-2` and sits closer to what it
+  names, since it is now the head of a visible block rather than a hint floating
+  above unindented fields. An array's title states its length in the slot a
+  scalar field states its type in (`2 items · required`), so a subtree is no
+  longer labelled exactly like a text box.
+
+- **The entries table's columns can be dragged, and a page's actions moved down
+  to the page (2026-09-02).**
+  A column was whatever fraction of the row the schema's shape gave it. A
+  `sub_category` holding `senior_citizen_self_or_dependent` was an ellipsis in
+  all sixteen rows, and no amount of choosing *which* columns to show fixed the
+  one that was too narrow.
+
+  Every column's right edge is a handle now. `ColumnWidths` is the pure half —
+  the `grid-template-columns` for a set of widths, and the clamp that keeps a
+  drag between a 72px floor and whatever still leaves every other column its
+  own; `useColumnWidths` keeps them in `localStorage` per (server, project, env,
+  collection). Deliberately not in the URL, which carries everything else on
+  screen: a width is one reader's ergonomics on one screen, and a shared link
+  should open the same *view*, not impose the sender's column widths. A
+  double-click hands one column back to the table's own sizing.
+
+  `Updated` has no handle and the actions cell is fixed, so whatever the others
+  are set to, the row still fills the width it was given rather than trailing an
+  empty strip. The drag itself never re-renders a page of rows: `--cols` moved
+  onto the card, where it inherits, so a pointer move writes one property on one
+  element and only the release reaches React state. A heading narrowed past its
+  own name now ellipsises rather than painting over the column beside it — it
+  always could, the resize just makes it easy to reach.
+
+  **The visual builder had the same defect in a worse place.** A field's summary
+  line printed every enum value it had, so a seventeen-value `sub_category` was a
+  ten-line paragraph inside a row meant to be one line, and its longest value —
+  one unbreakable 88-character token — overflowed the summary and painted over
+  the `enum` and `optional` badges. `SchemaFieldSummary` leads with the count
+  past four values (`Enum · 17 values · …`), because the count is the half that
+  survives an ellipsis; the row's name and summary clip to one line each, with
+  the full text as the summary's tooltip; and the type badges stop shrinking.
+  Inside the open editor a long value wraps within its own chip rather than
+  clipping: there it is the thing being edited.
+
+  Two more things about that row. **It is the control now** — a click anywhere on
+  it opens the field, with the gear left as the affordance rather than a second
+  tab stop, since a 14px target sat on a row whose every other pixel looked just
+  as clickable. And **the grip drags**: it had `cursor: grab` and no handler
+  behind it, so pulling on it selected text instead. `SchemaDraft.reorder` moves
+  the field and `reorderIndex` keeps the open editor on its own field through the
+  move; the list reorders as the dragged row passes over another, so there is no
+  drop target to find. Property order is the order every generated form and table
+  reads, which is what makes this a schema edit rather than a view preference.
+
+  Alongside it, **the top bar is the search's**. The entries list already kept
+  its actions under the bar; an entry and a collection's schema put Save and
+  Discard *in* the bar, so the same two buttons lived in two different places
+  depending on the page. Both pages now carry every action they have — Save,
+  Discard or Cancel, and Delete — as one block in their right rail, under the
+  facts that rail already stated: a rail that lists what a thing is, and then
+  what can be done to it. `CollectionRail` therefore renders for a collection
+  that does not exist yet, where it is the actions alone. Both rails run the full
+  height of the view (`min-height: 100%` on the shell) rather than stopping where
+  their content does. A page with no search (settings, keys, a plugin) still
+  keeps its actions in the bar, which is otherwise not drawn at all.
+
+  **And the heading stopped moving between pages.** The entries list put the
+  collection name 105px down; an entry put `Edit entry` at 127 and the schema
+  editor `Edit collection` at 123, because in those two the breadcrumb and the
+  heading were separate flex items and took the column's gap between them as
+  well as the breadcrumb's own margin. Pairing them in one block puts all three
+  headings in the same place, which is the whole of what stops a page from
+  looking like it jumped. The collection name field went from 340px to 560px in
+  the same pass: an imported name runs to 55 characters and was being clipped
+  inside its own editor.
+
 - **Imported content is readable in the admin, and a Strapi enumeration
   survives the trip (2026-09-02).**
   The importer's own mapping was right; what the admin did with it was not. Five
