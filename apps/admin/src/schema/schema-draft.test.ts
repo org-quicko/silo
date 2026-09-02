@@ -120,13 +120,30 @@ describe('SchemaDraft', () => {
     })
 
     test('a nullable enum and a nullable media field keep their union too', () => {
-      const { properties } = save({
-        status: { type: ['string', 'null'], enum: ['draft', 'live'] },
+      const { fields, properties } = save({
+        status: { type: ['string', 'null'], enum: ['draft', 'live', null] },
         cover: { type: ['string', 'null'], 'x-silo-type': 'media' },
       })
 
-      expect(properties.status).toEqual({ type: ['string', 'null'], enum: ['draft', 'live'] })
+      // `null` is not a choice on the list an author edits; it is what the
+      // nullable flag means for an enum, so it comes out and goes back in.
+      expect(fields[0].enumValues).toEqual(['draft', 'live'])
+      expect(properties.status).toEqual({ type: ['string', 'null'], enum: ['draft', 'live', null] })
       expect(properties.cover).toEqual({ type: ['string', 'null'], 'x-silo-type': 'media' })
+    })
+
+    /**
+     * `["string", "null"]` beside `["draft", "live"]` is a field that can never
+     * be null: `type` permits it and `enum` refuses it. The builder used to
+     * write exactly that, so the first save of an imported Strapi enumeration
+     * made every empty row unstorable — silently, until someone edited one.
+     */
+    test('a nullable enum saves a null that its own type already allows', () => {
+      const { properties } = save({ status: { type: 'string', enum: ['draft', 'live'] } }, (fields) => {
+        fields[0].nullable = true
+      })
+
+      expect(properties.status).toEqual({ type: ['string', 'null'], enum: ['draft', 'live', null] })
     })
 
     test('a JSON column stays typeless, rather than narrowing to a string', () => {

@@ -117,6 +117,35 @@ describe('reading a Strapi export', () => {
   })
 
   /**
+   * **An enumeration exists only in the declaration**, because Strapi stores one
+   * as a plain `varchar` — so a column read on its own can never be more than a
+   * string, and every imported enumeration arrived as free text.
+   *
+   * The declaration is not taken on trust either. Strapi enforces an enumeration
+   * on write and never on the rows already stored, so a value dropped from a
+   * content type stays in the table it was written to; carrying that declaration
+   * would produce a schema silo refuses rows for that this export demonstrably
+   * holds.
+   */
+  test('an enumeration the rows fit inside becomes an enum, and one they do not stays a string', () => {
+    read('published', (source) => {
+      const list = listOf(source, StrapiDatabaseFixture.Page)
+      const schema = StrapiSchema.forList(list) as any
+
+      // `null` is a member, not merely a permitted type: an unfilled
+      // enumeration column is NULL, and `enum` without it refuses that row.
+      expect(schema.properties.page_status).toEqual({
+        type: ['string', 'null'],
+        enum: ['draft', 'live', null],
+      })
+      expect(schema.properties.page_kind).toEqual({ type: ['string', 'null'] })
+
+      const entries = StrapiRows.read(source, list, 'published').map((row) => row.entry)
+      expect(entries.map((entry) => entry.page_status)).toEqual(['live', null])
+    })
+  })
+
+  /**
    * **Strapi shortens a table name past 55 characters, and its schema keeps the
    * long one.** Asking whether `collectionName` is a table therefore reports a
    * content type as missing from an export holding every one of its rows — which

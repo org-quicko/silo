@@ -30,6 +30,10 @@ export interface StrapiAttribute {
   multiple?: boolean
   /** The component uids a `dynamiczone` attribute may hold. */
   components?: string[]
+  /** The values an `enumeration` attribute declares. Carried as `unknown`
+   *  because it comes out of a JSON document, and `StrapiEnums` is where it is
+   *  checked. */
+  enum?: unknown
 }
 
 /**

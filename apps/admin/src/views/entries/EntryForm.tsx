@@ -22,6 +22,7 @@ import { ModalIcon } from '../../components/modal/ModalIcon'
 import { ModalSubject } from '../../components/modal/ModalSubject'
 import { slateTemplates, slateWidgets, slateFields } from '../../forms/theme'
 import { buildUiSchema } from '../../forms/build-ui-schema'
+import { FormSchema } from '../../forms/form-schema'
 import { MediaValue } from '../../forms/widgets/media-value'
 import { SiloRefs } from '../../schema/silo-refs'
 import { TopBar } from '../shell/TopBar'
@@ -73,16 +74,20 @@ export function EntryForm({
   apiKey,
   scope,
   claims,
-  backTo: _backTo,
+  backTo,
   onSaved,
   onCancel,
   onDeleted,
 }: Props) {
   // SiloRefs inlines silo://collections/* refs as internal pointers (RJSF and
   // its ajv8 validator only follow #/... pointers) and strips $schema, which
-  // the draft-07 ajv8 meta-schema would trip over. The server remains the
-  // authoritative validator (full 2020-12, remote refs if enabled).
-  const schema = useMemo(() => SiloRefs.resolveForForm(collection.name, collection.schema, collections), [collection, collections])
+  // the draft-07 ajv8 meta-schema would trip over. FormSchema then marks the
+  // properties that constrain nothing, which RJSF drops on sight. The server
+  // remains the authoritative validator (full 2020-12, remote refs if enabled).
+  const schema = useMemo(
+    () => FormSchema.forEntry(SiloRefs.resolveForForm(collection.name, collection.schema, collections)),
+    [collection, collections],
+  )
   const uiSchema = useMemo(() => buildUiSchema(schema), [schema])
   const initial = useMemo(() => entry?.data ?? {}, [entry])
 
@@ -188,7 +193,8 @@ export function EntryForm({
             <Breadcrumb
               crumbs={[
                 { label: 'Collections', to: Routes.collections(serverId, scope.project, scope.env) },
-                { label: collection.name },
+                { label: collection.name, to: backTo },
+                { label: entry ? Formatters.shortId(entry.id) : 'New entry' },
               ]}
             />
             {formError && (

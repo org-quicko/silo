@@ -31,7 +31,8 @@ export interface SchemaDraftState {
  * rewrites `type` from the field's kind, so `["integer", "null"]` has to be
  * read out and written back deliberately or every field of an imported
  * collection would come back a bare scalar and reject the nulls already
- * stored under it. The `any` kind is the other half of writing `type`
+ * stored under it. An enum carries it twice — in `type` and as a member of
+ * `enum` — and both are rebuilt from the one flag. The `any` kind is the other half of writing `type`
  * honestly: a property that declares none accepts anything, and the builder
  * says so and writes none back rather than settling on `string`.
  */
@@ -118,7 +119,11 @@ export class SchemaDraft {
       kind: SchemaDraft.kindOf(property, directRef, itemsRef),
       required,
       description: property?.description || '',
-      enumValues: Array.isArray(property?.enum) ? property.enum.map(String) : [],
+      // `null` is dropped here and put back on save: it is not a choice an
+      // author picks from a list, it is what "nullable" means for an enum.
+      enumValues: Array.isArray(property?.enum)
+        ? property.enum.filter((value: unknown) => value !== null).map(String)
+        : [],
       refTarget: directRef || itemsRef,
       nullable: SchemaType.isNullable(property),
       raw: property || {},
@@ -200,8 +205,12 @@ export class SchemaDraft {
         else drop('items')
         return
       case 'enum':
+        // `type` and `enum` have to agree about null or the field cannot hold
+        // one: `["string", "null"]` beside `["a", "b"]` validates nothing, and
+        // an imported column whose rows are half empty would start failing on
+        // the first save from this editor.
         setType('string')
-        property.enum = field.enumValues
+        property.enum = field.nullable ? [...field.enumValues, null] : field.enumValues
         drop('$ref', 'items', MediaField.TypeKeyword)
         return
       default:
