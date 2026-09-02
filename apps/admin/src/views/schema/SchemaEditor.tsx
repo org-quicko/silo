@@ -16,6 +16,7 @@ import { DangerConfirm } from '../../components/modal/DangerConfirm'
 import { TopBar } from '../shell/TopBar'
 import { SmartSearch } from '../search/SmartSearch'
 import { RenameForm } from '../settings/rename/RenameForm'
+import { useEscapeToDiscard } from '../use-escape-to-discard'
 import { CollectionRail } from './CollectionRail'
 import { FieldList } from './FieldList'
 import styles from './SchemaEditor.module.css'
@@ -59,6 +60,10 @@ export function SchemaEditorView({
   const [showDelete, setShowDelete] = useState(false)
   const [deleting, setDeleting] = useState(false)
   const [deleteError, setDeleteError] = useState('')
+
+  // Escape is Cancel, unless the delete dialog is up — that one's Escape closes
+  // the dialog rather than the page under it.
+  useEscapeToDiscard(onCancel, !showDelete)
 
   const canChangeAccess =
     !collection ||

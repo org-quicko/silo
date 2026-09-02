@@ -10,7 +10,9 @@ import { ServerManager } from './servers/ServerManager'
 import type { ScopeRef } from '../api/types/scope-ref'
 import { ScopeMemory } from '../utils/scope-memory'
 import { CollectionVisits } from '../utils/collection-visits'
+import { Keyboard } from '../utils/keyboard'
 import { Sidebar } from './shell/Sidebar'
+import { ShortcutsDialog } from './shell/ShortcutsDialog'
 import { TopBar } from './shell/TopBar'
 import { SmartSearch } from './search/SmartSearch'
 import { EntriesView } from './entries/Entries'
@@ -45,6 +47,20 @@ export function Workspace({
   const scope: ScopeRef = { project: route.project, env: route.env }
 
   const [showServerBrowser, setShowServerBrowser] = useState(false)
+  const [showShortcuts, setShowShortcuts] = useState(false)
+
+  // `?` belongs to the shell rather than to a page: the list it opens covers
+  // the whole app, and the sidebar's own item opens the same dialog.
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key !== '?' || event.ctrlKey || event.metaKey || event.altKey) return
+      if (Keyboard.isTyping(event.target)) return
+      event.preventDefault()
+      setShowShortcuts(true)
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [])
 
   // The settings shell's PROJECT/ENVIRONMENT groups need a scope even on its
   // unscoped pages (keys, connection); this is where one is known for certain.
@@ -110,6 +126,7 @@ export function Workspace({
         apiKey={apiKey}
         scope={scope}
         onOpenServerBrowser={() => setShowServerBrowser(true)}
+        onShowShortcuts={() => setShowShortcuts(true)}
       />
 
       <main className={styles.main}>
@@ -236,6 +253,8 @@ export function Workspace({
           </>
         )}
       </main>
+
+      {showShortcuts && <ShortcutsDialog onClose={() => setShowShortcuts(false)} />}
 
       {showServerBrowser && (
         <ServerManager

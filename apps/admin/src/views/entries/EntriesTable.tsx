@@ -1,5 +1,5 @@
 import { MoreHorizontal } from 'lucide-react'
-import { useRef, type ReactNode } from 'react'
+import { useEffect, useRef, type ReactNode } from 'react'
 import { Formatters } from '../../utils/formatters'
 import type { Entry } from '../../api/types/entry'
 import type { MediaAsset } from '../../api/types/media-asset'
@@ -31,6 +31,8 @@ export function EntriesTable({
   mediaById,
   baseUrl,
   snippets,
+  cursor,
+  onCursorChange,
   sortIcon,
   onToggleSort,
   onEditEntry,
@@ -53,6 +55,9 @@ export function EntriesTable({
   mediaById: Record<string, MediaAsset>
   baseUrl?: string
   snippets: Record<string, SearchSnippet[]>
+  /** The row the keyboard is on, by index; `null` when it is on none of them. */
+  cursor: number | null
+  onCursorChange: (index: number | null) => void
   sortIcon: (path: string) => ReactNode
   onToggleSort: (path: string) => void
   onEditEntry: (e: Entry) => void
@@ -83,6 +88,14 @@ export function EntriesTable({
   // frame. The label column and `Updated` are two of the data columns a width
   // has to be left for.
   const card = useRef<HTMLDivElement>(null)
+  // The cursor row is the focused element, so moving the cursor moves focus:
+  // the browser scrolls it into view and a screen reader reads the row it lands
+  // on, neither of which a painted-on highlight would do.
+  const cursorRow = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    if (cursor !== null) cursorRow.current?.focus()
+  }, [cursor])
+
   const resize = {
     clamp: (width: number) => ColumnWidths.clamp(width, ColumnWidths.max(card.current?.clientWidth ?? 0, extra.length + 2)),
     preview: (name: string, width: number) =>
@@ -102,11 +115,23 @@ export function EntriesTable({
         resize={resize}
       />
 
-      {entries.map((e) => (
+      {entries.map((e, index) => (
         <div
           key={e.id}
-          className={`${table.row} ${table.clickable}`}
+          ref={index === cursor ? cursorRow : undefined}
+          className={`${table.row} ${table.clickable} ${index === cursor ? styles.rowCursor : ''}`}
+          role="button"
+          aria-label={label(e)}
+          // Roving: one row is in the tab order, so Tab reaches the table and
+          // then the arrows move inside it rather than through fifty stops.
+          tabIndex={index === (cursor ?? 0) ? 0 : -1}
+          onFocus={() => onCursorChange(index)}
           onClick={() => onEditEntry(e)}
+          onKeyDown={(event) => {
+            if (event.key !== 'Enter' && event.key !== ' ') return
+            event.preventDefault()
+            onEditEntry(e)
+          }}
         >
           <div className={table.cell}>
             <div className={table.primary}>

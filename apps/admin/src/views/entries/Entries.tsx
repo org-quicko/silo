@@ -25,6 +25,7 @@ import { EntriesPager } from './EntriesPager'
 import { EntriesToolbar } from './EntriesToolbar'
 import { EntryLabels } from './entry-labels'
 import { useColumnWidths } from './use-column-widths'
+import { useEntriesKeyboard } from './use-entries-keyboard'
 import { useEntriesData } from './use-entries-data'
 import { useMediaColumns } from './use-media-columns'
 import styles from './Entries.module.css'
@@ -147,6 +148,7 @@ export function EntriesView({
     onQueryChange({ ...query, cols: Columns.stringify(next, collection.schema, excludeFromColumns) })
 
   const goToPage = (page: number) => onQueryChange({ ...query, page })
+  const lastPage = Math.max(1, Math.ceil(total / PAGE_SIZE))
 
   const doDelete = async () => {
     if (!toDelete) return
@@ -161,6 +163,31 @@ export function EntriesView({
   }
 
   const label = (entry: Entry) => EntryLabels.of(entry, primary, collection.schema)
+
+  // The whole page from the keyboard: a cursor over the rows, and one key for
+  // every action the toolbar and the row menu offer. A dialog takes the
+  // keyboard away while it is open, since it has its own.
+  const { cursor, setCursor } = useEntriesKeyboard({
+    rowCount: entries.length,
+    active: !toDelete,
+    onOpen: (index) => onEditEntry(entries[index]),
+    onDelete: (index) => canDelete && setToDelete(entries[index]),
+    onNew: () => canCreate && onNewEntry(),
+    onFilter: openFilterBuilder,
+    onColumns: () => setShowColumns(!showColumns),
+    onPage: (delta) => {
+      const next = query.page + delta
+      if (next >= 1 && next <= lastPage) goToPage(next)
+    },
+    onDismiss: () => {
+      const open = showFilter || showColumns || menuId !== null
+      setShowFilter(false)
+      setFocusRow(undefined)
+      setShowColumns(false)
+      setMenuId(null)
+      return open
+    },
+  })
   const conditions = draft ? draft.rows.filter(FilterModel.isComplete).length : 0
   const filterSummary = draft === null ? 'advanced filter' : conditions === 0 ? 'no filters' : `${conditions} filter${conditions === 1 ? '' : 's'}`
 
@@ -286,6 +313,8 @@ export function EntriesView({
               mediaById={mediaById}
               baseUrl={baseUrl}
               snippets={snippets}
+              cursor={cursor}
+              onCursorChange={setCursor}
               sortIcon={sortIcon}
               onToggleSort={toggleSort}
               onEditEntry={onEditEntry}
