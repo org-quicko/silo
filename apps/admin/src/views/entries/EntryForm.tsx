@@ -27,6 +27,7 @@ import { MediaValue } from '../../forms/widgets/media-value'
 import { SiloRefs } from '../../schema/silo-refs'
 import { TopBar } from '../shell/TopBar'
 import { SmartSearch } from '../search/SmartSearch'
+import { useEscapeToDiscard } from '../use-escape-to-discard'
 import styles from './EntryForm.module.css'
 
 // Convert server ValidationDetails (JSON Pointer paths) into RJSF extraErrors.
@@ -108,6 +109,10 @@ export function EntryForm({
     }, 0)
     return () => clearTimeout(id)
   }, [])
+
+  // Escape is Discard, unless the delete dialog is up — that one's Escape closes
+  // the dialog rather than the page under it.
+  useEscapeToDiscard(onCancel, !showDelete)
 
   const canSave = Claims.has(
     claims,

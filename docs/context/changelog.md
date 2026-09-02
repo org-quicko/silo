@@ -84,6 +84,14 @@
   their content does. A page with no search (settings, keys, a plugin) still
   keeps its actions in the bar, which is otherwise not drawn at all.
 
+  **The keycap beside the search field said `⌘K` on Windows**, and the sidebar
+  filter's tooltip said `⌥F` — labels for keys those keyboards do not have,
+  though both handlers have always accepted either modifier (`metaKey ||
+  ctrlKey`, and `altKey` for the filter). `PlatformKeys` reads the platform
+  through `userAgentData` with the deprecated `navigator.platform` and the UA
+  string behind it, and the labels take the platform as an argument so the rule
+  is testable without a DOM.
+
   **And the heading stopped moving between pages.** The entries list put the
   collection name 105px down; an entry put `Edit entry` at 127 and the schema
   editor `Edit collection` at 123, because in those two the breadcrumb and the
@@ -93,6 +101,38 @@
   looking like it jumped. The collection name field went from 340px to 560px in
   the same pass: an imported name runs to 55 characters and was being clipped
   inside its own editor.
+
+- **The entries list, and the way out of an editor, from the keyboard
+  (2026-09-02).**
+  The table was a mouse-only surface: rows were `div`s with an `onClick`, the
+  sortable headings were `span`s with one too, and nothing on the page could be
+  reached with Tab except the row menus and the pager.
+
+  **A row cursor.** `↓`/`j` and `↑`/`k` move it, `Home`/`End` jump it, `←`/`h`
+  and `→`/`l` change page, `e` opens the row under it, `⌫` deletes it, and `n`,
+  `f`, `c` reach New entry, the filter builder and the column picker. `Esc`
+  closes whatever is open and only gives up the cursor when nothing was — a
+  press that shuts a popover should not also lose your place. The cursor row is
+  the focused element, not a highlight painted over one: the browser scrolls it
+  into view, a screen reader reads the row it lands on, and a roving `tabindex`
+  keeps the table at one tab stop instead of fifty. `EntriesShortcuts` is the
+  whole map as a pure lookup, so what a key does is a test rather than a
+  reading of an event handler; `Enter` is deliberately not in it, because the
+  focused row is a button and already activates itself.
+
+  **The headings are buttons now**, which is what puts sorting on the keyboard
+  at all. The padding moved from the cell to the button inside it (through a
+  doubled class, since `DataTable`'s own `.header > span` is more specific than
+  one), so the whole heading is the target and the resize handle still anchors
+  to the cell's edge.
+
+  **`?` opens a shortcut list**, from the shell rather than from the page, since
+  half of what it lists is scope-wide; the sidebar carries the same dialog as an
+  item under Settings, because a shortcut nobody can find is not a shortcut.
+  **`Esc` discards an entry form or a schema editor**, exactly as their Discard
+  and Cancel buttons do. It stands down for a press something else already
+  claimed — the search bar calls `preventDefault` on its own Escape — so leaving
+  a search never throws away the form behind it.
 
 - **Imported content is readable in the admin, and a Strapi enumeration
   survives the trip (2026-09-02).**

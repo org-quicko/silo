@@ -14,6 +14,7 @@ import { ScopeMatcher } from './scope-match'
 import { ScopeSuggest } from './ScopeSuggest'
 import { MentionToken, type ActiveMention } from './mention-token'
 import { CollectionVisits } from '../../utils/collection-visits'
+import { PlatformKeys } from '../../utils/platform-keys'
 import { SearchMemory } from './search-memory'
 import styles from './SmartSearch.module.css'
 
@@ -108,7 +109,8 @@ export function SmartSearch({
     return () => document.removeEventListener('mousedown', onMouseDown)
   }, [])
 
-  // ⌘K / Ctrl-K and bare `/` focus the search bar from anywhere
+  // ⌘K / Ctrl-K and bare `/` focus the search bar from anywhere; the keycap
+  // beside the field names whichever of the two this platform actually has.
   useEffect(() => {
     const typing = (el: EventTarget | null) => {
       const tag = (el as HTMLElement | null)?.tagName
@@ -340,7 +342,7 @@ export function SmartSearch({
           ×
         </button>
       ) : (
-        <span className={styles.keycap}>⌘K</span>
+        <span className={styles.keycap}>{PlatformKeys.command()}K</span>
       )}
 
       {mention ? (

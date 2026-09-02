@@ -45,27 +45,33 @@ export function EntriesTableHead({
 
   return (
     <div className={`${table.header} ${table.table}`}>
-      <span
-        className={`${table.sortable} ${styles.headCell}`}
-        onClick={() => primary && onToggleSort(JsonPath.dataField(primary))}
-      >
-        <span className={styles.headLabel}>{primary || 'ID'}</span>
-        {primary && sortIcon(JsonPath.dataField(primary))}
+      <span className={styles.headCell}>
+        {/* A button, not a span with a click: sorting is an action, and the only
+            way to reach it used to be a mouse. */}
+        <button type="button" className={styles.headSort} disabled={!primary} onClick={() => primary && onToggleSort(JsonPath.dataField(primary))}>
+          <span className={styles.headLabel}>{primary || 'ID'}</span>
+          {primary && sortIcon(JsonPath.dataField(primary))}
+        </button>
         {handle(ColumnWidths.PrimaryKey)}
       </span>
       {extra.map((column) => (
-        <span
-          key={column}
-          className={`${table.sortable} ${styles.headCell} ${numeric.has(column) ? styles.numericHead : ''}`}
-          onClick={() => onToggleSort(JsonPath.dataField(column))}
-        >
-          <span className={styles.headLabel}>{column}</span>
-          {sortIcon(JsonPath.dataField(column))}
+        <span key={column} className={styles.headCell}>
+          <button
+            type="button"
+            className={`${styles.headSort} ${numeric.has(column) ? styles.numericHead : ''}`}
+            onClick={() => onToggleSort(JsonPath.dataField(column))}
+          >
+            <span className={styles.headLabel}>{column}</span>
+            {sortIcon(JsonPath.dataField(column))}
+          </button>
           {handle(column)}
         </span>
       ))}
-      <span className={table.sortable} onClick={() => onToggleSort(JsonPath.UpdatedAt)}>
-        Updated {sortIcon(JsonPath.UpdatedAt)}
+      <span className={styles.headCell}>
+        <button type="button" className={styles.headSort} onClick={() => onToggleSort(JsonPath.UpdatedAt)}>
+          <span className={styles.headLabel}>Updated</span>
+          {sortIcon(JsonPath.UpdatedAt)}
+        </button>
       </span>
       <span />
     </div>

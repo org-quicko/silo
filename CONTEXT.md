@@ -85,6 +85,24 @@ drags**: `SchemaDraft.reorder` moves a field and `reorderIndex` keeps the open
 editor on its own field. Property order is what every generated form and table
 reads, so the builder can now set it.
 
+**The entries list can be worked without a mouse (2026-09-02).** A row cursor
+moves on `↓`/`j` and `↑`/`k`, `Home`/`End`, and pages on `←`/`h` and `→`/`l`;
+`e` or `Enter` opens the row under it, `⌫` deletes it, and `n`, `f` and `c` are
+the new-entry, filter and column controls. The cursor row is the *focused*
+element rather than a painted highlight, so the browser scrolls it into view and
+a screen reader reads the row it lands on, and the table keeps one tab stop
+rather than fifty. `EntriesShortcuts` is the map, pure and tested; the column
+headings became real buttons in the same pass, which is what put sorting on the
+keyboard at all. `?` opens a shortcut list from anywhere, also reachable from
+the sidebar under Settings, and `Esc` discards an entry form or a schema editor
+the way its own Discard button does — unless the press was already claimed, so
+escaping the search bar never throws away the form behind it.
+
+**Two shortcut hints stopped naming keys a Windows keyboard does not have
+(2026-09-02).** The search bar's keycap read `⌘K` and the sidebar filter's
+tooltip `⌥F` on every platform, though both shortcuts have always listened for
+either modifier. `PlatformKeys` labels them `Ctrl+`/`Alt+` off Apple hardware.
+
 **And a page's actions moved out of the top bar (2026-09-02).** The entries list
 already kept its own under the bar while an entry and a collection's schema put
 Save and Discard *in* it, beside the search. The bar is the search's now on every

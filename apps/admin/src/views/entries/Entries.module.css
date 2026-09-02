@@ -26,7 +26,32 @@
 /* A resizable heading. It anchors the handle on its right edge, and its own
    hover is what reveals that handle's hairline; text selection is off so a drag
    never paints the heading blue. */
-.headCell { position: relative; min-width: 0; user-select: none; }
+/* The heading cell is the boundary the resize handle anchors to; the button
+   inside it is the sort control and takes the cell's own padding, so the whole
+   heading is the target rather than just its text. */
+/* The doubled class outranks DataTable's own `.header > span` padding, which is
+   more specific than a single class: the padding belongs to the button inside,
+   so the whole heading is the sort target rather than just its text. */
+.headCell.headCell { position: relative; min-width: 0; padding: 0; user-select: none; }
+
+.headSort {
+  display: flex;
+  min-width: 0;
+  flex: 1;
+  align-items: center;
+  gap: 5px;
+  padding: 11px 16px;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  letter-spacing: inherit;
+  text-transform: inherit;
+  cursor: pointer;
+}
+
+.headSort:hover:not(:disabled) { color: var(--text-2); }
+.headSort:disabled { cursor: default; }
 /* A heading narrowed past its own name ends in an ellipsis rather than painting
    over the column beside it, the way the cells under it already do. */
 .headLabel { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -41,6 +66,15 @@
 /* The empty-state message borrows .cell for its padding but is a paragraph,
    not a column: it opts back out of the single-line clipping. */
 .noResults { padding: 40px 16px; color: var(--text-3); text-align: center; white-space: normal; }
+
+/* The row the keyboard is on. It is also the focused element, so this is the
+   focus indicator and there is no second ring on top of it. */
+.rowCursor { background: color-mix(in oklab, var(--accent) 11%, transparent); box-shadow: inset 2px 0 0 var(--accent); }
+.rowCursor:hover { background: color-mix(in oklab, var(--accent) 15%, transparent); }
+/* The tint and the accent edge are the focus indicator; the UA ring on top of
+   them is a second, louder one saying the same thing. */
+.rowCursor:focus,
+.rowCursor:focus-visible { outline: none; }
 
 .pager { display: flex; align-items: center; justify-content: space-between; margin-top: 14px; }
 .pagerInfo { color: var(--text-3); font-size: 12.5px; }

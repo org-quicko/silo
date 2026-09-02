@@ -1,0 +1,37 @@
+/* The list sits between the modal's header and its actions and has to keep
+   their 22px gutter: without it the keycaps run to the dialog's own edge. */
+.groups {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  max-height: min(60vh, 520px);
+  margin: 18px 0 0;
+  padding: 0 22px;
+  overflow-y: auto;
+}
+
+.group { display: flex; flex-direction: column; gap: 2px; }
+
+.groupLabel {
+  margin-bottom: 4px;
+  color: var(--text-3);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+
+.row { display: flex; align-items: baseline; gap: 14px; padding: 4px 0; }
+.keys { display: flex; flex: none; width: 116px; gap: 5px; margin: 0; }
+.meaning { margin: 0; color: var(--text-2); font-size: 13px; }
+
+.keycap {
+  padding: 2px 6px;
+  border: 1px solid var(--line-2);
+  border-radius: 4px;
+  background: var(--bg);
+  color: var(--text-2);
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  line-height: 1.5;
+}
