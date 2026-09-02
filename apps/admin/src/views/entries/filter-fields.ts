@@ -100,7 +100,7 @@ export class FilterFields {
    * a field holding `290` — a filter that draws fine and matches nothing.
    */
   static valueType(property: any): FilterValueType {
-    if (Array.isArray(property?.enum) && property.enum.every((v: unknown) => typeof v === 'string')) return 'enum'
+    if (FilterFields.choices(property)) return 'enum'
     const type = SchemaType.of(property)
     if (type === 'string' && property?.format === 'date-time') return 'date-time'
     if (SchemaType.isNumeric(property)) return 'number'
@@ -118,7 +118,23 @@ export class FilterFields {
       return { path: `${base}[*]`, label: `${name} (any)`, type: itemType, isArray: true }
     }
     const type = FilterFields.valueType(property)
-    const values = type === 'enum' ? (property.enum as string[]) : undefined
-    return { path: base, label: name, type, values }
+    return { path: base, label: name, type, values: FilterFields.choices(property) }
+  }
+
+  /**
+   * The values an enum offers a filter, or `undefined` when it is not one this
+   * can draw a list for.
+   *
+   * `null` is dropped rather than disqualifying: a nullable enum carries it as
+   * a member, and there is no `eq` against nothing to offer anyway. Without
+   * this every imported Strapi enumeration fell back to a free-text box.
+   */
+  private static choices(property: any): string[] | undefined {
+    const declared = property?.enum
+    if (!Array.isArray(declared)) return undefined
+    const named = declared.filter((value: unknown) => value !== null)
+    return named.length > 0 && named.every((value: unknown) => typeof value === 'string')
+      ? (named as string[])
+      : undefined
   }
 }

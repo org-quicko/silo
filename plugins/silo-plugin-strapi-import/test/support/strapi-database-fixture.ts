@@ -17,6 +17,9 @@ import { Database } from 'bun:sqlite'
  *    is where most of a real export's attachments are, and it is invisible to
  *    anything that reads only the content type's own join table.
  * 4. A **dynamic zone**, whose two component types share one field.
+ * 4b. Two **enumeration** columns, one the rows fit inside and one they do not:
+ *    Strapi enforces an enumeration on write and never on the rows already
+ *    stored, so a declaration is only worth carrying once the data agrees.
  * 5. A `collectionName` **past 55 characters**, which Strapi stores under a
  *    shortened name its own schema does not contain. The shortened spelling here
  *    is a literal on purpose: computing it with the code under test would make
@@ -143,9 +146,15 @@ export class StrapiDatabaseFixture {
   /** A collection type whose one field is a dynamic zone. */
   private static writePage(db: Database): void {
     db.run(`CREATE TABLE org_quicko_pages (
-      id INTEGER PRIMARY KEY, document_id TEXT, title VARCHAR(255), published_at DATETIME)`)
-    db.run(`INSERT INTO org_quicko_pages (id, document_id, title, published_at)
-            VALUES (1, 'page1', 'Rates', 1751022409249)`)
+      id INTEGER PRIMARY KEY, document_id TEXT, title VARCHAR(255), published_at DATETIME,
+      page_status VARCHAR(255), page_kind VARCHAR(255))`)
+    // `page_status` holds only what it declares, and a NULL — an unfilled
+    // enumeration column, which is most of them. `page_kind` holds `legacy`,
+    // which its declaration no longer lists: Strapi kept the row when the value
+    // was dropped from the content type.
+    db.run(`INSERT INTO org_quicko_pages (id, document_id, title, published_at, page_status, page_kind)
+            VALUES (1, 'page1', 'Rates', 1751022409249, 'live', 'legacy'),
+                   (2, 'page2', 'Slabs', 1751022409249, NULL, 'guide')`)
 
     db.run(`CREATE TABLE components_org_quicko_text_blocks (
       id INTEGER PRIMARY KEY, body TEXT)`)
@@ -202,6 +211,8 @@ export class StrapiDatabaseFixture {
             __schema__: {
               attributes: {
                 title: { type: 'string' },
+                pageStatus: { type: 'enumeration', enum: ['draft', 'live'] },
+                pageKind: { type: 'enumeration', enum: ['guide'] },
                 blocks: {
                   type: 'dynamiczone',
                   components: ['org-quicko.text-block', 'org-quicko.image-block'],

@@ -91,6 +91,34 @@ since component *schemas* live in the project's `src/components/*.json` and
 never travel — so a field declared there and never filled arrives as an untyped
 property rather than as a field an operator can see in Strapi and not in silo.
 
+**And the admin can now read what the importer writes (2026-09-02).** The
+mapping was right and the presentation of it was not. The entries table titled
+an entry with `String(value)`, so a collection whose one property is a
+repeatable component headed its rows `[object Object],[object Object]`;
+`EntryLabels` summarises composites the way `CellValue` already does everywhere
+else, and prefers a property that can carry a name over a list that happens to
+be declared first. A property that declares nothing — `{}`, the honest schema
+for a `json` column — rendered as nothing at all, because RJSF returns `null`
+for a keyword-less schema before `ui:field` is read; `FormSchema` marks it with
+the widget the form already understands, which makes it non-empty in the same
+stroke. And widget selection stopped at the first nested component:
+`buildUiSchema` compared `type` against `'object'` while every imported property
+is `["object", "null"]`, and never descended into an array's items, so the media
+fields inside a component were text boxes holding `silo://` references. An
+entry's breadcrumb now names the entry, and the `Collections` crumb lands on the
+collection you were in rather than on the first one alphabetically.
+
+**A Strapi `enumeration` arrives as an enum (2026-09-02).** Strapi stores one as
+a plain `varchar`, so the declaration is the only evidence it exists, and
+`StrapiEnums` confirms it against the column before carrying it: an enumeration
+is enforced on write and never on the rows already stored, so a value dropped
+from a content type stays in the table, and a schema silo validates against
+would refuse an entry the export holds. `null` is a member of the emitted `enum`
+rather than only of the `type`, because an unfilled enumeration column is
+`NULL`. That last part exposed a latent bug in the visual schema builder, which
+wrote `["string", "null"]` beside an `enum` that refused null — a field that
+could never hold the value its own type allowed.
+
 **Before that, a staged Strapi upload got a name no other upload can take
 (2026-09-02).**
 `SourceStore` named each staged `.db` from `Date.now()` alone, so two uploads

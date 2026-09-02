@@ -4,6 +4,58 @@
 > The *current* state is [CONTEXT.md](../../CONTEXT.md); this is how it got
 > there.
 
+- **Imported content is readable in the admin, and a Strapi enumeration
+  survives the trip (2026-09-02).**
+  The importer's own mapping was right; what the admin did with it was not. Five
+  things, all of them visible on the first collection a real import produces.
+
+  **The entries table titled an entry by `String(value)`.** A collection whose
+  only property is a repeatable component is ordinary in Strapi, so the heading
+  column read `[object Object],[object Object],[object Object]`. `EntryLabels`
+  now summarises the way `CellValue` already does in every other cell: a list of
+  objects is its length, a list of scalars is itself, an object is its first
+  filled field or a key count. It also *picks* better — a property that can carry
+  a name wins over a list that happens to be declared first, the rule `Columns`
+  already applies to the default columns — and the id stops appearing on both
+  lines of a row when it is the fallback title as well as the subtitle.
+
+  **A property that declares nothing rendered as nothing.** `{}` is the honest
+  schema for a Strapi `json` column, and RJSF returns `null` for a schema with no
+  keywords *before* `ui:field` is read, so an entry whose only field was a JSON
+  column opened as a blank page: not editable, not visible, not reported missing.
+  `FormSchema` marks such a property with the widget the form already
+  understands, which makes it non-empty in the same stroke, and `JsonField` reads
+  as "any JSON value" rather than as a subtree it failed to draw.
+
+  **Widget selection stopped at the first nested component.** `buildUiSchema`
+  compared `type` against `'object'` and `'array'` while every imported property
+  is `["object", "null"]`, and it never descended into an array's `items` at all.
+  So the fields inside a component got no widget: a media reference two levels
+  down was a text box holding `silo://media/<id>`. It reads types through
+  `SchemaType` now and walks item schemas, which is what puts the picker and the
+  thumbnail on the 1646 attachments that live down there.
+
+  **The breadcrumb inside an entry stopped at the collection**, and the
+  collection crumb linked nowhere. It is `Collections / <collection> / <id>` now,
+  with the middle crumb going back to the list. The `Collections` crumb itself
+  forwarded to `collections[0]`, so leaving an entry moved you to a collection
+  you had not asked for; the index resolves through `CollectionVisits` instead
+  and lands on the last one opened in this scope.
+
+  **A Strapi `enumeration` imported as free text.** Strapi stores one as a plain
+  `varchar`, so the declaration is the only evidence it exists, and `StrapiEnums`
+  carries it — but only after confirming it against the column, because Strapi
+  enforces an enumeration on write and never on the rows already stored, and a
+  value dropped from a content type stays in the table it was written to. `null`
+  is a member of the emitted `enum`, not merely of the `type`: an unfilled
+  enumeration column is `NULL`, and one instance had 2 such rows beside 108
+  filled ones. That exposed a latent bug in the visual schema builder, which
+  wrote `["string", "null"]` beside `["draft", "live"]` — a field whose type
+  permits a null its `enum` refuses — so `SchemaDraft` now rebuilds both halves
+  from the one nullable flag, `SelectWidget` offers the null member as "Not set"
+  and addresses options by index (a DOM attribute turns `null` into `"null"`),
+  and `FilterFields` ignores it rather than falling back to a free-text box.
+
 - **The Strapi importer carries components, single types and long table names
   (2026-09-02).**
   Three failures against a live 45-content-type export, and one of them was the

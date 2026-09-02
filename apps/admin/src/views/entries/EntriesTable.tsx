@@ -7,6 +7,7 @@ import type { MediaAsset } from '../../api/types/media-asset'
 import type { SearchSnippet } from '../../api/types/search-snippet'
 import { SchemaType } from '../../schema/schema-type'
 import { CellValue } from './CellValue'
+import { EntryLabels } from './entry-labels'
 import { RowMenu } from './RowMenu'
 import { Snippets } from './Snippets'
 import table from '../../components/data/DataTable.module.css'
@@ -57,7 +58,13 @@ export function EntriesTable({
   /** Shown when nothing matched — the caller knows *why* (a search or a filter). `null` while a request is still in flight, so a stale "nothing here" never flashes before the real answer arrives. */
   emptyMessage: string | null
 }) {
-  const label = (e: Entry) => (primary ? String(e.data?.[primary] ?? Formatters.shortId(e.id)) : Formatters.shortId(e.id))
+  const label = (e: Entry) => EntryLabels.of(e, primary, schema)
+  // The id is the fallback title as well as the default subtitle, and an entry
+  // with nothing nameable in it would otherwise print it on both lines.
+  const subtitle = (e: Entry) => {
+    const under = sub ? String(e.data?.[sub] ?? '') : Formatters.shortId(e.id)
+    return under === label(e) ? '' : under
+  }
 
   // Numbers render right-aligned in the cell (handoff 1e), so the heading and
   // the cell's own em-dash follow them over: a left heading above a right
@@ -96,7 +103,7 @@ export function EntriesTable({
           <div className={table.cell}>
             <div className={table.primary}>
               <span className={table.title}>{label(e)}</span>
-              <span className={table.subtitle}>{sub ? String(e.data?.[sub] ?? '') : Formatters.shortId(e.id)}</span>
+              <span className={table.subtitle}>{subtitle(e)}</span>
               <Snippets snippets={snippets[e.id]} />
             </div>
           </div>

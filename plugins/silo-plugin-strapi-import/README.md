@@ -117,6 +117,25 @@ The half that stays open: a nested component's `repeatable` is inferred from
 whether any one row holds more than one child, the way a media field's `multiple`
 already was. A content type's own fields never need that — its schema says.
 
+### Enumerations
+
+Strapi stores an `enumeration` as a plain `varchar`, so the declaration is the
+only evidence it is one, and it becomes a JSON Schema `enum` — **after the rows
+are checked against it**. Strapi enforces an enumeration on write and never on
+the rows already stored, so a value removed from a content type stays in every
+row that already held it, and carrying the declaration blindly would produce a
+collection that refuses an entry this export demonstrably contains. A column the
+data disagrees with imports as the string it already was.
+
+`null` is a member of the emitted `enum`, not merely of the `type`: an unfilled
+enumeration column is `NULL`, and an `enum` without it would refuse those rows.
+Silo's schema editor reads the pair back as one nullable enum and writes both
+halves again, so switching the field to a plain string and back keeps it.
+
+This only reaches a **content type's** columns. A component's schema is not in
+the export at all, so an enumeration inside a component is unknowable from here
+and stays a string.
+
 ## Media
 
 A media field becomes **silo's media type** — `x-silo-type: "media"` on a string

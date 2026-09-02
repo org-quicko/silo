@@ -3,6 +3,15 @@ export interface StrapiColumn {
   name: string
   /** Knex's type name — `string`, `integer`, `json`, `increments`, … */
   type: string
+  /**
+   * The values a Strapi `enumeration` attribute confines this column to,
+   * confirmed against the rows by `StrapiEnums`.
+   *
+   * Not part of the physical column, which is a plain `varchar`: this is the
+   * one thing a table cannot say about itself, and it only reaches here for a
+   * content type — a component's schema is not in the export.
+   */
+  values?: readonly string[]
 }
 
 /**
@@ -31,6 +40,12 @@ export class StrapiColumns {
   /** What one column becomes in a JSON Schema, or `null` for one to skip. */
   static schemaFor(column: StrapiColumn): Record<string, unknown> | null {
     if (StrapiColumns.Ignored.includes(column.name)) return null
+
+    // `null` is a member of the enumeration, not merely of the type: an
+    // unfilled enumeration column is NULL, and `enum` without it would refuse
+    // rows this export holds. Silo's schema editor reads the pair back the
+    // same way, so switching the field to a plain string and back keeps it.
+    if (column.values) return { type: ['string', 'null'], enum: [...column.values, null] }
 
     switch (column.type) {
       case 'integer':

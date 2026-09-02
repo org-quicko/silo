@@ -1,6 +1,7 @@
 import type { StrapiColumn } from './strapi-columns'
 import { StrapiComponents } from './strapi-components'
 import type { StrapiDatabase, StrapiStoredType } from './strapi-database'
+import { StrapiEnums } from './strapi-enums'
 import { StrapiFields } from './strapi-fields'
 import { StrapiIdentifiers } from './strapi-identifiers'
 import type { StrapiMediaField } from './strapi-media'
@@ -301,17 +302,39 @@ export class StrapiShapes {
    * left out is Strapi's own bookkeeping — `document_id`, `published_at`, the
    * two `created_by` keys — because silo mints its own identity (D2) and a
    * Strapi id in a silo entry is a field nothing on either side resolves.
+   *
+   * The declaration is also the only place an **enumeration** exists: Strapi
+   * stores one as a plain `varchar`, so a column read alone can never be more
+   * than a string. Attaching it here is what lets the collection arrive with the
+   * choices its author wrote, rather than a free-text field an operator can put
+   * anything in.
    */
   private static declaredColumns(
     source: StrapiDatabase,
     contentType: StrapiStoredType,
   ): StrapiColumn[] {
-    const names = new Set(
+    const declared = new Map(
       Object.entries(contentType.attributes)
         .filter(([, attribute]) => !StrapiShapes.Structural.includes(attribute.type))
-        .map(([name]) => name.replace(/([a-z0-9])([A-Z])/g, '$1_$2').toLowerCase()),
+        .map(([name, attribute]) => [StrapiShapes.columnName(name), attribute] as const),
     )
-    return source.columns(contentType.table).filter((column) => names.has(column.name))
+    return source
+      .columns(contentType.table)
+      .filter((column) => declared.has(column.name))
+      .map((column) => {
+        const values = StrapiEnums.confirmed(
+          source,
+          contentType.table,
+          column.name,
+          declared.get(column.name)?.enum,
+        )
+        return values ? { ...column, values } : column
+      })
+  }
+
+  /** Strapi's attribute names are camelCase and its columns snake_case. */
+  private static columnName(attribute: string): string {
+    return attribute.replace(/([a-z0-9])([A-Z])/g, '$1_$2').toLowerCase()
   }
 
   /** The rows of one component under one field, for `StrapiComponents` to prove a

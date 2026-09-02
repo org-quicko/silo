@@ -84,7 +84,7 @@ export function EntriesView({
   const draft = useMemo(() => FilterModel.fromFilter(parsed.filter), [parsed.filter])
 
   const schemaColumns = EntryLabels.schemaColumns(collection.schema)
-  const { primary, sub } = EntryLabels.pickPrimary(schemaColumns)
+  const { primary, sub } = EntryLabels.pickPrimary(schemaColumns, collection.schema)
   const excludeFromColumns = [primary, sub].filter((c): c is string => c != null)
   const eligibleColumns = Columns.eligible(collection.schema, excludeFromColumns)
   const extra = Columns.parse(query.cols, collection.schema, excludeFromColumns) ?? Columns.defaults(collection.schema, excludeFromColumns)
@@ -159,7 +159,7 @@ export function EntriesView({
     }
   }
 
-  const label = (entry: Entry) => EntryLabels.of(entry, primary)
+  const label = (entry: Entry) => EntryLabels.of(entry, primary, collection.schema)
   const conditions = draft ? draft.rows.filter(FilterModel.isComplete).length : 0
   const filterSummary = draft === null ? 'advanced filter' : conditions === 0 ? 'no filters' : `${conditions} filter${conditions === 1 ? '' : 's'}`
 
