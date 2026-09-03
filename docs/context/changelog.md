@@ -4,6 +4,165 @@
 > The *current* state is [CONTEXT.md](../../CONTEXT.md); this is how it got
 > there.
 
+- **A collection listing stopped shipping every schema, and counting entries
+  stopped costing a request each (2026-09-03, D54).** Opening a scope of forty
+  content types cost about four megabytes and forty-odd requests before the
+  sidebar could be drawn, and both halves of that were the same mistake in two
+  places. `GET .../collections` returned each collection's full JSON Schema to a
+  surface that renders names, and the counts beside those names were read by
+  listing every collection with `limit=1` — which transfers a whole entry to
+  learn a number, and where the entries are tabular reference data that entry is
+  a hundred kilobytes.
+
+  Neither is a tuning problem, and the store landed the day before is precisely
+  what would have hidden it: a cache makes the second visit free and leaves the
+  first exactly as expensive. So this is a change of shape.
+
+  **The listing answers summaries.** `{id, name, entries, requires_auth,
+  created_at, updated_at}`, and no schema. `requires_auth` rides along because
+  it is read off the schema that is no longer there, and both the route's own
+  visibility filter and the admin's public/private badge need it.
+
+  **The schemas have their own route.** `GET .../schemas` answers every schema
+  in the scope, for a caller that genuinely reads across all of them;
+  `.../collections/{name}/schema` still answers one. It is a **sibling** of
+  `collections` rather than a path beneath it, because `schemas` is a legal
+  collection name and `/collections/schemas` would have shadowed that
+  collection's own entry list — a test pins exactly that.
+
+  **And one schema is enough, because the single-collection route bundles on
+  the way out.** `putSchema` already embeds every referenced collection's
+  schema into `$defs`, transitively — that is what `SchemaBundler` is for — but
+  only as of that save, so a referenced collection whose shape had changed
+  since was embedded as it was then. `getBundled` re-resolves at read time, and
+  is deliberately *not* on `CollectionService.get`, which the entry routes call
+  on every request to check access and which needs the record and nothing else.
+  `SiloRefs.resolveForForm` now reads the document's own `$defs` and takes no
+  collection list at all.
+
+  **Counting is a storage question now.** `Storage.countEntries(scope)` is a new
+  port method: one `GROUP BY` in SQLite, one directory listing per collection on
+  the filesystem, a collection with no entries absent rather than zero, and the
+  conformance suite holding both adapters to the same answers. Same reasoning as
+  `countMediaUsages` (D23) — a per-item loop over a port is a port missing a
+  method — and `ScopeService.collectionsIn` drops its own copy of that loop,
+  where nothing about the admin was ever involved.
+
+  In the admin the shell now asks **one** question per scope, and a page asks
+  for **the one collection it draws**. `useCollections` carries the counts, so
+  `use-entry-counts` and `entry-counts` are gone. `useCollectionSchema` is a
+  store key per collection, so the entries list warms it and every entry opened
+  out of that list is a cache read — the entry form included, which is the part
+  that looked like it needed more and does not. The schema editor is the same
+  story from the other side: choosing a ref target writes a `silo://` URL, and a
+  list of names is all that needs.
+
+  So `useCollectionSchemas` survives for exactly one caller — the search bar
+  matching a collection by one of its *field* names, the only thing in the app
+  that genuinely reads across every schema. It is gated on somebody having
+  typed, and until the schemas arrive the bar matches by name, which is the same
+  answer minus the field group.
+
+  The cost accepted is two shapes where there was one — `Collection` and
+  `CollectionSummary` — and a reader having to know which route answers which.
+  The alternative, a `?schema=true` switch on the listing, keeps one route and
+  makes its response shape depend on a query parameter, which is what makes a
+  client's types dishonest.
+
+- **The entries list keeps its place when you open a row and come back
+  (2026-09-03).** Scrolling a long way down a collection, opening an entry and
+  going back put you at the top of the list again, with no way to find where you
+  had been. The pane's offset is now remembered per URL (`ScrollMemory`,
+  `views/entries/use-scroll-memory.ts`), which is what makes page, sort, filter
+  and search each keep their own place and none inherit another's — and what
+  makes paging land at the top of the *next* page rather than halfway down it,
+  which it did not before either.
+
+  Recorded on every scroll rather than on the way out, because a reader leaves a
+  list by a row click, the breadcrumb, `Enter` on the cursor or the browser's
+  own back button and none of those is one place to hang a save. Restored in a
+  layout effect once the rows are rendered, so the list does not visibly jump —
+  which the store makes ordinary rather than lucky, since a page already
+  answered renders from the cache on the first frame. Held in memory and capped,
+  not written to storage: this is about a navigation within one session, and
+  dropping somebody into the middle of a list whose contents may have moved
+  since a reload is worse than starting at the top.
+
+- **The admin UI reads its server state from a store, and a waiting state is a
+  loader (2026-09-02, D53).** Every read was a `useState` and a `useEffect`
+  inside the view that wanted it, and the loading behaviour was the symptom of
+  that shape rather than a bug on top of it. The shell blocked on
+  `Connecting to <server>…` on every full load *and* on every return from
+  settings, because the session and the collection list were fetched from
+  scratch whenever the shell mounted although nothing about them had changed;
+  the entries table re-fetched a page it had answered a moment before; and that
+  table had to **ticket its own responses**, because typing fires several
+  searches that can land out of order and the last one *asked for* has to win.
+
+  `apps/admin/src/store/` is the replacement. `Store` holds one
+  `ResourceState` per cache key — value, in-flight, last error, last success —
+  and `useResource` subscribes to a key through `useSyncExternalStore` and
+  dispatches the load from an effect, so **a read renders the cache and the
+  request goes out behind it**. The ticketing is gone outright: each distinct
+  query is its own key, so a response can only write the key it was asked for.
+  It is hand-rolled for the reason `router/router.ts` is — the UI ships inside
+  the executable, the design principle is a fast first load, and the whole
+  store is under two hundred lines; a query library would have been larger than
+  the code it replaced.
+
+  Four rules in it are load-bearing. A key is rooted at the **saved
+  connection's id**, not the server's URL: two saved servers can address one
+  instance with different API keys and a key's claims decide what every answer
+  contains, so caching by URL would let a read-only key's shell be drawn from a
+  root key's answers. Keys are `/`-separated so `invalidatePrefix` can take one
+  collection's whole subtree after a write, matching on the separator so a
+  collection named `city` does not invalidate `cities`. Each key carries an
+  **epoch**, and a request settling behind its key's epoch writes nothing —
+  without it a read that started before a save puts the pre-save answer back
+  when it lands, which is the one way a cache is worse than none. A **failure
+  is state and `dispatch` never rejects**, since it is called from effects
+  where nothing would catch, so a failed reload keeps the value it had. And
+  `keepPrevious` is opt-in: the paged entries table keeps the last answer while
+  the next loads, a form must not, and it is off entirely when the URL's
+  `?filter=` cannot be read, since an unfiltered list under a filtered URL is
+  the one wrong thing that page can show.
+
+  One behaviour changed deliberately: a 401 and a failed request are no longer
+  the same event. A revoked key still sends the app back to the gate; a request
+  that merely failed does so only when there is nothing cached to show, because
+  a server that blinked should not cost a reader their place. The store is
+  emptied on disconnect and when a connection's API key changes.
+
+  The store is **additive** rather than a rewrite — it sits between `api/` and
+  the views, so the shell's session, the instance version, the collection list,
+  the per-collection counts, one entry and one page of a collection's entries
+  go through it today, and a read site that has not adopted it works exactly as
+  it did with no caching.
+
+  Alongside it, **one waiting state**: `components/feedback/LoadingState` over
+  `Spinner` — a circular loader in the theme's own colours (`--line-2` track,
+  `--accent` arc, so a custom accent or light mode retints it with no second
+  definition) beside a sentence naming what is being waited for, with
+  `prefers-reduced-motion` answered in the one place, where the arc breathes
+  instead of turning. A state that *is* the screen centres in the viewport,
+  which is what the connecting message never did: it used the shared
+  `center-wrap` utility and its `min-height: 60vh`, so it sat a third of the
+  way down an otherwise empty page. Every centred loading state in the app now
+  goes through it, and `ServerManager`'s bespoke ring is the shared one.
+
+  Two smaller UI fixes ride along. **`Ctrl`/`⌘` `,` goes to Settings**, from
+  anywhere in the workspace and to the same page the sidebar's own Settings
+  item opens; it joins `?` in `views/shell/use-shell-shortcuts.ts`, since both
+  belong to the shell rather than to a page, and it is listed in the shortcuts
+  dialog. `?` stands down while somebody is typing because it is a character
+  they meant to write; the modified press does not, for the same reason `⌘K`
+  does not. And **an array item card opens from anywhere on its row**: the
+  header owned the padding while the disclosure button was one line of text
+  tall, so the space above and below a title looked clickable and was not — a
+  thirty-seven item list being exactly where that is felt. The padding is the
+  button's now and the button stretches to the row, with the title taking the
+  remaining width so its ellipsis lands at the row's edge.
+
 - **Importing and copying an archive no longer have to fit in memory either
   (2026-09-02).** The entry below made export streaming and left the receiving
   side as the same problem mirrored: `/api/import` did

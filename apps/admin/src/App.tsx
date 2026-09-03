@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react'
 import { api } from './api/silo-api'
 import { Routes } from './router/routes'
 import { router, useLocation, useRoute } from './router/router'
+import { store } from './store/store'
 import { ScopeMemory } from './utils/scope-memory'
 import { ServerManager } from './views/servers/ServerManager'
 import type { Server } from './views/servers/server'
@@ -23,8 +24,12 @@ export default function App() {
   const serverId = route && route.view !== 'servers' ? route.serverId : null
   const server = servers.find((s) => s.id === serverId) ?? null
 
+  // The store is emptied on the way out: the next key to hold these cache
+  // entries may be a different one, and a key's claims decide what its answers
+  // contain.
   const disconnect = useCallback(() => {
     localStorage.removeItem(ACTIVE_KEY)
+    store.clear()
     router.navigate(Routes.servers())
   }, [])
 
@@ -66,6 +71,9 @@ export default function App() {
 
   const patchServer = (patch: Partial<Server>) => {
     if (!server) return
+    // A new API key sees a different instance: its claims decide what every
+    // answer contains, so nothing cached under the old one may outlive it.
+    if (patch.apiKey && patch.apiKey !== server.apiKey) store.clear()
     saveServers(servers.map((item) => (item.id === server.id ? { ...item, ...patch } : item)))
   }
 

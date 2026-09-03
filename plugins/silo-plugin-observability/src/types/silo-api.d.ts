@@ -158,8 +158,10 @@ declare module "silo:api" {
       search(scope: SiloScope, collection: string, query: SiloQuery): Promise<SiloPage>;
     };
     collections: {
-      /** The collections of one scope that the grant can see. */
+      /** The collections of one scope that the grant can see: name, entry count, access and timestamps. No schemas — ask `collections.schemas` for those. */
       list(scope: SiloScope): Promise<SiloItemPage>;
+      /** Every schema in one scope, for a plugin that needs all of them at once. */
+      schemas(scope: SiloScope): Promise<SiloItemPage>;
       /** One collection's JSON Schema, for a plugin that validates against it. */
       schema(scope: SiloScope, collection: string): Promise<any>;
     };

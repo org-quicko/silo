@@ -125,12 +125,6 @@
   text-align: center;
 }
 
-.loading {
-  padding: 16px 14px;
-  color: var(--text-3);
-  font-size: 12px;
-  text-align: center;
-}
 
 .group {
   margin-bottom: 4px;

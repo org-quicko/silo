@@ -39,10 +39,6 @@
   font-size: 13.5px;
 }
 
-.loading {
-  min-height: 200px;
-}
-
 .empty {
   min-height: 200px;
   flex-direction: column;

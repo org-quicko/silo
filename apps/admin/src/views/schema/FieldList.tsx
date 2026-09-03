@@ -1,6 +1,5 @@
 import { useState } from 'react'
 import { Plus } from 'lucide-react'
-import type { Collection } from '../../api/types/collection'
 import { Button } from '../../components/buttons/Button'
 import type { SchemaField } from '../../schema/schema-field'
 import { FieldEditor } from './FieldEditor'
@@ -9,7 +8,9 @@ import styles from './SchemaEditor.module.css'
 
 interface Props {
   fields: SchemaField[]
-  collections: Collection[]
+  /** Ref targets: names only — choosing one writes a `silo://` URL, and
+   *  nothing here reads the target's schema. */
+  collections: readonly { name: string }[]
   /** The index whose editor is open, or null. */
   expanded: number | null
   onExpand: (index: number | null) => void

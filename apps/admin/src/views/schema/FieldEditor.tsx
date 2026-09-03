@@ -1,5 +1,4 @@
 import { Trash2 } from 'lucide-react'
-import type { Collection } from '../../api/types/collection'
 import { Button } from '../../components/buttons/Button'
 import { Toggle } from '../../components/controls/Toggle'
 import type { SchemaField } from '../../schema/schema-field'
@@ -10,7 +9,9 @@ import styles from './SchemaEditor.module.css'
 
 interface Props {
   field: SchemaField
-  collections: Collection[]
+  /** Ref targets: names only — choosing one writes a `silo://` URL, and
+   *  nothing here reads the target's schema. */
+  collections: readonly { name: string }[]
   onChange: (patch: Partial<SchemaField>) => void
   onRemove: () => void
 }

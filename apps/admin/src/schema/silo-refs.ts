@@ -1,4 +1,3 @@
-import type { Collection } from '../api/types/collection'
 import { SiloRef } from '@silo/shared/silo-ref'
 
 // SiloRefs prepares a collection schema for RJSF. RJSF (and its ajv8 validator)
@@ -9,6 +8,12 @@ import { SiloRef } from '@silo/shared/silo-ref'
 // both work with the stock validator. Refs the client can't resolve (remote
 // URLs, unknown collections, cycles) are replaced by a permissive marker node
 // that the form shows as a raw-JSON field; the server stays authoritative.
+//
+// What it embeds comes from the **document's own `$defs`** (D54). The server
+// bundles every referenced collection's schema in there, transitively, keyed by
+// collection name — and re-bundles on the way out, so the copy is current. A
+// schema is therefore self-contained, and rendering one entry costs one schema
+// rather than every schema in the scope.
 export class SiloRefs {
   static readonly markerKey = 'x-silo-unresolved-ref'
   static readonly markerKindKey = 'x-silo-unresolved-kind'
@@ -20,9 +25,9 @@ export class SiloRefs {
     return seg.replace(/~/g, '~0').replace(/\//g, '~1')
   }
 
-  static resolveForForm(rootName: string, schema: any, collections: Collection[]): any {
+  static resolveForForm(rootName: string, schema: any): any {
     if (!schema || typeof schema !== 'object') return { type: 'object' }
-    const byName = new Map(collections.map((c) => [c.name, c.schema]))
+    const byName = SiloRefs.bundled(schema)
     const { embedded, blocked } = SiloRefs.reach(rootName, schema, byName)
 
     const out = SiloRefs.transform(schema, rootName, rootName, byName, blocked)
@@ -38,6 +43,16 @@ export class SiloRefs {
       out.$defs = defs
     }
     return out
+  }
+
+  // The collection schemas the server bundled into this document, by name.
+  // Anything else in $defs — an author's own definitions, a remote URL — is
+  // left alone: only a name a `silo://collections/<name>` ref actually asks for
+  // is ever looked up here.
+  private static bundled(schema: any): Map<string, any> {
+    const defs = schema.$defs
+    if (!defs || typeof defs !== 'object') return new Map()
+    return new Map(Object.entries(defs))
   }
 
   // reach walks the silo-ref graph from the root collection: which collections

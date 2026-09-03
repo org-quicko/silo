@@ -17,7 +17,7 @@ can be cloned with one command.
 
 ## Where things stand
 
-*Last updated: 2026-09-02 (D52)*
+*Last updated: 2026-09-03 (D54)*
 
 Everything through M5 is built and shipping: collections and JSON Schema
 validation, entry CRUD with optimistic concurrency, the query AST and search
@@ -44,10 +44,72 @@ collections are keyed records with ULIDs, so all three can be **renamed** —
 from the API and from the admin — and the claims naming them follow (D51). The
 process now also reports on *itself*: a bounded operating snapshot behind a new
 `observability:read` claim, drawn by a second first-party plugin that holds no
-privilege a third-party one could not ask for (D52).
+privilege a third-party one could not ask for (D52). The admin UI keeps its
+**server state in a store** and reads it stale-while-revalidate, so a screen
+opened before draws from what it already had while the same request goes out
+behind it — which is what the shell's blocking `Connecting to…` was, and what
+the entries table's response ticketing was for (D53). What it caches got small
+enough to be worth caching in the same breath: a collection listing carries
+names, counts and access rather than every schema in the scope, the schemas
+answer on their own route, and a collection's schema is bundled on the way out
+so rendering one entry costs one schema (D54).
 
-**The most recent change landed on 2026-09-02; everything before it on
-2026-09-01.**
+**The most recent change landed on 2026-09-03; everything before it on
+2026-09-02 or earlier.**
+
+**A collection listing stopped shipping every schema, and counting entries
+stopped costing a request each (2026-09-03).** Opening a scope of forty content
+types cost about four megabytes and forty-odd requests before the sidebar could
+be drawn: `GET .../collections` returned each collection's full JSON Schema to a
+surface that renders names, and each count beside those names was read by
+listing that collection with `limit=1` — a whole entry transferred to learn a
+number. The listing answers summaries now (`{id, name, entries, requires_auth,
+created_at, updated_at}`), the schemas have their own route
+(`GET .../schemas`, a sibling of `collections` because `schemas` is a legal
+collection name), and the count comes from a new port method,
+`Storage.countEntries(scope)` — one `GROUP BY` in SQLite, one directory listing
+per collection on the filesystem, held to the same answers by the conformance
+suite — which `ScopeService` uses too. `GET .../collections/{name}/schema`
+**bundles on the way out**, re-resolving the `silo://` refs `putSchema` embedded
+as of its own last save, so one collection's schema is a document a client can
+render alone; `SiloRefs.resolveForForm` reads those `$defs` and takes no
+collection list. So the admin shell asks one question per scope, a page asks for
+the one collection it draws, and every entry opened out of a list reuses the
+schema the list already fetched. Fetching every schema survives for one caller:
+the search bar matching a collection by one of its *field* names, once somebody
+has typed. **The entries list also keeps its place** when you open a row and
+come back — remembered per URL, so page, sort, filter and search each keep their
+own, and paging lands at the top of the next page rather than halfway down it.
+
+**The admin UI reads its server state from a store, and a waiting state is a
+loader (2026-09-02).** Every read used to be a `useState` and a `useEffect`
+inside the view that wanted it, and the loading behaviour was that shape's
+symptom rather than a bug above it: the shell blocked on
+`Connecting to <server>…` on every full load *and* on every return from
+settings, since the session and collection list were fetched from scratch each
+time it mounted; the entries table re-fetched a page it had just answered; and
+that table had to ticket its own responses, because typing fires several
+searches that can land out of order. `apps/admin/src/store/` holds one
+`ResourceState` per cache key and `useResource` subscribes to a key through
+`useSyncExternalStore` while dispatching the load from an effect, so a read
+renders the cache and the request follows it. The ticketing is gone, because
+each distinct query is its own key. A key is rooted at the *saved connection's*
+id rather than the server URL, since two saved servers can address one instance
+with different API keys and a key's claims decide what an answer contains; an
+epoch per key stops a read that started before a write from putting the
+pre-write answer back; a failure is state rather than a rejection, so a failed
+reload keeps the value it had; and `keepPrevious` is opt-in, on for the paged
+table and off for a form and for a URL whose `?filter=` cannot be read. One
+behaviour changed on purpose: a revoked key still sends the app to the gate,
+but a request that merely failed does so only when there is nothing cached to
+show. The store is additive — the reads behind every loading screen go through
+it, and an unconverted read site works as before.
+`components/feedback/LoadingState` is the one waiting state that goes with it:
+a circular loader in the theme's own colours beside the sentence naming what it
+waits for, centred in the viewport when it *is* the screen rather than a third
+of the way down it. `Ctrl`/`⌘` `,` now goes to Settings from anywhere in the
+workspace, and an array item card opens from anywhere on its row instead of
+only from the line its title sits on.
 
 **Importing and copying an archive no longer have to fit in memory either
 (2026-09-02).** The export side had just been made streaming, which left the
@@ -966,7 +1028,7 @@ unchanged and the full suite passes throughout. See
 | [docs/context/repo-map.md](docs/context/repo-map.md) | Where everything lives |
 | [docs/context/code-design.md](docs/context/code-design.md) | How code here is expected to be shaped |
 | [docs/context/changelog.md](docs/context/changelog.md) | Every change that altered behaviour, architecture or layout, newest first |
-| [IMPLEMENTATION.md](IMPLEMENTATION.md) | The vision, the D1–D45 decisions log, and the index into `docs/design/` |
+| [IMPLEMENTATION.md](IMPLEMENTATION.md) | The vision, the D1–D54 decisions log, and the index into `docs/design/` |
 | [README.md](README.md) | How to run, configure and use silo |
 
 ## Working in this repo

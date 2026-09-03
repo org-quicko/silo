@@ -24,18 +24,22 @@
 
 .header {
   display: flex;
-  align-items: center;
+  align-items: stretch;
   gap: 10px;
-  padding: 9px 10px 9px 12px;
+  padding-right: 10px;
 }
 
+/* The row's own padding lives on the button, not on the header: with it on the
+   header, the button was one line of text tall and the space above and below
+   the title looked clickable without being. `stretch` keeps it the full height
+   of the row even when the action buttons beside it are the taller thing. */
 .disclosure {
   display: flex;
   flex: 1;
   align-items: center;
   gap: 9px;
   min-width: 0;
-  padding: 0;
+  padding: 9px 0 9px 12px;
   border: none;
   background: none;
   color: var(--text);
@@ -49,7 +53,11 @@
 .chevron {
   flex-shrink: 0;
   color: var(--text-3);
-  transition: transform 0.12s;
+  transition: transform 0.12s, color 0.12s;
+}
+
+.disclosure:hover .chevron {
+  color: var(--text-2);
 }
 
 .open .chevron {
@@ -65,7 +73,10 @@
   font-variant-numeric: tabular-nums;
 }
 
+/* Takes the rest of the row, so the ellipsis lands at the row's edge rather
+   than at the end of the text. */
 .title {
+  flex: 1;
   overflow: hidden;
   white-space: nowrap;
   text-overflow: ellipsis;
@@ -81,6 +92,7 @@
 .errorMark {
   display: none;
   flex-shrink: 0;
+  align-self: center;
   color: var(--bad);
 }
 
@@ -93,6 +105,7 @@
   flex-shrink: 0;
   align-items: center;
   gap: 6px;
+  padding: 9px 0;
 }
 
 .body {

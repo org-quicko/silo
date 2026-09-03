@@ -270,21 +270,20 @@ export class ScopeService {
   /**
    * Every collection in `scope`, with each one's entry count.
    *
-   * One read since D51: a collection is a record, so the schema/entry union
-   * this used to need — for the collection an import could leave holding
-   * entries and no schema — has nothing left to add.
+   * Two reads: one for the records — a collection is a record since D51, so the
+   * schema/entry union this used to need has nothing left to add — and one
+   * grouped count. It used to run a `limit: 1` list per collection, which reads
+   * an entry off disk to learn a number (D54).
    */
   private async collectionsIn(scope: Scope): Promise<ScopeCollection[]> {
-    const names = (await this.context.store.listCollections(scope))
-      .map((record) => record.name)
-      .sort();
+    const [records, counts] = await Promise.all([
+      this.context.store.listCollections(scope),
+      this.context.store.countEntries(scope),
+    ]);
 
-    const collections: ScopeCollection[] = [];
-    for (const name of names) {
-      const { total } = await this.context.store.list(scope, name, { limit: 1, offset: 0 });
-      collections.push({ name, total });
-    }
-    return collections;
+    return records
+      .map((record) => ({ name: record.name, total: counts.get(record.name) ?? 0 }))
+      .sort((left, right) => left.name.localeCompare(right.name));
   }
 
   /**

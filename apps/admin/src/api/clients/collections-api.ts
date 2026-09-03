@@ -1,4 +1,5 @@
 import type { Collection } from '../types/collection'
+import type { CollectionSummary } from '../types/collection-summary'
 import type { RenameResult } from '../types/scope-record'
 import type { ScopeRef } from '../types/scope-ref'
 import type { HttpTransport } from '../transport/http-transport'
@@ -12,10 +13,36 @@ export class CollectionsApi {
     this.transport = transport
   }
 
-  list(url: string, key: string, scope: ScopeRef): Promise<Collection[]> {
+  /** Name, entry count, access and timestamps — no schemas (D54). What the
+   *  sidebar and every navigation surface reads. */
+  list(url: string, key: string, scope: ScopeRef): Promise<CollectionSummary[]> {
     return this.transport
-      .request<{ items: Collection[] }>(url, key, ScopePaths.collections(scope))
+      .request<{ items: CollectionSummary[] }>(url, key, ScopePaths.collections(scope))
       .then((response) => response.items)
+  }
+
+  /**
+   * Every schema in the scope, for the two screens that need the whole graph
+   * at once: the entry form resolves `silo://` refs across collections, and the
+   * schema editor offers every collection as a ref target.
+   *
+   * A sibling of `collections` rather than a path beneath it, because `schemas`
+   * is a legal collection name.
+   */
+  schemas(url: string, key: string, scope: ScopeRef): Promise<Collection[]> {
+    return this.transport
+      .request<{ items: Collection[] }>(url, key, `${ScopePaths.scope(scope)}/schemas`)
+      .then((response) => response.items)
+  }
+
+  /** One collection with its schema — what a page rendering that collection
+   *  needs, and all it needs. */
+  get(url: string, key: string, scope: ScopeRef, name: string): Promise<Collection> {
+    return this.transport.request<Collection>(
+      url,
+      key,
+      ScopePaths.collections(scope, `/${encodeURIComponent(name)}/schema`),
+    )
   }
 
   create(

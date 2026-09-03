@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { api } from '../../api/silo-api'
-import type { Collection } from '../../api/types/collection'
+import type { CollectionSummary } from '../../api/types/collection-summary'
 import type { ScopeRef } from '../../api/types/scope-ref'
 
 /**
@@ -16,7 +16,7 @@ export function useSettingsSession(url: string, apiKey: string, scope: ScopeRef 
   const [label, setLabel] = useState('')
   const [keyPrefix, setKeyPrefix] = useState('')
   const [version, setVersion] = useState('')
-  const [collections, setCollections] = useState<Collection[]>([])
+  const [collections, setCollections] = useState<CollectionSummary[]>([])
 
   useEffect(() => {
     let alive = true

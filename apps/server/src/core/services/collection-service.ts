@@ -1,7 +1,9 @@
 import { Claims } from "@silo/shared/claims";
+import { SchemaAccess } from "@silo/shared/schema-access";
 import { SearchFields } from "@silo/shared/search-fields";
 import { ValidationError } from "@silo/shared/validation-error";
 import type { Collection } from "../domain/collection";
+import type { CollectionSummary } from "../domain/collection-summary";
 import { EntryUtils } from "../domain/entry-utils";
 import type { Scope } from "../domain/scope";
 import { ConflictError } from "../errors/conflict-error";
@@ -24,8 +26,40 @@ export class CollectionService {
     this.context = context;
   }
 
-  /** Every user collection in `scope`, sorted by name. System collections are
-   *  reserved and never listed (D12/D18). */
+  /**
+   * Every user collection in `scope` as the listing answers it, sorted by name:
+   * name, entry count, access and timestamps, and **no schema** (D54).
+   *
+   * Two reads for the whole scope — the records, and one grouped count — rather
+   * than the one-`limit: 1`-list-per-collection the callers of `list` used to
+   * do to learn the same numbers.
+   */
+  async summaries(scope: Scope): Promise<CollectionSummary[]> {
+    const [records, counts] = await Promise.all([
+      this.context.store.listCollections(scope),
+      this.context.store.countEntries(scope),
+    ]);
+
+    const summaries: CollectionSummary[] = [];
+    for (const record of records) {
+      if (EntryUtils.isSystemCollection(record.name)) continue;
+      summaries.push({
+        id: record.id,
+        name: record.name,
+        entries: counts.get(record.name) ?? 0,
+        requires_auth: SchemaAccess.requiresAuth(record.schema),
+        created_at: record.created_at.toISOString(),
+        updated_at: record.updated_at.toISOString(),
+      });
+    }
+    summaries.sort((left, right) => left.name.localeCompare(right.name));
+    return summaries;
+  }
+
+  /** Every user collection in `scope` **with** its schema, sorted by name.
+   *  What the bulk schema route answers, and what every in-process caller that
+   *  needs to read schemas asks for. System collections are reserved and never
+   *  listed (D12/D18). */
   async list(scope: Scope): Promise<Collection[]> {
     const collections: Collection[] = [];
     for (const record of await this.context.store.listCollections(scope)) {
@@ -44,6 +78,34 @@ export class CollectionService {
       throw new NotFoundError(`collection "${scope.key()}/${name}" not found`);
     }
     return { id: record.id, name: record.name, schema: record.schema };
+  }
+
+  /**
+   * One collection whose `silo://` refs are bundled into `$defs` **as of now**.
+   *
+   * `putSchema` already bundles, so a stored schema is self-contained as of its
+   * own last save — which is not the same thing. A collection referenced before
+   * it existed was skipped, and one whose shape changed since is embedded as the
+   * copy it was then. Re-bundling on the way out is what makes the answer a
+   * document a client can render on its own, which is the whole point of
+   * bundling (D54): the alternative is every client fetching every schema in the
+   * scope on the chance that one of them is referenced.
+   *
+   * Deliberately not on `get`, which the entry routes call on every request to
+   * check access, and which needs the record and nothing else.
+   */
+  async getBundled(scope: Scope, name: string): Promise<Collection> {
+    const collection = await this.get(scope, name);
+    return {
+      ...collection,
+      schema: await SchemaBundler.bundle(
+        scope,
+        collection.schema,
+        this.context.store,
+        this.context.schemaRegistry.remoteLoader,
+        this.context.schemaRegistry.allowRemoteRefs
+      ),
+    };
   }
 
   /** Creates or replaces a collection's schema, bundling its `$ref`s first. */

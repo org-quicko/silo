@@ -1,4 +1,5 @@
 import React, { useState } from 'react'
+import { LoadingState } from '../../../components/feedback/LoadingState'
 import { AlertTriangle, ChevronRight, Layers, Plus } from 'lucide-react'
 import { Claims } from '@silo/shared/claims'
 import { Button } from '../../../components/buttons/Button'
@@ -125,7 +126,7 @@ export function ProjectEnvironmentsPage({
 
         <div className={styles.listContainer}>
           {loading ? (
-            <div className={styles.loadingBox}>Loading environments…</div>
+            <LoadingState message="Loading environments…" />
           ) : environments.length === 0 ? (
             <div className={styles.emptyBox}>
               No environments in {project} yet{canCreate ? ' — create one to start adding collections.' : '.'}

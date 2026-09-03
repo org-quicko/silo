@@ -25,7 +25,9 @@ import { useSchemaDraft, type SchemaEditorMode } from './use-schema-draft'
 interface Props {
   serverId: string
   collection: Collection | null
-  collections: Collection[]
+  /** Every collection in the scope, as ref targets and for the search bar.
+   *  Names only — no ref target needs another collection's schema. */
+  collections: readonly { name: string; count: number | null }[]
   url: string
   apiKey: string
   scope: ScopeRef
@@ -160,7 +162,7 @@ export function SchemaEditorView({
             apiKey={apiKey}
             scope={scope}
             claims={claims}
-            collections={collections.map((c) => ({ name: c.name, count: null, schema: c.schema }))}
+            collections={collections}
           />
         }
       />

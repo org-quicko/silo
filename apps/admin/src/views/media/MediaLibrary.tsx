@@ -30,7 +30,7 @@ const LIST_COLS_SELECTABLE = `28px ${LIST_COLS}`
 interface Props {
   serverId: string
   scope: ScopeRef
-  collections: readonly { name: string; count: number | null; schema?: any }[]
+  collections: readonly { name: string; count: number | null }[]
   url: string
   apiKey: string
   claims: string[]

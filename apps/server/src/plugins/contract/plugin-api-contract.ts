@@ -108,7 +108,16 @@ export class PluginApiContract {
       path: `${PluginApiContract.Scoped}/collections`,
       parameters: [{ name: "scope", kind: "scope", type: "SiloScope" }],
       returns: "SiloItemPage",
-      summary: "The collections of one scope that the grant can see.",
+      summary:
+        "The collections of one scope that the grant can see: name, entry count, access and timestamps. No schemas — ask `collections.schemas` for those.",
+    },
+    {
+      name: "collections.schemas",
+      method: "GET",
+      path: `${PluginApiContract.Scoped}/schemas`,
+      parameters: [{ name: "scope", kind: "scope", type: "SiloScope" }],
+      returns: "SiloItemPage",
+      summary: "Every schema in one scope, for a plugin that needs all of them at once.",
     },
     {
       name: "collections.schema",
