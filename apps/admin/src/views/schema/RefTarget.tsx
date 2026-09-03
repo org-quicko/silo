@@ -1,6 +1,5 @@
 import { useState } from 'react'
 import { SiloRef } from '@silo/shared/silo-ref'
-import type { Collection } from '../../api/types/collection'
 import { Segmented } from '../../components/controls/Segmented'
 import styles from './SchemaEditor.module.css'
 
@@ -13,7 +12,9 @@ export function RefTarget({
   isArray = false,
 }: {
   target: string
-  collections: Collection[]
+  /** Ref targets: names only — choosing one writes a `silo://` URL, and
+   *  nothing here reads the target's schema. */
+  collections: readonly { name: string }[]
   onChange: (target: string) => void
   isArray?: boolean
 }) {

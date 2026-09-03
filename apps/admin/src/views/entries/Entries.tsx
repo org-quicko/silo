@@ -1,5 +1,6 @@
 import { Breadcrumb } from '../../components/navigation/Breadcrumb'
 import { useMemo, useState } from 'react'
+import { useLocation } from '../../router/router'
 import { ArrowUpDown, ArrowDown, ArrowUp, TriangleAlert } from 'lucide-react'
 import { Claims } from '@silo/shared/claims'
 import { JsonPath } from '@silo/shared/json-path'
@@ -28,6 +29,7 @@ import { useColumnWidths } from './use-column-widths'
 import { useEntriesKeyboard } from './use-entries-keyboard'
 import { useEntriesData } from './use-entries-data'
 import { useMediaColumns } from './use-media-columns'
+import { useScrollMemory } from './use-scroll-memory'
 import styles from './Entries.module.css'
 
 const PAGE_SIZE = 50
@@ -36,7 +38,7 @@ interface Props {
   serverId: string
   collection: Collection
   /** For the smart bar's `@`-mention popup — every collection this key can reach, schema included. */
-  collections: readonly { name: string; count: number | null; schema?: any }[]
+  collections: readonly { name: string; count: number | null }[]
   url: string
   apiKey: string
   scope: ScopeRef
@@ -99,6 +101,7 @@ export function EntriesView({
   const { widths, setWidth, resetWidth } = useColumnWidths(serverId, scope, collection.name)
 
   const { entries, snippets, total, truncated, error, loading, reload } = useEntriesData({
+    serverId,
     url,
     apiKey,
     scope,
@@ -111,6 +114,13 @@ export function EntriesView({
     filter: parsed.filter,
     filterError: parsed.error,
   })
+
+  // Opening a row and coming back should land where you left, not at the top
+  // of a list you had scrolled a long way down. Keyed on the URL, which already
+  // names the page, sort, filter and search, so each of those remembers its own
+  // place; held until the rows are there to scroll past.
+  const location = useLocation()
+  const contentRef = useScrollMemory(location, entries.length > 0)
 
   const mediaById = useMediaColumns(url, apiKey, entries, extra)
   const baseUrl = url ? (url.endsWith('/') ? url.slice(0, -1) : url) : ''
@@ -216,7 +226,7 @@ export function EntriesView({
         }
       />
 
-      <div className="content">
+      <div className="content" ref={contentRef}>
         <Breadcrumb crumbs={[{ label: 'Collections', to: Routes.collections(serverId, scope.project, scope.env) }, { label: collection.name }]} />
 
         <EntriesHeader

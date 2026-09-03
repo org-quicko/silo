@@ -8,29 +8,51 @@ import { RouteAuth } from "../auth/route-auth";
 
 export class CollectionsRoutes {
   static register(app: any, service: SiloService) {
+    /** Which of `names` this request may read the schema of. Anonymous reads
+     *  reach only the collections that have not turned `x-silo-auth` on. */
+    const readable = (c: Context, scope: any, name: string, requiresAuth: boolean) => {
+      const key = c.get("keyInfo") as KeyInfo | undefined;
+      return key
+        ? Claims.has(
+            key.claims,
+            Claims.collection(scope.project, scope.env, name, Claims.CollectionSchemaRead),
+          )
+        : !requiresAuth;
+    };
+
+    // The listing answers **summaries** — name, entry count, access,
+    // timestamps — and no schema (D54). A schema is the largest thing a
+    // collection carries and the one thing a list of them never draws.
     const listHandler = async (c: Context) => {
       const scope = RouteAuth.getScope(c);
-      const cols = await service.collections.list(scope);
-      const key = c.get("keyInfo") as KeyInfo | undefined;
-      const visible: any[] = [];
-
-      for (const col of cols) {
-        const authEnabled = SchemaAccess.requiresAuth(col.schema);
-        const canReadSchema = key
-          ? Claims.has(
-              key.claims,
-              Claims.collection(scope.project, scope.env, col.name, Claims.CollectionSchemaRead),
-            )
-          : !authEnabled;
-        if (canReadSchema) {
-          visible.push(col);
-        }
-      }
+      const summaries = await service.collections.summaries(scope);
+      const visible = summaries.filter((summary) =>
+        readable(c, scope, summary.name, summary.requires_auth),
+      );
       return c.json({ items: visible });
     };
 
     app.get("/api/projects/:project/environments/:env/collections", listHandler);
     app.get("/api/projects/:project/envs/:env/collections", listHandler);
+
+    // Every schema in the scope, for the callers that genuinely need all of
+    // them at once — a form resolving `silo://` refs across collections, a
+    // client validating without a round trip per type.
+    //
+    // A sibling of `collections` rather than a path beneath it: `schemas` is a
+    // legal collection name, so `/collections/schemas` would shadow the entry
+    // list of a collection actually called that.
+    const schemasHandler = async (c: Context) => {
+      const scope = RouteAuth.getScope(c);
+      const cols = await service.collections.list(scope);
+      const visible = cols.filter((col) =>
+        readable(c, scope, col.name, SchemaAccess.requiresAuth(col.schema)),
+      );
+      return c.json({ items: visible });
+    };
+
+    app.get("/api/projects/:project/environments/:env/schemas", schemasHandler);
+    app.get("/api/projects/:project/envs/:env/schemas", schemasHandler);
 
     const createHandler = async (c: Context) => {
       const scope = RouteAuth.getScope(c);
@@ -60,10 +82,13 @@ export class CollectionsRoutes {
     app.post("/api/projects/:project/environments/:env/collections", createHandler);
     app.post("/api/projects/:project/envs/:env/collections", createHandler);
 
+    // Bundled on the way out (D54), so one collection's schema is a document a
+    // client can render on its own — which is what makes fetching every schema
+    // in the scope unnecessary rather than merely wasteful.
     const getSchemaHandler = async (c: Context) => {
       const scope = RouteAuth.getScope(c);
       const name = c.req.param("name") || "";
-      const col = await service.collections.get(scope, name);
+      const col = await service.collections.getBundled(scope, name);
       RouteAuth.requirePublicOrClaim(
         c,
         scope.project,

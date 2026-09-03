@@ -1,4 +1,5 @@
 import type { LucideIcon } from 'lucide-react'
+import { Spinner } from '../../components/feedback/Spinner'
 import styles from './ServerManager.module.css'
 
 interface Props {
@@ -13,7 +14,7 @@ interface Props {
 export function ColumnPlaceholder({ icon: Icon, loading, message, hint }: Props) {
   return (
     <div className={styles.emptyColumn}>
-      {loading ? <div className={styles.spinner} /> : Icon && <Icon size={22} className={styles.emptyIcon} />}
+      {loading ? <Spinner className={styles.spinner} /> : Icon && <Icon size={22} className={styles.emptyIcon} />}
       <span>{message}</span>
       {hint && <small className="muted">{hint}</small>}
     </div>

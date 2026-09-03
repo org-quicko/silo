@@ -74,6 +74,15 @@ type Storage interface {
     // entries to find out.
     ListEntryCollections(ctx context.Context, scope Scope) ([]string, error)
 
+    // How many entries each collection in this scope holds, keyed by collection
+    // name; a collection with none is absent rather than zero (D54).
+    //
+    // One question, one answer. What every caller reached for instead was a
+    // limit=1 list per collection, which reads an entry off disk to learn a
+    // number and costs a round trip per collection over HTTP — measured at four
+    // megabytes to draw a sidebar over forty collections of tabular content.
+    CountEntries(ctx context.Context, scope Scope) (map[string]int, error)
+
     // Instance metadata (instance_id, last_seq, defaults_initialized). seq stays
     // instance-global and monotonic across every scope. The flag is durable
     // rather than derived, so a renamed or deleted default project is not

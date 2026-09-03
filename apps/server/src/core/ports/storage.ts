@@ -92,6 +92,18 @@ export interface Storage {
     query: Query
   ): Promise<{ items: Entry[]; total: number }>;
 
+  /**
+   * How many entries each collection in `scope` holds, keyed by collection
+   * **name**. A collection with no entries is absent rather than zero, so a
+   * reader takes `?? 0`.
+   *
+   * One question, one answer: the alternative every caller reached for was a
+   * `limit: 1` list per collection, which transfers a whole entry to learn a
+   * number and costs one round trip per collection — measured at four
+   * megabytes to draw a sidebar over forty collections of tabular content.
+   */
+  countEntries(scope: Scope): Promise<Map<string, number>>;
+
   /** Every non-system scope that exists, sorted by (project, env). */
   listScopes(): Promise<Scope[]>;
 

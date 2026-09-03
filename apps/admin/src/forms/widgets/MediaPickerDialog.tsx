@@ -2,6 +2,7 @@ import { FileText, Image, Plus, Search } from 'lucide-react'
 import { useRef } from 'react'
 import type { MediaAsset } from '../../api/types/media-asset'
 import { Button } from '../../components/buttons/Button'
+import { LoadingState } from '../../components/feedback/LoadingState'
 import { Modal } from '../../components/modal/Modal'
 import { ModalActions } from '../../components/modal/ModalActions'
 import { ModalHeader } from '../../components/modal/ModalHeader'
@@ -82,7 +83,7 @@ export function MediaPickerDialog({
 
       <div className={styles.list}>
         {loading ? (
-          <div className={`center-wrap ${styles.empty}`}>Loading media library…</div>
+          <LoadingState message="Loading the media library…" />
         ) : assets.length === 0 ? (
           <div className={`center-wrap ${styles.empty}`}>
             <Image size={28} />

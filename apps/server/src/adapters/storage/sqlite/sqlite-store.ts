@@ -227,6 +227,10 @@ export class SqliteStore implements Storage {
     return this.entries.listCollections(scope);
   }
 
+  async countEntries(scope: Scope): Promise<Map<string, number>> {
+    return this.entries.countEntries(scope);
+  }
+
   async listMediaUsages(
     mediaIds: string[],
     page: { limit?: number; offset?: number } = {}

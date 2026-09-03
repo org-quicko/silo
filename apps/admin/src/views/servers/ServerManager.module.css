@@ -278,20 +278,10 @@
   opacity: 0.8;
 }
 
+/* The ring itself is `components/feedback/Spinner`; this is only the gap the
+   placeholder wants above its message. */
 .spinner {
-  width: 18px;
-  height: 18px;
-  border: 2px solid var(--line);
-  border-top-color: var(--accent);
-  border-radius: 50%;
-  animation: spin 0.6s linear infinite;
   margin-bottom: 4px;
-}
-
-@keyframes spin {
-  to {
-    transform: rotate(360deg);
-  }
 }
 
 @keyframes columnReveal {

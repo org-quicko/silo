@@ -6,7 +6,7 @@ import { Breadcrumb } from '../../../components/navigation/Breadcrumb'
 import { DangerConfirm } from '../../../components/modal/DangerConfirm'
 import { Pill } from '../../../components/feedback/Pill'
 import { api } from '../../../api/silo-api'
-import type { Collection } from '../../../api/types/collection'
+import type { CollectionSummary } from '../../../api/types/collection-summary'
 import type { ScopeRef } from '../../../api/types/scope-ref'
 import { router } from '../../../router/router'
 import { Routes } from '../../../router/routes'
@@ -34,7 +34,7 @@ export function EnvGeneralPage({
   server: Server
   scope: ScopeRef
   envId: string
-  collections: Collection[]
+  collections: CollectionSummary[]
   claims: string[]
   onRenamed: (name: string) => void | Promise<void>
   onDeleted: () => void

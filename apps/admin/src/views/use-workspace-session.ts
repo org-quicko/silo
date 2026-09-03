@@ -1,97 +1,66 @@
-import { useCallback, useEffect, useState } from 'react'
-import { api } from '../api/silo-api'
-import type { Collection } from '../api/types/collection'
+import { useEffect } from 'react'
+import type { CollectionSummary } from '../api/types/collection-summary'
 import type { ScopeRef } from '../api/types/scope-ref'
 import type { SessionInfo } from '../api/types/session-info'
+import { useCollections } from '../store/use-collections'
+import { useSession } from '../store/use-session'
+
+export interface WorkspaceSession {
+  /** True once the shell has what it needs to draw. Cached answers count, so a
+   *  scope opened before draws at once and refreshes behind. */
+  ready: boolean
+  sessionInfo: SessionInfo | null
+  claims: string[]
+  version: string
+  collections: CollectionSummary[]
+  refreshCollections: () => Promise<CollectionSummary[]>
+}
 
 /**
  * The connection the workspace shell is built on: the verified key, the
  * server's version, and the collection list every view navigates.
  *
- * A key can be revoked between page loads, so verification happens here and a
- * failure disconnects rather than leaving a shell with nothing behind it.
+ * All three are store keys (§9.1), so this composes rather than fetches — which
+ * is what lets the shell render from the cache while the same requests go out
+ * behind it. Two requests, whatever the scope holds: entry counts arrive with
+ * the listing (D54) rather than one `limit=1` list per collection.
  */
 export function useWorkspaceSession(
+  serverId: string,
   url: string,
   apiKey: string,
   scope: ScopeRef,
   onDisconnect: () => void,
-) {
-  const [ready, setReady] = useState(false)
-  const [sessionInfo, setSessionInfo] = useState<SessionInfo | null>(null)
-  const [version, setVersion] = useState('')
-  const [collections, setCollections] = useState<Collection[]>([])
-  const [counts, setCounts] = useState<Record<string, number | null>>({})
+): WorkspaceSession {
+  const session = useSession(serverId, url, apiKey)
+  const collections = useCollections(serverId, url, apiKey, scope)
 
-  const loadCounts = useCallback(
-    async (loaded: Collection[]) => {
-      const totals = await Promise.all(
-        loaded.map(async (collection) => {
-          try {
-            const page = await api.entries.list(url, apiKey, scope, collection.name, {
-              limit: 1,
-            })
-            return [collection.name, page.total] as const
-          } catch {
-            return [collection.name, null] as const
-          }
-        }),
-      )
-      setCounts(Object.fromEntries(totals))
-    },
-    [url, apiKey, scope.project, scope.env],
-  )
-
-  const refreshCollections = useCallback(async () => {
-    const loaded = await api.collections.list(url, apiKey, scope)
-    setCollections(loaded)
-    loadCounts(loaded)
-    return loaded
-  }, [url, apiKey, scope.project, scope.env, loadCounts])
-
+  // A key can be revoked between page loads, and a shell with nothing behind it
+  // is worse than the gate. A 401 is final. A request that merely *failed*
+  // sends the reader back only when there is nothing cached to show instead —
+  // a server that blinked should not cost them their place.
   useEffect(() => {
-    let alive = true
-    setReady(false)
-
-    const connect = async () => {
-      try {
-        const verified = await api.session.verify(url, apiKey)
-        if (!alive) return
-        if (!verified.ok || !verified.session) {
-          onDisconnect()
-          return
-        }
-        setSessionInfo(verified.session)
-
-        try {
-          const health = await api.session.health(url)
-          if (alive) setVersion(health.version || '')
-        } catch {
-          /* health is unauthenticated; ignore a transient failure */
-        }
-
-        await refreshCollections()
-      } catch {
-        if (alive) onDisconnect()
-      } finally {
-        if (alive) setReady(true)
-      }
+    if (session.rejected) {
+      onDisconnect()
+      return
     }
-
-    connect()
-    return () => {
-      alive = false
-    }
-  }, [url, apiKey, refreshCollections, onDisconnect])
+    if (session.error && !session.loaded) onDisconnect()
+    else if (collections.error && !collections.loaded) onDisconnect()
+  }, [
+    session.rejected,
+    session.error,
+    session.loaded,
+    collections.error,
+    collections.loaded,
+    onDisconnect,
+  ])
 
   return {
-    ready,
-    sessionInfo,
-    claims: sessionInfo?.claims || [],
-    version,
-    collections,
-    counts,
-    refreshCollections,
-    refreshCounts: () => loadCounts(collections),
+    ready: session.loaded && !session.rejected && collections.loaded,
+    sessionInfo: session.sessionInfo,
+    claims: session.claims,
+    version: session.version,
+    collections: collections.collections,
+    refreshCollections: collections.refresh,
   }
 }

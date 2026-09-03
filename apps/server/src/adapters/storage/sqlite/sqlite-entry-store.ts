@@ -189,6 +189,23 @@ export class SqliteEntryStore {
     return rows.map((row) => row.name);
   }
 
+  /** One `GROUP BY` for the whole scope, so a sidebar's counts are one query
+   *  rather than one list request per collection. */
+  countEntries(scope: Scope): Map<string, number> {
+    const envId = this.resolver.environmentId(scope.project, scope.env);
+    if (envId === null) return new Map();
+
+    const rows = this.database
+      .prepare(
+        `SELECT c.name AS name, COUNT(*) AS total
+         FROM entries e JOIN collections c ON c.id = e.collection_id
+         WHERE e.env_id = ?
+         GROUP BY c.name`
+      )
+      .all(envId) as { name: string; total: number }[];
+    return new Map(rows.map((row) => [row.name, row.total]));
+  }
+
   /** Called from inside `SqliteScopeStore`'s delete transaction, by record id. */
   purgeProject(projectId: string): void {
     this.database.prepare(`DELETE FROM entries WHERE project_id = ?`).run(projectId);

@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
+import { LoadingState } from '../../components/feedback/LoadingState'
 import { CornerDownLeft, Database, FileText, Image, Search, TriangleAlert } from 'lucide-react'
 import { Claims } from '@silo/shared/claims'
 import { api } from '../../api/silo-api'
@@ -10,6 +11,7 @@ import type { SearchSnippet } from '../../api/types/search-snippet'
 import { router } from '../../router/router'
 import { PaletteResults, type PaletteItem } from './palette-results'
 import { SnippetView } from './snippet-view'
+import { useCollectionSchemas } from '../../store/use-collection-schemas'
 import { ScopeMatcher } from './scope-match'
 import { ScopeSuggest } from './ScopeSuggest'
 import { MentionToken, type ActiveMention } from './mention-token'
@@ -43,7 +45,9 @@ export function SmartSearch({
   apiKey: string
   scope: ScopeRef
   claims: string[]
-  collections: readonly { name: string; count: number | null; schema?: any }[]
+  /** Names and counts only. Schemas, which only field matching needs, are
+   *  fetched here rather than handed down (D54). */
+  collections: readonly { name: string; count: number | null }[]
 }) {
   const saved = useMemo(
     () => SearchMemory.get(serverId, scope.project, scope.env),
@@ -79,6 +83,20 @@ export function SmartSearch({
     [serverId, scope.project, scope.env],
   )
 
+  // Matching a collection by one of its *field* names (handoff 1f) is the one
+  // thing here that needs schemas, and it needs them only once somebody has
+  // typed. Loading them with the collection list would put every schema in the
+  // scope on the shell's own path, for a match most sessions never ask for
+  // (D54). Until they arrive the bar matches by name, which is the same answer
+  // minus the field group.
+  const wantsFieldMatches = mention !== null || (!chip && query !== '')
+  const schemas = useCollectionSchemas(serverId, url, apiKey, scope, wantsFieldMatches)
+  const matchable = useMemo(() => {
+    if (schemas.collections.length === 0) return collections
+    const byName = new Map(schemas.collections.map((c) => [c.name, c.schema]))
+    return collections.map((c) => ({ ...c, schema: byName.get(c.name) }))
+  }, [collections, schemas.collections])
+
   // Collections are matched here rather than asked of the server: the session
   // already holds every name, so the bar can keep the half of its promise that
   // needs no request. Only while it is searching the whole scope — once a chip
@@ -90,10 +108,10 @@ export function SmartSearch({
         hits,
         assets,
         { serverId, scope },
-        chip || !query ? [] : ScopeMatcher.rank(query, collections, recentOrder),
+        chip || !query ? [] : ScopeMatcher.rank(query, matchable, recentOrder),
       ),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [hits, assets, chip, query, collections, recentOrder, serverId, scope.project, scope.env],
+    [hits, assets, chip, query, matchable, recentOrder, serverId, scope.project, scope.env],
   )
   const items = useMemo(() => PaletteResults.flatten(groups), [groups])
 
@@ -186,7 +204,7 @@ export function SmartSearch({
     setMention(null)
   }
 
-  const matchCount = mention ? ScopeMatcher.rank(mention.query, collections, recentOrder).length : 0
+  const matchCount = mention ? ScopeMatcher.rank(mention.query, matchable, recentOrder).length : 0
 
   const onChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const next = e.target.value
@@ -260,7 +278,7 @@ export function SmartSearch({
         setHighlightedMention((h) => (matchCount === 0 ? 0 : (h - 1 + matchCount) % matchCount))
       } else if (e.key === 'Enter') {
         e.preventDefault()
-        const matches = ScopeMatcher.rank(mention.query, collections, recentOrder)
+        const matches = ScopeMatcher.rank(mention.query, matchable, recentOrder)
         const picked = matches[highlightedMention]
         if (picked) {
           commitMention(picked.name)
@@ -348,7 +366,7 @@ export function SmartSearch({
       {mention ? (
         <ScopeSuggest
           query={mention.query}
-          collections={collections}
+          collections={matchable}
           recentOrder={recentOrder}
           highlighted={highlightedMention}
           onHighlight={setHighlightedMention}
@@ -370,7 +388,7 @@ export function SmartSearch({
 
             <div className={styles.results} ref={listRef}>
               {loading && hits.length === 0 && assets.length === 0 && (
-                <div className={styles.loading}>Searching…</div>
+                <LoadingState inline size="sm" message="Searching…" />
               )}
               {!loading && items.length === 0 && !error && (
                 <div className={styles.hint}>Nothing matches “{query}”.</div>

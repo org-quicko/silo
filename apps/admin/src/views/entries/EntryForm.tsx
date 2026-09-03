@@ -53,7 +53,9 @@ function toExtraErrors(details?: ValidationDetail[]): any {
 interface Props {
   serverId: string
   collection: Collection
-  collections: Collection[]
+  /** Names and counts, for the search bar in the top chrome. The schema this
+   *  form renders is self-contained (D54), so no other collection is fetched. */
+  collections: readonly { name: string; count: number | null }[]
   url: string
   entry: Entry | null
   apiKey: string
@@ -86,8 +88,8 @@ export function EntryForm({
   // properties that constrain nothing, which RJSF drops on sight. The server
   // remains the authoritative validator (full 2020-12, remote refs if enabled).
   const schema = useMemo(
-    () => FormSchema.forEntry(SiloRefs.resolveForForm(collection.name, collection.schema, collections)),
-    [collection, collections],
+    () => FormSchema.forEntry(SiloRefs.resolveForForm(collection.name, collection.schema)),
+    [collection],
   )
   const uiSchema = useMemo(() => buildUiSchema(schema), [schema])
   const initial = useMemo(() => entry?.data ?? {}, [entry])
@@ -173,7 +175,7 @@ export function EntryForm({
             apiKey={apiKey}
             scope={scope}
             claims={claims}
-            collections={collections.map((c) => ({ name: c.name, count: null, schema: c.schema }))}
+            collections={collections}
           />
         }
       />

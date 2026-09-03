@@ -160,6 +160,10 @@ export class FsStore implements Storage {
     return this.entries.listCollections(scope);
   }
 
+  countEntries(scope: Scope): Promise<Map<string, number>> {
+    return this.entries.countEntries(scope);
+  }
+
   listMediaUsages(
     mediaIds: string[],
     page: { limit?: number; offset?: number } = {}

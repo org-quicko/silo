@@ -148,6 +148,22 @@ export class FsEntryStore {
     return names.sort();
   }
 
+  /** Counted from the directory listing rather than by reading entries: the
+   *  name of a file is enough to know it is one. */
+  async countEntries(scope: Scope): Promise<Map<string, number>> {
+    const contentDir = this.layout.contentDir(scope);
+    const counts = new Map<string, number>();
+
+    for (const dirent of await FsFiles.readDirents(contentDir)) {
+      if (!dirent.isDirectory()) continue;
+
+      const files = await FsFiles.readNames(path.join(contentDir, dirent.name));
+      const total = files.filter((file) => FsLayout.idOfEntryFile(file) !== null).length;
+      if (total > 0) counts.set(dirent.name, total);
+    }
+    return counts;
+  }
+
   private async readCollection(scope: Scope, collection: string): Promise<Entry[]> {
     const collectionDir = this.layout.collectionDir(scope, collection);
     const entries: Entry[] = [];

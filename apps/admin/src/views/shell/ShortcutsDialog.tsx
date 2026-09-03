@@ -19,6 +19,7 @@ function groups(): Group[] {
       rows: [
         [[`${PlatformKeys.command()}K`, '/'], 'Search'],
         [[`${PlatformKeys.alt()}F`], 'Filter the collection list'],
+        [[`${PlatformKeys.command()},`], 'Settings'],
         [['?'], 'This list'],
       ],
     },

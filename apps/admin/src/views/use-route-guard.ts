@@ -1,6 +1,6 @@
 import { useEffect } from 'react'
 import { Claims } from '@silo/shared/claims'
-import type { Collection } from '../api/types/collection'
+import type { CollectionSummary } from '../api/types/collection-summary'
 import type { ScopeRef } from '../api/types/scope-ref'
 import type { Route } from '../router/route'
 import { router } from '../router/router'
@@ -18,7 +18,7 @@ export function useRouteGuard(
   ready: boolean,
   route: Route,
   claims: string[],
-  collections: Collection[],
+  collections: CollectionSummary[],
   serverId: string,
   scope: ScopeRef,
 ): void {
@@ -60,7 +60,7 @@ export function useRouteGuard(
 /** The most recently visited collection that still exists, else the first
  *  there is. A recorded visit outlives the collection it names, so the list is
  *  filtered against what the session actually loaded. */
-function firstExisting(recent: readonly string[], collections: Collection[]): string | null {
+function firstExisting(recent: readonly string[], collections: CollectionSummary[]): string | null {
   const exists = new Set(collections.map((collection) => collection.name))
   return recent.find((name) => exists.has(name)) ?? collections[0]?.name ?? null
 }

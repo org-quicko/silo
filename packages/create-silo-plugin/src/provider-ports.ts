@@ -66,6 +66,11 @@ export class ProviderPorts {
     { name: "get", params: "scope, collection, id", note: "throws NotFoundError when absent" },
     { name: "delete", params: "scope, collection, id", note: "drops the entry's media usages too" },
     { name: "list", params: "scope, collection, query", note: "returns { items, total }" },
+    {
+      name: "countEntries",
+      params: "scope",
+      note: "Map<collection name, entry count>; absent means zero, so read it with ?? 0",
+    },
     { name: "listScopes", params: "", note: "sorted by (project, env); never system scopes" },
     {
       name: "listEntryCollections",

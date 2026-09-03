@@ -1,6 +1,7 @@
 import { Folder } from 'lucide-react'
 import type { MediaAsset } from '../../api/types/media-asset'
 import { Checkbox } from '../../components/controls/Checkbox'
+import { LoadingState } from '../../components/feedback/LoadingState'
 import { FolderRow } from './FolderRow'
 import { FolderTile } from './FolderTile'
 import { MediaCard } from './MediaCard'
@@ -71,7 +72,7 @@ export function MediaContents({
   }
 
   if (library.loading && nothingHere) {
-    return <div className={`center-wrap ${styles.loading}`}>Loading media library…</div>
+    return <LoadingState message="Loading the media library…" />
   }
 
   if (nothingHere) {
