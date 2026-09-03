@@ -68,7 +68,7 @@ describe("SQLite FTS5 searcher", () => {
 
   afterEach(async () => {
     await store.close();
-    await fs.rm(tempDir, { recursive: true, force: true }).catch(() => {});
+    await fs.rm(tempDir, { recursive: true, force: true });
   });
 
   test("the shipped build has FTS5, so the native engine is the one in use", () => {
@@ -297,8 +297,10 @@ describe("SQLite FTS5 searcher", () => {
     await store.close();
 
     const disabled = await SqliteStore.open(dbPath, { enabled: false, tokenizer: Unicode61 });
+    // Through the store's own connection, so the statement is finalized when
+    // it closes rather than left holding the file open.
     const rows = (disabled as any).database
-      .prepare(`SELECT COUNT(*) AS n FROM ${SearchIndex.Documents}`)
+      .query(`SELECT COUNT(*) AS n FROM ${SearchIndex.Documents}`)
       .get();
     expect(rows.n).toBe(1);
     await disabled.close();
@@ -328,7 +330,7 @@ describe("trigram tokenizer", () => {
 
   afterEach(async () => {
     await store.close();
-    await fs.rm(tempDir, { recursive: true, force: true }).catch(() => {});
+    await fs.rm(tempDir, { recursive: true, force: true });
   });
 
   test("substring matching, which unicode61 cannot do", async () => {

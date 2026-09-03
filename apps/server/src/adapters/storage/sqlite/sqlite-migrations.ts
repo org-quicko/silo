@@ -1,4 +1,4 @@
-import type { Database } from "bun:sqlite";
+import type { SqliteConnection } from "./sqlite-connection";
 import { EntryUtils } from "../../../core/domain/entry-utils";
 import { Scope } from "../../../core/domain/scope";
 import { SystemCollections } from "../../../core/domain/system-collections";
@@ -97,7 +97,7 @@ CREATE INDEX IF NOT EXISTS idx_collections_env ON collections(env_id);
    * Runs outside any transaction, because `PRAGMA foreign_keys` is a silent
    * no-op inside one.
    */
-  static applyPragmas(database: Database): void {
+  static applyPragmas(database: SqliteConnection): void {
     database.exec("PRAGMA journal_mode = WAL;");
     database.exec("PRAGMA busy_timeout = 5000;");
     database.exec("PRAGMA synchronous = NORMAL;");
@@ -112,7 +112,7 @@ CREATE INDEX IF NOT EXISTS idx_collections_env ON collections(env_id);
    * a database carrying the records but not the format stamp is one the next
    * start refuses. Neither is a state worth being able to reach.
    */
-  static initialize(database: Database): void {
+  static initialize(database: SqliteConnection): void {
     database.transaction(() => {
       database.exec(SqliteMigrations.Ddl);
       SqliteMigrations.seedMeta(database);
@@ -122,9 +122,9 @@ CREATE INDEX IF NOT EXISTS idx_collections_env ON collections(env_id);
 
   /** Seeds the instance id, sequence counter, format stamp and the
    *  defaults-seeded flag, once. */
-  private static seedMeta(database: Database): void {
+  private static seedMeta(database: SqliteConnection): void {
     database
-      .prepare(
+      .query(
         `INSERT OR IGNORE INTO meta (key, value) VALUES
            ('instance_id', ?),
            ('last_seq', '0'),
@@ -146,23 +146,23 @@ CREATE INDEX IF NOT EXISTS idx_collections_env ON collections(env_id);
    * nothing validates against it — system writes reach `store.put` directly and
    * never pass through `EntryService`.
    */
-  private static seedSystemRecords(database: Database): void {
+  private static seedSystemRecords(database: SqliteConnection): void {
     const now = EntryUtils.now().toISOString();
     const system = Scope.System.project;
 
     database
-      .prepare(
+      .query(
         `INSERT OR IGNORE INTO projects (id, name, created_at, updated_at) VALUES (?, ?, ?, ?)`
       )
       .run(system, system, now, now);
     database
-      .prepare(
+      .query(
         `INSERT OR IGNORE INTO environments (id, project_id, name, created_at, updated_at)
          VALUES (?, ?, ?, ?, ?)`
       )
       .run(Scope.System.env, system, Scope.System.env, now, now);
 
-    const insert = database.prepare(
+    const insert = database.query(
       `INSERT OR IGNORE INTO collections
          (id, project_id, env_id, name, schema, created_at, updated_at)
        VALUES (?, ?, ?, ?, ?, ?, ?)`
@@ -183,11 +183,11 @@ CREATE INDEX IF NOT EXISTS idx_collections_env ON collections(env_id);
    * so the actual table shape is inspected too. There is no migration: export
    * with the previous binary and re-import.
    */
-  static guardFormatVersion(database: Database): void {
+  static guardFormatVersion(database: SqliteConnection): void {
     const tableNames = new Set(
       (
         database
-          .prepare(`SELECT name FROM sqlite_master WHERE type = 'table'`)
+          .query(`SELECT name FROM sqlite_master WHERE type = 'table'`)
           .all() as { name: string }[]
       ).map((row) => row.name)
     );
@@ -195,7 +195,7 @@ CREATE INDEX IF NOT EXISTS idx_collections_env ON collections(env_id);
     if (!tableNames.has("meta")) return;
 
     const stamped = database
-      .prepare(`SELECT value FROM meta WHERE key = 'format_version'`)
+      .query(`SELECT value FROM meta WHERE key = 'format_version'`)
       .get() as { value: string } | undefined;
     if (stamped && stamped.value !== FormatVersion) {
       throw SqliteMigrations.incompatible(stamped.value);
@@ -208,7 +208,7 @@ CREATE INDEX IF NOT EXISTS idx_collections_env ON collections(env_id);
     }
 
     if (tableNames.has("entries")) {
-      const columns = database.prepare(`PRAGMA table_info(entries)`).all() as { name: string }[];
+      const columns = database.query(`PRAGMA table_info(entries)`).all() as { name: string }[];
       if (!columns.some((column) => column.name === "collection_id")) {
         throw SqliteMigrations.incompatible(stamped ? stamped.value : "unknown");
       }
@@ -219,8 +219,8 @@ CREATE INDEX IF NOT EXISTS idx_collections_env ON collections(env_id);
    * Every foreign key the tables declare, checked. Cheap on an empty database
    * and honest on one that was edited by hand or written by a bug.
    */
-  static assertIntegrity(database: Database): void {
-    const violations = database.prepare(`PRAGMA foreign_key_check`).all() as unknown[];
+  static assertIntegrity(database: SqliteConnection): void {
+    const violations = database.query(`PRAGMA foreign_key_check`).all() as unknown[];
     if (violations.length > 0) {
       throw new Error(
         `this data directory has ${violations.length} foreign key violation(s); export with a previous binary and re-import, or start from a fresh data dir`

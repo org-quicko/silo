@@ -64,7 +64,7 @@ describe("a runaway plugin cannot take the server with it", () => {
     await registry?.stop();
     registry = null;
     await store.close();
-    await fs.rm(tempDir, { recursive: true, force: true }).catch(() => {});
+    await fs.rm(tempDir, { recursive: true, force: true });
   });
 
   test("the spinning hook is timed out and the host keeps working", async () => {

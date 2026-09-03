@@ -57,6 +57,21 @@ so rendering one entry costs one schema (D54).
 **The most recent change landed on 2026-09-03; everything before it on
 2026-09-02 or earlier.**
 
+**`SqliteStore.close()` releases the database file now, and the tests no longer
+hide it when it does not (2026-09-03).** Closing the store left the data
+directory undeletable and unmovable on Windows. bun:sqlite finalizes a statement
+only if it is still in `Database.query`'s cache when the database closes, and
+that cache holds twenty — the twenty-first distinct statement evicts the first,
+and an evicted statement is never finalized, while `Database.prepare` is never
+cached at all. An unfinalized statement keeps the file open. Every class in the
+SQLite adapter now holds a `SqliteConnection` rather than the raw `Database`: it
+owns an unbounded cache of the statements prepared against it, a `once` for SQL
+whose text varies per call, and a `close()` that finalizes them all. This had
+been invisible because 55 files under `apps/server/test/` removed their temp
+directory as `fs.rm(...).catch(() => {})`; 53 of them no longer do, and the two
+that still do are the detached-daemon suites, which remove a directory held by a
+process they cannot wait on and say so.
+
 **A collection listing stopped shipping every schema, and counting entries
 stopped costing a request each (2026-09-03).** Opening a scope of forty content
 types cost about four megabytes and forty-odd requests before the sidebar could

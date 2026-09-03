@@ -69,7 +69,7 @@ describe("create-silo-plugin output", () => {
   });
 
   afterEach(async () => {
-    await fs.rm(tempDir, { recursive: true, force: true }).catch(() => {});
+    await fs.rm(tempDir, { recursive: true, force: true });
   });
 
   test("the default scaffold produces a manifest silo reads without running it", async () => {

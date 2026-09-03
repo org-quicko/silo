@@ -81,7 +81,7 @@ describe.each(["scan", "fts5"] as const)("search API (%s engine)", (engine) => {
 
   afterEach(async () => {
     await store.close();
-    await fs.rm(tempDir, { recursive: true, force: true }).catch(() => {});
+    await fs.rm(tempDir, { recursive: true, force: true });
   });
 
   const search = async (url: string, key?: string): Promise<SearchBody> => {

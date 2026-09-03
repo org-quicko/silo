@@ -1,11 +1,11 @@
-import type { Database } from "bun:sqlite";
+import type { SqliteConnection } from "./sqlite-connection";
 import type { Meta } from "../../../core/domain/meta";
 
 /** The `meta` key/value table: the instance id and the `seq` counter. */
 export class SqliteMetaStore {
-  private readonly database: Database;
+  private readonly database: SqliteConnection;
 
-  constructor(database: Database) {
+  constructor(database: SqliteConnection) {
     this.database = database;
   }
 
@@ -16,7 +16,7 @@ export class SqliteMetaStore {
    */
   nextSeq(): number {
     const row = this.database
-      .prepare(
+      .query(
         `UPDATE meta SET value = CAST(value AS INTEGER) + 1 WHERE key = 'last_seq' RETURNING CAST(value AS INTEGER) as seq`
       )
       .get() as { seq: number } | undefined;
@@ -26,13 +26,13 @@ export class SqliteMetaStore {
 
   read(): Meta {
     const instanceId = this.database
-      .prepare(`SELECT value FROM meta WHERE key = 'instance_id'`)
+      .query(`SELECT value FROM meta WHERE key = 'instance_id'`)
       .get() as { value: string } | undefined;
     const lastSeq = this.database
-      .prepare(`SELECT CAST(value AS INTEGER) as seq FROM meta WHERE key = 'last_seq'`)
+      .query(`SELECT CAST(value AS INTEGER) as seq FROM meta WHERE key = 'last_seq'`)
       .get() as { seq: number } | undefined;
     const seeded = this.database
-      .prepare(`SELECT value FROM meta WHERE key = 'defaults_initialized'`)
+      .query(`SELECT value FROM meta WHERE key = 'defaults_initialized'`)
       .get() as { value: string } | undefined;
 
     return {
@@ -44,7 +44,7 @@ export class SqliteMetaStore {
 
   markDefaultsInitialized(): void {
     this.database
-      .prepare(`INSERT OR REPLACE INTO meta (key, value) VALUES ('defaults_initialized', '1')`)
+      .query(`INSERT OR REPLACE INTO meta (key, value) VALUES ('defaults_initialized', '1')`)
       .run();
   }
 }

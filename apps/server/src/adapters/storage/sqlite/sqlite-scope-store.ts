@@ -1,4 +1,4 @@
-import type { Database } from "bun:sqlite";
+import type { SqliteConnection } from "./sqlite-connection";
 import { EntryUtils } from "../../../core/domain/entry-utils";
 import type { EnvironmentRecord } from "../../../core/domain/environment-record";
 import type { ProjectRecord } from "../../../core/domain/project-record";
@@ -18,11 +18,11 @@ import type { SqliteScopeResolver } from "./sqlite-scope-resolver";
  * so cannot outlive it, which makes the record the only answer.
  */
 export class SqliteScopeStore {
-  private readonly database: Database;
+  private readonly database: SqliteConnection;
   private readonly entries: SqliteEntryStore;
   private readonly resolver: SqliteScopeResolver;
 
-  constructor(database: Database, entries: SqliteEntryStore, resolver: SqliteScopeResolver) {
+  constructor(database: SqliteConnection, entries: SqliteEntryStore, resolver: SqliteScopeResolver) {
     this.database = database;
     this.entries = entries;
     this.resolver = resolver;
@@ -37,7 +37,7 @@ export class SqliteScopeStore {
     const now = EntryUtils.now().toISOString();
     const recordId = this.claimId(id, "project");
     this.database
-      .prepare(`INSERT INTO projects (id, name, created_at, updated_at) VALUES (?, ?, ?, ?)`)
+      .query(`INSERT INTO projects (id, name, created_at, updated_at) VALUES (?, ?, ?, ?)`)
       .run(recordId, name, now, now);
     this.resolver.clear();
 
@@ -46,7 +46,7 @@ export class SqliteScopeStore {
 
   listProjects(): ProjectRecord[] {
     const rows = this.database
-      .prepare(
+      .query(
         `SELECT id, name, created_at, updated_at FROM projects
          WHERE SUBSTR(name, 1, 1) != '_' ORDER BY name`
       )
@@ -56,7 +56,7 @@ export class SqliteScopeStore {
 
   findProject(name: string): ProjectRecord | null {
     const row = this.database
-      .prepare(`SELECT id, name, created_at, updated_at FROM projects WHERE name = ?`)
+      .query(`SELECT id, name, created_at, updated_at FROM projects WHERE name = ?`)
       .get(name) as any;
     return row ? SqliteRecordMapper.toProject(row) : null;
   }
@@ -90,9 +90,9 @@ export class SqliteScopeStore {
       // `environments` with no cascade of their own, deliberately, so a
       // mis-ordered delete is refused rather than silently orphaning content.
       this.entries.purgeProject(project.id);
-      this.database.prepare(`DELETE FROM collections WHERE project_id = ?`).run(project.id);
-      this.database.prepare(`DELETE FROM environments WHERE project_id = ?`).run(project.id);
-      this.database.prepare(`DELETE FROM projects WHERE id = ?`).run(project.id);
+      this.database.query(`DELETE FROM collections WHERE project_id = ?`).run(project.id);
+      this.database.query(`DELETE FROM environments WHERE project_id = ?`).run(project.id);
+      this.database.query(`DELETE FROM projects WHERE id = ?`).run(project.id);
     })();
     this.resolver.clear();
   }
@@ -114,7 +114,7 @@ export class SqliteScopeStore {
       const now = EntryUtils.now().toISOString();
       const recordId = this.claimId(id, "env");
       this.database
-        .prepare(
+        .query(
           `INSERT INTO environments (id, project_id, name, created_at, updated_at)
            VALUES (?, ?, ?, ?, ?)`
         )
@@ -137,7 +137,7 @@ export class SqliteScopeStore {
     if (projectId === null) return [];
 
     const rows = this.database
-      .prepare(
+      .query(
         `SELECT id, project_id, name, created_at, updated_at FROM environments
          WHERE project_id = ? AND SUBSTR(name, 1, 1) != '_' ORDER BY name`
       )
@@ -175,15 +175,15 @@ export class SqliteScopeStore {
       if (!record) return;
 
       this.entries.purgeEnvironment(record.id);
-      this.database.prepare(`DELETE FROM collections WHERE env_id = ?`).run(record.id);
-      this.database.prepare(`DELETE FROM environments WHERE id = ?`).run(record.id);
+      this.database.query(`DELETE FROM collections WHERE env_id = ?`).run(record.id);
+      this.database.query(`DELETE FROM environments WHERE id = ?`).run(record.id);
     })();
     this.resolver.clear();
   }
 
   listScopes(): Scope[] {
     const rows = this.database
-      .prepare(
+      .query(
         `SELECT p.name AS project, e.name AS env
          FROM environments e JOIN projects p ON p.id = e.project_id
          WHERE SUBSTR(p.name, 1, 1) != '_' AND SUBSTR(e.name, 1, 1) != '_'
@@ -221,7 +221,7 @@ export class SqliteScopeStore {
 
   private readEnvironment(projectId: string, env: string): EnvironmentRecord | null {
     const row = this.database
-      .prepare(
+      .query(
         `SELECT id, project_id, name, created_at, updated_at FROM environments
          WHERE project_id = ? AND name = ?`
       )
@@ -231,7 +231,7 @@ export class SqliteScopeStore {
 
   private requireProject(id: string): ProjectRecord {
     const row = this.database
-      .prepare(`SELECT id, name, created_at, updated_at FROM projects WHERE id = ?`)
+      .query(`SELECT id, name, created_at, updated_at FROM projects WHERE id = ?`)
       .get(id) as any;
     if (!row) throw SqliteRecordMapper.noSuchRecord("project", id);
     return SqliteRecordMapper.toProject(row);
@@ -239,7 +239,7 @@ export class SqliteScopeStore {
 
   private requireEnvironment(id: string): EnvironmentRecord {
     const row = this.database
-      .prepare(
+      .query(
         `SELECT id, project_id, name, created_at, updated_at FROM environments WHERE id = ?`
       )
       .get(id) as any;
@@ -249,7 +249,7 @@ export class SqliteScopeStore {
 
   private touchName(table: "projects" | "environments", id: string, name: string): void {
     this.database
-      .prepare(`UPDATE ${table} SET name = ?, updated_at = ? WHERE id = ?`)
+      .query(`UPDATE ${table} SET name = ?, updated_at = ? WHERE id = ?`)
       .run(name, EntryUtils.now().toISOString(), id);
   }
 

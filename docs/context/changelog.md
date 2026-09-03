@@ -4,6 +4,42 @@
 > The *current* state is [CONTEXT.md](../../CONTEXT.md); this is how it got
 > there.
 
+- **`SqliteStore.close()` now releases the database file, and the test suites
+  stopped hiding it when it does not (2026-09-03).** `close()` stopped using the
+  database but did not let go of it, so on Windows the data directory could not
+  be deleted or moved afterwards.
+
+  bun:sqlite finalizes a statement only if it is still in `Database.query`'s own
+  cache when the database closes, and that cache holds exactly **twenty**: the
+  twenty-first distinct statement evicts the first, and an evicted statement is
+  never finalized. `Database.prepare` is not cached at all. Either way the
+  unfinalized statement keeps the file open, and `close(true)` does not help —
+  it throws `database is locked`, which is the same fact stated louder. The
+  adapter prepared upwards of twenty distinct statements, so it leaked whichever
+  fell off the end; writing an entry was the first operation that reliably did.
+
+  The fix is a `SqliteConnection` (new) that owns the `Database` and every
+  statement prepared against it: `query` caches without a bound, `once` prepares
+  and finalizes in a `finally` for SQL whose text varies per call, and `close()`
+  finalizes the lot before closing. Every class in the adapter holds one of these
+  instead of the raw `Database`; the call sites did not change, only the type.
+
+  The same leak existed test-side, where `sqlite.test.ts` read a database back
+  with `db.prepare(...)` and closed without finalizing.
+
+  This had been invisible because 55 files under `apps/server/test/` removed
+  their temp directory as `fs.rm(...).catch(() => {})`, and the swallowed error
+  was this one — `observability-api.test.ts` was the one suite that did not
+  swallow it, and so the only one that failed. Those catches are gone: 53 of the
+  55 now let the failure through, which is what turned one visible failure into
+  336 and then back to none. The two that keep it are `detached-serve` and
+  `compiled-detach`, which remove a directory held by a detached OS process they
+  cannot wait on — a start that loses the port race deliberately writes no run
+  file, so its pid is never recorded — and each says so on the line above.
+
+  A test in `test/adapters/sqlite.test.ts` now opens a store, writes, closes and
+  removes the directory with no `catch`, so a returning leak fails there.
+
 - **A collection listing stopped shipping every schema, and counting entries
   stopped costing a request each (2026-09-03, D54).** Opening a scope of forty
   content types cost about four megabytes and forty-odd requests before the
@@ -1270,7 +1306,6 @@
   remote servers or running under the Vite dev server (`http://localhost:5173`). The server's base
   URL is now threaded through `EntriesView` -> `EntriesTable` -> `CellValue` and prefixed to `asset.url`
   identically to `MediaCard`, `MediaRow`, and `MediaWidget`.
-
 
 - **The Strapi importer carries media as silo media, and the uploads reach it one
   file at a time (2026-08-27).** §13.20 in

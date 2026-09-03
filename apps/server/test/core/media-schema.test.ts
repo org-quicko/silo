@@ -28,7 +28,7 @@ describe("Media references in entry data (D23)", () => {
 
   afterEach(async () => {
     await store.close();
-    await fs.rm(tempDir, { recursive: true, force: true }).catch(() => {});
+    await fs.rm(tempDir, { recursive: true, force: true });
   });
 
   test("MediaResolver resolves catalog ids, legacy paths, and foreign URLs", () => {

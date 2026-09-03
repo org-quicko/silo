@@ -1,4 +1,4 @@
-import type { Database } from "bun:sqlite";
+import type { SqliteConnection } from "./sqlite-connection";
 import type { MediaUsage } from "../../../core/media/media-usage";
 import type { CollectionAddress } from "./sqlite-scope-resolver";
 
@@ -29,9 +29,9 @@ export class SqliteMediaReferenceStore {
     JOIN environments v ON v.id = r.env_id
     JOIN collections c ON c.id = r.collection_id`;
 
-  private readonly database: Database;
+  private readonly database: SqliteConnection;
 
-  constructor(database: Database) {
+  constructor(database: SqliteConnection) {
     this.database = database;
   }
 
@@ -40,7 +40,7 @@ export class SqliteMediaReferenceStore {
     this.purgeEntry(address.collectionId, entryId);
     if (mediaIds.length === 0) return;
 
-    const insert = this.database.prepare(
+    const insert = this.database.query(
       `INSERT OR IGNORE INTO media_references
          (media_id, project_id, env_id, collection_id, entry_id)
        VALUES (?, ?, ?, ?, ?)`
@@ -52,7 +52,7 @@ export class SqliteMediaReferenceStore {
 
   purgeEntry(collectionId: string, entryId: string): void {
     this.database
-      .prepare(`DELETE FROM media_references WHERE collection_id = ? AND entry_id = ?`)
+      .query(`DELETE FROM media_references WHERE collection_id = ? AND entry_id = ?`)
       .run(collectionId, entryId);
   }
 
@@ -64,9 +64,9 @@ export class SqliteMediaReferenceStore {
     if (mediaIds.length === 0) return { items: [], total: 0 };
 
     const placeholders = mediaIds.map(() => "?").join(", ");
-    const totalRow = this.database
-      .prepare(`SELECT COUNT(*) as n FROM media_references WHERE media_id IN (${placeholders})`)
-      .get(...mediaIds) as { n: number };
+    const totalRow = this.database.once(`SELECT COUNT(*) as n FROM media_references WHERE media_id IN (${placeholders})`,
+      (statement) => statement.get(...mediaIds)
+    ) as { n: number };
 
     const limit =
       page.limit === undefined
@@ -74,16 +74,14 @@ export class SqliteMediaReferenceStore {
         : Math.max(0, page.limit);
     const offset = Math.max(0, page.offset || 0);
 
-    const items = this.database
-      .prepare(
-        `SELECT r.media_id AS media_id, p.name AS project, v.name AS env,
+    const items = this.database.once(`SELECT r.media_id AS media_id, p.name AS project, v.name AS env,
                 c.name AS collection, r.entry_id AS entry_id
          ${SqliteMediaReferenceStore.Joined}
          WHERE r.media_id IN (${placeholders})
          ORDER BY p.name, v.name, c.name, r.entry_id
-         LIMIT ? OFFSET ?`
-      )
-      .all(...mediaIds, limit, offset) as MediaUsage[];
+         LIMIT ? OFFSET ?`,
+      (statement) => statement.all(...mediaIds, limit, offset)
+    ) as MediaUsage[];
 
     return { items, total: Number(totalRow.n) };
   }
@@ -93,13 +91,11 @@ export class SqliteMediaReferenceStore {
     if (mediaIds.length === 0) return counts;
 
     const placeholders = mediaIds.map(() => "?").join(", ");
-    const rows = this.database
-      .prepare(
-        `SELECT media_id, COUNT(*) as n FROM media_references
+    const rows = this.database.once(`SELECT media_id, COUNT(*) as n FROM media_references
          WHERE media_id IN (${placeholders})
-         GROUP BY media_id`
-      )
-      .all(...mediaIds) as { media_id: string; n: number }[];
+         GROUP BY media_id`,
+      (statement) => statement.all(...mediaIds)
+    ) as { media_id: string; n: number }[];
 
     for (const row of rows) counts.set(row.media_id, Number(row.n));
     return counts;

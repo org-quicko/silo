@@ -1,4 +1,4 @@
-import type { Database } from "bun:sqlite";
+import type { SqliteConnection } from "./sqlite-connection";
 import { EntryUtils } from "../../../core/domain/entry-utils";
 import { Scope } from "../../../core/domain/scope";
 import { SearchIndex } from "./search-index";
@@ -17,10 +17,10 @@ import type { CollectionAddress } from "./sqlite-scope-resolver";
  * reason.
  */
 export class SqliteSearchDocumentStore {
-  private readonly database: Database;
+  private readonly database: SqliteConnection;
   private readonly indexing: boolean;
 
-  constructor(database: Database, indexing: boolean) {
+  constructor(database: SqliteConnection, indexing: boolean) {
     this.database = database;
     this.indexing = indexing;
   }
@@ -56,7 +56,7 @@ export class SqliteSearchDocumentStore {
     }
 
     this.database
-      .prepare(
+      .query(
         `INSERT INTO ${SearchIndex.Documents}
            (project_id, env_id, collection_id, entry_id, label, body)
          VALUES (?, ?, ?, ?, ?, ?)
@@ -77,7 +77,7 @@ export class SqliteSearchDocumentStore {
   purgeEntry(address: CollectionAddress, entryId: string): void {
     if (!this.indexing) return;
     this.database
-      .prepare(
+      .query(
         `DELETE FROM ${SearchIndex.Documents} WHERE collection_id = ? AND entry_id = ?`
       )
       .run(address.collectionId, entryId);

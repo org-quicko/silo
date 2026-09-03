@@ -85,7 +85,7 @@ describe("what silo reports about a plugin (D36)", () => {
     await registry?.stop();
     registry = null;
     await store.close();
-    await fs.rm(tempDir, { recursive: true, force: true }).catch(() => {});
+    await fs.rm(tempDir, { recursive: true, force: true });
   });
 
   /**

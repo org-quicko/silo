@@ -117,7 +117,7 @@ describe("plugin uninstall API (DELETE /api/plugins/:name)", () => {
     await registry?.stop();
     registry = null;
     await store.close();
-    await fs.rm(tempDir, { recursive: true, force: true }).catch(() => {});
+    await fs.rm(tempDir, { recursive: true, force: true });
   });
 
   test("takes the plugin out of the file, the record, the running set and the disk", async () => {

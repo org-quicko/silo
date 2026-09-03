@@ -24,7 +24,7 @@ describe("MediaTable", () => {
   });
 
   afterEach(async () => {
-    await fs.rm(dir, { recursive: true, force: true }).catch(() => {});
+    await fs.rm(dir, { recursive: true, force: true });
   });
 
   test("a file with no [media] reads as nothing, not as the defaults", async () => {

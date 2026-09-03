@@ -49,7 +49,7 @@ describe("Server copy API", () => {
     sourceServer.stop(true);
     await sourceStore.close();
     await destinationStore.close();
-    await fs.rm(tempDir, { recursive: true, force: true }).catch(() => {});
+    await fs.rm(tempDir, { recursive: true, force: true });
   });
 
   test("previews then replaces data and API keys from the source", async () => {

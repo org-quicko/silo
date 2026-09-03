@@ -31,7 +31,7 @@ describe("PluginInstaller", () => {
   });
 
   afterEach(async () => {
-    await fs.rm(root, { recursive: true, force: true }).catch(() => {});
+    await fs.rm(root, { recursive: true, force: true });
   });
 
   const manifest = (overrides: { name?: string; silo?: Record<string, any> } = {}) => ({
