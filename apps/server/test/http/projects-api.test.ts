@@ -1,3 +1,4 @@
+import { CollectionSchemas } from "../../src/core/schema/collection-schemas";
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import fs from "fs/promises";
 import os from "os";
@@ -12,6 +13,11 @@ import { Exporter } from "../../src/core/transfer/exporter";
 import { Importer } from "../../src/core/transfer/importer";
 import { SiloServer } from "../../src/http/server";
 import { Logger } from "../../src/logging/logger";
+
+/** Listings answer records since D51: `{id, name}`, where `id` is the ULID and
+ *  `name` is what every path addresses. */
+const names = (items: readonly { name: string }[]): string[] =>
+  items.map((item) => item.name);
 
 describe("Projects API", () => {
   let tempDir: string;
@@ -30,7 +36,7 @@ describe("Projects API", () => {
 
   afterEach(async () => {
     await store.close();
-    await fs.rm(tempDir, { recursive: true, force: true }).catch(() => {});
+    await fs.rm(tempDir, { recursive: true, force: true });
   });
 
   test("GET /api/projects and GET /api/projects/:project/environments list projects and envs", async () => {
@@ -46,14 +52,14 @@ describe("Projects API", () => {
     const rootHeaders = { Authorization: `Bearer ${rootKey}` };
     const rootRes = await app.request("/api/projects", { headers: rootHeaders });
     expect(rootRes.status).toBe(200);
-    const rootBody = (await rootRes.json()) as { items: string[] };
-    expect(rootBody.items.sort()).toEqual(["acme", "empty"]);
+    const rootBody = (await rootRes.json()) as { items: { id: string; name: string }[] };
+    expect(names(rootBody.items).sort()).toEqual(["acme", "empty"]);
 
     // Root sees all environments in acme
     const acmeEnvsRes = await app.request("/api/projects/acme/environments", { headers: rootHeaders });
     expect(acmeEnvsRes.status).toBe(200);
-    const acmeEnvsBody = (await acmeEnvsRes.json()) as { items: string[] };
-    expect(acmeEnvsBody.items.sort()).toEqual(["dev", "prod"]);
+    const acmeEnvsBody = (await acmeEnvsRes.json()) as { items: { id: string; name: string }[] };
+    expect(names(acmeEnvsBody.items).sort()).toEqual(["dev", "prod"]);
 
     // Scoped key with acme/*/* sees acme project
     const { secret: acmeKey } = await service.keys.create("acme key", [
@@ -63,14 +69,14 @@ describe("Projects API", () => {
       headers: { Authorization: `Bearer ${acmeKey}` },
     });
     expect(acmeRes.status).toBe(200);
-    const acmeBody = (await acmeRes.json()) as { items: string[] };
-    expect(acmeBody.items).toEqual(["acme"]);
+    const acmeBody = (await acmeRes.json()) as { items: { id: string; name: string }[] };
+    expect(names(acmeBody.items)).toEqual(["acme"]);
 
     // Anonymous sees only projects with public collections (acme)
     const anonRes = await app.request("/api/projects");
     expect(anonRes.status).toBe(200);
-    const anonBody = (await anonRes.json()) as { items: string[] };
-    expect(anonBody.items).toEqual(["acme"]);
+    const anonBody = (await anonRes.json()) as { items: { id: string; name: string }[] };
+    expect(names(anonBody.items)).toEqual(["acme"]);
   });
 
   test("POST /api/projects and POST /api/projects/:project/environments creates projects and envs", async () => {
@@ -86,7 +92,9 @@ describe("Projects API", () => {
       body: JSON.stringify({ id: "myproject" }),
     });
     expect(response.status).toBe(201);
-    expect(await response.json()).toMatchObject({ id: "myproject" });
+    // `id` is the ULID now and `name` is what the path addresses (D51), where
+    // the create response used to answer the name as `id`.
+    expect(await response.json()).toMatchObject({ name: "myproject" });
 
     // Create environment
     const envRes = await app.request("/api/projects/myproject/environments", {
@@ -98,14 +106,14 @@ describe("Projects API", () => {
       body: JSON.stringify({ id: "myenv" }),
     });
     expect(envRes.status).toBe(201);
-    expect(await envRes.json()).toMatchObject({ id: "myenv", project: "myproject" });
+    expect(await envRes.json()).toMatchObject({ name: "myenv" });
 
     // Verify it surfaces in GET /api/projects
     const listRes = await app.request("/api/projects", {
       headers: { Authorization: `Bearer ${creatorKey}` },
     });
-    const listBody = (await listRes.json()) as { items: string[] };
-    expect(listBody.items).toContain("myproject");
+    const listBody = (await listRes.json()) as { items: { id: string; name: string }[] };
+    expect(names(listBody.items)).toContain("myproject");
   });
 
   test("POST /api/projects rejects unauthorized or invalid requests", async () => {
@@ -152,8 +160,8 @@ describe("Projects API", () => {
     expect(deleteRes.status).toBe(204);
 
     const listRes = await app.request("/api/projects/temp/environments", { headers: rootHeaders });
-    const listBody = (await listRes.json()) as { items: string[] };
-    expect(listBody.items.includes("test")).toBe(false);
+    const listBody = (await listRes.json()) as { items: { id: string; name: string }[] };
+    expect(names(listBody.items).includes("test")).toBe(false);
   });
 
   test("distinguishes projects and envs with underscores", async () => {
@@ -193,9 +201,9 @@ describe("Projects API", () => {
     expect(remaining).toEqual(["aaa", "bbb"]);
   });
 
-  test("DELETE with force erases entry-only collections that have no schema", async () => {
+  test("an entry cannot be written into a collection that has no schema", async () => {
     const scope = Scope.of("orph", "env");
-    await store.put({
+    const entry = {
       id: EntryUtils.newID(),
       project: scope.project,
       env: scope.env,
@@ -205,8 +213,16 @@ describe("Projects API", () => {
       created_at: new Date(),
       updated_at: new Date(),
       data: { a: 1 },
-    }, { usages: [], search: null });
-    expect((await store.listScopes()).map((scope) => scope.key())).toContain("orph/env");
+    };
+
+    // The state this test used to construct — a collection holding entries and
+    // no schema — is unrepresentable since D51, because a collection is a record
+    // whose schema is NOT NULL. It is refused rather than silently accepted.
+    await expect(store.put(entry, { usages: [], search: null })).rejects.toThrow(/not found/);
+    expect(await store.listScopes()).toEqual([]);
+
+    await store.putSchema(scope, "ghost", { type: "object" });
+    await store.put(entry, { usages: [], search: null });
 
     const rootHeaders = { Authorization: `Bearer ${rootKey}` };
     const response = await app.request("/api/projects/orph/environments/env?force=true", {
@@ -216,8 +232,10 @@ describe("Projects API", () => {
     expect(response.status).toBe(204);
     expect(await store.listScopes()).toEqual([]);
 
+    // The project record outlives its last environment: existence is the record
+    // now, not the content, so only `DELETE /api/projects/orph` removes it.
     const listRes = await app.request("/api/projects", { headers: rootHeaders });
-    expect(((await listRes.json()) as any).items).toEqual([]);
+    expect(names(((await listRes.json()) as any).items)).toEqual(["orph"]);
   });
 
   test("a registered empty project survives an export/import round trip", async () => {
@@ -240,7 +258,7 @@ describe("Projects API", () => {
       ]);
     } finally {
       await destStore.close();
-      await fs.rm(destDir, { recursive: true, force: true }).catch(() => {});
+      await fs.rm(destDir, { recursive: true, force: true });
     }
   });
 
@@ -273,18 +291,22 @@ describe("Projects API", () => {
     });
     expect(response.status).toBe(204);
 
-    expect([...(await store.listSchemas(scope)).keys()]).toEqual([]);
+    expect([...(CollectionSchemas.map(await store.listCollections(scope))).keys()]).toEqual([]);
     expect(await store.listScopes()).toEqual([]);
+    // The project record survives its last environment (D51), so the listing
+    // still names it until the project itself is deleted.
     const listRes = await app.request("/api/projects", { headers: rootHeaders });
-    expect(((await listRes.json()) as any).items).toEqual([]);
+    expect(names(((await listRes.json()) as any).items)).toEqual(["ghosty"]);
   });
 
-  // Export enumerated content collections from listSchemas() alone, so a
-  // collection holding entries but no schema — exactly what a prior import can
-  // create — was silently dropped from every archive.
-  test("export includes a collection that has entries but no schema", async () => {
+  // An archive used to be able to carry `content/<name>/` with no schema beside
+  // it, and silo accepted it. A collection's schema is NOT NULL since D51, so
+  // the archive is refused by name rather than filled in with a permissive
+  // schema that would accept anything into a collection the operator believes is
+  // validated.
+  test("an archive with content and no schema is refused, naming the directory", async () => {
     const scope = Scope.of("acme", "prod");
-    const orphan = {
+    const entry = {
       id: EntryUtils.newID(),
       project: scope.project,
       env: scope.env,
@@ -293,24 +315,41 @@ describe("Projects API", () => {
       seq: 0,
       created_at: new Date(),
       updated_at: new Date(),
-      data: { title: "no schema here" },
+      data: { title: "has a schema" },
     };
-    await store.put(orphan, { usages: [], search: null });
+    await store.putSchema(scope, "ghost", { type: "object" });
+    await store.put(entry, { usages: [], search: null });
 
     const archive = path.join(tempDir, "orphan-export");
     await Exporter.exportDir(store, archive, {});
     const manifest = JSON.parse(await fs.readFile(path.join(archive, "manifest.json"), "utf8"));
     expect(manifest.collections["acme/prod/ghost"]).toBe(1);
 
+    // The archive carries the collection's id beside its schema, so a round trip
+    // preserves identity rather than minting a new one.
+    const markers = await fs.readdir(
+      path.join(archive, "projects", "acme", "prod", "schemas"),
+    );
+    expect(markers).toContain(".ghost.silo-collection");
+
     const destDir = await fs.mkdtemp(path.join(os.tmpdir(), "silo-orphan-dest-"));
     const destStore = await SqliteStore.open(path.join(destDir, "silo.db"));
     try {
       await Importer.importDir(destStore, archive, { mode: "replace" });
-      const got = await destStore.get(scope, "ghost", orphan.id);
-      expect(got.data).toEqual({ title: "no schema here" });
+      const got = await destStore.get(scope, "ghost", entry.id);
+      expect(got.data).toEqual({ title: "has a schema" });
+      expect((await destStore.findCollection(scope, "ghost"))?.id).toBe(
+        (await store.findCollection(scope, "ghost"))!.id,
+      );
+
+      // Now take the schema away and re-import: refused, by name.
+      await fs.rm(path.join(archive, "projects", "acme", "prod", "schemas", "ghost.schema.json"));
+      await expect(
+        Importer.importDir(destStore, archive, { mode: "replace" }),
+      ).rejects.toThrow(/content\/ghost\//);
     } finally {
       await destStore.close();
-      await fs.rm(destDir, { recursive: true, force: true }).catch(() => {});
+      await fs.rm(destDir, { recursive: true, force: true });
     }
   });
 
@@ -333,11 +372,11 @@ describe("Projects API", () => {
     // `_`-prefixed ids are reserved for Scope.System and must not be
     // reachable through configuration either.
     await expect(service.scopes.initDefaults("_system", "_system")).rejects.toThrow(/invalid default scope/);
-    expect(await service.scopes.listProjects()).toEqual([]);
+    expect(names(await service.scopes.listProjects())).toEqual([]);
 
     await service.scopes.initDefaults("default", "prod");
-    expect(await service.scopes.listProjects()).toEqual(["default"]);
-    expect(await service.scopes.listEnvironments("default")).toEqual(["prod"]);
+    expect(names(await service.scopes.listProjects())).toEqual(["default"]);
+    expect(names(await service.scopes.listEnvironments("default"))).toEqual(["prod"]);
   });
 
   test("DELETE without force refuses a scope holding only empty collections", async () => {
@@ -368,7 +407,7 @@ describe("Projects API", () => {
       (await app.request("/api/projects/fresh?force=true", { method: "DELETE", headers: rootHeaders }))
         .status,
     ).toBe(204);
-    expect(await service.scopes.listProjects()).toEqual([]);
+    expect(names(await service.scopes.listProjects())).toEqual([]);
   });
 
   test("DELETE project refuses up front rather than emptying earlier envs", async () => {
@@ -405,7 +444,7 @@ describe("Projects API", () => {
       const response = await app.request("/api/projects", {
         headers: { Authorization: `Bearer ${secret}` },
       });
-      return ((await response.json()) as { items: string[] }).items;
+      return names(((await response.json()) as { items: { name: string }[] }).items);
     };
 
     // A fixed claim says nothing about which projects its holder may see.
@@ -423,7 +462,7 @@ describe("Projects API", () => {
 
     // Everything here requires auth, so an anonymous caller sees nothing.
     const anon = await app.request("/api/projects");
-    expect(((await anon.json()) as { items: string[] }).items).toEqual([]);
+    expect(names(((await anon.json()) as { items: { name: string }[] }).items)).toEqual([]);
   });
 
   test("anonymous listings show only projects and envs with a public collection", async () => {
@@ -438,7 +477,7 @@ describe("Projects API", () => {
     });
 
     const items = async (path: string) =>
-      ((await (await app.request(path)).json()) as { items: string[] }).items;
+      names(((await (await app.request(path)).json()) as { items: { name: string }[] }).items);
 
     expect(await items("/api/projects")).toEqual(["open"]);
     expect(await items("/api/projects/open/environments")).toEqual(["prod"]);

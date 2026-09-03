@@ -68,6 +68,19 @@ the data dir like media does — and hands it to the child as an explicit
 
 Subcommands: `silo init`, `silo serve`, `silo stop`, `silo status`, `silo logs`, `silo export`, `silo import`, `silo keys create|list|revoke`, `silo media reconcile`, `silo search reindex [--check]`, `silo plugin list|info|doctor` (D31/§13.8 — read-only, no network), `silo add` (D32/§13.8 — the installer; also spelled `silo plugin add`), `silo version`. CLI commands operate directly on the data dir — no running server required (this is also the lockout-recovery path). `stop`, `status` and `logs` are the exception in the other direction: they read `silo.run.json` and never open storage at all, for the same reason `init` does not — asking whether a server is running must not create a data directory or take a handle on a database another process owns. `serve --detach` is routed the same way, so the parent leaves the directory entirely to the child it spawns. `add` is routed there too and for the same reason: it writes a directory under the data dir and appends to the config file, and opens neither storage nor a plugin — so it is safe against a data dir a live server owns, and what it changes takes effect on that server's next restart, since §13 loads plugins once at startup. `init` is the exception that touches neither: it writes a `silo.toml` holding the defaults above, rendered by `ConfigScaffold` from `ConfigLoader.defaultConfig()` so the scaffold cannot drift from the built-in defaults, with alternatives and the s3 keys commented beside them. That same scaffold is what `silo add` and `POST /api/plugins/install` write when they have a plugin to list and no file to list it in (§13.21) — safe to create unasked precisely because an untouched scaffold is a no-op, since file values sit below flags and env vars. Settings with no default — the s3 credentials, the fs media path, and `[log] file` — are written commented out, because a literal value there is indistinguishable from a chosen one and would defeat the derivation above. `keys create` accepts explicit `--claims` or `--preset root|manage|write|read` with optional `--collections`. Presets are defined once in `@silo/shared` (`Claims.presetPermissions`/`presetMedia`) and read by both the CLI and the admin UI's key form, so `--preset manage` and the UI's Manage role grant the same set. First boot creates the data dir, generates `instance_id` (ULID), initializes storage, and — if no keys exist — generates and prints a root key exactly once.
 
+`default_project` and `default_env` (`--project`/`--env`, `SILO_DEFAULT_*`) name
+the scope a **fresh instance** is seeded with, and since D51 that is all they
+name. `initDefaults` used to create the scope whenever it was *missing*, which
+resurrected it after a delete — and, once the name became mutable, after a
+rename: start, rename `default` to `main`, restart, and an empty `default` was
+back. Deriving the answer from "does the instance hold any project" has the same
+fault one step further out, since it resurrects the default the moment the last
+project is deleted. So the fact is recorded durably instead, as
+`defaults_initialized` in `meta` (SQLite) and in `manifest.json` (fs), and the
+seeding happens exactly once per instance. The ids are still validated at
+startup like any other caller-supplied id, so a typo in an env var fails loudly
+rather than producing a scope no route can address.
+
 ### 10.1 The tables the API writes (D42/D43, D45, D46)
 
 `silo.toml` is the operator's file and stays it, but two of its tables are also

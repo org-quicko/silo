@@ -1,7 +1,12 @@
+/* The nesting ladder: --nest-depth (set by the template) is how deep this card
+   sits, and every level steps its surface and its edge one shade lighter, so a
+   card inside a card no longer looks like the card holding it. */
 .item {
-  border: 1px solid var(--line-2);
+  --nest-step: min(var(--nest-depth, 0), 4);
+
+  border: 1px solid color-mix(in oklab, var(--line-2), var(--text-3) calc(var(--nest-step) * 12%));
   border-radius: var(--radius-sm);
-  background: var(--panel);
+  background: color-mix(in oklab, var(--panel), var(--line) calc(var(--nest-step) * 24%));
 }
 
 /* Scalar items keep the flat layout: content left, actions right. */
@@ -19,18 +24,22 @@
 
 .header {
   display: flex;
-  align-items: center;
+  align-items: stretch;
   gap: 10px;
-  padding: 9px 10px 9px 12px;
+  padding-right: 10px;
 }
 
+/* The row's own padding lives on the button, not on the header: with it on the
+   header, the button was one line of text tall and the space above and below
+   the title looked clickable without being. `stretch` keeps it the full height
+   of the row even when the action buttons beside it are the taller thing. */
 .disclosure {
   display: flex;
   flex: 1;
   align-items: center;
   gap: 9px;
   min-width: 0;
-  padding: 0;
+  padding: 9px 0 9px 12px;
   border: none;
   background: none;
   color: var(--text);
@@ -44,7 +53,11 @@
 .chevron {
   flex-shrink: 0;
   color: var(--text-3);
-  transition: transform 0.12s;
+  transition: transform 0.12s, color 0.12s;
+}
+
+.disclosure:hover .chevron {
+  color: var(--text-2);
 }
 
 .open .chevron {
@@ -54,13 +67,16 @@
 .index {
   flex-shrink: 0;
   color: var(--text-3);
-  font-family: var(--font-mono);
+  font-family: var(--font-ui);
   font-size: 10.5px;
   font-weight: 400;
   font-variant-numeric: tabular-nums;
 }
 
+/* Takes the rest of the row, so the ellipsis lands at the row's edge rather
+   than at the end of the text. */
 .title {
+  flex: 1;
   overflow: hidden;
   white-space: nowrap;
   text-overflow: ellipsis;
@@ -76,6 +92,7 @@
 .errorMark {
   display: none;
   flex-shrink: 0;
+  align-self: center;
   color: var(--bad);
 }
 
@@ -88,13 +105,14 @@
   flex-shrink: 0;
   align-items: center;
   gap: 6px;
+  padding: 9px 0;
 }
 
 .body {
   display: flex;
   flex-direction: column;
   padding: 16px 14px 14px;
-  border-top: 1px solid var(--line);
+  border-top: 1px solid color-mix(in oklab, var(--line), var(--text-3) calc(var(--nest-step) * 12%));
 }
 
 .body[hidden] {

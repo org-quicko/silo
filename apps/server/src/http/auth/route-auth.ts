@@ -2,6 +2,8 @@ import type { Context } from "hono";
 import { Claims } from "@silo/shared/claims";
 import type { Claim } from "@silo/shared/claim";
 import type { CollectionPermission } from "@silo/shared/collection-permission";
+import type { AuditActor } from "../../core/audit/audit-actor";
+import { AuditUtils } from "../../core/audit/audit-utils";
 import type { AuthenticatedKey } from "../../core/keys/authenticated-key";
 import type { WriteContext } from "../../core/hooks";
 import { WriteContexts } from "../../core/hooks";
@@ -16,6 +18,19 @@ export class RouteAuth {
     const project = c.req.param("project") || "";
     const env = c.req.param("env") || "";
     return Scope.of(project, env);
+  }
+
+  /**
+   * The audit actor for a request. `--no-auth` has no key to name, so it is
+   * recorded as `system` rather than as a key with an empty id.
+   *
+   * Here rather than repeated per route group: five of them had the same line,
+   * and a sixth wanted it.
+   */
+  static getActor(c: Context): AuditActor {
+    const caller = c.get("keyInfo") as AuthenticatedKey | undefined;
+    if (!caller) return { kind: "system" };
+    return caller.id ? AuditUtils.key(caller.id, caller) : { kind: "system" };
   }
 
   static requireKey(c: Context): AuthenticatedKey {
@@ -116,6 +131,34 @@ export class RouteAuth {
    * gates its delete buttons on the same list this enforces, so an affordance
    * and a refusal cannot disagree.
    */
+  /**
+   * A rename is a create at the new name and a delete at the old, so it asks
+   * for both, at the subject's own reach (D51): `{project}/*​/*` for a project,
+   * `{project}/{env}/*` for an environment, the one collection for a
+   * collection. Same shape as `requireForcedDelete`, different claim set.
+   *
+   * What the rename **cascades** into is a separate ask, made only when there
+   * is something to rewrite — see `ScopeRenameCascade`.
+   */
+  static requireRename(
+    c: Context,
+    subject: string,
+    project: string,
+    env: string,
+    collection: string,
+  ): AuthenticatedKey {
+    const key = RouteAuth.requireKey(c);
+    for (const permission of Claims.RenamePermissions) {
+      const claim = Claims.collection(project, env, collection, permission);
+      if (!Claims.has(key.claims, claim)) {
+        throw new ForbiddenError(
+          `renaming ${subject} retires the old name and introduces a new one; this key is missing claim "${claim}"`,
+        );
+      }
+    }
+    return key;
+  }
+
   static requireForcedDelete(
     c: Context,
     operation: string,

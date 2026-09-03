@@ -1,9 +1,10 @@
+import { SystemCollections } from "../domain/system-collections";
 import type { KeyInfo } from "../keys/key-info";
 import type { AuditActor } from "./audit-actor";
 
 /** The reserved collection, and the two actors every caller builds. */
 export class AuditUtils {
-  static readonly AuditCollection = "_audit";
+  static readonly AuditCollection = SystemCollections.Audit;
 
   /**
    * The actor for a request that presented a key.

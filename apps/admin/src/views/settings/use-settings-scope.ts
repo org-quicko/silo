@@ -1,5 +1,6 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { api } from '../../api/silo-api'
+import type { ScopeRecord } from '../../api/types/scope-record'
 import type { ScopeRef } from '../../api/types/scope-ref'
 import type { SettingsRoute } from '../../router/route'
 import { ScopeMemory } from '../../utils/scope-memory'
@@ -7,8 +8,16 @@ import { ScopeMemory } from '../../utils/scope-memory'
 export interface SettingsScope {
   /** `null` only until the server answers, or when it hosts no project. */
   scope: ScopeRef | null
+  /** Names, for the two switchers. */
   projects: string[]
   environments: string[]
+  /**
+   * The same two lists as records (D51), for the pages that need an `id` — a
+   * rename is addressed by name and bound to the id, so a page offering one has
+   * to hold both.
+   */
+  projectRecords: ScopeRecord[]
+  environmentRecords: ScopeRecord[]
   loadingProjects: boolean
   loadingEnvironments: boolean
   error: string
@@ -36,11 +45,17 @@ export function useSettingsScope(
   const routeProject = route.view === 'server-settings' ? null : route.project
   const routeEnv = route.view === 'env-settings' ? route.env : null
 
-  const [projects, setProjects] = useState<string[]>([])
-  const [environments, setEnvironments] = useState<string[]>([])
+  const [projectRecords, setProjectRecords] = useState<ScopeRecord[]>([])
+  const [environmentRecords, setEnvironmentRecords] = useState<ScopeRecord[]>([])
   const [loadingProjects, setLoadingProjects] = useState(true)
   const [loadingEnvironments, setLoadingEnvironments] = useState(false)
   const [error, setError] = useState('')
+
+  const projects = useMemo(() => projectRecords.map((record) => record.name), [projectRecords])
+  const environments = useMemo(
+    () => environmentRecords.map((record) => record.name),
+    [environmentRecords],
+  )
 
   const remembered = ScopeMemory.get(serverId)
   const project = routeProject ?? ScopeMemory.pick(remembered?.project, projects, loadingProjects)
@@ -53,7 +68,7 @@ export function useSettingsScope(
   const reloadProjects = useCallback(async () => {
     setLoadingProjects(true)
     try {
-      setProjects(await api.projects.list(url, apiKey))
+      setProjectRecords(await api.projects.list(url, apiKey))
     } catch (caught: any) {
       setError(caught.message || 'Failed to load projects')
     } finally {
@@ -63,12 +78,12 @@ export function useSettingsScope(
 
   const reloadEnvironments = useCallback(async () => {
     if (!project) {
-      setEnvironments([])
+      setEnvironmentRecords([])
       return
     }
     setLoadingEnvironments(true)
     try {
-      setEnvironments(await api.projects.listEnvironments(url, apiKey, project))
+      setEnvironmentRecords(await api.projects.listEnvironments(url, apiKey, project))
     } catch (caught: any) {
       setError(caught.message || 'Failed to load environments')
     } finally {
@@ -93,6 +108,8 @@ export function useSettingsScope(
     scope,
     projects,
     environments,
+    projectRecords,
+    environmentRecords,
     loadingProjects,
     loadingEnvironments,
     error,

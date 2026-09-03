@@ -26,16 +26,38 @@ export interface PortMethod {
  */
 export class ProviderPorts {
   static readonly Storage: readonly PortMethod[] = [
-    { name: "createProject", params: "project", note: "no-op if it already exists" },
-    { name: "listProjects", params: "", note: "" },
-    { name: "deleteProject", params: "project", note: "removes the record and everything beneath it" },
-    { name: "createEnvironment", params: "project, env", note: "" },
-    { name: "listEnvironments", params: "project", note: "" },
+    {
+      name: "createProject",
+      params: "name, id?",
+      note: "returns the record; existing name keeps its id, so `id` is import's to preserve",
+    },
+    { name: "listProjects", params: "", note: "returns ProjectRecord[], sorted by name" },
+    { name: "findProject", params: "name", note: "null when absent" },
+    { name: "renameProject", params: "id, name", note: "by **id**; refuses a collision" },
+    { name: "deleteProject", params: "name", note: "removes the record and everything beneath it" },
+    { name: "createEnvironment", params: "project, env, id?", note: "returns the record" },
+    { name: "listEnvironments", params: "project", note: "returns EnvironmentRecord[]" },
+    { name: "findEnvironment", params: "project, env", note: "null when absent" },
+    { name: "renameEnvironment", params: "id, name", note: "by **id**; refuses a collision" },
     { name: "deleteEnvironment", params: "project, env", note: "" },
-    { name: "putSchema", params: "scope, collection, schema", note: "" },
+    {
+      name: "listCollections",
+      params: "scope",
+      note: "returns CollectionRecord[] — the authority on what exists",
+    },
+    { name: "findCollection", params: "scope, collection", note: "null when absent" },
+    { name: "renameCollection", params: "id, name", note: "by **id**; refuses a collision" },
+    {
+      name: "putSchema",
+      params: "scope, collection, schema, id?",
+      note: "the ONLY thing that creates a collection — its schema is never null",
+    },
     { name: "getSchema", params: "scope, collection", note: "" },
-    { name: "listSchemas", params: "scope", note: "returns a Map<string, schema>" },
-    { name: "deleteSchema", params: "scope, collection", note: "" },
+    {
+      name: "deleteSchema",
+      params: "scope, collection",
+      note: "removes the whole collection record; refuses while entries remain",
+    },
     {
       name: "put",
       params: "entry, derived",
@@ -44,15 +66,29 @@ export class ProviderPorts {
     { name: "get", params: "scope, collection, id", note: "throws NotFoundError when absent" },
     { name: "delete", params: "scope, collection, id", note: "drops the entry's media usages too" },
     { name: "list", params: "scope, collection, query", note: "returns { items, total }" },
+    {
+      name: "countEntries",
+      params: "scope",
+      note: "Map<collection name, entry count>; absent means zero, so read it with ?? 0",
+    },
     { name: "listScopes", params: "", note: "sorted by (project, env); never system scopes" },
     {
       name: "listEntryCollections",
       params: "scope",
-      note: "collections holding entries — deliberately NOT the same as listSchemas",
+      note: "which collections hold entries — no longer how existence is decided",
     },
-    { name: "listMediaUsages", params: "mediaIds, opts", note: "returns { items, total }" },
+    {
+      name: "listMediaUsages",
+      params: "mediaIds, opts",
+      note: "returns { items, total }; ordered by scope NAME, resolved before the page is cut",
+    },
     { name: "countMediaUsages", params: "mediaIds", note: "returns a Map<string, number>" },
-    { name: "meta", params: "", note: "{ instance_id, last_seq } — seq is instance-global and monotonic" },
+    {
+      name: "meta",
+      params: "",
+      note: "{ instance_id, last_seq, defaults_initialized } — seq is instance-global and monotonic",
+    },
+    { name: "markDefaultsInitialized", params: "", note: "idempotent" },
     { name: "close", params: "", note: "" },
   ];
 

@@ -52,7 +52,7 @@ describe("schema $refs", () => {
 
   afterEach(async () => {
     await store.close();
-    await fs.rm(tempDir, { recursive: true, force: true }).catch(() => {});
+    await fs.rm(tempDir, { recursive: true, force: true });
   });
 
   test("local collection refs resolve and validate entries", async () => {

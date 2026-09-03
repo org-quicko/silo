@@ -85,6 +85,19 @@ export class MediaAssetService {
     return view;
   }
 
+  /** Every distinct extension actually in the library, lower case and sorted
+   *  — the Type filter's menu is built from what is really there rather than
+   *  a fixed list that drifts from it. Same unbounded `allAssets` scan
+   *  `MediaFolderService.list` already takes over the whole catalog. */
+  async listExtensions(): Promise<string[]> {
+    const extensions = new Set<string>();
+    for (const entry of await this.catalog.allAssets()) {
+      const extension = MediaExtensions.of(MediaCatalog.toAsset(entry).filename);
+      if (extension) extensions.add(extension);
+    }
+    return [...extensions].sort();
+  }
+
   /**
    * Referrers of an asset. Instance-global media meets scoped entries here: the
    * caller gets the true total but only the rows `visibility` admits (§8.1).

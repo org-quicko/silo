@@ -90,7 +90,10 @@ export class MediaRoutes {
         folder: q.folder,
         recursive: q.recursive === "true",
         type: q.type,
+        ext: q.ext,
         tag: q.tag,
+        modifiedAfter: q.modified_after,
+        modifiedBefore: q.modified_before,
         limit: q.limit === undefined ? undefined : Number(q.limit),
         offset: q.offset === undefined ? undefined : Number(q.offset),
         sort: q.sort,
@@ -101,6 +104,13 @@ export class MediaRoutes {
         limit: response.limit,
         offset: response.offset,
       });
+    });
+
+    // Registered before /api/media/:id for the same reason "delete" and
+    // "purge" are — it must never be read as an asset id.
+    app.get("/api/media/extensions", async (c: Context) => {
+      RouteAuth.requireClaim(c, Claims.MediaRead);
+      return c.json({ items: await service.media.listExtensions() });
     });
 
     app.get("/api/media/:id", async (c: Context) => {

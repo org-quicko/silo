@@ -62,7 +62,7 @@
 .backScope {
   overflow: hidden;
   color: var(--text-3);
-  font-family: var(--font-mono);
+  font-family: var(--font-ui);
   font-size: 10.5px;
   font-weight: 400;
   text-overflow: ellipsis;
@@ -154,9 +154,7 @@
 }
 
 .row.active {
-  border-color: color-mix(in oklab, var(--accent) 30%, transparent);
-  background: color-mix(in oklab, var(--accent) 12%, var(--panel));
-  box-shadow: inset 2px 0 0 var(--accent);
+  background: var(--accent-soft);
 }
 
 .navItem {

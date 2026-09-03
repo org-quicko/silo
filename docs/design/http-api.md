@@ -11,10 +11,14 @@ Hono web framework on Bun. JSON everywhere. Admin UI served at `/`; API under `/
 |--------|------|-------|
 | GET | `/api/health` | liveness + version |
 | GET | `/api/session` | authenticated key label, prefix, and effective claims |
-| GET / POST | `/api/projects` | list scopes (filtered by claims) / create scope (`{project, env}`) |
+| GET / POST | `/api/projects` | list projects as `{id, name}` (filtered by claims) / create one. `id` is the record's ULID; `name` is what every path addresses (D51) |
+| PATCH | `/api/projects/{project}` | rename (`{name}`), bound to `?expected_id=`, previewable with `?dry_run=true` (`RenamePermissions` at `{project}/*/*`, at **both** names — D51) |
+| PATCH | `/api/projects/{project}/envs/{env}` | rename an environment, same shape and reach `{project}/{env}/*` (D51) |
 | DELETE | `/api/projects/{project}/envs/{env}` | delete scope and its collections (`?force=true`, which also requires `entries:delete` across the scope — D37) |
-| GET / POST | `/api/projects/{project}/envs/{env}/collections` | list / create (body: `{name, schema}`) |
-| GET / PUT / DELETE | `/api/projects/{project}/envs/{env}/collections/{name}/schema` | schema fetch / update / delete (`?force=true` also requires `entries:delete` — D37) |
+| GET / POST | `/api/projects/{project}/envs/{env}/collections` | list / create (body: `{name, schema}`). Since D54 a listed item is a **summary** — `{id, name, entries, requires_auth, created_at, updated_at}` — and carries **no schema**: a schema is the largest thing a collection holds and the one thing a list of them never draws, and the entry count comes with it rather than costing a request each |
+| GET | `/api/projects/{project}/envs/{env}/schemas` | every schema in the scope, as stored, for a caller that genuinely reads across all of them — the admin's search bar matching a collection by one of its *field* names is the one such caller (D54). A sibling of `collections`, not a path beneath it: `schemas` is a legal collection name, so `/collections/schemas` would shadow that collection's own entry list |
+| PATCH | `/api/projects/{project}/envs/{env}/collections/{name}` | rename a collection, and repoint every `$ref` to it — additionally requires `collections:schema:update` on **every referring collection** (D51) |
+| GET / PUT / DELETE | `/api/projects/{project}/envs/{env}/collections/{name}/schema` | schema fetch / update / delete (`?force=true` also requires `entries:delete` — D37). The `GET` **bundles on the way out** (D54): `PUT` already embeds every referenced collection's schema into `$defs` transitively, but only as of that save, so a target whose shape changed since was embedded as it was then. Re-resolving on read is what makes one schema a document a client can render on its own — and what makes fetching every schema in the scope unnecessary rather than merely wasteful |
 | GET / POST | `/api/projects/{project}/envs/{env}/collections/{name}` | list (query below) / create |
 | GET / PUT / DELETE | `/api/projects/{project}/envs/{env}/collections/{name}/{id}` | PUT is full replace |
 | GET | `/api/projects/{project}/envs/{env}/collections/{name}/search` | search one collection (§5.5) |
@@ -22,7 +26,7 @@ Hono web framework on Bun. JSON everywhere. Admin UI served at `/`; API under `/
 | GET | `/api/search` | search the instance |
 | POST | `/api/search/reindex` | rebuild the index; export-level read claims |
 | GET | `/api/export` | streams tar.gz (`transfer:export` + `media:read`; `keys:export` when including keys) |
-| POST | `/api/import?mode=` | accepts tar.gz (`transfer:import` + `media:create`, plus `media:delete` in replace mode; archives containing keys also require `keys:import`) |
+| POST | `/api/import?mode=` | streams in a tar.gz — a raw body, or a `multipart/form-data` `file` part (`transfer:import` + `media:create`, plus `media:delete` in replace mode; archives containing keys also require `keys:import`) |
 | POST | `/api/copy` | pulls and imports another silo (`{source_url, source_api_key, mode, with_keys, dry_run, validate, prefer}`; `transfer:copy`) |
 | GET / POST | `/api/keys` | list (`keys:read`) / create (`keys:create`); create returns the secret exactly once |
 | DELETE | `/api/keys/{id}` | revoke a key (`keys:revoke`, **and** the authority to have minted it — D37) |
@@ -50,6 +54,7 @@ Hono web framework on Bun. JSON everywhere. Admin UI served at `/`; API under `/
 | POST | `/api/plugins/rescan` | re-read `silo.toml` and apply it (`plugins:enable`); reports per plugin rather than refusing on one |
 | ALL | `/api/ext/{name}/*` | the routes a plugin declares (D36); see the note below |
 | GET | `/api/audit` | authority changes, newest first (`audit:read`); `?subject=` filters to one key id or plugin name |
+| GET | `/api/observability` | bounded process-lifetime API, latency, memory/CPU, and local-storage metrics (`observability:read`) |
 
 **List query encoding:** `?filter=<url-encoded JSON Filter>&sort=-$.updated_at,$.data.title&limit=50&offset=0`. Since D29 both `filter` paths and `sort` keys are RFC 9535 JSONPath over the API response shape (§5.3); the pre-D29 `author.name` / `$id` spellings are rejected. Response: `{"data": [...], "total": n, "limit": ..., "offset": ...}`. The search routes (§5.5) take the same `filter`, `sort`, `limit` and `offset`, plus `q`.
 
@@ -60,7 +65,7 @@ Hono web framework on Bun. JSON everywhere. Admin UI served at `/`; API under `/
 **Auth: claims-based API keys, Shlink-style.** No users or browser sessions: a presented key authenticates a request and its claims authorize individual operations. Claims are deny-by-default. Anonymous collection schema and entry reads remain public within their scope unless the schema sets `"x-silo-auth": true`. When a key is presented, its claims become the visibility boundary and even public collections require the corresponding read claim.
 
 - **Format & storage:** `silo_` + 32 random bytes base64url. Only the SHA-256 hash is stored, as an entry in the `_keys` system collection (§5.4) with label, validated `claims` array, display prefix (`silo_ab12…`), and the usual envelope. Lookup = hash the presented key, exact-match fetch. The plaintext secret exists only in the creation response.
-- **Claims:** root `*`; `collections:<project>/<env>/<name>:create|delete|schema:read|schema:update|access:update|entries:create|entries:read|entries:update|entries:delete`; `media:read|create|delete`; `keys:read|create|revoke|export|import`; `transfer:export|import|copy`; `plugins:read|configure|grant|enable`; `audit:read`; and `http:route`. Each segment (`project`, `env`, `name`) independently supports `*` wildcards (e.g. `collections:acme/*/*:entries:read`, `collections:*/prod/*:...`). Action wildcards are invalid.
+- **Claims:** root `*`; `collections:<project>/<env>/<name>:create|delete|schema:read|schema:update|access:update|entries:create|entries:read|entries:update|entries:delete`; `media:read|create|delete`; `keys:read|create|revoke|export|import`; `transfer:export|import|copy`; `plugins:read|configure|grant|enable`; `audit:read`; `observability:read`; and `http:route`. Each segment (`project`, `env`, `name`) independently supports `*` wildcards (e.g. `collections:acme/*/*:entries:read`, `collections:*/prod/*:...`). Action wildcards are invalid.
 - **Non-escalating delegation:** `keys:create` permits minting a key only when every requested claim is already covered by the caller. A segment wildcard can delegate matching named segments; named segments cannot widen to wildcards.
 - **No legacy translation:** stored role/collection-allowlist key records are rejected rather than upgraded implicitly.
 - **Presets:** `read`, `write`, `manage`, `root` — a ladder, each including the one before it. `read` is `schema:read` + `entries:read`; `write` adds the three entry mutations; `manage` adds collection lifecycle (`create`, `schema:update`, `access:update`, `delete`); `root` is `*`. Non-root presets also carry media claims (`media:read`, plus create/delete from `write` up). A preset expands over one or more `project/env/collection` targets and is otherwise just a claim set — nothing is stored on a key but its claims.
@@ -69,10 +74,71 @@ Hono web framework on Bun. JSON everywhere. Admin UI served at `/`; API under `/
 - **Revocation is bounded the way minting is (D37):** `DELETE /api/keys/{id}` requires `keys:revoke` **and** that `canDelegate` accept the target key's claims — if you could not have minted a key this powerful, you may not destroy one. Without the bound, the narrowest key holding `keys:revoke` could revoke root and leave the instance with no administrative credential, which is unrecoverable without filesystem access. A key still revokes itself, since a claim list always covers itself. Managed plugin keys are refused separately, naming `silo plugin revoke` (D34).
 - **`?force=true` is a second operation, not a modifier (D37):** without it, the collection, environment and project delete routes refuse while content exists, so `collection:delete` alone is an honest ask. With it, the same request erases every entry underneath — asking for no revision — so it additionally requires `entries:delete` at the reach it destroys: the collection, `{project}/{env}/*`, or `{project}/*/*`. Same rule `replace` mode applies to import and to scope copy. Since D36 it also dispatches one `collection.afterDelete` per erased collection, after the write lock is released, carrying how many entries went and whether the scope above it went too — before that it dispatched nothing at all, and an auditing plugin saw entries appear and never saw them go (D37's F6).
 - **Every authority change is recorded (D38):** minting and revoking a key, and granting, revoking, enabling or disabling a plugin, append to the reserved `_audit` collection — written by the services, so the offline CLI is in the trail too. Read it with `GET /api/audit` (`audit:read`, carried by `manage` and `root`). There is no write or delete route and no `audit:write` claim: nothing updates an event, so a claim guarding that would imply a capability that does not exist. `_audit` is excluded from every archive, like every other `_`-prefixed collection but `_keys`.
+- **Operating metrics are aggregate and low-cardinality:** `GET /api/observability` groups requests by Hono's registered method and route pattern, never by the requested path. It retains process-lifetime counters and sixty one-minute chart buckets, with bounded latency histograms rather than individual requests. Query strings, route parameters, caller identities, bodies, credentials, content and filesystem paths never enter it. Latency percentiles are bucket upper bounds clamped to the slowest request observed, so one never reads above the `max` beside it. Memory and cumulative CPU time are sampled from the process; local directory size and filesystem capacity are cached background probes that do not follow symlinks and stop after 50,000 entries. The data and media directory figures are disjoint — the data walk skips the media subtree when the library is nested inside it, which it is by default. Remote-provider capacity is `null`, not guessed. `observability:read` is carried by `manage` and `root`, is grantable to a plugin, and has no write counterpart.
 - **Plugins reach this table in-process (D35):** a plugin's `ctx.fetch` is dispatched against the same Hono app, with its principal attached by the host on the `env` argument under a module-private symbol rather than presented as a header — so `AuthMiddleware` reads it *before* the `--no-auth` branch and every guard below applies unchanged. Two consequences for anyone adding a route: it is a plugin capability the moment it exists, so a route asking for less authority than it exercises is a plugin escalation and not merely a bug (D37); and a dispatched request has **no origin**, so `RequestUtils.getBaseUrl` returns `""` and media references reach a plugin as stored rather than expanded against a host that does not exist. Only `/api/` is reachable — the SPA fallback and `/media/{id}` sit outside the auth middleware entirely. §13.15 of [plugins.md](plugins.md).
 - **A default grant is what the package says it requires (D36):** a manifest splits its `permissions` into `required` and `optional`, each entry carrying the author's `reason`, and `PUT .../grant` with no `claims` approves the required half. It read *everything requested* before the split, which is the same answer for a package declaring nothing optional and the wrong one for a package that does — a default approving the optional half would make the word mean nothing. `required` is stored on the record beside `requested`, because this surface acts on the record and never on the filesystem (D38), and the reasons come from the package because they are documentation rather than authority. §13.19 of [plugins.md](plugins.md).
 - **Plugins also serve routes of their own, under `/api/ext/{name}/*` (D36):** declared statically in the manifest, gated by `http:route` — which since D36 is **derived** from the declared routes rather than written out by the author — and each declaring `auth: "key"` (any authenticated key) or `"public"` (no credential). silo matches them itself against that list rather than letting a plugin register anything, so a plugin can neither shadow nor reorder a route in this table, and the set is resolved per request — enable, disable, revoke and rescan therefore apply to routes as they do to hooks (D39). A handler runs with **the plugin's** authority and not the caller's, which is why exposure is a claim and why `public` is called out separately: it publishes whatever the plugin was granted at a URL anyone can reach. The caller's `Authorization`, `X-Api-Key` and `Cookie` are withheld from the handler, which receives an id, a label and claims instead. A thrown `ValidationError` or `ForbiddenError` maps to 400/403 through the same `onError` as everything else; a handler that misses `timeout_ms` is a 504 naming `POST /api/plugins/{name}/restart`; a request body is bounded by the route's own declared `body` — text and 1 MiB unless the manifest says `{"kind": "bytes", "max_bytes": n}` up to silo's 64 MiB ceiling (D41) — and **refused** past it rather than truncated, since a plugin cannot tell a body it was not given from one that was never sent. A `bytes` route is handed `request.bytes` and no text. `HEAD` reaches a declared `GET`, as it does everywhere else in this table. §13.18 of [plugins.md](plugins.md).
 - The UI stores each saved server's key in `localStorage` (`silo_servers`), verifies it with `GET /api/session`, and sends it as a header on every request; no cookies, so no CSRF surface. Any `401` returns the UI to the server manager.
+- **A project, environment or collection can be renamed (D51):** three `PATCH`
+  routes taking `{name}`. Authority is `RenamePermissions =
+  [collections:create, collections:delete]` at the subject's own reach —
+  `{project}/*/*`, `{project}/{env}/*`, or the one collection — checked at
+  **both** the old and the new name, so a key scoped to one namespace cannot
+  move a project into another. Neither permission suffices alone: `create`
+  would let a caller who may only add collections retire an existing name, and
+  `delete` would let one who may only remove them introduce a new one on
+  content it cannot otherwise write to. A rename is bound to `?expected_id=`,
+  because a name-addressed mutation can arrive after the thing it named was
+  renamed and something else took the name; a mismatch is a `409`.
+  `?dry_run=true` answers the same body and writes nothing.
+
+  **What the response carries is the interesting part.** A rename rewrites claim
+  strings — they name these things by name, and they stay that way, because a
+  ULID fails the claim grammar's id pattern and ULID claims would be unreadable
+  and would break the cross-instance key portability `--with-keys` exists for. So
+  the rewrite turns on one distinction: **a literal segment is a reference and is
+  rewritten; a wildcard segment is a pattern over names and never is.**
+  `collections:*/dev/*:entries:read` means "any project's `dev`" and already
+  matches scopes that do not exist yet, which is what independent per-segment
+  wildcards are *for* (D19) — so rewriting it to `*/prod/*` would silently change
+  authority in every project on the instance, while leaving it alone genuinely
+  changes what the key reaches. Both readings are correct and neither is a
+  rewrite, so the answer is **disclosure**: the body carries `rewritten_claims`
+  and `pattern_affected_claims` separately, the audit `detail` records both, and
+  the admin prints both before asking for confirmation. Nothing else in the
+  product would ever tell an operator that a key's reach moved without its
+  claims changing.
+
+  The rewrite covers `_keys` and `_plugins`, and is **staged**: a
+  `_scope_renames` marker carrying the enumerated record ids — a bounded
+  worklist, not a re-derived query, which would rewrite the wrong records if a
+  new project took the freed name first — written before the first rewrite and
+  cleared after the last, replayed by `resumePending` **before plugins load**,
+  since a plugin boots on the authority its record holds. The marker doubles as
+  a **name reservation**, which is what makes that replay safe to be non-fatal
+  the way D23's and D49's resumes are: nothing can have taken the old name in
+  the meantime. A plugin whose grant moved is restarted onto it. Completeness is
+  a correctness requirement rather than a nicety, because D34 checks `hooks:`
+  claims *before* an event crosses into a worker, so a claim the cascade missed
+  stops hook delivery with no error anyone sees.
+
+  `silo.toml`'s `[[plugins]] claims` half is **refused rather than rewritten**.
+  Effective plugin authority is config ∪ record, so a rename that rewrote only
+  the record would leave the file naming a scope that no longer exists — and
+  rewriting the file is the thing D34 forbids in as many words: an API able to
+  write it is a code-execution primitive wearing a management claim. So the
+  rename stops with a `409` naming the blocks and leaves the edit to the
+  operator. Fail closed, rather than complete three quarters of an authority
+  change.
+
+  A **collection** rename additionally rewrites the schema graph, because
+  `$ref`s address collections by name: every referring schema's `$ref` strings,
+  self-references included, and the `$defs` keys `SchemaBundler` derives from
+  collection names — stripped and re-bundled rather than patched, since the
+  bundler regenerates what it owns and would otherwise leave the old key behind
+  forever. The whole graph is validated before anything is written, and
+  `collections:schema:update` is asked for on every referrer up front rather
+  than discovered half way through.
 
 ### 8.1 Media: catalog, folders, search, and reference integrity (D23)
 

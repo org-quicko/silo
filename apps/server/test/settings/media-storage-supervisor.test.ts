@@ -78,7 +78,7 @@ describe("MediaStorageSupervisor", () => {
       else process.env[key] = value;
     }
     await store.close();
-    await fs.rm(dir, { recursive: true, force: true }).catch(() => {});
+    await fs.rm(dir, { recursive: true, force: true });
   });
 
   test("the view separates what the file holds from what is in force", async () => {

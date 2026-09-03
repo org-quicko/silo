@@ -1,17 +1,50 @@
+/* Text only, no icon (M3: "avoid adding icons to snackbars") — and no
+   transparency, so the label stays legible over any content behind it. */
 .toast {
   position: fixed;
   bottom: 24px;
   left: 50%;
   z-index: 60;
   display: flex;
+  max-width: min(560px, calc(100vw - 48px));
   align-items: center;
-  gap: 8px;
-  padding: 9px 16px;
+  gap: 16px;
+  padding: 11px 18px;
   transform: translateX(-50%);
   border: 1px solid var(--line-2);
-  border-radius: 999px;
+  border-radius: 10px;
   background: var(--panel-2);
   box-shadow: var(--shadow-modal);
-  color: var(--text);
-  font-size: 12.5px;
+  animation: toast-in 0.16s ease-out;
 }
+
+@keyframes toast-in {
+  from { opacity: 0; transform: translate(-50%, 6px); }
+  to { opacity: 1; transform: translate(-50%, 0); }
+}
+
+.message {
+  overflow: hidden;
+  color: var(--text);
+  font-size: 13px;
+  line-height: 1.4;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* A plain text button, per the guideline — never filled or elevated, which
+   would draw more attention than a low-priority snackbar should. */
+.action {
+  flex: none;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--accent);
+  cursor: pointer;
+  font-family: var(--font-ui);
+  font-size: 13px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.action:hover { text-decoration: underline; }

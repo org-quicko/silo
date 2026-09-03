@@ -1,0 +1,27 @@
+/* The handle straddles the boundary between two headings. Its hairline rests at
+   the same weight as the row rules, so the columns read as a grid; the heading
+   supplies a brighter `--resizer-line` on hover, which costs no shared class
+   name, and the handle itself goes accent while it is grabbed. */
+.resizer {
+  position: absolute;
+  z-index: 1;
+  top: 0;
+  right: -4px;
+  bottom: 0;
+  width: 9px;
+  cursor: col-resize;
+  touch-action: none;
+}
+
+.line {
+  position: absolute;
+  top: 6px;
+  bottom: 6px;
+  left: 4px;
+  width: 1px;
+  background: var(--resizer-line, var(--line));
+  transition: background 0.12s;
+}
+
+.resizer:hover .line,
+.dragging .line { background: var(--accent); }

@@ -96,7 +96,7 @@ describe("a scaffolded plugin, loaded the way serve loads one", () => {
     await registry?.stop();
     registry = null;
     await store.close();
-    await fs.rm(tempDir, { recursive: true, force: true }).catch(() => {});
+    await fs.rm(tempDir, { recursive: true, force: true });
   });
 
   test("the default scaffold loads and rewrites an entry", async () => {

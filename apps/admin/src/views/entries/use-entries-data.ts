@@ -1,10 +1,12 @@
-import { useEffect, useRef, useState } from 'react'
+import { useCallback } from 'react'
 import type { Filter } from '@silo/shared/filter'
-import { JsonPath } from '@silo/shared/json-path'
-import { api } from '../../api/silo-api'
-import type { Entry } from '../../api/types/entry'
 import type { ScopeRef } from '../../api/types/scope-ref'
 import type { SearchSnippet } from '../../api/types/search-snippet'
+import type { Entry } from '../../api/types/entry'
+import { store } from '../../store/store'
+import { StoreKeys } from '../../store/store-keys'
+import { useResource } from '../../store/use-resource'
+import { EntriesPageRequest, type EntriesPageQuery } from './entries-page-request'
 
 export interface EntriesDataState {
   entries: Entry[]
@@ -17,20 +19,20 @@ export interface EntriesDataState {
   reload: () => Promise<void>
 }
 
+const EMPTY_SNIPPETS: Record<string, SearchSnippet[]> = {}
+const NO_ENTRIES: Entry[] = []
+
 /**
- * One loader for both routes the entries page can be showing. Text runs the
- * collection-reach `/search` (D30), which ranks and explains itself with
- * snippets; without text the plain list route answers, because a
- * filter-only search returns the same set in a shape the table does not
- * need. Split out of `Entries.tsx` so "how results get here" stays apart
- * from "how they're drawn" — that view is already the widest thing in this
- * feature.
+ * One page of the entries table, read from the store (§9.1).
  *
- * Responses are ticketed rather than cancelled: typing fires several, and
- * they can land out of order — the last one *asked for* must win, not the
- * last one to arrive.
+ * Every distinct query is its own cache key, which is what retired the response
+ * ticketing this used to need: typing fires several requests and they can land
+ * out of order, but each writes only its own key, so the one the URL is asking
+ * for is the one on screen. Paging back to a page already answered is a cache
+ * read, and the previous answer stays visible while a new one is in flight.
  */
 export function useEntriesData({
+  serverId,
   url,
   apiKey,
   scope,
@@ -43,13 +45,14 @@ export function useEntriesData({
   filter,
   filterError,
 }: {
+  serverId: string
   url: string
   apiKey: string
   scope: ScopeRef
   collection: string
   offset: number
   limit: number
-  /** `null` means nobody chose one (§5.5) — that's what lets a search rank by relevance and an empty query fall back to newest-first, rather than both always sending the same default. */
+  /** `null` means nobody chose one (§5.5). */
   explicitSort: string | null
   desc: boolean
   q: string
@@ -58,94 +61,53 @@ export function useEntriesData({
   /** Set when the URL's `?filter=` could not be read at all. Refuses to load rather than showing an unfiltered list under a URL that claims to be filtered. */
   filterError: string | null
 }): EntriesDataState {
-  const [entries, setEntries] = useState<Entry[]>([])
-  const [snippets, setSnippets] = useState<Record<string, SearchSnippet[]>>({})
-  const [total, setTotal] = useState(0)
-  const [truncated, setTruncated] = useState(false)
-  const [engine, setEngine] = useState<'fts5' | 'scan' | null>(null)
-  const [error, setError] = useState('')
-  const [loading, setLoading] = useState(true)
-  const searching = q.trim() !== ''
-  const seq = useRef(0)
+  const query: EntriesPageQuery = { offset, limit, sort: explicitSort, desc, q: q.trim(), filter }
+  const key = filterError ? null : StoreKeys.entryPage(serverId, scope, collection, query)
 
-  const load = (): Promise<void> => {
-    const ticket = ++seq.current
-    const fresh = () => seq.current === ticket
-    setLoading(true)
+  const state = useResource(
+    key,
+    () => EntriesPageRequest.load(url, apiKey, scope, collection, query),
+    { keepPrevious: true },
+  )
 
-    if (filterError) {
-      setEntries([])
-      setSnippets({})
-      setTotal(0)
-      // Cleared with the rest of it: an engine badge left over from the last
-      // answered search would sit in the bar claiming this refusal came from
-      // somewhere.
-      setEngine(null)
-      setTruncated(false)
-      setError(filterError)
-      setLoading(false)
-      return Promise.resolve()
+  const reload = useCallback(
+    () =>
+      key
+        ? store
+            .refresh(key, () => EntriesPageRequest.load(url, apiKey, scope, collection, query))
+            .then(() => undefined)
+        : Promise.resolve(),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [key, url, apiKey, collection],
+  )
+
+  // A failure empties the table rather than keeping what `keepPrevious` holds.
+  // That answer was for a different query, and a list under a message saying it
+  // could not be loaded is the one wrong thing this page can show — which is
+  // most of the point of `filterError`, where the query was never even sent.
+  const failure = filterError ?? state.error
+  if (failure) {
+    return {
+      entries: NO_ENTRIES,
+      snippets: EMPTY_SNIPPETS,
+      total: 0,
+      truncated: false,
+      engine: null,
+      error: failure,
+      loading: filterError ? false : state.loading,
+      reload,
     }
-
-    const request = searching
-      ? api
-          .search.run(
-            url,
-            apiKey,
-            { kind: 'collection', scope, collection },
-            {
-              q: q.trim(),
-              filter,
-              // Omitted rather than defaulted: a supplied sort beats
-              // relevance (§5.5), so sending one "just to be explicit" would
-              // silently turn every text search into a date listing.
-              sort: explicitSort ? (desc ? '-' : '') + explicitSort : undefined,
-              limit,
-              offset,
-            },
-          )
-          .then((r) => {
-            if (!fresh()) return
-            setEntries(r.items.map((h) => h.entry))
-            setSnippets(Object.fromEntries(r.items.map((h) => [h.entry.id, h.snippets])))
-            setTotal(r.total)
-            setTruncated(r.truncated)
-            setEngine(r.engine)
-          })
-      : api
-          .entries.list(url, apiKey, scope, collection, {
-            limit,
-            offset,
-            sort: (desc ? '-' : '') + (explicitSort ?? JsonPath.UpdatedAt),
-            filter: filter ?? undefined,
-          })
-          .then((r) => {
-            if (!fresh()) return
-            setEntries(r.items)
-            setSnippets({})
-            setTotal(r.total)
-            setTruncated(false)
-            setEngine(null)
-          })
-
-    return request
-      .then(() => fresh() && setError(''))
-      .catch((e: unknown) => {
-        if (!fresh()) return
-        setEntries([])
-        setSnippets({})
-        setTotal(0)
-        setError(e instanceof Error ? e.message : 'Could not load entries')
-      })
-      .then(() => {
-        if (fresh()) setLoading(false)
-      })
   }
 
-  useEffect(() => {
-    load()
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [url, apiKey, scope.project, scope.env, collection, offset, explicitSort, desc, q, filter, filterError])
-
-  return { entries, snippets, total, truncated, engine, error, loading, reload: load }
+  const page = state.value
+  return {
+    entries: page?.entries ?? NO_ENTRIES,
+    snippets: page?.snippets ?? EMPTY_SNIPPETS,
+    total: page?.total ?? 0,
+    truncated: page?.truncated ?? false,
+    engine: page?.engine ?? null,
+    error: '',
+    loading: state.loading,
+    reload,
+  }
 }

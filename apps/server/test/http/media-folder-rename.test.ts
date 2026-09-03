@@ -29,7 +29,7 @@ describe("media folder rename (D49)", () => {
 
   afterEach(async () => {
     await store.close();
-    await fs.rm(tempDir, { recursive: true, force: true }).catch(() => {});
+    await fs.rm(tempDir, { recursive: true, force: true });
   });
 
   const patch = (body: unknown) =>
@@ -283,7 +283,7 @@ describe("media folder rename saga (D49)", () => {
 
   afterEach(async () => {
     await store.close();
-    await fs.rm(tempDir, { recursive: true, force: true }).catch(() => {});
+    await fs.rm(tempDir, { recursive: true, force: true });
   });
 
   const bytes = () => new TextEncoder().encode("x");

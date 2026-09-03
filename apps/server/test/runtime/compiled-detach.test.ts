@@ -49,6 +49,9 @@ describe("silo serve --detach, compiled", () => {
 
   afterAll(async () => {
     for (const pid of started) await Daemon.terminate(pid, 5_000).catch(() => {});
+    // Forgiving here, and only here: the directory holds the compiled binary a
+    // detached child was executed from, and Windows keeps the image mapped for
+    // as long as that process takes to go, which nothing here can wait on.
     for (const dir of dirs) await fs.rm(dir, { recursive: true, force: true }).catch(() => {});
   });
 

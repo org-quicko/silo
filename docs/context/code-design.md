@@ -12,7 +12,7 @@
   The one exception is the admin UI, where React components and hooks are
   functions because that is React's contract. Everything in the UI that is
   *not* a component or a hook is still a class: `SchemaDraft`, `FilterModel`,
-  `ByteSize`, `ThemeManager`.
+  `ByteSize`, `ThemeManager`, `Store`, `StoreKeys`.
 
 - **One artifact per file.** Every exported class, interface, standalone
   function and React component gets its own file. The exception is a type that

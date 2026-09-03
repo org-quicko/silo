@@ -1,11 +1,7 @@
 import type { Context } from "hono";
 import { Claims } from "@silo/shared/claims";
-import fs from "fs/promises";
-import path from "path";
-import os from "os";
 import type { SiloService } from "../../core/services/silo-service";
 import { ValidationError } from "@silo/shared/validation-error";
-import { EntryUtils } from "../../core/domain/entry-utils";
 import { RouteAuth } from "../auth/route-auth";
 
 export class TransferRoutes {
@@ -20,18 +16,16 @@ export class TransferRoutes {
       RouteAuth.requireClaim(c, Claims.MediaRead);
       const withKeys = c.req.query("with_keys") === "true";
       if (withKeys) RouteAuth.requireClaim(c, Claims.KeysExport);
-      const tempFile = path.join(os.tmpdir(), `silo-export-${EntryUtils.newID()}.tar.gz`);
-
-      await service.transfer.exportTarGz(tempFile, {
-        withKeys,
-      });
-
-      const fileBuffer = await fs.readFile(tempFile);
-      await fs.unlink(tempFile);
+      // Streamed rather than read into a Buffer: an archive carries the whole
+      // media library, so buffering it made the response cost as much memory
+      // as the instance holds and failed on a small host instead of merely
+      // being slow. The export walk is awaited inside, so a storage or blob
+      // error still becomes an error response rather than a truncated body.
+      const archive = await service.transfer.exportTarGzStream({ withKeys });
 
       c.header("Content-Type", "application/gzip");
       c.header("Content-Disposition", 'attachment; filename="silo-export.tar.gz"');
-      return c.body(fileBuffer);
+      return c.body(archive);
     });
 
     app.post("/api/import", async (c: Context) => {
@@ -52,23 +46,34 @@ export class TransferRoutes {
       const dryRun = c.req.query("dry_run") === "true";
       const prefer = c.req.query("prefer") as "local" | "remote" | undefined;
 
-      let buffer: Buffer;
+      // Both branches hand the importer a stream rather than a `Buffer`. An
+      // archive carries every media byte, so reading the upload whole cost as
+      // much memory as the source instance's library.
+      let archive: ReadableStream<Uint8Array>;
       const contentType = c.req.header("Content-Type") || "";
 
       if (contentType.startsWith("multipart/form-data")) {
+        // `parseBody` reads the form to find the part, so this branch is still
+        // bounded by whatever the runtime does with a large upload — taking
+        // the part's own stream drops the second full copy on top of it, and
+        // is as far as a multipart body goes without a streaming parser. The
+        // admin sends the archive as a raw body for exactly this reason; the
+        // branch stays for `curl -F` and anything else already posting a form.
         const body = await c.req.parseBody();
         const file = body.file as any;
-        if (!file) {
+        if (!file || typeof file.stream !== "function") {
           throw new ValidationError("missing file in form data");
         }
-        const arrayBuffer = await file.arrayBuffer();
-        buffer = Buffer.from(arrayBuffer);
+        archive = file.stream();
       } else {
-        const arrayBuffer = await c.req.arrayBuffer();
-        buffer = Buffer.from(arrayBuffer);
+        const raw = c.req.raw.body;
+        if (!raw) {
+          throw new ValidationError("missing archive in request body");
+        }
+        archive = raw;
       }
 
-      const response = await service.transfer.importTarGz(buffer, {
+      const response = await service.transfer.importTarGzStream(archive, {
         mode,
         validate,
         dryRun,

@@ -1,20 +1,18 @@
 import { MoreHorizontal } from 'lucide-react'
-import { JsonPath } from '@silo/shared/json-path'
-import type { ReactNode } from 'react'
+import { useEffect, useRef, type ReactNode } from 'react'
 import { Formatters } from '../../utils/formatters'
 import type { Entry } from '../../api/types/entry'
 import type { MediaAsset } from '../../api/types/media-asset'
 import type { SearchSnippet } from '../../api/types/search-snippet'
+import { SchemaType } from '../../schema/schema-type'
 import { CellValue } from './CellValue'
+import { ColumnWidths } from './column-widths'
+import { EntriesTableHead } from './EntriesTableHead'
+import { EntryLabels } from './entry-labels'
 import { RowMenu } from './RowMenu'
 import { Snippets } from './Snippets'
 import table from '../../components/data/DataTable.module.css'
 import styles from './Entries.module.css'
-
-function isNumeric(schema: any, name: string): boolean {
-  const type = schema?.properties?.[name]?.type
-  return type === 'number' || type === 'integer'
-}
 
 /**
  * The entries grid itself — header, rows, empty state — split out of
@@ -27,10 +25,14 @@ export function EntriesTable({
   primary,
   sub,
   extra,
-  gridCols,
+  widths,
+  onResizeColumn,
+  onResetColumn,
   mediaById,
   baseUrl,
   snippets,
+  cursor,
+  onCursorChange,
   sortIcon,
   onToggleSort,
   onEditEntry,
@@ -40,16 +42,23 @@ export function EntriesTable({
   canDelete,
   onDeleteRow,
   emptyMessage,
+  pagination,
 }: {
   schema: any
   entries: Entry[]
   primary: string | null
   sub: string | null
   extra: readonly string[]
-  gridCols: string
+  /** Column name → the width its reader dragged it to; absent means the table sizes it. */
+  widths: Record<string, number>
+  onResizeColumn: (name: string, width: number) => void
+  onResetColumn: (name: string) => void
   mediaById: Record<string, MediaAsset>
   baseUrl?: string
   snippets: Record<string, SearchSnippet[]>
+  /** The row the keyboard is on, by index; `null` when it is on none of them. */
+  cursor: number | null
+  onCursorChange: (index: number | null) => void
   sortIcon: (path: string) => ReactNode
   onToggleSort: (path: string) => void
   onEditEntry: (e: Entry) => void
@@ -60,49 +69,84 @@ export function EntriesTable({
   onDeleteRow: (e: Entry) => void
   /** Shown when nothing matched — the caller knows *why* (a search or a filter). `null` while a request is still in flight, so a stale "nothing here" never flashes before the real answer arrives. */
   emptyMessage: string | null
+  /** Rendered as the card's own last row, not a block below it — the card's
+   *  `overflow: hidden` then clips it to the same rounded corners and border
+   *  rather than leaving it looking like a second, separate panel. */
+  pagination?: ReactNode
 }) {
-  const label = (e: Entry) => (primary ? String(e.data?.[primary] ?? Formatters.shortId(e.id)) : Formatters.shortId(e.id))
+  const label = (e: Entry) => EntryLabels.of(e, primary, schema)
+  // The id is the fallback title as well as the default subtitle, and an entry
+  // with nothing nameable in it would otherwise print it on both lines.
+  const subtitle = (e: Entry) => {
+    const under = sub ? String(e.data?.[sub] ?? '') : Formatters.shortId(e.id)
+    return under === label(e) ? '' : under
+  }
+
+  // Numbers render right-aligned in the cell (handoff 1e), so the heading and
+  // the cell's own em-dash follow them over: a left heading above a right
+  // column reads as two different columns, and a dash parked on the left of one
+  // reads as a different column again.
+  const numeric = new Set(extra.filter((column) => SchemaType.isNumeric(schema?.properties?.[column])))
+
+  // `--cols` sits on the card and inherits, so a drag can repaint the grid by
+  // writing one property on one element rather than re-rendering every row per
+  // frame. The label column and `Updated` are two of the data columns a width
+  // has to be left for.
+  const card = useRef<HTMLDivElement>(null)
+  // The cursor row is the focused element, so moving the cursor moves focus:
+  // the browser scrolls it into view and a screen reader reads the row it lands
+  // on, neither of which a painted-on highlight would do.
+  const cursorRow = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    if (cursor !== null) cursorRow.current?.focus()
+  }, [cursor])
+
+  const resize = {
+    clamp: (width: number) => ColumnWidths.clamp(width, ColumnWidths.max(card.current?.clientWidth ?? 0, extra.length + 2)),
+    preview: (name: string, width: number) =>
+      card.current?.style.setProperty('--cols', ColumnWidths.template(extra, { ...widths, [name]: width })),
+    commit: onResizeColumn,
+    reset: onResetColumn,
+  }
 
   return (
-    <div className="card">
-      <div className={`${table.header} ${table.table}`} style={{ ['--cols' as any]: gridCols }}>
-        <span className={table.sortable} onClick={() => primary && onToggleSort(JsonPath.dataField(primary))}>
-          {primary || 'ID'} {primary && sortIcon(JsonPath.dataField(primary))}
-        </span>
-        {extra.map((c) => (
-          <span
-            key={c}
-            // Numbers render right-aligned in the cell (handoff 1e), so their
-            // heading follows them over — a left heading above a right column
-            // reads as two different columns.
-            className={`${table.sortable} ${isNumeric(schema, c) ? styles.numericHead : ''}`}
-            onClick={() => onToggleSort(JsonPath.dataField(c))}
-          >
-            {c} {sortIcon(JsonPath.dataField(c))}
-          </span>
-        ))}
-        <span className={table.sortable} onClick={() => onToggleSort(JsonPath.UpdatedAt)}>
-          Updated {sortIcon(JsonPath.UpdatedAt)}
-        </span>
-        <span />
-      </div>
+    <div className="card" ref={card} style={{ ['--cols' as any]: ColumnWidths.template(extra, widths) }}>
+      <EntriesTableHead
+        primary={primary}
+        extra={extra}
+        numeric={numeric}
+        sortIcon={sortIcon}
+        onToggleSort={onToggleSort}
+        resize={resize}
+      />
 
-      {entries.map((e) => (
+      {entries.map((e, index) => (
         <div
           key={e.id}
-          className={`${table.row} ${table.clickable}`}
+          ref={index === cursor ? cursorRow : undefined}
+          className={`${table.row} ${table.clickable} ${index === cursor ? styles.rowCursor : ''}`}
+          role="button"
+          aria-label={label(e)}
+          // Roving: one row is in the tab order, so Tab reaches the table and
+          // then the arrows move inside it rather than through fifty stops.
+          tabIndex={index === (cursor ?? 0) ? 0 : -1}
+          onFocus={() => onCursorChange(index)}
           onClick={() => onEditEntry(e)}
-          style={{ ['--cols' as any]: gridCols }}
+          onKeyDown={(event) => {
+            if (event.key !== 'Enter' && event.key !== ' ') return
+            event.preventDefault()
+            onEditEntry(e)
+          }}
         >
           <div className={table.cell}>
             <div className={table.primary}>
               <span className={table.title}>{label(e)}</span>
-              <span className={table.subtitle}>{sub ? String(e.data?.[sub] ?? '') : Formatters.shortId(e.id)}</span>
+              <span className={table.subtitle}>{subtitle(e)}</span>
               <Snippets snippets={snippets[e.id]} />
             </div>
           </div>
           {extra.map((c) => (
-            <div key={c} className={table.cell}>
+            <div key={c} className={`${table.cell} ${numeric.has(c) ? styles.numericCell : ''}`}>
               <CellValue schema={schema} name={c} value={e.data?.[c]} mediaById={mediaById} baseUrl={baseUrl} />
             </div>
           ))}
@@ -137,6 +181,8 @@ export function EntriesTable({
       ))}
 
       {entries.length === 0 && emptyMessage && <div className={`${table.cell} ${styles.noResults}`}>{emptyMessage}</div>}
+
+      {pagination}
     </div>
   )
 }

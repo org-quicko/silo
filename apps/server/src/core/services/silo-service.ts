@@ -14,9 +14,11 @@ import { EntryService } from "./entry-service";
 import { KeyService } from "./key-service";
 import { MediaService } from "./media/media-service";
 import { PluginGrantService } from "./plugin-grant-service";
+import { RenameService } from "./rename-service";
 import { ScopeService } from "./scope-service";
 import { SearchService } from "./search-service";
 import { SchemaRegistry } from "./support/schema-registry";
+import { ScopeRenameCascade } from "./support/scope-rename-cascade";
 import { ServiceContext } from "./support/service-context";
 import { TransferService } from "./transfer-service";
 
@@ -61,8 +63,12 @@ export class SiloService {
   readonly plugins: PluginGrantService;
   readonly media: MediaService;
   readonly transfer: TransferService;
+  /** Renaming any of the three record kinds, and the claim cascade that
+   *  follows (D51). */
+  readonly renames: RenameService;
 
   private readonly context: ServiceContext;
+  private readonly renameCascade: ScopeRenameCascade;
 
   constructor(store: Storage, options: SiloServiceOptions = {}) {
     const blobStorage =
@@ -80,8 +86,9 @@ export class SiloService {
 
     this.store = store;
 
+    this.renameCascade = new ScopeRenameCascade(this.context);
     this.collections = new CollectionService(this.context);
-    this.scopes = new ScopeService(this.context, this.collections);
+    this.scopes = new ScopeService(this.context, this.collections, this.renameCascade);
     this.media = new MediaService(this.context);
     this.entries = new EntryService(this.context, this.media);
     this.search = new SearchService(this.context);
@@ -89,6 +96,24 @@ export class SiloService {
     this.keys = new KeyService(this.context, this.audit);
     this.plugins = new PluginGrantService(this.context, this.keys, this.audit);
     this.transfer = new TransferService(this.context);
+    this.renames = new RenameService(
+      this.context,
+      this.scopes,
+      this.collections,
+      this.audit,
+      this.renameCascade
+    );
+  }
+
+  /**
+   * Finishes any claim cascade a crash left half-applied (D51).
+   *
+   * Called **before plugins load**, unlike the two media resumes: a plugin
+   * boots on the authority its record holds, so replaying after it started
+   * would leave it running on claims naming a scope that no longer exists.
+   */
+  resumePendingRenames(): Promise<{ resumed: number; failed: number }> {
+    return this.renameCascade.resumePending();
   }
 
   /**

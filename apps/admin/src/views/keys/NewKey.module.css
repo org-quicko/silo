@@ -317,7 +317,7 @@ fieldset.section { min-width: 0; margin: 0; }
 }
 
 .capability b { color: var(--text-2); font-size: 12.5px; font-weight: 600; }
-.capability small { color: var(--text-3); font-family: var(--font-mono); font-size: 9.5px; }
+.capability small { color: var(--text-3); font-family: var(--font-ui); font-size: 9.5px; }
 .capability input:checked + span { border-color: var(--accent); background: var(--accent-soft); }
 .capability input:checked + span b { color: var(--accent); }
 .capabilityWarn input:checked + span { border-color: color-mix(in oklab, var(--bad) 55%, transparent); background: color-mix(in oklab, var(--bad) 9%, transparent); }
@@ -338,7 +338,7 @@ fieldset.section { min-width: 0; margin: 0; }
 .replaceToggle { display: flex; align-items: flex-start; gap: 9px; cursor: pointer; }
 .replaceToggle > span { display: flex; flex-direction: column; gap: 2px; }
 .replaceToggle b { color: var(--text); font-size: 12.5px; font-weight: 600; }
-.replaceToggle b code { font-family: var(--font-mono); font-size: 11.5px; }
+.replaceToggle b code { font-family: var(--font-ui); font-size: 11.5px; }
 .replaceToggle small { color: var(--text-3); font-size: 11.5px; }
 
 .impliedNote { display: flex; align-items: center; gap: 7px; color: var(--warn); font-size: 11.5px; }
@@ -430,7 +430,7 @@ fieldset.section { min-width: 0; margin: 0; }
 .rawToggle:hover { color: var(--text-2); }
 
 .codeList { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
-.codeList code { padding: 4px 7px; border: 1px solid var(--line); border-radius: 5px; background: var(--panel-2); color: var(--text-2); font-family: var(--font-mono); font-size: 10.5px; }
+.codeList code { padding: 4px 7px; border: 1px solid var(--line); border-radius: 5px; background: var(--panel-2); color: var(--text-2); font-family: var(--font-ui); font-size: 10.5px; }
 
 /* ── Created ───────────────────────────────────────────────────────── */
 
@@ -453,7 +453,7 @@ fieldset.section { min-width: 0; margin: 0; }
   min-width: 0;
   flex: 1;
   color: var(--accent);
-  font-family: var(--font-mono);
+  font-family: var(--font-ui);
   font-size: 12.5px;
   word-break: break-all;
 }

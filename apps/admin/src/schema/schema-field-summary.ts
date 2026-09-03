@@ -3,13 +3,19 @@ import { SchemaFieldLabels, type SchemaField } from './schema-field'
 
 /** The one-line description shown beside a field in the visual builder. */
 export class SchemaFieldSummary {
+  /** Past this many, an enum leads with its size: the row is one line, and the
+   *  count is the part a reader needs whether or not the values fit on it. */
+  static readonly MaxListedEnumValues = 4
+
   static describe(field: SchemaField): string {
     if (field.construct) return `${field.construct} · edit in Code view`
     if (field.kind === 'ref' || field.kind === 'ref-array') {
       return SchemaFieldSummary.describeReference(field)
     }
     if (field.kind === 'enum' && field.enumValues.length) {
-      return `Enum · ${field.enumValues.join(', ')}`
+      const values = field.enumValues
+      const size = values.length > SchemaFieldSummary.MaxListedEnumValues ? `${values.length} values · ` : ''
+      return `Enum · ${size}${values.join(', ')}`
     }
     return field.description || SchemaFieldLabels[field.kind]
   }

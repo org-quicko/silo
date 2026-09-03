@@ -11,17 +11,17 @@ React + TypeScript + Vite + RJSF (`@rjsf/core` + `@rjsf/validator-ajv8` for 2020
 
 **Layout:** a server manager, then a two-pane shell, with settings as a second two-pane shell of its own:
 
-- **Sidebar (nav):** a `⌘K` search trigger, then the visible collections with an in-memory box that *filters what is already listed* — a different question from the palette's, so the two are worded apart — and user-resizable width (persisted in `localStorage`); selecting one shows its entries. Pinned at the bottom when authorized: *Keys*, *Media*, and *Data transfer*. Navigation and page actions adapt to the session's claims.
-- **Top bar (slim):** breadcrumbs for the current page, its actions, and a session pill stating what the active key can do **in the scope on screen** (full access / read & write / read-only / none), derived from its claims by `Claims.accessLevel`. The key's own label and prefix are the pill's tooltip; the instance name and the lock live in the sidebar's scope switcher, so the top bar does not repeat them.
+- **Sidebar (nav):** the visible collections with an in-memory box (`⌥F` / `Alt+F`) that *filters what is already listed* — a different question from the smart search bar's, so the two are worded apart — and user-resizable width (persisted in `localStorage`); selecting one shows its entries. Pinned at the bottom when authorized: *Keys*, *Media*, and *Data transfer*. Navigation and page actions adapt to the session's claims.
+- **Top bar (slim):** the smart search bar, centred. **A page's own actions sit with the page**: the entries list keeps its under the bar, and a page with a right rail (an entry, a collection's schema) carries every action it has — Save, Discard or Cancel, Delete — as one block in that rail, under the facts the rail already states. The bar belongs to the search, which reaches every collection in the scope rather than the page on screen. Both shortcut hints name the modifier the reader's own keyboard has (`PlatformKeys`), since both shortcuts have always listened for either. **`?` opens the shortcut list** from anywhere and **`Ctrl`/`⌘` `,` goes to Settings**, and the sidebar carries both as items of its own: a shortcut nobody can find is not a shortcut. Those two belong to the shell rather than to a page, which is why they live in one hook (`views/shell/use-shell-shortcuts.ts`) beside it. `?` stands down while somebody is typing, because it is a character they meant to write; the Settings shortcut does not, for the same reason `⌘K` does not, since a modified press types nothing and an open field has no claim on it. In an editor **`Esc` discards**, exactly as its own Discard or Cancel button does, standing down for a press something else already claimed so that leaving the search bar never throws away the form behind it. **A heading lands in the same place on every page** — the collection name, `Edit entry`, `Edit collection` — because a title that moves as you navigate reads as the page jumping; the breadcrumb and the heading are one block for that reason. A rail runs the full height of the view rather than stopping where its content does. A page with no search (settings, keys, a plugin) has no bar at all unless its actions are in it. What the active key can do **in the scope on screen** (full access / read & write / read-only / none, derived by `Claims.accessLevel`) is stated in the sidebar's account row, not here, and neither is the instance name or the lock — the sidebar's scope switcher already carries those.
 - **Main pane:** whatever the nav selected.
 
 **Views:**
 
 1. **Server manager** — the welcome screen: pick a saved silo instance or add one (name, URL, API key), with the URL and key verified against `GET /api/session` before the server is saved. Shown on first visit and after any `401`.
-2. **Entries list** (default main view) — table per collection, columns derived from top-level schema properties, sort/paginate via the list API, *New entry* button. Text runs the collection-reach `/search` (D30) rather than a `contains` on one column: results carry snippets naming the field each match came from, and the engine that answered is stated. A **filter builder** writes the Query AST (D29) over the schema's own fields, offering only the ops `@silo/shared` declares and only paths `JsonPath` can build; the AST travels in the URL as raw JSON, so a filtered view is linkable, and one it cannot draw — nesting, `not`, a hand-written filter — is shown read-only and still applied rather than quietly simplified. Everything on screen lives in the URL. **An absent `sort` means nobody chose one**, which is what lets a search rank by relevance and a listing fall back to newest-first; writing the default out would pin the view to a date order no search could override.
-3. **Command palette** (`⌘K`) — instance-wide search from anywhere in the shell. It asks for the whole instance rather than the scope on screen because the key already bounds it (`searchAccess`), groups hits by collection in the order the ranking gave, names the `project/env` only for results outside the current scope, and merges media in as its own group — the one place the two result sets meet.
-4. **Entry form** — RJSF-generated from the schema; per-subtree raw-JSON fallback for unrenderable constructs (D3); server validation errors mapped back onto fields.
-5. **Schema editor** — create/edit a collection's JSON Schema in a JSON editor (CodeMirror) with live validation of the schema document itself.
+2. **Entries list** (default main view) — table per collection, columns derived from top-level schema properties, sort/paginate via the list API, *New entry* button. **No cell ever prints a raw value it cannot show the inside of**, the heading column included: a list of objects is its length, an object its first filled field or a key count, and the heading column prefers a property that can carry a name over whichever the schema declares first. This is what a content type imported from Strapi needs to be readable at all — one whose single property is a repeatable component is ordinary there, and `String(value)` on it is `[object Object],[object Object]`. Text runs the collection-reach `/search` (D30) rather than a `contains` on one column: results carry snippets naming the field each match came from, and the engine that answered is stated. A **filter builder** writes the Query AST (D29) over the schema's own fields, offering only the ops `@silo/shared` declares and only paths `JsonPath` can build; the AST travels in the URL as raw JSON, so a filtered view is linkable, and one it cannot draw — nesting, `not`, a hand-written filter — is shown read-only and still applied rather than quietly simplified. **The whole list works from the keyboard**: a row cursor on `↓`/`j` and `↑`/`k` with `Home`/`End`, paging on `←`/`h` and `→`/`l`, `e` or `Enter` to open the row under it, `⌫` to delete it, and `n`/`f`/`c` for New entry, filters and columns. `Esc` closes what is open and only drops the cursor when nothing was. The cursor row is the *focused element* rather than a highlight painted over one — the browser scrolls it into view and a screen reader reads it — and a roving `tabindex` keeps the table at one tab stop. The headings are buttons, which is what puts sorting on the keyboard at all. **Columns are resizable by their heading's right edge** — a hairline at the weight of the row rules, brighter under the pointer, accent while it is held — with a double-click handing one back to the table's own sizing. `Updated` is not resizable and the actions cell is fixed, so the row always fills the width it was given, and no drag can push a column past the table's edge (`ColumnWidths`). A width is one reader's ergonomics on one screen, so unlike everything else here it lives in `localStorage` per collection rather than in the URL: a shared link should open the same view, not impose the sender's column widths. Everything else on screen lives in the URL. **Opening a row and coming back lands where you left.** The list pane's scroll offset is remembered per URL (`ScrollMemory`, `use-scroll-memory.ts`), which is what makes page, sort, filter and search each keep their own place and none inherit another's — and what makes paging land at the top of the next page rather than halfway down it. Recorded continuously rather than on the way out, since a reader leaves by a row click, the breadcrumb, `Enter` on the cursor or the browser's back button and none of those is one place to hang a save; restored in a layout effect once the rows are there, so the list does not visibly jump. In memory and not in storage: this is about a navigation within one session, and dropping somebody into the middle of a list whose contents may have moved since a reload is worse than starting at the top. **An absent `sort` means nobody chose one**, which is what lets a search rank by relevance and a listing fall back to newest-first; writing the default out would pin the view to a date order no search could override.
+3. **Smart search** (`⌘K` / `Ctrl+K`, or a bare `/`) — one field in the top chrome, answering into a dropdown that extends beneath it rather than an overlay. Its default reach is the **scope on screen**: every collection of the project and environment being browsed, which is the reach the sidebar and breadcrumbs already put the reader in. An `@`-mention commits a chip that narrows it to one collection, and only a chip does — nothing about the page being a collection's page narrows it, since the reader can see that page already. Results read in three groups. **Collections** lead, matched from the session's own collection list through the same `ScopeMatcher.rank` the mention popup uses (so a collection found by one of its *field* names says which field), capped at five, and absent while a chip is set. Then **entry hits**, grouped by collection in the order the ranking gave, with the `project/env` named only for results outside the scope on screen. Then **media**, its own group and only here — the server keeps it out of the entry index on purpose (D30), so merging them is a presentation decision made in the presentation layer. Media is skipped while a chip is set, for the same reason collections are. The text travels as `?q=` (§5.5) and the reach as the request's path; the engine that answered is stated in the bar. Per-scope state — the text, the chip and the last answer — survives navigating away and back within a scope, and resets when the scope changes.
+4. **Entry form** — RJSF-generated from the schema; per-subtree raw-JSON fallback for unrenderable constructs (D3); server validation errors mapped back onto fields. **A property that declares nothing is a field, not an omission**: `{}` accepts any JSON value, and it gets the raw-JSON editor labelled as such rather than the warning a failed subtree gets. Widget selection reads types as the *union* they are declared as and walks an array's items as well as an object's properties, so a component nested inside a component gets its controls at whatever depth it sits. An array states its length beside its name where a scalar field states its type, so a subtree is not labelled like a text box. **An item card's whole row opens it**, not the line its title sits on: the header's padding used to belong to the header while the disclosure was a button one line of text tall, so the space above and below a title looked clickable and was not — a list of thirty-seven items being where that is felt. The padding is the button's now, and the button stretches to the row. **Depth is drawn, not implied**: each level of nesting steps an item card's surface and edge one shade lighter and gives a labelled object group an indented rail, so a field two components down cannot be mistaken for a top-level one. The ladder holds after four levels rather than lightening without bound. The breadcrumb names the entry: `Collections / <collection> / <id>`, with the collection crumb going back to its list.
+5. **Schema editor** — create/edit a collection's JSON Schema in a JSON editor (CodeMirror) with live validation of the schema document itself, or in the visual builder beside it. **A builder row is one line whatever the field holds**: a seventeen-value enum states its size before its values, since the count is what survives the truncation, and the row's two lines end in an ellipsis rather than wrapping a field into a paragraph or letting one unbreakable value paint over the badges beside it. Inside the open editor a long value wraps within its own chip instead, because there it is the thing being edited. A click anywhere on a row opens that field, and its grip **reorders** the property list by drag — property order is what every generated form and table reads, so it is part of the schema and not a view preference. Since D51 an existing collection can also be **renamed** here, through the shared control described below: it is a statement about the collection's identity rather than its shape, so it is a separate request from Save and neither carries the other's changes.
 6. **Media** — a searchable library: a folder rail, a name/type filter bound to the `_media` query, and per-asset rename, move, and delete. Assets (never folders) are multi-selectable — a checkbox on each card or row, a header checkbox in list view that selects the current page only — and a selection bar appears once anything is checked: a count, Clear, and Delete, shown only to a key holding `media:delete`. Selection clears on folder change, page change, query change, and after a successful delete. A single-file trash click and a multi-select delete are the same path — one list, sometimes of one — through `POST /api/media/delete` (D48). The flow is at most two dialogs: a confirm dialog first, and if the server refuses because something is still referenced, that dialog is replaced by one naming what is still in use, with the existing claim-filtered referrer list per file, an opt-in checkbox, and a Force delete button — hidden, rather than merely disabled, whenever the server would refuse it anyway (`MediaForceAvailability`, D49): the key cannot see every referrer, or lacks `entries:update` on one it can see. Checking it and forcing never opens a third dialog, and only the ids still refused are retried. **Folder rows and tiles gain rename/move and delete actions of their own (D49)** — a clickable name region plus a separate actions cell or overlay, not a `<button>` wrapping the whole tile, since rename and delete are buttons too and cannot nest inside one. Rename reuses the same shape `RenameAssetDialog` does and attempts the move outright; only when the server refuses it as a collision (`409`) does a second dialog offer to merge the two folders instead (`MergeFolderDialog`, `useMediaRenameFolderFlow`, D49) — gated on `DangerConfirm`'s typed confirmation rather than a checkbox, because a merge is genuinely non-reversible (the two subtrees become indistinguishable, and renaming back cannot undo it), which is exactly what `DangerConfirm` is reserved for; an ordinary rename with no collision never asks for one. Delete goes through the identical two-dialog flow files use — `useMediaDeleteFlow` takes a folder path as well as an asset list, so there is one flow rather than a second pair of dialogs, and a folder's confirm dialog says it deletes everything inside rather than naming files. Without `?recursive=true` the server still refuses a non-empty folder, so a plain folder delete stays the trivial case it always was. **A low-emphasis "Purge library" action sits in the page head, deliberately not beside Upload** (D49): gated on `media:delete`, through `DangerConfirm` — reserved for actions no undo exists for — with confirm word `purge` and the force opt-in inside that same dialog, since purge has no bounded subject to check force availability against up front the way the in-use dialog can. Where the library *keeps* its bytes is a separate page under Settings → Media Library (D45), because it configures the instance rather than the content; purge stays here, on the content's own page, for the same reason in reverse.
 7. **Keys** — list (label, claims, prefix, created), revoke, and a dedicated creation page. Revoke is offered only for keys the current one could have minted (D37) and never for a plugin's managed key (D34), because the route refuses both. The creation page is one guided sentence: a label, a **reach** naming the project and env segments of the key's collection claims independently (one env · a whole project · one env across every project · the whole instance), and a **role** (`read` · `write` · `manage` · `root`). One Advanced disclosure adds what the sentence cannot say — narrowing to named collections, the instance capabilities (media, key management, transfer), and a raw claim editor that takes over from the guided controls when even those are not enough. Choosing a transfer capability composes in the instance-wide collection permissions D21 requires alongside it, rather than naming them in help text. Options the current key cannot delegate are disabled with the reason. The secret is shown once. Plugin management and the audit trail are capabilities here too (D38); an instance capability this page has no words for is still shown, flagged, rather than omitted from the summary — a claim set that renders as less than it grants is the one failure a pre-mint summary cannot afford.
 8. **Data transfer** — two pages at two blast radii. Under *Server*: claim-aware whole-instance export/import panels and direct copy from another running silo (merge/replace, data-only/data-plus-keys). Under *Environment*: copy from another environment of this instance (D22), preview-then-apply, gated on the scoped claims the copy exercises.
@@ -44,10 +44,10 @@ SERVER
 PROJECTS
   Projects                                       every project on the instance, and creating one
     [ project switcher ▾ · New project ]
-    General                                      id, environment count, delete behind a typed-name confirmation
+    General                                      id, name (renameable — D51), environment count, delete behind a typed-name confirmation
     Environments                                 this project's environments, and creating one
       [ environment switcher ▾ · New environment ]
-      General                                    scope, collections, open workspace, delete behind a typed-name confirmation
+      General                                    scope, id, name (renameable — D51), collections, open workspace, delete behind a typed-name confirmation
       Data Transfer                              copy from another environment (D22)
 APPLICATION
   Appearance                                     colour mode, theme, fonts, accent
@@ -68,6 +68,30 @@ environment list. Both nested blocks start collapsed and open when the route
 enters them. Projects and Environments are indexes: a row opens that item's own
 page, and deleting lives only there, behind a typed-name confirmation, rather
 than as a button in a list.
+
+**Renaming (D51)** lives on those same General pages, in the Identity card,
+replacing the copy that used to say the id was fixed — a project, environment
+and collection each carry a stable ULID and a mutable name now, and the card
+shows both. All three use one control, `settings/rename/`, so they ask the same
+question the same way, and it is a **two-step** flow rather than a text field
+with a Save. The first request is a `?dry_run=true`, and what comes back is what
+earns the second step: a rename rewrites claim strings, and some claims name the
+subject through a *wildcard ancestor* — those are not rewritten, because a claim
+whose project segment is `*` and whose env segment is the literal `dev` means
+"any project's dev" and moving it would change authority everywhere, yet its
+reach does change. So the confirm dialog prints two lists: claims that will
+follow the rename, and claims whose reach changes although nothing rewrites
+them. Nothing else in the product would ever tell an operator about the second,
+which is the whole reason the preview exists. The control is **hidden**, not
+merely disabled, for a key that cannot rename — the same rule the delete buttons
+follow, since an affordance the server will refuse is worse than no affordance —
+and the reason is printed in its place. The route additionally checks the *new*
+name and, for a collection, `schema:update` on every referrer, neither of which
+the page can know, so those refusals arrive from the server and the form prints
+them rather than pretending to have predicted them. After a successful rename the
+URL follows the new name and `ScopeMemory` is cleared, since it is keyed by name
+and would otherwise send the next unscoped page back to a scope that no longer
+exists.
 
 The scope prefix is identical to the workspace routes and to the HTTP API's
 `/api/projects/{project}/environments/{env}/…`, with `settings` as the tail, so a
@@ -91,6 +115,12 @@ server connection is not — it destroys nothing on the instance — and takes a
 plain confirmation.
 
 `x-silo-ui` extension keys map to RJSF `uiSchema` (widget selection, field order, help text).
+
+**The collection index is not a page.** `/collections` forwards to a
+collection, and which one is the last opened in this scope rather than the
+first there is: the `Collections` breadcrumb leads here from inside a
+collection, so answering it by moving the reader to somebody else's
+collection is worse than not being a link at all.
 
 **Media Library** sits under *Server* rather than under *Application*, and the
 contrast with Appearance is the reason: Appearance is this browser's and never
@@ -168,6 +198,109 @@ this one, and `[auth] disabled` offers only the direction that turns
 authentication back on.
 
 **Appearance** is client-only state — `ThemeManager` persists it to `localStorage`, never to a server, so the choice follows the browser rather than the instance. Three things compose: a **colour mode** (light/dark/system, the last resolved live against `prefers-color-scheme`), a **theme** (an accent paired with the sidebar tint it was designed alongside — `--sidebar`/`--sidebar-hover`, distinct from the main content's `--panel`/`--panel-2` so a theme can read as more than a hue swap), and a **font**. Dark mode's per-theme sidebar hex applies as-is; light mode instead washes the sidebar from whatever accent is active, because hand-tuning a light-mode pair for every theme would double the palette for no visual gain light mode doesn't already get by deriving it. Picking a custom accent hex keeps the last theme's sidebar and labels the bundle `Custom`, matching how picking a font or a mode leaves the other two alone. The theme gallery groups **Featured** (duotone hero bundles), **Single colour**, and **Vision assistive** (colour-blind-safe accent/sidebar pairs) — the grouping is presentation only, every entry is the same `ThemePreset` shape.
+
+## 9.1 Server state (D53)
+
+Every read used to be a `useState` and a `useEffect` inside the view that
+wanted it, and the cost was the whole of what the UI felt like: the shell
+blocked on `Connecting to <server>…` on every full load *and* on every return
+from settings, because the session and the collection list were fetched from
+scratch each time the shell mounted; the entries table re-fetched a page it had
+answered a moment earlier; and, since typing fires several searches that can
+land out of order, that table had to ticket its own responses so the last one
+*asked for* won rather than the last to arrive.
+
+**Server state now lives in one store**, and the pattern is the ordinary
+observable-store-plus-cache one: `Store` holds a `ResourceState` per cache key —
+the value, whether a request for it is in flight, the last failure, and when it
+last succeeded — and `useResource` subscribes to one key through
+`useSyncExternalStore` and dispatches a load from an effect. So **a read renders
+the cache and the request goes out behind it.** A scope opened before draws at
+once and corrects itself; a page already answered is a cache read; and the
+ticketing is gone, because each distinct query is its own key and a response can
+only write the key it was asked for.
+
+It is hand-rolled for the same reason `router/router.ts` is: this UI ships inside
+the executable, the design principle above is a fast first load, and the whole
+store is under two hundred lines. Redux Toolkit or a query library would be a
+larger dependency than the thing it replaces.
+
+Four decisions in it are load-bearing:
+
+- **A key is rooted at the saved connection's id, not the server's URL.** Two
+  saved servers can address one instance with different API keys, and a key's
+  claims decide what every answer contains, so caching by URL would let a
+  read-only key's shell be drawn from a root key's answers. The store is
+  emptied on disconnect and when a connection's key changes, for the same
+  reason. Keys are `/`-separated so `invalidatePrefix` can name a subtree —
+  every page and entry of one collection after a write to any of them — and the
+  separator is part of the match, so a collection named `city` does not
+  invalidate `cities`.
+- **Each key carries an epoch, and a request that settles behind its key's
+  epoch writes nothing.** Without it a read that started before a save would
+  put the pre-save answer back when it landed, which is the one way a cache can
+  be worse than no cache. `invalidate`, `refresh` and `set` all bump it.
+- **A failure is state, and `dispatch` never rejects.** It is called from
+  effects, where nothing would catch, and the failure belongs on screen beside
+  the value it could not replace — so a reload that fails keeps the value it
+  had. Which is also why a 401 and a failed request are now treated
+  differently: a revoked key still sends the app to the gate, but a request
+  that merely failed does so only when there is nothing cached to show. A
+  server that blinked should not cost a reader their place.
+- **`keepPrevious` is opt-in, and the entries table is where it belongs.** A
+  paged list keeps the last answer on screen while the next one loads; a form
+  must not, since the previous entry's values under a new entry's heading is
+  worse than a blank frame. It is also deliberately off when the URL's
+  `?filter=` cannot be read: an unfiltered list under a filtered URL is the one
+  wrong thing that page can show, and that refusal is the whole reason
+  `filterError` exists. Two smaller options sit beside it: `staleAfter`, which
+  the version badge uses because a running process keeps the version it started
+  on, and `watch`, which re-dispatches without changing the key — how the
+  per-collection counts refresh when a collection appears without blanking the
+  counts already drawn.
+
+**What the store caches, D54 made small enough to be worth caching.** The
+collection listing used to answer with every schema in the scope and the sidebar
+learned each count by listing that collection with `limit=1` — a whole entry
+transferred to read a number, once per collection. A scope of forty content
+types therefore cost about four megabytes and forty-odd requests to draw a
+sidebar, and no cache fixes that: it hides the cost on the second visit and
+leaves the first exactly as expensive. So the listing answers *summaries* now,
+counts included, and the schemas moved to their own route.
+
+The shell asks **one** question per scope, and a page asks for **the one
+collection it draws**. `useCollectionSchema` is a store key per collection, so
+the entries list warms it and every entry opened out of that list is a cache
+read — including the entry form, which is the part that looked like it needed
+more. It does not: the server bundles a collection's `silo://` refs into that
+collection's own `$defs`, transitively, and re-bundles on the way out, so one
+schema is a document the form can render on its own. `SiloRefs.resolveForForm`
+reads those `$defs` and takes no collection list. The schema editor is the same
+story from the other side — choosing a ref target writes a `silo://` URL, and a
+list of names is all that needs.
+
+`useCollectionSchemas` therefore survives for exactly one caller: the search
+bar, matching a collection by one of its *field* names, which is the only thing
+in the app that genuinely reads across every schema. It is gated on somebody
+having typed, and until the schemas arrive the bar matches by name — the same
+answer minus the field group.
+
+The store is **additive**, and that is a property rather than an unfinished
+migration: it sits between `api/` and the views, so a read site adopts it by
+asking a hook instead of a `useEffect`, and one that has not adopted it still
+works exactly as before with no caching. The shell's session, the instance
+version, the collection list, the per-collection counts, one entry and one page
+of a collection's entries go through it today — the reads behind every loading
+screen a reader actually waits on. The rest move over as they are touched.
+
+**A waiting state is a circular loader and a sentence naming what it is waiting
+for** (`components/feedback/LoadingState`, over `Spinner`). One primitive, so
+the ring is the theme's own — `--line-2` for the track, `--accent` for the arc,
+retinted by a custom accent or light mode without a second definition — and so
+`prefers-reduced-motion` is honoured in one place, where the arc breathes
+instead of turning. A state that *is* the screen centres in the viewport rather
+than in the 60% of it the shared `center-wrap` utility leaves, which is why the
+connecting message used to sit a third of the way down the page.
 
 ## 10. Plugin panels (D41)
 

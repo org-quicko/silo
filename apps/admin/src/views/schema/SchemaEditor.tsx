@@ -9,12 +9,14 @@ import { Claims } from '@silo/shared/claims'
 import { api } from '../../api/silo-api'
 import type { Collection } from '../../api/types/collection'
 import type { ScopeRef } from '../../api/types/scope-ref'
+import { Routes } from '../../router/routes'
 import { Toggle } from '../../components/controls/Toggle'
 import { Segmented } from '../../components/controls/Segmented'
 import { DangerConfirm } from '../../components/modal/DangerConfirm'
 import { TopBar } from '../shell/TopBar'
 import { SmartSearch } from '../search/SmartSearch'
-import type { PaletteSeed } from '../search/palette-seed'
+import { RenameForm } from '../settings/rename/RenameForm'
+import { useEscapeToDiscard } from '../use-escape-to-discard'
 import { CollectionRail } from './CollectionRail'
 import { FieldList } from './FieldList'
 import styles from './SchemaEditor.module.css'
@@ -23,7 +25,9 @@ import { useSchemaDraft, type SchemaEditorMode } from './use-schema-draft'
 interface Props {
   serverId: string
   collection: Collection | null
-  collections: Collection[]
+  /** Every collection in the scope, as ref targets and for the search bar.
+   *  Names only — no ref target needs another collection's schema. */
+  collections: readonly { name: string; count: number | null }[]
   url: string
   apiKey: string
   scope: ScopeRef
@@ -34,8 +38,6 @@ interface Props {
   onSaved: (name: string) => void
   onCancel: () => void
   onDeleted: () => void
-  onOpenPalette: (seed: PaletteSeed) => void
-  onNavigateToCollection: (name: string, q: string) => void
 }
 
 export function SchemaEditorView({
@@ -46,13 +48,11 @@ export function SchemaEditorView({
   apiKey,
   scope,
   claims,
-  backTo,
+  backTo: _backTo,
   entryCount,
   onSaved,
   onCancel,
   onDeleted,
-  onOpenPalette,
-  onNavigateToCollection,
 }: Props) {
   const draft = useSchemaDraft(collection)
 
@@ -62,6 +62,10 @@ export function SchemaEditorView({
   const [showDelete, setShowDelete] = useState(false)
   const [deleting, setDeleting] = useState(false)
   const [deleteError, setDeleteError] = useState('')
+
+  // Escape is Cancel, unless the delete dialog is up — that one's Escape closes
+  // the dialog rather than the page under it.
+  useEscapeToDiscard(onCancel, !showDelete)
 
   const canChangeAccess =
     !collection ||
@@ -75,6 +79,19 @@ export function SchemaEditorView({
   const canDelete =
     !!collection &&
     Claims.ForcedDeletePermissions.every((permission) =>
+      Claims.has(
+        claims,
+        Claims.collection(scope.project, scope.env, collection.name, permission),
+      ),
+    )
+
+  // A create at the new name and a delete at the old, on this collection (D51).
+  // The route additionally asks for `schema:update` on every collection whose
+  // schema `$ref`s this one, which is not knowable here — so that refusal
+  // arrives from the server and the form prints it.
+  const canRename =
+    !!collection &&
+    Claims.RenamePermissions.every((permission) =>
       Claims.has(
         claims,
         Claims.collection(scope.project, scope.env, collection.name, permission),
@@ -141,38 +158,43 @@ export function SchemaEditorView({
         search={
           <SmartSearch
             serverId={serverId}
+            url={url}
+            apiKey={apiKey}
             scope={scope}
-            collection={collection?.name ?? null}
-            collections={collections.map((c) => ({ name: c.name, count: null, schema: c.schema }))}
-            onNavigateToCollection={onNavigateToCollection}
-            onOpenPalette={onOpenPalette}
+            claims={claims}
+            collections={collections}
           />
         }
-      >
-        <Button variant="secondary" onClick={onCancel}>
-          Cancel
-        </Button>
-        <Button variant="primary" onClick={save} disabled={saving || !valid}>
-          {saving ? 'Saving…' : collection ? 'Save schema' : 'Create collection'}
-        </Button>
-      </TopBar>
+      />
       <div className={`content ${styles.content}`}>
-        <Breadcrumb
-          crumbs={
-            collection
-              ? [{ label: 'Collections', to: backTo }, { label: collection.name, to: backTo }, { label: 'Edit collection' }]
-              : [{ label: 'Collections', to: backTo }, { label: 'New collection' }]
-          }
-        />
         <div className={styles.shell}>
-          <div className={`${styles.main} ${collection ? '' : styles.mainSolo}`}>
+          <div className={styles.main}>
             <div className={styles.layout}>
-          <div className={`page-head ${styles.pageHeader}`}>
-            <div className="page-title-group">
-              <h2 className="page-title">{collection ? 'Edit collection' : 'New collection'}</h2>
-              <span className="page-sub">Define the collection with JSON Schema draft 2020-12.</span>
-            </div>
-          </div>
+              {/* Crumbs and heading are one block, so the column's gap falls after
+                  the pair and the heading lands exactly where the entries list
+                  puts the collection name. A title that moves between pages reads
+                  as the page jumping. */}
+              <div>
+                <Breadcrumb
+                  crumbs={
+                    collection
+                      ? [
+                          { label: 'Collections', to: Routes.collections(serverId, scope.project, scope.env) },
+                          { label: collection.name },
+                        ]
+                      : [
+                          { label: 'Collections', to: Routes.collections(serverId, scope.project, scope.env) },
+                          { label: 'New collection' },
+                        ]
+                  }
+                />
+                <div className={`page-head ${styles.pageHeader}`}>
+                  <div className="page-title-group">
+                    <h2 className="page-title">{collection ? 'Edit collection' : 'New collection'}</h2>
+                    <span className="page-sub">Define the collection with JSON Schema draft 2020-12.</span>
+                  </div>
+                </div>
+              </div>
 
       {!collection && (
         <div className={`field ${styles.nameField}`}>
@@ -182,6 +204,35 @@ export function SchemaEditorView({
             placeholder="e.g. blog_posts"
             value={name}
             onChange={(e) => setName(e.target.value.toLowerCase().replace(/[^a-z0-9_-]/g, ''))}
+          />
+        </div>
+      )}
+
+      {/*
+        A rename here rather than beside the schema fields: it is a statement
+        about the collection's identity, not about its shape, and it rewrites
+        every `$ref` pointing at it (D51). Save is unaffected — the two are
+        separate requests and neither carries the other's changes.
+      */}
+      {collection && (
+        <div className={`field ${styles.nameField}`}>
+          <label className="field-label">Collection name</label>
+          <RenameForm
+            subject={{ noun: 'collection', currentName: collection.name, id: collection.id }}
+            allowed={canRename}
+            unavailableReason={`This key cannot rename ${collection.name}. A rename retires the old name and introduces a new one, and repoints every schema that references it.`}
+            rename={(next, dryRun) =>
+              api.collections.rename(
+                url,
+                apiKey,
+                scope,
+                collection.name,
+                next,
+                collection.id,
+                dryRun,
+              )
+            }
+            onRenamed={onSaved}
           />
         </div>
       )}
@@ -231,6 +282,7 @@ export function SchemaEditorView({
             expanded={draft.expanded}
             onExpand={draft.setExpanded}
             onChangeField={draft.updateField}
+            onMoveField={draft.moveField}
             onRemoveField={draft.removeField}
             onAddField={draft.addField}
           />
@@ -256,20 +308,28 @@ export function SchemaEditorView({
             </div>
           </div>
 
-          {collection && (
-            <CollectionRail
-              collection={collection}
-              scope={scope}
-              fieldCount={draft.fieldCount}
-              entryCount={entryCount}
-              requiresAuth={draft.requiresAuth}
-              canDelete={canDelete}
-              onDelete={() => {
-                setDeleteError('')
-                setShowDelete(true)
-              }}
-            />
-          )}
+          <CollectionRail
+            collection={collection}
+            scope={scope}
+            fieldCount={draft.fieldCount}
+            entryCount={entryCount}
+            requiresAuth={draft.requiresAuth}
+            canDelete={canDelete}
+            onDelete={() => {
+              setDeleteError('')
+              setShowDelete(true)
+            }}
+            actions={
+              <>
+                <Button variant="primary" onClick={save} disabled={saving || !valid}>
+                  {saving ? 'Saving…' : collection ? 'Save schema' : 'Create collection'}
+                </Button>
+                <Button variant="secondary" onClick={onCancel}>
+                  Cancel
+                </Button>
+              </>
+            }
+          />
         </div>
       </div>
 

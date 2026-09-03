@@ -68,4 +68,20 @@ export type AuditAction =
    * into an outbound fetch. `subject` is the table and `detail` is what was
    * written — none of these settings is a credential, unlike the one above.
    */
-  | "settings.configure";
+  | "settings.configure"
+
+  /**
+   * A project, environment or collection was renamed (D51).
+   *
+   * An authority change rather than a content one, which is what puts it in
+   * this trail: claim strings name these things, so a rename **rewrites**
+   * claims on `_keys` and `_plugins` records. `detail.rewritten_claims` is what
+   * followed the rename; `detail.pattern_affected_claims` is the other half
+   * nothing else records — claims naming the subject through a wildcard
+   * ancestor, whose reach changed although no claim was edited, and which
+   * therefore leave no trace anywhere but here. `subject` is the record's id,
+   * because it is the one identifier the rename did not move.
+   */
+  | "project.rename"
+  | "environment.rename"
+  | "collection.rename";

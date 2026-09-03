@@ -38,7 +38,7 @@ describe("media field resolution: null when a reference does not resolve (D48)",
 
   afterEach(async () => {
     await store.close();
-    await fs.rm(tempDir, { recursive: true, force: true }).catch(() => {});
+    await fs.rm(tempDir, { recursive: true, force: true });
   });
 
   test("a force-deleted asset's field resolves to null, in server mode (the default) too", async () => {

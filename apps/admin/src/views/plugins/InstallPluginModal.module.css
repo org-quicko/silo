@@ -34,7 +34,7 @@
   border-radius: var(--radius-sm);
   background: var(--panel-2);
   color: var(--text);
-  font-family: var(--font-sans);
+  font-family: var(--font-ui);
   font-size: 13px;
   outline: none;
   transition: border-color 0.15s ease;
@@ -45,7 +45,7 @@
 }
 
 .inputMono {
-  font-family: var(--font-mono);
+  font-family: var(--font-ui);
   font-size: 12px;
 }
 
@@ -103,7 +103,7 @@
 
 .fileSize {
   color: var(--text-3);
-  font-family: var(--font-mono);
+  font-family: var(--font-ui);
   font-size: 11px;
 }
 

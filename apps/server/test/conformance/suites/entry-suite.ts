@@ -116,6 +116,42 @@ export class EntrySuite {
         expect(await store.listEntryCollections(Scope.System)).toEqual(["_keys"]);
       });
 
+      test("CountEntries", async () => {
+        const store = await getFreshStore();
+        const a = Scope.of("acme", "prod");
+        const b = Scope.of("acme", "dev");
+
+        expect(await store.countEntries(a)).toEqual(new Map());
+
+        // A schema alone counts nothing, the same rule listEntryCollections
+        // follows: an empty collection is absent rather than zero.
+        await store.putSchema(a, "schema-only", { type: "object" });
+        expect(await store.countEntries(a)).toEqual(new Map());
+
+        await putEntry(store, a, "posts", 1, { title: "x" });
+        await putEntry(store, a, "posts", 2, { title: "y" });
+        await putEntry(store, a, "authors", 3, { title: "z" });
+        await putEntry(store, b, "elsewhere", 4, { title: "w" });
+
+        // Scoped: b's collection must not be counted into a's answer.
+        expect(await store.countEntries(a)).toEqual(
+          new Map([
+            ["posts", 2],
+            ["authors", 1],
+          ])
+        );
+        expect(await store.countEntries(b)).toEqual(new Map([["elsewhere", 1]]));
+
+        // Drops back out once the last entry goes, rather than reporting zero.
+        const { items } = await store.list(a, "authors", { limit: 50, offset: 0 });
+        for (const e of items) await store.delete(a, "authors", e.id);
+        expect(await store.countEntries(a)).toEqual(new Map([["posts", 2]]));
+
+        // The reserved scope has no special-cased path in either adapter (D18).
+        await putEntry(store, Scope.System, "_keys", 5, { hash: "h" });
+        expect(await store.countEntries(Scope.System)).toEqual(new Map([["_keys", 1]]));
+      });
+
       test("Meta", async () => {
         const store = await getFreshStore();
         const m1 = await store.meta();

@@ -31,7 +31,7 @@ describe("bulk media delete (D48)", () => {
 
   afterEach(async () => {
     await store.close();
-    await fs.rm(tempDir, { recursive: true, force: true }).catch(() => {});
+    await fs.rm(tempDir, { recursive: true, force: true });
   });
 
   const seedCollection = async () => {
@@ -209,7 +209,7 @@ describe("bulk media delete authorization (D48)", () => {
 
   afterEach(async () => {
     await store.close();
-    await fs.rm(tempDir, { recursive: true, force: true }).catch(() => {});
+    await fs.rm(tempDir, { recursive: true, force: true });
   });
 
   const mint = async (claims: string[]) => (await service.keys.create("probe", claims)).secret;

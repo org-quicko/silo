@@ -1,0 +1,601 @@
+<style>
+  * { box-sizing: border-box; }
+  body { margin: 0; color: var(--text); font: 13px/1.45 system-ui, sans-serif; }
+  .wrap { display: grid; gap: 14px; }
+  .toolbar, .row, .legend, .storage-grid { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+  .storage-grid { flex: 1 1 auto; align-items: stretch; align-content: stretch; }
+  .toolbar { justify-content: space-between; }
+  .toolbar h2 { margin: 0; font-size: 15px; }
+  .muted { color: var(--text-2); }
+  .dim { color: var(--text-3); font-size: 11.5px; }
+  .grid { display: grid; grid-template-columns: repeat(4, minmax(120px, 1fr)); gap: 10px; }
+  .two { display: grid; grid-template-columns: minmax(0, 1.45fr) minmax(250px, .75fr); gap: 10px; }
+  /* A column, so the one content region in each card can take the height the
+     grid handed it. Cards in a row stretch to the tallest of them, and a
+     fixed-height chart inside one left dead space under itself. */
+  .card { display: flex; flex-direction: column; min-width: 0; padding: 13px 14px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--panel); }
+  .head { display: flex; align-items: flex-start; justify-content: space-between; gap: 8px; margin: 0 0 10px; }
+  .head h3 { margin: 0; font-size: 12px; }
+  .kpi-head { display: flex; align-items: center; justify-content: space-between; gap: 6px; }
+  .kpi strong { display: block; margin-top: 4px; font-size: 23px; font-variant-numeric: tabular-nums; letter-spacing: -.02em; }
+  .kpi > .dim { margin-top: auto; }
+  .bad { color: var(--bad); }
+  .ok { color: var(--ok); }
+  .warn { color: var(--warn); }
+
+  /* The one affordance every panel header carries. A button rather than a
+     span so it answers the keyboard as well as the pointer. */
+  .info {
+    flex: none; width: 16px; height: 16px; padding: 0;
+    display: inline-flex; align-items: center; justify-content: center;
+    border: 1px solid var(--line-2); border-radius: 50%;
+    background: transparent; color: var(--text-3);
+    font-size: 10px; font-weight: 700; line-height: 1; cursor: help;
+  }
+  .info:hover, .info:focus-visible { color: var(--text); border-color: var(--text-3); }
+
+  /* Fixed, not absolute: the admin sizes this frame from `body.scrollHeight`,
+     and a tooltip in the flow would grow the body, which would grow the frame,
+     which would move the thing being pointed at. */
+  .tip {
+    position: fixed; z-index: 20; top: 0; left: 0; max-width: 250px;
+    padding: 7px 9px; border: 1px solid var(--line-2); border-radius: var(--radius-sm);
+    background: var(--panel); color: var(--text);
+    font-size: 11.5px; line-height: 1.45; pointer-events: none;
+    box-shadow: 0 6px 20px rgba(0, 0, 0, .38);
+  }
+  .tip[hidden] { display: none; }
+  .tip-title { display: block; margin-bottom: 4px; color: var(--text-2); font-size: 10.5px; }
+  .tip-row { display: flex; justify-content: space-between; gap: 16px; }
+  .tip-row b { font-weight: 600; font-variant-numeric: tabular-nums; }
+  .tip-note { display: block; margin-top: 4px; color: var(--text-3); font-size: 10.5px; }
+
+  /* Grows into the card. The viewBox is re-fitted to the rendered box on every
+     draw, so the geometry stays 1:1 with pixels instead of letterboxing. */
+  .chart { flex: 1 1 auto; width: 100%; min-height: 190px; display: block; overflow: visible; touch-action: none; }
+  .chart .gridline { stroke: var(--line); stroke-width: 1; }
+  .chart .requests { fill: none; stroke: var(--accent); stroke-width: 2; }
+  .chart .errors { fill: none; stroke: var(--bad); stroke-width: 2; }
+  .chart .axis { fill: var(--text-3); font-size: 10px; }
+  .chart .guide { stroke: var(--text-3); stroke-width: 1; stroke-dasharray: 3 3; }
+  .chart .marker { stroke: var(--panel); stroke-width: 2; }
+  .chart .surface { fill: transparent; }
+  .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--accent); }
+  .dot.errors { background: var(--bad); }
+
+  .latency { flex: 1 1 auto; display: grid; gap: 3px; align-content: space-between; }
+  .latency-row { display: grid; grid-template-columns: 48px 1fr 54px; align-items: center; gap: 7px; padding: 2px 4px; border-radius: var(--radius-sm); font-variant-numeric: tabular-nums; }
+  .latency-row:hover { background: var(--panel-2); }
+  .bar, .mix { overflow: hidden; height: 7px; border-radius: 9px; background: var(--panel-2); }
+  .bar i { display: block; height: 100%; background: var(--accent); border-radius: inherit; }
+  .mix { display: flex; height: 11px; }
+  .mix i { display: block; height: 100%; }
+  .mix i:hover { filter: brightness(1.25); }
+  .s1 { background: var(--text-3); } .s2 { background: var(--ok); } .s3 { background: var(--accent); }
+  .s4 { background: var(--warn); } .s5 { background: var(--bad); }
+
+  .bars { flex: 1 1 auto; display: grid; grid-template-columns: repeat(5, 1fr); gap: 10px; min-height: 150px; margin-top: 14px; }
+  .bar-col { display: flex; flex-direction: column; align-items: center; gap: 6px; min-width: 0; }
+  /* The value rides on top of its own bar rather than along the top of the
+     card, so a short bar and its number read as one thing. Both are placed
+     from the bottom of the track, which is why the track is the positioned
+     ancestor and the bar's height is set in percent. */
+  .bar-track { position: relative; flex: 1; width: 100%; border-radius: 4px; }
+  .bar-col:hover .bar-track { background: var(--panel-2); }
+  .bar-fill { position: absolute; bottom: 0; left: 50%; transform: translateX(-50%); width: 100%; max-width: 48px; border-radius: 4px 4px 0 0; }
+  .bar-value { position: absolute; left: 0; right: 0; text-align: center; }
+  .bar-value, .bar-label { font-size: 11px; font-variant-numeric: tabular-nums; }
+  .bar-value { color: var(--text-2); }
+  .bar-label { color: var(--text-3); }
+
+  table { width: 100%; border-collapse: collapse; }
+  th { color: var(--text-3); font-size: 10.5px; font-weight: 600; text-align: left; text-transform: uppercase; letter-spacing: .04em; }
+  th, td { padding: 7px 8px; border-bottom: 1px solid var(--line); }
+  th:not(:first-child), td:not(:first-child) { text-align: right; }
+  td { font-variant-numeric: tabular-nums; }
+  tbody tr:hover { background: var(--panel-2); }
+  td.endpoint { max-width: 420px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-align: left; }
+  .method { display: inline-block; min-width: 42px; color: var(--accent); font-size: 10.5px; font-weight: 700; }
+  .scroll { flex: 1 1 auto; overflow-x: auto; }
+  .resource { flex: 1 1 180px; min-width: 0; padding: 10px; border-radius: var(--radius-sm); background: var(--panel-2); }
+  .resource strong { display: block; margin: 3px 0; font-size: 16px; font-variant-numeric: tabular-nums; }
+  .alert { padding: 10px 12px; border-left: 2px solid var(--bad); border-radius: var(--radius-sm); background: var(--panel-2); color: var(--bad); }
+  .hidden { display: none; }
+  button { white-space: nowrap; }
+  @media (max-width: 760px) { .grid { grid-template-columns: repeat(2, 1fr); } .two { grid-template-columns: 1fr; } }
+</style>
+
+<div class="wrap">
+  <div class="toolbar">
+    <div>
+      <h2>Operational overview</h2>
+      <div id="freshness" class="dim">Loading a snapshot…</div>
+    </div>
+    <div class="row">
+      <button id="toggle">Pause</button>
+      <button id="refresh" class="primary">Refresh</button>
+    </div>
+  </div>
+
+  <div id="alert" class="alert hidden"></div>
+
+  <section class="grid">
+    <div class="card kpi">
+      <div class="kpi-head"><span class="muted">Requests</span><button class="info" type="button" aria-label="About requests" data-info="Every API request silo has completed since the process started. Internal calls are the ones plugins made through silo's own API rather than a client.">i</button></div>
+      <strong id="requests">—</strong><span id="rate-note" class="dim">since start</span>
+    </div>
+    <div class="card kpi">
+      <div class="kpi-head"><span class="muted">Error rate</span><button class="info" type="button" aria-label="About the error rate" data-info="The share of completed requests that answered 4xx or 5xx. It reads amber above zero and red at five percent.">i</button></div>
+      <strong id="error-rate">—</strong><span id="error-note" class="dim">4xx + 5xx</span>
+    </div>
+    <div class="card kpi">
+      <div class="kpi-head"><span class="muted">P95 latency</span><button class="info" type="button" aria-label="About p95 latency" data-info="Nineteen in twenty requests finished faster than this. It is read off fixed histogram buckets, so treat it as an estimate rather than a timing.">i</button></div>
+      <strong id="p95">—</strong><span id="latency-note" class="dim">histogram estimate</span>
+    </div>
+    <div class="card kpi">
+      <div class="kpi-head"><span class="muted">Resident memory</span><button class="info" type="button" aria-label="About resident memory" data-info="Memory the operating system currently gives the silo process, with the JavaScript heap inside it shown beneath.">i</button></div>
+      <strong id="rss">—</strong><span id="heap-note" class="dim">heap —</span>
+    </div>
+  </section>
+
+  <section class="two">
+    <div class="card">
+      <div class="head">
+        <h3>Requests · last 60 minutes</h3>
+        <button class="info" type="button" aria-label="About this chart" data-info="One point per minute for the last hour, counting requests that finished and how many of them failed. Buckets older than sixty minutes are dropped, and every count resets when silo restarts.">i</button>
+      </div>
+      <svg id="timeline" class="chart" viewBox="0 0 720 180" role="img" aria-label="Requests and errors per minute"></svg>
+      <div class="legend dim"><i class="dot"></i> requests <i class="dot errors"></i> errors <span id="timeline-hint">Hover a minute for its numbers.</span></div>
+    </div>
+    <div class="card">
+      <div class="head">
+        <h3>Latency distribution</h3>
+        <button class="info" type="button" aria-label="About the latency distribution" data-info="How many requests fell into each response time band, measured at the server. The bands are fixed buckets, which is why the percentiles above are estimates.">i</button>
+      </div>
+      <div id="latency" class="latency"></div>
+    </div>
+  </section>
+
+  <section class="card">
+    <div class="head">
+      <h3>Most-used API endpoints</h3>
+      <button class="info" type="button" aria-label="About the endpoint table" data-info="Traffic grouped by the route pattern silo matched, never the path that was requested, so entry ids never appear here. Rare routes past the top 25 are left out.">i</button>
+    </div>
+    <div class="toolbar"><span id="endpoint-note" class="dim"></span></div>
+    <div class="scroll">
+      <table>
+        <thead><tr><th>Endpoint</th><th>Hits</th><th>Errors</th><th>Avg</th><th>P95</th><th>Max</th></tr></thead>
+        <tbody id="endpoints"></tbody>
+      </table>
+    </div>
+  </section>
+
+  <section class="two">
+    <div class="card">
+      <div class="head">
+        <h3>Status mix</h3>
+        <button class="info" type="button" aria-label="About the status mix" data-info="Every response since silo started, grouped by HTTP status class. Some 4xx is ordinary: an unauthenticated request and a missing id both land there.">i</button>
+      </div>
+      <div id="status-mix" class="mix"></div>
+      <div id="status-bars" class="bars"></div>
+    </div>
+    <div class="card">
+      <div class="head">
+        <h3>Process</h3>
+        <button class="info" type="button" aria-label="About process resources" data-info="Memory and CPU for the silo process itself, read at the moment the snapshot was taken. CPU time is cumulative since start, not a percentage.">i</button>
+      </div>
+      <div id="process" class="storage-grid"></div>
+    </div>
+  </section>
+
+  <section class="card">
+    <div class="head">
+      <h3>Storage</h3>
+      <button class="info" type="button" aria-label="About storage" data-info="Bytes on local disk, sampled in the background and cached for about thirty seconds. The data figure leaves the media library out, so the two can be added.">i</button>
+    </div>
+    <div class="toolbar"><span id="storage-note" class="dim"></span></div>
+    <div id="storage" class="storage-grid"></div>
+  </section>
+</div>
+
+<div id="tip" class="tip" role="tooltip" hidden></div>
+
+<script>
+  const $ = (id) => document.getElementById(id)
+  let timer = null
+  let paused = false
+  let loading = false
+
+  function number(value) { return Number(value || 0).toLocaleString() }
+  function percent(value) { return (Number(value || 0) * 100).toFixed(value > .01 ? 1 : 2) + '%' }
+  function millis(value) {
+    const n = Number(value || 0)
+    return n < 1 ? n.toFixed(2) + ' ms' : n < 100 ? n.toFixed(1) + ' ms' : Math.round(n) + ' ms'
+  }
+  function bytes(value) {
+    const n = Number(value || 0)
+    const units = ['B', 'KiB', 'MiB', 'GiB', 'TiB']
+    let size = n, unit = 0
+    while (size >= 1024 && unit < units.length - 1) { size /= 1024; unit++ }
+    return (unit === 0 ? Math.round(size) : size.toFixed(size >= 10 ? 1 : 2)) + ' ' + units[unit]
+  }
+  function duration(seconds) {
+    let n = Math.max(0, Number(seconds || 0))
+    const days = Math.floor(n / 86400); n %= 86400
+    const hours = Math.floor(n / 3600); n %= 3600
+    const minutes = Math.floor(n / 60)
+    return [days && days + 'd', hours && hours + 'h', minutes + 'm'].filter(Boolean).join(' ')
+  }
+  function node(tag, className, text) {
+    const element = document.createElement(tag)
+    if (className) element.className = className
+    if (text !== undefined) element.textContent = text
+    return element
+  }
+  function svgNode(tag, attributes) {
+    const element = document.createElementNS('http://www.w3.org/2000/svg', tag)
+    for (const name in attributes) element.setAttribute(name, String(attributes[name]))
+    return element
+  }
+  function alert_(message) {
+    $('alert').textContent = message || ''
+    $('alert').classList.toggle('hidden', !message)
+  }
+
+  /* ---- one tooltip, shared by every hoverable thing on the page ---- */
+
+  function tipContent(title, rows, note) {
+    const tip = $('tip')
+    tip.textContent = ''
+    if (title) tip.appendChild(node('span', 'tip-title', title))
+    for (const [label, value] of rows || []) {
+      const row = node('div', 'tip-row')
+      row.appendChild(node('span', '', label))
+      row.appendChild(node('b', '', value))
+      tip.appendChild(row)
+    }
+    if (note) tip.appendChild(node('span', 'tip-note', note))
+  }
+
+  function tipAt(x, y) {
+    const tip = $('tip')
+    tip.hidden = false
+    const box = tip.getBoundingClientRect()
+    let left = x + 14
+    let top = y + 16
+    if (left + box.width > window.innerWidth - 8) left = x - box.width - 14
+    if (top + box.height > window.innerHeight - 8) top = y - box.height - 16
+    tip.style.left = Math.max(8, left) + 'px'
+    tip.style.top = Math.max(8, top) + 'px'
+  }
+
+  function tipHide() { $('tip').hidden = true }
+
+  /** Hover and focus both, so a keyboard reaches what a pointer reaches. */
+  function hoverable(element, build) {
+    const show = (event) => {
+      build()
+      const box = element.getBoundingClientRect()
+      const x = event && event.clientX !== undefined && event.clientX !== 0 ? event.clientX : box.left + box.width / 2
+      const y = event && event.clientY !== undefined && event.clientY !== 0 ? event.clientY : box.bottom
+      tipAt(x, y)
+    }
+    element.addEventListener('pointerenter', show)
+    element.addEventListener('pointermove', show)
+    element.addEventListener('pointerleave', tipHide)
+    element.addEventListener('focus', show)
+    element.addEventListener('blur', tipHide)
+    return element
+  }
+
+  for (const button of document.querySelectorAll('.info')) {
+    hoverable(button, () => tipContent('', [], button.dataset.info))
+  }
+
+  /* ---- charts ---- */
+
+  const PAD = 12
+  let timeline = { points: [], max: 1, step: 0, width: 720, height: 190 }
+
+  function render(snapshot) {
+    const requests = snapshot.requests || {}
+    const process = snapshot.process || {}
+    $('freshness').textContent = 'Updated ' + new Date(snapshot.generated_at).toLocaleTimeString() + ' · collecting since ' + new Date(snapshot.since).toLocaleString()
+    $('requests').textContent = number(requests.total)
+    $('rate-note').textContent = number(requests.internal) + ' internal plugin calls'
+    $('error-rate').textContent = percent(requests.error_rate)
+    $('error-rate').className = requests.error_rate >= .05 ? 'bad' : requests.error_rate > 0 ? 'warn' : 'ok'
+    $('error-note').textContent = number(requests.errors) + ' failed requests'
+    $('p95').textContent = millis(requests.latency && requests.latency.p95_ms)
+    $('latency-note').textContent = 'avg ' + millis(requests.latency && requests.latency.avg_ms) + ' · p99 ' + millis(requests.latency && requests.latency.p99_ms)
+    $('rss').textContent = bytes(process.rss_bytes)
+    $('heap-note').textContent = 'heap ' + bytes(process.heap_used_bytes) + ' of ' + bytes(process.heap_total_bytes)
+
+    renderTimeline(requests.timeline || [])
+    renderLatency(requests.latency_buckets || [], requests.total || 0)
+    renderEndpoints(requests.endpoints || [], requests.internal || 0)
+    renderStatus(requests.status || {}, requests.total || 0)
+    renderProcess(process)
+    renderStorage(snapshot.storage || {})
+  }
+
+  function timelineY(value) {
+    return timeline.height - PAD - Number(value || 0) * (timeline.height - PAD * 2) / timeline.max
+  }
+
+  function timelineX(index) {
+    return PAD + index * timeline.step
+  }
+
+  function renderTimeline(points) {
+    const svg = $('timeline')
+    while (svg.firstChild) svg.removeChild(svg.firstChild)
+
+    // Fitted to the box the card actually gave the chart, so one unit is one
+    // pixel and the drawing fills the panel rather than being letterboxed into
+    // a fixed aspect. Falls back to sane numbers before the first layout.
+    const box = svg.getBoundingClientRect()
+    timeline.width = Math.max(240, Math.round(box.width) || 720)
+    timeline.height = Math.max(120, Math.round(box.height) || 190)
+    svg.setAttribute('viewBox', '0 0 ' + timeline.width + ' ' + timeline.height)
+
+    timeline.points = points
+    timeline.max = Math.max(1, ...points.map((point) => Number(point.requests || 0)))
+    timeline.step = points.length > 1 ? (timeline.width - PAD * 2) / (points.length - 1) : 0
+
+    for (let i = 1; i < 4; i++) {
+      const y = i * timeline.height / 4
+      svg.appendChild(svgNode('line', { x1: PAD, x2: timeline.width - PAD, y1: y, y2: y, class: 'gridline' }))
+    }
+    // The gridlines were unlabelled, so the chart had no vertical scale at all.
+    const peak = svgNode('text', { x: PAD, y: PAD, class: 'axis' })
+    peak.textContent = number(timeline.max) + '/min peak'
+    svg.appendChild(peak)
+
+    if (!points.length) return
+
+    for (const [key, klass] of [['requests', 'requests'], ['errors', 'errors']]) {
+      const coords = points
+        .map((point, index) => timelineX(index).toFixed(1) + ',' + timelineY(point[key]).toFixed(1))
+        .join(' ')
+      svg.appendChild(svgNode('polyline', { points: coords, class: klass }))
+    }
+
+    const guide = svgNode('g', { visibility: 'hidden' })
+    const rule = svgNode('line', { y1: PAD, y2: timeline.height - PAD, class: 'guide' })
+    const requestMark = svgNode('circle', { r: 4, fill: 'var(--accent)', class: 'marker' })
+    const errorMark = svgNode('circle', { r: 4, fill: 'var(--bad)', class: 'marker' })
+    guide.appendChild(rule); guide.appendChild(requestMark); guide.appendChild(errorMark)
+    svg.appendChild(guide)
+
+    const surface = svgNode('rect', {
+      x: 0, y: 0, width: timeline.width, height: timeline.height, class: 'surface',
+    })
+    svg.appendChild(surface)
+
+    const at = (clientX) => {
+      // Re-measured per move: the card can be resized under the pointer.
+      const live = svg.getBoundingClientRect()
+      if (!live.width) return 0
+      const x = (clientX - live.left) * (timeline.width / live.width)
+      const index = timeline.step === 0 ? 0 : Math.round((x - PAD) / timeline.step)
+      return Math.max(0, Math.min(points.length - 1, index))
+    }
+
+    surface.addEventListener('pointermove', (event) => {
+      const index = at(event.clientX)
+      const point = points[index]
+      if (!point) return
+      const x = timelineX(index)
+      rule.setAttribute('x1', x); rule.setAttribute('x2', x)
+      requestMark.setAttribute('cx', x); requestMark.setAttribute('cy', timelineY(point.requests))
+      errorMark.setAttribute('cx', x); errorMark.setAttribute('cy', timelineY(point.errors))
+      guide.setAttribute('visibility', 'visible')
+      tipContent(new Date(point.at).toLocaleTimeString(), [
+        ['Requests', number(point.requests)],
+        ['Errors', number(point.errors)],
+        ['Avg latency', millis(point.avg_ms)],
+      ], 'One minute')
+      tipAt(event.clientX, event.clientY)
+    })
+    surface.addEventListener('pointerleave', () => {
+      guide.setAttribute('visibility', 'hidden')
+      tipHide()
+    })
+  }
+
+  function renderLatency(buckets, total) {
+    const root = $('latency'); root.textContent = ''
+    if (!total) { root.appendChild(node('div', 'dim', 'No requests recorded yet.')); return }
+    let previous = 0
+    let lower = null
+    for (const bucket of buckets) {
+      const cumulative = Number(bucket.count || 0)
+      const count = Math.max(0, cumulative - previous)
+      previous = cumulative
+
+      const row = node('div', 'latency-row')
+      row.appendChild(node('span', 'dim', bucket.le_ms == null ? '>5s' : '≤' + bucket.le_ms + 'ms'))
+      const bar = node('div', 'bar'); const fill = node('i')
+      fill.style.width = (count / total * 100) + '%'; bar.appendChild(fill)
+      row.appendChild(bar); row.appendChild(node('span', 'dim', number(count)))
+
+      const from = lower, to = bucket.le_ms
+      hoverable(row, () => tipContent(
+        to == null ? 'Slower than ' + from + ' ms' : (from == null ? '0' : from) + ' to ' + to + ' ms',
+        [
+          ['Requests', number(count)],
+          ['Share', percent(total ? count / total : 0)],
+          ['At or below', number(cumulative)],
+        ],
+      ))
+      lower = bucket.le_ms
+      root.appendChild(row)
+    }
+  }
+
+  function renderEndpoints(endpoints, internal) {
+    const body = $('endpoints'); body.textContent = ''
+    $('endpoint-note').textContent = internal ? number(internal) + ' internal calls included' : ''
+    if (!endpoints.length) {
+      const row = node('tr'); const cell = node('td', 'dim', 'No API traffic recorded yet.'); cell.colSpan = 6; row.appendChild(cell); body.appendChild(row); return
+    }
+    for (const endpoint of endpoints) {
+      const row = node('tr')
+      const target = node('td', 'endpoint'); target.title = endpoint.method + ' ' + endpoint.route
+      target.appendChild(node('span', 'method', endpoint.method)); target.appendChild(document.createTextNode(endpoint.route))
+      row.appendChild(target)
+      row.appendChild(node('td', '', number(endpoint.hits)))
+      row.appendChild(node('td', endpoint.error_rate ? 'bad' : '', percent(endpoint.error_rate)))
+      row.appendChild(node('td', '', millis(endpoint.avg_ms)))
+      row.appendChild(node('td', '', millis(endpoint.p95_ms)))
+      row.appendChild(node('td', '', millis(endpoint.max_ms)))
+      body.appendChild(row)
+    }
+  }
+
+  const STATUS_CLASSES = [
+    ['1xx', 'informational', 'Informational'],
+    ['2xx', 'success', 'Succeeded'],
+    ['3xx', 'redirect', 'Redirected'],
+    ['4xx', 'client_error', 'Refused or not found'],
+    ['5xx', 'server_error', 'Server error'],
+  ]
+
+  function renderStatus(status, total) {
+    const values = STATUS_CLASSES.map(([, key]) => Number(status[key] || 0))
+    const peak = Math.max(1, ...values)
+
+    const mix = $('status-mix'); mix.textContent = ''
+    const bars = $('status-bars'); bars.textContent = ''
+
+    values.forEach((value, index) => {
+      const [label, , description] = STATUS_CLASSES[index]
+      const share = total ? value / total : 0
+      const describe = () => tipContent(label + ' · ' + description, [
+        ['Responses', number(value)],
+        ['Share', percent(share)],
+      ])
+
+      const segment = node('i', 's' + (index + 1))
+      segment.style.width = (share * 100) + '%'
+      mix.appendChild(hoverable(segment, describe))
+
+      // Linear against the tallest class, with a floor so a class that is small
+      // but real stays visible beside one three orders larger, and a ceiling of
+      // 88% so the tallest bar still leaves room for its own label. The exact
+      // number sits on the bar, which is what the reader actually compares.
+      const height = value === 0 ? 0 : Math.max(3, value / peak * 88)
+      const column = node('div', 'bar-col')
+      const track = node('div', 'bar-track')
+      const count = node('span', 'bar-value', number(value))
+      count.style.bottom = 'calc(' + height + '% + 4px)'
+      track.appendChild(count)
+      const fill = node('i', 'bar-fill s' + (index + 1))
+      fill.style.height = height + '%'
+      track.appendChild(fill)
+      column.appendChild(track)
+      column.appendChild(node('span', 'bar-label', label))
+      bars.appendChild(hoverable(column, describe))
+    })
+  }
+
+  function renderProcess(process) {
+    const root = $('process'); root.textContent = ''
+    const items = [
+      ['Uptime', duration(process.uptime_seconds), 'How long this silo process has been running.'],
+      ['Heap', bytes(process.heap_used_bytes), 'JavaScript heap in use, of ' + bytes(process.heap_total_bytes) + ' reserved.'],
+      ['External', bytes(process.external_bytes), 'Memory held outside the heap, such as buffers.'],
+      ['CPU time', (Number(process.cpu_user_seconds || 0) + Number(process.cpu_system_seconds || 0)).toFixed(1) + ' s',
+        'User ' + Number(process.cpu_user_seconds || 0).toFixed(1) + ' s and system ' + Number(process.cpu_system_seconds || 0).toFixed(1) + ' s, cumulative since start.'],
+    ]
+    items.forEach(([label, value, note]) => {
+      const card = node('div', 'resource')
+      card.appendChild(node('span', 'dim', label))
+      card.appendChild(node('strong', '', value))
+      root.appendChild(hoverable(card, () => tipContent(label, [['Now', value]], note)))
+    })
+  }
+
+  function renderStorage(storage) {
+    const root = $('storage'); root.textContent = ''
+    $('storage-note').textContent = storage.sampled_at ? 'Sampled ' + new Date(storage.sampled_at).toLocaleTimeString() : storage.state === 'sampling' ? 'Sampling in the background…' : 'Local metrics unavailable'
+    const directory = (label, metric, driver, note) => {
+      const card = node('div', 'resource'); card.appendChild(node('span', 'dim', label + ' · ' + driver))
+      card.appendChild(node('strong', '', metric ? bytes(metric.bytes) : 'Unavailable'))
+      card.appendChild(node('span', 'dim', metric ? number(metric.files) + ' files' + (metric.truncated ? ' · scan capped' : '') : 'Remote or not configured'))
+      root.appendChild(hoverable(card, () => tipContent(label, metric ? [
+        ['Bytes', bytes(metric.bytes)],
+        ['Files', number(metric.files)],
+        ['Driver', driver],
+      ] : [['Driver', driver]], metric && metric.truncated ? 'The scan stopped at 50,000 entries, so this is a floor.' : note)))
+    }
+    directory('Data directory', storage.data_directory, storage.storage_driver || 'unknown',
+      'Everything under the data directory except the media library, which is counted beside it.')
+    directory('Media directory', storage.media_directory, storage.blob_driver || 'unknown',
+      'Counted only for the filesystem driver. A remote bucket is not measured.')
+
+    const disk = node('div', 'resource'); disk.appendChild(node('span', 'dim', 'Data filesystem'))
+    if (storage.filesystem) {
+      const used = Math.max(0, storage.filesystem.total_bytes - storage.filesystem.free_bytes)
+      disk.appendChild(node('strong', '', bytes(used) + ' used'))
+      disk.appendChild(node('span', 'dim', bytes(storage.filesystem.available_bytes) + ' available of ' + bytes(storage.filesystem.total_bytes)))
+      hoverable(disk, () => tipContent('Data filesystem', [
+        ['Used', bytes(used)],
+        ['Available', bytes(storage.filesystem.available_bytes)],
+        ['Capacity', bytes(storage.filesystem.total_bytes)],
+      ], 'The whole volume the data directory sits on, not silo alone.'))
+    } else {
+      disk.appendChild(node('strong', '', 'Unavailable'))
+      disk.appendChild(node('span', 'dim', 'No local filesystem capacity'))
+    }
+    root.appendChild(disk)
+  }
+
+  /* ---- polling ---- */
+
+  async function load() {
+    if (loading || paused) return
+    loading = true
+    $('refresh').disabled = true
+    try {
+      const response = await silo.fetch('/snapshot')
+      const body = response.json()
+      if (!response.ok) throw new Error(body && body.error && body.error.message || 'snapshot failed')
+      render(body)
+      alert_('')
+    } catch (caught) {
+      alert_(caught && caught.message || String(caught))
+    } finally {
+      loading = false
+      $('refresh').disabled = false
+    }
+  }
+
+  $('toggle').addEventListener('click', () => {
+    paused = !paused
+    $('toggle').textContent = paused ? 'Resume' : 'Pause'
+    $('freshness').classList.toggle('warn', paused)
+    if (!paused) load()
+  })
+  $('refresh').addEventListener('click', () => { if (paused) { paused = false; $('toggle').textContent = 'Pause' }; load() })
+  let chartSizes = null
+  if (typeof ResizeObserver === 'function') {
+    let measured = ''
+    chartSizes = new ResizeObserver(() => {
+      const box = $('timeline').getBoundingClientRect()
+      const key = Math.round(box.width) + 'x' + Math.round(box.height)
+      // Only on a real size change: redrawing the children must not feed back
+      // into the observer that triggered it.
+      if (key === measured) return
+      measured = key
+      if (timeline.points.length) renderTimeline(timeline.points)
+    })
+    chartSizes.observe($('timeline'))
+  }
+
+  window.addEventListener('scroll', tipHide, true)
+  timer = setInterval(load, 10000)
+  window.addEventListener('unload', () => clearInterval(timer))
+  load()
+</script>

@@ -4,6 +4,7 @@ import { Scope } from "../domain/scope";
 import { ValidationError } from "@silo/shared/validation-error";
 import { FormatVersion } from "./format-version";
 import type { ExportManifest } from "./export-manifest";
+import { CollectionSchemas } from "../schema/collection-schemas";
 import { Importer } from "./importer";
 import type { ScopedImport } from "./import-walker";
 import type { ImportResult } from "./import-result";
@@ -66,25 +67,24 @@ export class ScopeCopier {
    * the envelope's own `project`/`env` are overwritten from it (D18).
    */
   private static async read(store: Storage, from: Scope, to: Scope): Promise<ScopedImport> {
-    const schemas = await store.listSchemas(from);
+    const schemas = CollectionSchemas.map(await store.listCollections(from));
     for (const name of schemas.keys()) {
       if (ScopeCopier.isReserved(name)) schemas.delete(name);
     }
 
-    // Enumerated independently of the schemas, exactly as `Exporter` does: an
-    // earlier import can leave a collection holding entries and no schema,
-    // and deriving the list from schemas alone would drop it.
-    const names = [
-      ...new Set([...schemas.keys(), ...(await store.listEntryCollections(from))]),
-    ]
-      .filter((name) => !ScopeCopier.isReserved(name))
-      .sort();
+    // One read, as `Exporter` now does: since D51 every collection is a record,
+    // so there is no collection holding entries that a schema-derived list
+    // would drop.
+    const names = [...schemas.keys()].sort();
 
     const entries = new Map<string, Entry[]>();
     for (const name of names) {
       entries.set(name, await ScopeCopier.readEntries(store, from, to, name));
     }
-    return { scope: to, schemas, entries };
+    // No ids: a copy into another scope of the same instance creates new
+    // collection records there rather than carrying the source's identity, the
+    // same way it does not carry `seq`.
+    return { scope: to, schemas, entries, collectionIds: new Map() };
   }
 
   private static async readEntries(

@@ -5,6 +5,7 @@ import {
   type SchemaField,
   type SchemaFieldKind,
 } from './schema-field'
+import { SchemaType } from './schema-type'
 
 /** A schema document parsed into the shape the visual builder edits. */
 export interface SchemaDraftState {
@@ -20,9 +21,20 @@ export interface SchemaDraftState {
  * builder shows.
  *
  * The round trip is lossy only where it says so: a property carrying an
- * advanced construct (`oneOf`/`anyOf`/`allOf`) keeps its original subtree
- * untouched, so a visual-mode save never corrupts something the builder cannot
- * draw.
+ * advanced construct keeps its original subtree untouched, so a visual-mode
+ * save never corrupts something the builder cannot draw. A multi-type union
+ * (`["string", "number"]`) counts as one of those, alongside
+ * `oneOf`/`anyOf`/`allOf` — it has no single control to draw it, and picking a
+ * winner would throw the other type away.
+ *
+ * Nullability is the one part of `type` the builder does draw over: a save
+ * rewrites `type` from the field's kind, so `["integer", "null"]` has to be
+ * read out and written back deliberately or every field of an imported
+ * collection would come back a bare scalar and reject the nulls already
+ * stored under it. An enum carries it twice — in `type` and as a member of
+ * `enum` — and both are rebuilt from the one flag. The `any` kind is the other half of writing `type`
+ * honestly: a property that declares none accepts anything, and the builder
+ * says so and writes none back rather than settling on `string`.
  */
 export class SchemaDraft {
   static readonly Default = {
@@ -74,6 +86,27 @@ export class SchemaDraft {
   }
 
   /** A blank field, ready for the author to name. */
+  /**
+   * The field list with `from` lifted out and dropped at `to`. Property order is
+   * the order every generated form and table reads, so this is what a reorder in
+   * the builder actually changes.
+   */
+  static reorder(fields: readonly SchemaField[], from: number, to: number): SchemaField[] {
+    const next = [...fields]
+    if (from === to || from < 0 || to < 0 || from >= next.length || to >= next.length) return next
+    const [moved] = next.splice(from, 1)
+    next.splice(to, 0, moved)
+    return next
+  }
+
+  /** Where an index ends up after that same move — how the open editor follows its field. */
+  static reorderIndex(index: number, from: number, to: number): number {
+    if (index === from) return to
+    if (from < index && index <= to) return index - 1
+    if (to <= index && index < from) return index + 1
+    return index
+  }
+
   static blankField(): SchemaField {
     return {
       name: '',
@@ -82,6 +115,7 @@ export class SchemaDraft {
       description: '',
       enumValues: [],
       refTarget: '',
+      nullable: false,
       raw: {},
     }
   }
@@ -92,8 +126,12 @@ export class SchemaDraft {
 
   private static toField(name: string, property: any, required: boolean): SchemaField {
     const directRef = typeof property?.$ref === 'string' ? property.$ref : ''
+    // Through SchemaType for the same reason `kindOf` is: a nullable list is
+    // declared `["array", "null"]`, and a scalar comparison misses it.
     const itemsRef =
-      !directRef && property?.type === 'array' && typeof property?.items?.$ref === 'string'
+      !directRef &&
+      SchemaType.of(property) === 'array' &&
+      typeof property?.items?.$ref === 'string'
         ? property.items.$ref
         : ''
 
@@ -102,8 +140,13 @@ export class SchemaDraft {
       kind: SchemaDraft.kindOf(property, directRef, itemsRef),
       required,
       description: property?.description || '',
-      enumValues: Array.isArray(property?.enum) ? property.enum.map(String) : [],
+      // `null` is dropped here and put back on save: it is not a choice an
+      // author picks from a list, it is what "nullable" means for an enum.
+      enumValues: Array.isArray(property?.enum)
+        ? property.enum.filter((value: unknown) => value !== null).map(String)
+        : [],
       refTarget: directRef || itemsRef,
+      nullable: SchemaType.isNullable(property),
       raw: property || {},
       construct: SchemaDraft.constructOf(property, directRef || itemsRef),
     }
@@ -114,9 +157,13 @@ export class SchemaDraft {
     if (directRef) return 'ref'
     if (itemsRef) return 'ref-array'
     if (property?.enum) return 'enum'
-    if (property?.type && SchemaFieldLabels[property.type as SchemaFieldKind]) {
-      return property.type
-    }
+
+    // Read through SchemaType, not off `type`: the keyword is a string *or* an
+    // array of them, and the array form is what every imported field carries.
+    const type = SchemaType.of(property)
+    if (type && SchemaFieldLabels[type as SchemaFieldKind]) return type as SchemaFieldKind
+    // No type declared is a state of its own, not a missing `string`.
+    if (SchemaType.isUntyped(property)) return 'any'
     return 'string'
   }
 
@@ -125,6 +172,7 @@ export class SchemaDraft {
     if (property?.oneOf) return 'oneOf'
     if (property?.anyOf) return 'anyOf'
     if (property?.allOf) return 'allOf'
+    if (SchemaType.isUnresolved(property)) return 'type union'
     return undefined
   }
 
@@ -142,31 +190,52 @@ export class SchemaDraft {
   private static applyKind(property: any, field: SchemaField): void {
     const drop = (...keys: string[]) => keys.forEach((key) => delete property[key])
 
+    // The kind decides the type, so a nullable property has to be reassembled
+    // rather than left to the spread of `raw` this overwrites. Kind and
+    // nullability are independent: switching an imported integer to a string
+    // keeps it nullable, which is what the rows under it still need.
+    const setType = (type: string) => {
+      property.type = field.nullable ? [type, 'null'] : type
+    }
+
     switch (field.kind) {
+      case 'any':
+        // No `type` keyword at all, which is the honest schema for a JSON
+        // column: it holds whatever the author put there, and `object` would
+        // refuse the arrays that are just as common. Already permits null, so
+        // there is no union to rebuild.
+        drop('type', 'enum', '$ref', 'items', MediaField.TypeKeyword)
+        return
       case 'media':
-        property.type = 'string'
+        setType('string')
         property[MediaField.TypeKeyword] = MediaField.MediaType
         drop('enum', '$ref', 'items')
         return
       case 'ref':
+        // A `$ref` carries no type to be nullable, so the fact is kept on the
+        // field and reappears if the author picks a drawable kind again.
         drop('type', 'enum', MediaField.TypeKeyword, 'items')
         // An empty target keeps the property permissive until one is picked.
         if (field.refTarget) property.$ref = field.refTarget
         else drop('$ref')
         return
       case 'ref-array':
-        property.type = 'array'
+        setType('array')
         drop('enum', '$ref', MediaField.TypeKeyword)
         if (field.refTarget) property.items = { $ref: field.refTarget }
         else drop('items')
         return
       case 'enum':
-        property.type = 'string'
-        property.enum = field.enumValues
+        // `type` and `enum` have to agree about null or the field cannot hold
+        // one: `["string", "null"]` beside `["a", "b"]` validates nothing, and
+        // an imported column whose rows are half empty would start failing on
+        // the first save from this editor.
+        setType('string')
+        property.enum = field.nullable ? [...field.enumValues, null] : field.enumValues
         drop('$ref', 'items', MediaField.TypeKeyword)
         return
       default:
-        property.type = field.kind
+        setType(field.kind)
         drop('enum', '$ref', 'items', MediaField.TypeKeyword)
     }
   }

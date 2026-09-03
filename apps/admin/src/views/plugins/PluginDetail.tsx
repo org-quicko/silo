@@ -1,4 +1,5 @@
 import { useMemo, useState } from 'react'
+import { LoadingState } from '../../components/feedback/LoadingState'
 import { History, RotateCw, Route as RouteIcon, ShieldCheck, SlidersHorizontal, Trash2 } from 'lucide-react'
 import { Claims } from '@silo/shared/claims'
 import { api } from '../../api/silo-api'
@@ -173,7 +174,7 @@ export function PluginDetailView({
           </div>
         )}
         {actionError && <div className="banner banner-bad"><span>{actionError}</span></div>}
-        {loading && !plugin && <div className={styles.empty}>Loading…</div>}
+        {loading && !plugin && <LoadingState message="Loading the plugin…" />}
 
         {plugin && (
           <>

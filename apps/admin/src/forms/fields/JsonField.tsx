@@ -1,5 +1,5 @@
 import { useContext, useState } from 'react'
-import { AlertTriangle } from 'lucide-react'
+import { AlertTriangle, Braces } from 'lucide-react'
 import { SiloRefs } from '../../schema/silo-refs'
 import { ArrayItemHeaderContext } from '../templates/ArrayItemHeaderContext'
 import styles from './JsonField.module.css'
@@ -19,7 +19,11 @@ export function JsonField(props: any) {
   const emit = (v: any) => onChange(v, fieldPathId?.path)
   const marker: string | undefined = schema?.[SiloRefs.markerKey]
   const markerKind: string | undefined = schema?.[SiloRefs.markerKindKey]
-  const kind = marker ? 'reference' : schema?.oneOf ? 'oneOf' : schema?.anyOf ? 'anyOf' : schema?.type || 'object'
+  // A property that constrains nothing is not a subtree the form failed to
+  // draw — it is a field that accepts any JSON, which this editor is the right
+  // control for rather than the fallback from one. It reads as such.
+  const any = !marker && !schema?.oneOf && !schema?.anyOf && !schema?.type
+  const kind = marker ? 'reference' : schema?.oneOf ? 'oneOf' : schema?.anyOf ? 'anyOf' : schema?.type || 'any'
   const notice =
     markerKind === 'remote' ? (
       <span>
@@ -37,6 +41,8 @@ export function JsonField(props: any) {
         References <span className="mono">{marker}</span>, which doesn't match a collection on this server. Edit it as
         raw JSON; silo validates on save.
       </span>
+    ) : any ? (
+      <span>Any JSON value: an object, a list, a string, a number, or nothing.</span>
     ) : (
       <span>This subtree has no simple control. Edit it as raw JSON — silo validates on save.</span>
     )
@@ -44,14 +50,13 @@ export function JsonField(props: any) {
     <div className="field">
       <div className="field-label-row">
         {!headed && <label className="field-label">{schema?.title || name}</label>}
-        <span className="field-hint warn">
-          {schema?.type ? `${schema.type} · ` : ''}
-          {kind} — no generated control
+        <span className={`field-hint ${any ? '' : 'warn'}`}>
+          {any ? 'any · JSON' : `${schema?.type ? `${schema.type} · ` : ''}${kind} — no generated control`}
         </span>
       </div>
       <div className={styles.editor}>
-        <div className={styles.notice}>
-          <AlertTriangle size={14} />
+        <div className={`${styles.notice} ${any ? styles.plain : ''}`}>
+          {any ? <Braces size={14} /> : <AlertTriangle size={14} />}
           {notice}
         </div>
         <textarea

@@ -90,6 +90,10 @@ export class ClaimPresets {
       // preset an operator is given would leave the log to `root` alone —
       // which is the account you want people using least (D38).
       ClaimVocabulary.AuditRead,
+      // Aggregate operating health is an operator capability. It exposes no
+      // content, caller identity, route parameter or filesystem path, and does
+      // not belong on read/write integration keys.
+      ClaimVocabulary.ObservabilityRead,
     ],
   };
 

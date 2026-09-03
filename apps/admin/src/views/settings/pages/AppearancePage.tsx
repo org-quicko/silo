@@ -1,12 +1,11 @@
 import React, { useState, useEffect } from 'react'
-import { RotateCcw, Check, Sparkles, CheckCircle2 } from 'lucide-react'
+import { RotateCcw, Check, Sparkles } from 'lucide-react'
 import { Button } from '../../../components/buttons/Button'
 import { Breadcrumb } from '../../../components/navigation/Breadcrumb'
 import { TopBar } from '../../shell/TopBar'
 import { ThemeManager, type ThemeSettings, type ThemePreset } from '../../../utils/theme-manager'
+import { ToastManager } from '../../../utils/toast-manager'
 import styles from './AppearancePage.module.css'
-
-const THEME_GROUPS: ThemePreset['group'][] = ['Theme', 'Vision assistive']
 
 function getCategoryFallback(category: string): string {
   switch (category) {
@@ -25,7 +24,6 @@ export function AppearancePage() {
   const [settings, setSettings] = useState<ThemeSettings>(() => ThemeManager.getSettings())
   const [customFontInput, setCustomFontInput] = useState('')
   const [customHexInput, setCustomHexInput] = useState(settings.accent)
-  const [savedSuccess, setSavedSuccess] = useState(false)
 
   useEffect(() => {
     ThemeManager.loadPresetFonts()
@@ -78,20 +76,12 @@ export function AppearancePage() {
   }
 
   const triggerSavedFeedback = () => {
-    setSavedSuccess(true)
-    setTimeout(() => setSavedSuccess(false), 2000)
+    ToastManager.show('Theme applied')
   }
 
   return (
     <>
-      <TopBar>
-        {savedSuccess && (
-          <div style={{ display: 'flex', alignItems: 'center', gap: '6px', color: 'var(--ok)', fontSize: '13px', fontWeight: 500 }}>
-            <CheckCircle2 size={15} />
-            <span>Theme applied</span>
-          </div>
-        )}
-      </TopBar>
+      <TopBar />
 
       <div className="content">
         <Breadcrumb crumbs={[{ label: 'Application' }, { label: 'Appearance' }]} />
@@ -100,7 +90,7 @@ export function AppearancePage() {
             <h2 className="page-title">Appearance</h2>
             <span className="page-sub">
               Theme, typography and accent for the admin UI. Stored in this browser, so the choice applies
-              to every silo server you open here — it is not part of any server's data.
+              to every silo server you open here.
             </span>
           </div>
         </div>
@@ -112,41 +102,29 @@ export function AppearancePage() {
               <div className={styles.titleRow}>
                 <h2>Themes</h2>
               </div>
-              <p className={styles.sectionSubtitle}>
-                Each theme sets the accent and sidebar tint together. Click one to apply it instantly, or
-                pick a custom accent below.
-              </p>
             </div>
 
-            {THEME_GROUPS.map((group) => {
-              const items = ThemeManager.THEME_PRESETS.filter((t) => t.group === group)
-              return (
-                <div key={group} className={styles.themeGroup}>
-                  {group !== 'Theme' && <span className={styles.themeGroupLabel}>{group}</span>}
-                  <div className={styles.themeGrid}>
-                    {items.map((theme) => {
-                      const isActive = settings.theme === theme.name
-                      return (
-                        <button
-                          key={theme.name}
-                          type="button"
-                          role="radio"
-                          aria-checked={isActive}
-                          className={`${styles.themeCard} ${isActive ? styles.themeCardActive : ''}`}
-                          onClick={() => handleSelectTheme(theme)}
-                        >
-                          <span className={styles.orb} style={{ background: theme.accent }} />
-                          <span className={styles.themeName}>
-                            {theme.name}
-                            {theme.description && <small>{theme.description}</small>}
-                          </span>
-                        </button>
-                      )
-                    })}
-                  </div>
-                </div>
-              )
-            })}
+            <div className={styles.themeGrid}>
+              {ThemeManager.THEME_PRESETS.map((theme) => {
+                const isActive = settings.theme === theme.name
+                return (
+                  <button
+                    key={theme.name}
+                    type="button"
+                    role="radio"
+                    aria-checked={isActive}
+                    className={`${styles.themeCard} ${isActive ? styles.themeCardActive : ''}`}
+                    onClick={() => handleSelectTheme(theme)}
+                  >
+                    <span className={styles.orb} style={{ background: theme.accent }} />
+                    <span className={styles.themeName}>
+                      {theme.name}
+                      {theme.description && <small>{theme.description}</small>}
+                    </span>
+                  </button>
+                )
+              })}
+            </div>
 
             {/* Custom Color Input & Color Picker */}
             <div className={styles.colorPickerRow}>
@@ -184,7 +162,6 @@ export function AppearancePage() {
                 <Check size={14} />
                 <span>Apply Hex</span>
               </Button>
-              <span className={styles.presetsLabel}>Any hex works — drives buttons, active nav, tags, and focus rings.</span>
             </div>
           </section>
 
@@ -192,17 +169,13 @@ export function AppearancePage() {
           <section className={styles.sectionCard}>
             <div className={styles.sectionHeader}>
               <div className={styles.titleRow}>
-                <h2>Typography & Google Fonts</h2>
+                <h2>Fonts</h2>
               </div>
-              <p className={styles.sectionSubtitle}>
-                Select a preset font or enter any Google Font family name. Silo dynamically loads and renders the font stylesheet.
-              </p>
             </div>
 
             <div className={styles.presetsContainer}>
               <div className={styles.presetsHeaderRow}>
-                <span className={styles.presetsLabel}>Popular Font Presets:</span>
-                <span className={styles.presetsCount}>{ThemeManager.FONT_PRESETS.length} curated fonts</span>
+                <span className={styles.presetsLabel}>Popular fonts:</span>
               </div>
               <div className={styles.fontGrid}>
                 {ThemeManager.FONT_PRESETS.map((preset) => {
@@ -222,13 +195,13 @@ export function AppearancePage() {
                           {preset.name}
                         </span>
                         <div className={styles.fontChipMeta}>
-                          <span className={styles.fontChipCat}>{preset.category}</span>
-                          {isSelected && <Check size={13} className={styles.fontChipCheck} />}
+                          {isSelected ? (
+                            <Check size={13} className={styles.fontChipCheck} />
+                          ) : (
+                            <span className={styles.fontChipCat}>{preset.category}</span>
+                          )}
                         </div>
                       </div>
-                      <span className={styles.fontChipSample} style={fontStyle}>
-                        Aa Bb Gg 123 · Quick brown fox
-                      </span>
                     </button>
                   )
                 })}

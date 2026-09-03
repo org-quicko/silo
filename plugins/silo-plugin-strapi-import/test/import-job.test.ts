@@ -89,23 +89,30 @@ describe('running an import', () => {
 
     const progress = job.snapshot()
     expect(progress.state).toBe('done')
-    expect(progress.steps[0]).toMatchObject({ written: 2, failed: 0, state: 'done' })
+    const step = progress.steps.find((entry) => entry.collection === 'org-quicko-payment-entity')!
+    expect(step).toMatchObject({ written: 1, failed: 0, state: 'done' })
 
     const scoped = '/api/projects/staging/environments/preview'
     // The existence check and the create both go to the plan's scope, and so does
     // every entry — not to a project named anywhere else.
     expect(silo.calls[0]!.path).toStartWith(`${scoped}/collections/`)
-    expect(silo.created.map((call) => call.path)).toEqual([`${scoped}/collections`])
-    expect(silo.created[0]!.body.name).toBe('org-quicko-payment-entity')
-    expect(silo.entries.map((write) => write.scope)).toEqual([
-      { project: 'staging', env: 'preview' },
-      { project: 'staging', env: 'preview' },
-    ])
-    expect(silo.entries.map((write) => write.data.entity_name)).toEqual(['Mastercard', 'Visa'])
-    // An unsupplied file is a link, and it is still a media value.
-    expect(silo.entries[1]!.data.entity_icon).toBe(
-      'https://cms.example.com/uploads/visa_0a2d4ecc.svg',
-    )
+    expect(silo.created.map((call) => call.path)).toContain(`${scoped}/collections`)
+    expect(silo.created.map((call) => call.body.name)).toContain('org-quicko-payment-entity')
+    for (const write of silo.entries) {
+      expect(write.scope).toEqual({ project: 'staging', env: 'preview' })
+    }
+
+    // The single type is one entry, and the whole model is inside it: a list of
+    // components, each holding a list of components of its own.
+    const written = silo.entries.find((entry) => entry.collection === 'org-quicko-payment-entity')!
+    const items = written.data.items as any[]
+    expect(items.map((item) => item.entity_name)).toEqual(['Mastercard', 'Visa'])
+    expect(items[1]!.rails.map((rail: any) => rail.rail_name)).toEqual(['NPCI', 'SWIFT'])
+
+    // An unsupplied file is a link, it is still a media value, and it is written
+    // where the component that owns it sits rather than at the root.
+    expect(items[1]!.entity_icon).toBe('https://cms.example.com/uploads/visa_0a2d4ecc.svg')
+    expect(items[1]!.rails[0]!.rail_icon).toBe('https://cms.example.com/uploads/npci_1b3c5d.svg')
   })
 
   /** Two runs of the same source into two scopes touch only their own. */

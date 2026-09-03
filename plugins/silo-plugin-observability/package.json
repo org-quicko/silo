@@ -1,0 +1,31 @@
+{
+  "name": "silo-plugin-observability",
+  "version": "0.3.0",
+  "description": "Operational analytics for silo: API traffic, errors, latency, process memory, and local storage",
+  "type": "module",
+  "main": "src/index.ts",
+  "license": "AGPL-3.0-or-later",
+  "silo": {
+    "silo": "^0.3",
+    "contributes": {
+      "ui": {
+        "entry": "./src/panel/panel.html",
+        "title": "Observability"
+      },
+      "routes": [
+        {
+          "method": "GET",
+          "path": "/snapshot"
+        }
+      ]
+    },
+    "permissions": {
+      "required": [
+        {
+          "claim": "observability:read",
+          "reason": "To read silo's bounded aggregate API, process, and local-storage metrics. The snapshot contains no content, request parameters, caller identities, credentials, or filesystem paths."
+        }
+      ]
+    }
+  }
+}

@@ -9,11 +9,34 @@
 
 ```go
 type Storage interface {
-    // Schemas — scoped to (project, env) since D18
-    PutSchema(ctx context.Context, scope Scope, collection string, schema json.RawMessage) error
+    // Projects, environments and collections — KEYED RECORDS since D51.
+    //
+    // Each has a ULID that never changes and a `name` that is a mutable label,
+    // unique within its parent. Every listing addresses by name; every rename
+    // addresses by **id**, because the id is the one thing a concurrent rename
+    // cannot move under the caller's feet. Renames refuse a collision within
+    // their container. The optional `id` on the create paths exists for import,
+    // which carries ids in its markers and would otherwise remint every record
+    // it restores; a supplied id that is malformed, reserved (`_`-prefixed) or
+    // already taken is refused rather than silently replaced.
+    CreateProject(ctx context.Context, name string, id ...string) (ProjectRecord, error)
+    ListProjects(ctx context.Context) ([]ProjectRecord, error)
+    FindProject(ctx context.Context, name string) (*ProjectRecord, error)
+    RenameProject(ctx context.Context, id, name string) error
+    DeleteProject(ctx context.Context, name string) error
+    // ...and the same five for environments, taking (project, env).
+
+    ListCollections(ctx context.Context, scope Scope) ([]CollectionRecord, error)
+    FindCollection(ctx context.Context, scope Scope, collection string) (*CollectionRecord, error)
+    RenameCollection(ctx context.Context, id, name string) error
+
+    // Schemas. There is deliberately no CreateCollection: a collection's schema
+    // is NOT NULL, so PutSchema is the only thing that brings a record into
+    // being, and DeleteSchema is what ends it — it removes the whole collection
+    // record, not a nullable field on a record that survives.
+    PutSchema(ctx context.Context, scope Scope, collection string, schema json.RawMessage, id ...string) (CollectionRecord, error)
     GetSchema(ctx context.Context, scope Scope, collection string) (json.RawMessage, error)
-    ListSchemas(ctx context.Context, scope Scope) (map[string]json.RawMessage, error)
-    DeleteSchema(ctx context.Context, scope Scope, collection string) error // fails if entries exist, unless forced at a higher layer
+    DeleteSchema(ctx context.Context, scope Scope, collection string) error // refuses while entries remain
 
     // Entries — Put is create-or-replace; caller sets envelope (scope included),
     // adapter assigns Seq. Get/Delete/List take scope explicitly.
@@ -28,8 +51,10 @@ type Storage interface {
     Delete(ctx context.Context, scope Scope, collection, id string) error
     List(ctx context.Context, scope Scope, collection string, q Query) ([]*Entry, int /*total*/, error)
 
-    // Every non-system scope currently holding a schema or an entry, sorted by
-    // (project, env). Scope existence is derived from content, never registered.
+    // Every non-system scope that EXISTS, sorted by (project, env). Since D51
+    // that means "its record exists" — a child references its parent by id, so
+    // content can no longer imply a parent that has no record, and emptying a
+    // scope does not remove it.
     ListScopes(ctx context.Context) ([]Scope, error)
 
     // Media usages (D23). Derived state owned by the adapter: SQLite keeps a
@@ -40,15 +65,30 @@ type Storage interface {
     CountMediaUsages(ctx context.Context, mediaIDs []string) (map[string]int, error)
 
     // Every collection in this scope that still holds an entry, sorted by name.
-    // Deliberately distinct from ListSchemas: an archive can carry
-    // content/<collection>/ with no schema, and those entries are invisible to
-    // every schema-derived listing — without this the scope they live in can
-    // never be emptied.
+    //
+    // No longer load-bearing for addressing: since D51 every collection has a
+    // record, so ListCollections is the authority on what exists and this cannot
+    // report one that does not. It stays because "which of these hold content"
+    // is a question the export engine and the scope-delete guard both ask, and
+    // answering it from records alone would mean counting every collection's
+    // entries to find out.
     ListEntryCollections(ctx context.Context, scope Scope) ([]string, error)
 
-    // Instance metadata (instance_id, last_seq). seq stays instance-global and
-    // monotonic across every scope.
+    // How many entries each collection in this scope holds, keyed by collection
+    // name; a collection with none is absent rather than zero (D54).
+    //
+    // One question, one answer. What every caller reached for instead was a
+    // limit=1 list per collection, which reads an entry off disk to learn a
+    // number and costs a round trip per collection over HTTP — measured at four
+    // megabytes to draw a sidebar over forty collections of tabular content.
+    CountEntries(ctx context.Context, scope Scope) (map[string]int, error)
+
+    // Instance metadata (instance_id, last_seq, defaults_initialized). seq stays
+    // instance-global and monotonic across every scope. The flag is durable
+    // rather than derived, so a renamed or deleted default project is not
+    // resurrected at the next start (D51).
     Meta(ctx context.Context) (Meta, error)
+    MarkDefaultsInitialized(ctx context.Context) error
 
     Close() error
 }
@@ -62,53 +102,81 @@ cross-process lock, the fs adapter holds `last_seq` in memory, and `Service`'s
 write mutex is process-local. `RunFile.assertNotRunning` is what makes that
 assumption true.
 
-Rules for all adapters: single-writer semantics per entry, atomic writes (no torn entries observable), `List` results stable-ordered (sort keys, then `id`), the project/env existence rule of D20 (created explicitly *or* still holding content — a scope reported by one adapter and not the other is a portability bug, since `Exporter` enumerates `listScopes()`), and **`project`/`env`/`collection`/`id` validated as safe path segments** (`EntryUtils.assertSafeSegment`: non-empty, not `.`/`..`, no `/`, `\`, or NUL, ≤255 bytes) on every entry call. That last rule is a port contract rather than one adapter's local defense: the fs adapter turns these values into a path, so an unvalidated `id` from an import archive could otherwise plant an entry outside its scope or outside the data dir entirely — and a cap the fs adapter can't honor would let SQLite accept what fs rejects mid-write with `ENAMETOOLONG`. Both adapters therefore reject the same values, and the conformance suite pins that. Since D18, `$ref`/`$defs` resolution, the compiled-validator cache, and referrer checks (§9) are likewise scoped — the same collection name in two scopes never shares a validator or resolves a ref against the other's schemas.
+Rules for all adapters: single-writer semantics per entry, atomic writes (no torn entries observable), `List` results stable-ordered (sort keys, then `id`), the **record existence rule of D51** — a project, environment or collection exists exactly when its record does, superseding D20's "created explicitly *or* still holding content"; a scope reported by one adapter and not the other is a portability bug, since `Exporter` enumerates `listScopes()` — and **`project`/`env`/`collection`/`id` validated as safe path segments** (`EntryUtils.assertSafeSegment`: non-empty, not `.`/`..`, no `/`, `\`, or NUL, ≤255 bytes) on every entry call. That last rule is a port contract rather than one adapter's local defense: the fs adapter turns these values into a path, so an unvalidated `id` from an import archive could otherwise plant an entry outside its scope or outside the data dir entirely — and a cap the fs adapter can't honor would let SQLite accept what fs rejects mid-write with `ENAMETOOLONG`. Both adapters therefore reject the same values, and the conformance suite pins that. Since D18, `$ref`/`$defs` resolution, the compiled-validator cache, and referrer checks (§9) are likewise scoped — the same collection name in two scopes never shares a validator or resolves a ref against the other's schemas.
 
 ### 6.2 SQLite adapter
 
 ```sql
-CREATE TABLE meta    (key TEXT PRIMARY KEY, value TEXT NOT NULL); -- instance_id, last_seq, format_version
-CREATE TABLE schemas (
-    project    TEXT NOT NULL,
-    env        TEXT NOT NULL,
-    collection TEXT NOT NULL,
-    schema     TEXT NOT NULL,
-    updated_at TEXT NOT NULL,
-    PRIMARY KEY (project, env, collection)
+-- Since D51: three keyed record tables, and every reference by id. A rename is
+-- one UPDATE of a `name` column and touches nothing below it.
+CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);
+              -- instance_id, last_seq, format_version, defaults_initialized
+CREATE TABLE projects (
+    id         TEXT PRIMARY KEY,         -- ULID; `_system` for the reserved one
+    name       TEXT NOT NULL UNIQUE,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
 );
-CREATE TABLE entries (
-    id         TEXT NOT NULL,
-    project    TEXT NOT NULL,
-    env        TEXT NOT NULL,
-    collection TEXT NOT NULL,
-    rev        INTEGER NOT NULL,
-    seq        INTEGER NOT NULL UNIQUE,
+CREATE TABLE environments (
+    id         TEXT PRIMARY KEY,
+    project_id TEXT NOT NULL REFERENCES projects(id),
+    name       TEXT NOT NULL,
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL,
-    data       TEXT NOT NULL,           -- JSON
-    PRIMARY KEY (project, env, collection, id)
+    UNIQUE (project_id, name),
+    UNIQUE (project_id, id)              -- so children can reference the pair
+);
+CREATE TABLE collections (               -- replaced `schemas`; one row per collection
+    id         TEXT PRIMARY KEY,
+    project_id TEXT NOT NULL,
+    env_id     TEXT NOT NULL,
+    name       TEXT NOT NULL,
+    schema     TEXT NOT NULL,            -- NEVER null: a collection always has one
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    FOREIGN KEY (project_id, env_id) REFERENCES environments(project_id, id),
+    UNIQUE (env_id, name),
+    UNIQUE (project_id, env_id, id)
+);
+CREATE TABLE entries (
+    id            TEXT NOT NULL,
+    project_id    TEXT NOT NULL,         -- denormalised, so a scope query needs no join
+    env_id        TEXT NOT NULL,
+    collection_id TEXT NOT NULL,
+    rev           INTEGER NOT NULL,
+    seq           INTEGER NOT NULL UNIQUE,
+    created_at    TEXT NOT NULL,
+    updated_at    TEXT NOT NULL,
+    data          TEXT NOT NULL,         -- JSON
+    PRIMARY KEY (collection_id, id),
+    FOREIGN KEY (project_id, env_id, collection_id)
+        REFERENCES collections(project_id, env_id, id)
 );
 CREATE INDEX idx_entries_seq ON entries(seq);
 CREATE TABLE media_references (          -- D23; derived, rebuilt by `silo media reconcile`
-    media_id   TEXT NOT NULL,            -- asset ULID, or "blob:<key>" for a pre-D23 reference
-    project    TEXT NOT NULL,
-    env        TEXT NOT NULL,
-    collection TEXT NOT NULL,
-    entry_id   TEXT NOT NULL,
-    PRIMARY KEY (media_id, project, env, collection, entry_id)
+    media_id      TEXT NOT NULL,         -- asset ULID, or "blob:<key>" for a pre-D23 reference
+    project_id    TEXT NOT NULL,
+    env_id        TEXT NOT NULL,
+    collection_id TEXT NOT NULL,
+    entry_id      TEXT NOT NULL,
+    PRIMARY KEY (media_id, collection_id, entry_id),
+    FOREIGN KEY (collection_id, entry_id)
+        REFERENCES entries(collection_id, id) ON DELETE CASCADE
 );
-CREATE INDEX idx_media_refs_entry ON media_references(project, env, collection, entry_id);
+CREATE INDEX idx_media_refs_entry ON media_references(collection_id, entry_id);
 CREATE TABLE entry_search_documents (   -- D30; derived, rebuilt by `silo search reindex`
-    docid      INTEGER PRIMARY KEY,     -- explicit: VACUUM renumbers an implicit rowid
-    project    TEXT NOT NULL,
-    env        TEXT NOT NULL,
-    collection TEXT NOT NULL,
-    entry_id   TEXT NOT NULL,
-    label      TEXT NOT NULL,           -- weighted text (x-silo-search.label)
-    body       TEXT NOT NULL,
-    UNIQUE (project, env, collection, entry_id)
+    docid         INTEGER PRIMARY KEY,  -- explicit: VACUUM renumbers an implicit rowid
+    project_id    TEXT NOT NULL,
+    env_id        TEXT NOT NULL,
+    collection_id TEXT NOT NULL,
+    entry_id      TEXT NOT NULL,
+    label         TEXT NOT NULL,        -- weighted text (x-silo-search.label)
+    body          TEXT NOT NULL,
+    UNIQUE (collection_id, entry_id),
+    FOREIGN KEY (collection_id, entry_id)
+        REFERENCES entries(collection_id, id) ON DELETE CASCADE
 );
-CREATE INDEX idx_entry_search_scope ON entry_search_documents(project, env, collection);
+CREATE INDEX idx_entry_search_scope ON entry_search_documents(env_id, collection_id);
 CREATE VIRTUAL TABLE entry_search_fts USING fts5(  -- external content; 3 sync triggers
     label, body, content = 'entry_search_documents', content_rowid = 'docid',
     tokenize = '<[search] tokenizer>'
@@ -117,37 +185,80 @@ CREATE VIRTUAL TABLE entry_search_fts USING fts5(  -- external content; 3 sync t
 
 `media_references` and `entry_search_documents` rows are written inside `put`'s existing transaction — the
 one that already allocates `seq` — so an entry, its references and its index row land together
-or not at all. `delete`, `deleteProject` and `deleteEnvironment` drop matching
-rows in their own transactions for the same reason.
+or not at all. Since D51 they are **removed** by the `ON DELETE CASCADE` above
+rather than by explicit purges: the bulk deletes remove entries before their
+derived rows, an order a non-cascading child key would reject, and the cascade
+fires `entry_search_documents`' own `AFTER DELETE` trigger so FTS5 stays in step
+(verified — SQLite fires triggers for cascaded deletes even with
+`recursive_triggers` off).
+
+**The relationships are composite on purpose.** Independent single-column keys
+would happily accept a `project_id` from one branch beside an `env_id` from
+another, so each child references its parent as a tuple and each parent carries
+the extra `UNIQUE` a tuple reference needs as its target.
+`PRAGMA foreign_keys = ON` is set in `applyPragmas` — without it every key here
+would be documentation — and runs outside any transaction, because that pragma
+is a silent no-op inside one. `PRAGMA foreign_key_check` runs after open. DDL,
+the `meta` rows and the reserved `_system` records are **one transaction**: a
+database with the tables but not the system records is one where the first key
+write fails a foreign key, and one with the records but no format stamp is one
+the next start refuses.
+
+**Names meet ids in exactly one place**, `SqliteScopeResolver`, and only
+forwards. The reverse direction is needed by just the few queries that span
+scopes — media usages, search hits, `listEntryCollections` — and those join the
+record tables in SQL, which keeps the ordering and the page boundary on the
+names rather than on the ids underneath them. Single-scope reads never need it,
+since the caller passed the names in. The cache is flat and dropped whole on any
+record write: creates, renames and deletes are rare next to reads, so a precise
+invalidation would be more code for a saving nothing measures.
 
 The search tables exist only when `[search] enabled` is true **and** the SQLite build has FTS5, which is probed at open rather than assumed. `docid` is an explicit `INTEGER PRIMARY KEY` because `VACUUM` renumbers the implicit rowid of a table whose primary key is composite, which would silently point the index at the wrong rows; the upsert uses `ON CONFLICT DO UPDATE` so it survives a rewrite. Opening with search **disabled** clears the version stamp but drops nothing — every CLI subcommand opens the store, so a `silo keys list` from a build without FTS5 would otherwise delete the index a running server is maintaining on the same data dir, and a cleared stamp already forces the rebuild that correctness needs.
 
-WAL mode, `busy_timeout` set, one write connection + a read pool. `seq` allocated by incrementing `meta.last_seq` inside the write transaction, still instance-global rather than per-scope. Filters compile to `json_extract(data, '$.path')` expressions; no per-field indexes in v1 (roadmap: expression indexes for declared hot fields). Scope values (`project`, `env`) always reach SQL as bound parameters, never interpolated, same as every other query value. `SqliteStore.open` refuses to open a data dir stamped with a different `format_version` before running DDL — `CREATE TABLE IF NOT EXISTS` would otherwise silently leave a pre-D18 schema/entries table without these columns in place, so unscoped queries would crash on "no such column" instead of failing with an actionable message. The `meta.format_version` row is checked first, but isn't trusted alone: a pre-D18 db could in principle have old-shaped tables without a `format_version` row to contradict, so the guard also inspects `schemas`/`entries` directly via `PRAGMA table_info` and refuses to open if either exists without a `project` column.
+WAL mode, `busy_timeout` set, one write connection + a read pool. `seq` allocated by incrementing `meta.last_seq` inside the write transaction, still instance-global rather than per-scope. Filters compile to `json_extract(data, '$.path')` expressions; no per-field indexes in v1 (roadmap: expression indexes for declared hot fields). Scope values (`project`, `env`) always reach SQL as bound parameters, never interpolated, same as every other query value. `SqliteStore.open` refuses to open a data dir stamped with a different `format_version` before running DDL — `CREATE TABLE IF NOT EXISTS` would otherwise silently leave an older entries table without these columns in place, so queries would crash on "no such column" instead of failing with an actionable message. The `meta.format_version` row is checked first, but isn't trusted alone: an older db could in principle have old-shaped tables without a `format_version` row to contradict, so the guard also inspects the shape directly. Since D51 that means two things: a `schemas` table existing **at all** is proof of a pre-D51 directory, since nothing creates it any more; and `entries` is inspected via `PRAGMA table_info` for a `collection_id` column. D51 reset `format_version` to `"1"` and there is **no migration** — export with the previous binary and re-import, per the pre-1.0 principle D29 states.
+
+No part of the adapter holds the `Database` directly; they all hold a `SqliteConnection`, which owns it together with every statement prepared against it. The reason is that bun:sqlite finalizes a statement only if it is still in `Database.query`'s own cache when the database closes, and that cache holds exactly **twenty** — the twenty-first distinct statement evicts the first, and an evicted statement is never finalized. `Database.prepare` is not cached at all and is never finalized. Either way the unfinalized statement keeps the database file open, so `close()` stops *using* the file without *releasing* it: `sqlite3_close_v2` leaves a zombie connection behind. On Windows that is not a detail, because an open handle makes the data directory undeletable and unmovable, so the leak surfaces as `EBUSY` from whatever next tries to remove or move the directory rather than as anything recognisably about SQLite. `SqliteConnection.query` therefore caches without a bound and `close()` finalizes the lot. SQL whose text is built per call — a compiled filter, an `IN` list sized to its arguments — must not be cached at all, or the map would grow by one live statement per shape; that goes through `SqliteConnection.once`, which prepares, runs and finalizes in a `finally`. The interpolation that remains in a cached `query` is a class constant or the two-value table name in `touchName`, so what is cached is bounded by the code rather than by the workload.
 
 ### 6.3 Filesystem adapter (layout = export format, per D5)
 
-Since D18 (`format_version` `"2"`), every collection lives under its
-`(project, env)` pair:
+Every collection lives under its `(project, env)` pair, and the directories are
+still named by **name** rather than by record id (D51): this layout *is* the
+export format, and it is meant to be read and diffed by a human. The ids live in
+the markers instead, which is what makes a rename an `fs.rename` of a directory
+with the identity travelling inside it.
 
 ```
 <data-dir>/
-  manifest.json                     # format_version, instance_id, last_seq
+  manifest.json                     # format_version, instance_id, last_seq,
+                                    #   defaults_initialized
   projects/
     <project>/
+      .silo-project                 # {id, created_at} — REQUIRED since D51
       <env>/
+        .silo-env                   # {id, created_at}
         schemas/
           posts.schema.json         # the JSON Schema document, pretty-printed
+          .posts.silo-collection    # {id, created_at, moving_from?}
         content/
           posts/
             01J8XQ4Z8K9M2P3R5T7V9X1B3D.json
     _system/
       _system/
+        schemas/
+          _keys.schema.json        # {"x-silo-system": true} — bookkeeping, never validated
+          ._keys.silo-collection   # id is the reserved name, on every instance
         content/
           _keys/                   # system collections live in the reserved scope
             01J8XQ50P1R2S3T4U5V6W7X8Y9.json
 ```
 
-The reserved system scope (`_system/_system`) is just another `<project>/<env>` pair — the adapter has no branch for it. `listScopes()` walks the `projects/*/*` directory pairs, skips any whose names start with `_`, and reports a pair only if it still holds a schema or an entry — a directory left behind by deleting a scope's last collection is not a scope. Scope existence is derived from content on every adapter, never registered.
+The reserved system scope (`_system/_system`) is just another `<project>/<env>` pair — the adapter has no branch for it. `listScopes()` walks the `projects/*/*` directory pairs, skips any whose names start with `_`, and reports a pair only if it carries a marker. **Existence is the record, not the content** (D51): a marker is where the ULID lives, so it is required, and a directory without one is not a scope — which also means a directory left behind by a delete is not one either, as before, but now for a reason that has an answer to "what is this scope's id".
+
+The seven system collections are seeded here by `FsSystemSeed`, the counterpart of `SqliteMigrations.seedSystemRecords`, so both adapters answer `listCollections(Scope.System)` the same way. Seeding one and not the other would have left the fs adapter reporting no record for a collection it happily holds entries for, which is exactly the divergence the conformance suite exists to catch.
+
+**There is deliberately no name-to-id cache on this adapter**, where SQLite has one: identity is read from the markers on every operation. That is the same argument D23 makes for keeping no usage index here — this adapter exists for `rsync` and `git checkout`, and an in-memory index goes stale the moment someone checks out a branch under a running process. It is already O(n)-per-query by design, so a rename addressed by id scans for it.
+
+A project or environment rename is a single `fs.rename` of the directory, atomic on one filesystem, with the marker travelling untouched. **A collection rename is the one that is not**: the marker, the schema file and the content directory are three moves. So the destination marker carries `moving_from`, written before the first move and cleared after the last, and `FsCollectionStore.resumePending` finishes it at the next open, counting failures rather than throwing — the same reasoning D23's and D49's resumes give. Recovery is *decidable* precisely because the id is in both places: a destination marker holding **this** id is this rename half-done and is resumed, while any other id is a genuine collision. `putSchema` writes the schema **before** the marker for a related reason — a crash between the two then leaves a schema file no listing reports, which the next put adopts, where the other order would leave a collection that lists and has no schema, the one state the `NOT NULL` invariant exists to rule out.
 
 Each entry file is the full envelope, pretty-printed with a fixed field order — every write serializes the same envelope shape in the same order, so diffs stay minimal (git-diff-friendly), though it's insertion order, not alphabetical. The `project`/`env`/`collection` fields carry the scope and collection name but are **not** trusted on read: `get`/`list` always take `project`/`env` from the scope that was queried (the directory the file was found under), and import takes both from the archive path — the path is the addressing authority, not the file's own contents. This also closes a concrete bug class: an envelope that disagreed with its path could otherwise make a later write fork the entry into the wrong scope.
 

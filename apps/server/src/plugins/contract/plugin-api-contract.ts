@@ -108,7 +108,16 @@ export class PluginApiContract {
       path: `${PluginApiContract.Scoped}/collections`,
       parameters: [{ name: "scope", kind: "scope", type: "SiloScope" }],
       returns: "SiloItemPage",
-      summary: "The collections of one scope that the grant can see.",
+      summary:
+        "The collections of one scope that the grant can see: name, entry count, access and timestamps. No schemas — ask `collections.schemas` for those.",
+    },
+    {
+      name: "collections.schemas",
+      method: "GET",
+      path: `${PluginApiContract.Scoped}/schemas`,
+      parameters: [{ name: "scope", kind: "scope", type: "SiloScope" }],
+      returns: "SiloItemPage",
+      summary: "Every schema in one scope, for a plugin that needs all of them at once.",
     },
     {
       name: "collections.schema",
@@ -128,8 +137,10 @@ export class PluginApiContract {
       parameters: [],
       returns: "SiloItemPage",
       summary:
-        "The project ids the grant can see, as `items` — names, not objects. " +
-        "Environments are a call of their own: `GET {project}/environments`.",
+        "The projects the grant can see, as `items` of `{id, name}` — `id` is the " +
+        "record's ULID and `name` is what every path addresses, so build a URL from " +
+        "`name` (D51). Environments are a call of their own: `GET {project}/environments`, " +
+        "and answer the same shape.",
     },
     {
       name: "media.list",

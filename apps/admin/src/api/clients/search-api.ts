@@ -31,7 +31,13 @@ export class SearchApi {
     query: SearchQuery = {},
   ): Promise<SearchPage> {
     const params = new QueryParams()
-      .set('q', query.q)
+      // The wire name is `q`, as §5.5 documents it. The field is `query`
+      // because every call site reads better that way, but renaming the
+      // parameter itself would make the admin only work against a server built
+      // after the rename — and its failure would be a *silent* one: a server
+      // that never sees text runs the same search with no text at all, which
+      // answers with everything rather than an error.
+      .set('q', query.query)
       .json('filter', query.filter)
       // Omitted rather than defaulted: §5.5 gives a supplied sort precedence
       // over relevance, so sending one "just to be explicit" would silently

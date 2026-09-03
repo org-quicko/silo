@@ -1,8 +1,10 @@
 .content { padding: 0; }
 
+/* The rail is the page's second column, not a box beside the editor: it runs
+   the full height of the view however short the schema is. */
 .shell {
   display: flex;
-  min-height: 0;
+  min-height: 100%;
   align-items: stretch;
 }
 
@@ -10,22 +12,21 @@
   display: flex;
   min-width: 0;
   flex: 1;
-  padding: 26px 30px;
+  padding: 22px 24px;
   border-right: 1px solid var(--line);
 }
-
-.mainSolo { border-right: 0; }
 
 .layout {
   display: flex;
   width: 100%;
-  max-width: 760px;
   flex-direction: column;
   gap: 18px;
 }
 
 .pageHeader { margin-bottom: 0; }
-.nameField { max-width: 340px; }
+/* Wide enough for a real collection name: an imported one runs to 55 characters,
+   and the rename button sits on the same row. */
+.nameField { max-width: 560px; }
 
 .authCard {
   display: flex;
@@ -87,6 +88,8 @@
   background: var(--panel);
 }
 
+.railActions { display: flex; flex-direction: column; gap: 10px; }
+
 .metadataGroup { display: flex; flex-direction: column; gap: 12px; }
 
 .metadataLabel {
@@ -137,7 +140,12 @@
   border: 1px solid var(--line-2);
   border-radius: var(--radius-sm);
   background: var(--panel);
+  cursor: pointer;
+  user-select: none;
 }
+
+.fieldRow:hover { border-color: color-mix(in oklab, var(--accent) 45%, var(--line-2)); }
+.fieldRow:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 
 .selected {
   border-color: var(--accent);
@@ -146,13 +154,24 @@
 }
 
 .grip { display: flex; flex: none; color: var(--text-3); cursor: grab; }
+.fieldRow:active .grip { cursor: grabbing; }
+/* The dragged row stays in place and fades: the list reorders around it, so a
+   hidden row would make the list jump by its own height. */
+.dragging { opacity: 0.4; }
 .selected .grip { color: var(--accent); }
 
 .fieldSummary { display: flex; min-width: 0; flex: 1; flex-direction: column; gap: 2px; }
+
+/* Both lines end in an ellipsis rather than wrapping: a long enum turned the
+   row into a paragraph, and one unbreakable value overflowed it and painted
+   over the badges. The full text is the description's tooltip. */
+.fieldName,
+.fieldDescription { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .fieldName { color: var(--text); font-size: 13.5px; font-weight: 600; }
 .fieldDescription { color: var(--text-3); font-size: 11.5px; }
 
 .type {
+  flex: none;
   padding: 3px 8px;
   border-radius: 5px;
   background: var(--accent-soft);
@@ -161,21 +180,17 @@
   font-size: 11px;
 }
 
-.requirement { padding: 3px 8px; border-radius: 5px; font-size: 11px; }
+.requirement { flex: none; padding: 3px 8px; border-radius: 5px; font-size: 11px; }
 .required { border: 1px solid color-mix(in oklab, var(--warn) 30%, transparent); color: var(--warn); }
 .optional { border: 1px solid var(--line-2); color: var(--text-3); }
 
 .gear {
   display: flex;
   flex: none;
-  padding: 0;
-  border: 0;
-  background: none;
   color: var(--text-3);
-  cursor: pointer;
 }
 
-.gear:hover { color: var(--text); }
+.fieldRow:hover .gear { color: var(--text); }
 .selected .gear { color: var(--accent); }
 
 .fieldEditor {
@@ -209,10 +224,14 @@
   background: var(--panel);
 }
 
+/* A value longer than the box wraps inside its own chip: it is what the reader
+   is here to check, so clipping it would hide the thing being edited. */
 .value {
   display: inline-flex;
+  max-width: 100%;
   align-items: center;
   gap: 6px;
+  overflow-wrap: anywhere;
   padding: 3px 6px 3px 9px;
   border: 1px solid var(--line);
   border-radius: 5px;
@@ -246,7 +265,7 @@
   .shell { flex-direction: column; }
 
   .main {
-    padding: 20px 16px;
+    padding: 0;
     border-right: 0;
   }
 

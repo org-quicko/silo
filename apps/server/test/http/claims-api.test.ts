@@ -58,7 +58,7 @@ describe("claims API authorization", () => {
 
   afterEach(async () => {
     await store.close();
-    await fs.rm(tempDir, { recursive: true, force: true }).catch(() => {});
+    await fs.rm(tempDir, { recursive: true, force: true });
   });
 
   test("entry CRUD actions are enforced independently", async () => {

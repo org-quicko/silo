@@ -1,5 +1,8 @@
+import type { CollectionRecord } from "../domain/collection-record";
 import type { Entry } from "../domain/entry";
+import type { EnvironmentRecord } from "../domain/environment-record";
 import type { Meta } from "../domain/meta";
+import type { ProjectRecord } from "../domain/project-record";
 import type { Scope } from "../domain/scope";
 import type { Query } from "../query/query";
 import type { MediaUsage } from "../media/media-usage";
@@ -11,31 +14,60 @@ import type { DerivedIndex } from "./derived-index";
  * Two adapters implement this — SQLite and the filesystem — and the
  * conformance suite is the contract: both must answer every question the same
  * way. See `docs/design/storage.md` for the rules behind the shape, including
- * scope existence (D20), the path-segment contract, and why `derived` is
- * required rather than optional.
+ * record existence (D51, superseding D20), the path-segment contract, and why
+ * `derived` is required rather than optional.
  */
 export interface Storage {
-  // ---- Projects and environments (D20) ----
+  // ---- Projects, environments and collections (D51) ----
   //
-  // A project or env **exists** when it was created explicitly *or* still
-  // holds a schema or an entry. Creating one that exists is a no-op, as is
-  // deleting one that never did. `_`-prefixed ids are reserved
-  // (`Scope.System`) and never appear in these listings.
+  // All three are **keyed records**: a ULID that never changes, and a mutable
+  // `name` that every route path, claim string and archive directory addresses.
+  // A record **exists** when it was created — not, as under D20, when it was
+  // created *or* still holds content, because a child now references its parent
+  // by id and so cannot outlive it.
+  //
+  // Every listing addresses by name and every rename by **id**, since the id is
+  // the one thing a concurrent rename cannot move under the caller's feet.
+  // Renames refuse a collision within their container. `_`-prefixed names are
+  // reserved (`Scope.System`, `SystemCollections`) and never appear in these
+  // listings.
+  //
+  // The optional `id` on the create paths exists for **import**, which carries
+  // ids in its markers and would otherwise remint every record it restores. An
+  // adapter mints one when it is omitted; a supplied id that is malformed or
+  // already taken is refused rather than silently replaced.
 
-  createProject(project: string): Promise<void>;
-  listProjects(): Promise<string[]>;
-  /** Removes the explicit record *and* everything stored beneath it. */
-  deleteProject(project: string): Promise<void>;
+  createProject(name: string, id?: string): Promise<ProjectRecord>;
+  listProjects(): Promise<ProjectRecord[]>;
+  findProject(name: string): Promise<ProjectRecord | null>;
+  renameProject(id: string, name: string): Promise<void>;
+  /** Removes the record *and* everything stored beneath it. */
+  deleteProject(name: string): Promise<void>;
 
-  createEnvironment(project: string, env: string): Promise<void>;
-  listEnvironments(project: string): Promise<string[]>;
+  createEnvironment(project: string, env: string, id?: string): Promise<EnvironmentRecord>;
+  listEnvironments(project: string): Promise<EnvironmentRecord[]>;
+  findEnvironment(project: string, env: string): Promise<EnvironmentRecord | null>;
+  renameEnvironment(id: string, name: string): Promise<void>;
   deleteEnvironment(project: string, env: string): Promise<void>;
 
-  // ---- Schemas, scoped to (project, env) ----
+  listCollections(scope: Scope): Promise<CollectionRecord[]>;
+  findCollection(scope: Scope, collection: string): Promise<CollectionRecord | null>;
+  renameCollection(id: string, name: string): Promise<void>;
 
-  putSchema(scope: Scope, collection: string, schema: any): Promise<void>;
+  // ---- Schemas ----
+  //
+  // There is no `createCollection`: a collection's schema is `NOT NULL`, so
+  // `putSchema` is the only thing that brings a record into being, and
+  // `deleteSchema` is what ends it — it removes the whole collection record,
+  // not a nullable field on a record that survives.
+
+  putSchema(
+    scope: Scope,
+    collection: string,
+    schema: any,
+    id?: string
+  ): Promise<CollectionRecord>;
   getSchema(scope: Scope, collection: string): Promise<any>;
-  listSchemas(scope: Scope): Promise<Map<string, any>>;
   deleteSchema(scope: Scope, collection: string): Promise<void>;
 
   // ---- Entries ----
@@ -44,7 +76,8 @@ export interface Storage {
   // scope off the self-describing envelope (D18) — must be safe path segments
   // (`EntryUtils.assertSafeSegment`). Every adapter enforces this identically:
   // an import takes an entry's id from file *contents*, not from the trusted
-  // archive path.
+  // archive path. The envelope still carries **names**, which each adapter
+  // resolves to ids on write and restores on read.
 
   /** `derived` carries the state that must land atomically with the write
    *  (D23, D30): the entry's complete media reference set, and its index text.
@@ -59,15 +92,30 @@ export interface Storage {
     query: Query
   ): Promise<{ items: Entry[]; total: number }>;
 
+  /**
+   * How many entries each collection in `scope` holds, keyed by collection
+   * **name**. A collection with no entries is absent rather than zero, so a
+   * reader takes `?? 0`.
+   *
+   * One question, one answer: the alternative every caller reached for was a
+   * `limit: 1` list per collection, which transfers a whole entry to learn a
+   * number and costs one round trip per collection — measured at four
+   * megabytes to draw a sidebar over forty collections of tabular content.
+   */
+  countEntries(scope: Scope): Promise<Map<string, number>>;
+
   /** Every non-system scope that exists, sorted by (project, env). */
   listScopes(): Promise<Scope[]>;
 
   /**
    * Every collection in `scope` that still holds at least one entry.
    *
-   * Deliberately distinct from `listSchemas`: an archive can carry a
-   * `content/<collection>/` directory with no matching schema, and without
-   * this the scope those entries live in could never be emptied.
+   * No longer load-bearing for addressing — since D51 every collection has a
+   * record, so `listCollections` is the authority on what exists and this
+   * cannot report one that does not. It stays because "which of these hold
+   * content" is a question the export engine and the scope-delete guard both
+   * ask, and answering it from records alone would mean counting every
+   * collection's entries to find out.
    */
   listEntryCollections(scope: Scope): Promise<string[]>;
 
@@ -79,7 +127,8 @@ export interface Storage {
   // and its pre-D23 `blob:<key>` form at once.
 
   /** Mirrors `list`'s `{items, total}` so a 409 gets its count and its
-   *  enumerable page from one call. */
+   *  enumerable page from one call. Ordering is by scope **name**, resolved
+   *  before the page is cut, so a page boundary does not move with the ids. */
   listMediaUsages(
     mediaIds: string[],
     page?: { limit?: number; offset?: number }
@@ -88,9 +137,13 @@ export interface Storage {
   /** Counts for many assets at once, so a library page needs one query. */
   countMediaUsages(mediaIds: string[]): Promise<Map<string, number>>;
 
-  /** Instance id and `last_seq`. `seq` is instance-global and monotonic
-   *  across every scope. */
+  /** Instance id, `last_seq`, and whether the configured defaults have ever
+   *  been seeded (D51 — so a renamed or deleted default is not resurrected at
+   *  the next start). `seq` is instance-global and monotonic across every
+   *  scope. */
   meta(): Promise<Meta>;
+  /** Records that the configured defaults were seeded. Idempotent. */
+  markDefaultsInitialized(): Promise<void>;
 
   close(): Promise<void>;
 }

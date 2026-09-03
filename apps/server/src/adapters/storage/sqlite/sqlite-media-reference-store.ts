@@ -1,6 +1,6 @@
-import type { Database } from "bun:sqlite";
-import type { Entry } from "../../../core/domain/entry";
+import type { SqliteConnection } from "./sqlite-connection";
 import type { MediaUsage } from "../../../core/media/media-usage";
+import type { CollectionAddress } from "./sqlite-scope-resolver";
 
 /**
  * The `media_references` table (D23).
@@ -9,47 +9,51 @@ import type { MediaUsage } from "../../../core/media/media-usage";
  * its references land together or not at all, which is the whole reason usages
  * sit on the `Storage` port rather than in a layer above it. A crash must never
  * leave a media file deletable while an entry still names it.
+ *
+ * Rows are keyed by record id since D51, with a cascading foreign key to the
+ * entry, so no `purgeProject`/`purgeEnvironment` is needed: deleting the
+ * entries takes their references along.
  */
 export class SqliteMediaReferenceStore {
   /** Matches the default page size the media routes ask for. */
   private static readonly FallbackLimit = 50;
 
-  private readonly database: Database;
+  /**
+   * `MediaUsage` is public — the 409 body enumerates it — so the read side
+   * joins back to the record tables for names. The join is also what keeps the
+   * ordering on the names: sorting by ULID and mapping afterwards would move a
+   * page boundary relative to what the caller sees.
+   */
+  private static readonly Joined = `FROM media_references r
+    JOIN projects p ON p.id = r.project_id
+    JOIN environments v ON v.id = r.env_id
+    JOIN collections c ON c.id = r.collection_id`;
 
-  constructor(database: Database) {
+  private readonly database: SqliteConnection;
+
+  constructor(database: SqliteConnection) {
     this.database = database;
   }
 
   /** Replaces every reference an entry makes. Transactional with the entry. */
-  replaceForEntry(entry: Entry, mediaIds: string[]): void {
-    this.purgeEntry(entry.project, entry.env, entry.collection, entry.id);
+  replaceForEntry(address: CollectionAddress, entryId: string, mediaIds: string[]): void {
+    this.purgeEntry(address.collectionId, entryId);
     if (mediaIds.length === 0) return;
 
-    const insert = this.database.prepare(
-      `INSERT OR IGNORE INTO media_references (media_id, project, env, collection, entry_id)
+    const insert = this.database.query(
+      `INSERT OR IGNORE INTO media_references
+         (media_id, project_id, env_id, collection_id, entry_id)
        VALUES (?, ?, ?, ?, ?)`
     );
     for (const mediaId of mediaIds) {
-      insert.run(mediaId, entry.project, entry.env, entry.collection, entry.id);
+      insert.run(mediaId, address.projectId, address.envId, address.collectionId, entryId);
     }
   }
 
-  purgeEntry(project: string, env: string, collection: string, entryId: string): void {
+  purgeEntry(collectionId: string, entryId: string): void {
     this.database
-      .prepare(
-        `DELETE FROM media_references WHERE project = ? AND env = ? AND collection = ? AND entry_id = ?`
-      )
-      .run(project, env, collection, entryId);
-  }
-
-  purgeProject(project: string): void {
-    this.database.prepare(`DELETE FROM media_references WHERE project = ?`).run(project);
-  }
-
-  purgeEnvironment(project: string, env: string): void {
-    this.database
-      .prepare(`DELETE FROM media_references WHERE project = ? AND env = ?`)
-      .run(project, env);
+      .query(`DELETE FROM media_references WHERE collection_id = ? AND entry_id = ?`)
+      .run(collectionId, entryId);
   }
 
   /** Media ids reach SQL as bound parameters, like every other value. */
@@ -60,9 +64,9 @@ export class SqliteMediaReferenceStore {
     if (mediaIds.length === 0) return { items: [], total: 0 };
 
     const placeholders = mediaIds.map(() => "?").join(", ");
-    const totalRow = this.database
-      .prepare(`SELECT COUNT(*) as n FROM media_references WHERE media_id IN (${placeholders})`)
-      .get(...mediaIds) as { n: number };
+    const totalRow = this.database.once(`SELECT COUNT(*) as n FROM media_references WHERE media_id IN (${placeholders})`,
+      (statement) => statement.get(...mediaIds)
+    ) as { n: number };
 
     const limit =
       page.limit === undefined
@@ -70,15 +74,14 @@ export class SqliteMediaReferenceStore {
         : Math.max(0, page.limit);
     const offset = Math.max(0, page.offset || 0);
 
-    const items = this.database
-      .prepare(
-        `SELECT media_id, project, env, collection, entry_id
-         FROM media_references
-         WHERE media_id IN (${placeholders})
-         ORDER BY project, env, collection, entry_id
-         LIMIT ? OFFSET ?`
-      )
-      .all(...mediaIds, limit, offset) as MediaUsage[];
+    const items = this.database.once(`SELECT r.media_id AS media_id, p.name AS project, v.name AS env,
+                c.name AS collection, r.entry_id AS entry_id
+         ${SqliteMediaReferenceStore.Joined}
+         WHERE r.media_id IN (${placeholders})
+         ORDER BY p.name, v.name, c.name, r.entry_id
+         LIMIT ? OFFSET ?`,
+      (statement) => statement.all(...mediaIds, limit, offset)
+    ) as MediaUsage[];
 
     return { items, total: Number(totalRow.n) };
   }
@@ -88,13 +91,11 @@ export class SqliteMediaReferenceStore {
     if (mediaIds.length === 0) return counts;
 
     const placeholders = mediaIds.map(() => "?").join(", ");
-    const rows = this.database
-      .prepare(
-        `SELECT media_id, COUNT(*) as n FROM media_references
+    const rows = this.database.once(`SELECT media_id, COUNT(*) as n FROM media_references
          WHERE media_id IN (${placeholders})
-         GROUP BY media_id`
-      )
-      .all(...mediaIds) as { media_id: string; n: number }[];
+         GROUP BY media_id`,
+      (statement) => statement.all(...mediaIds)
+    ) as { media_id: string; n: number }[];
 
     for (const row of rows) counts.set(row.media_id, Number(row.n));
     return counts;

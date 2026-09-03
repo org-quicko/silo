@@ -38,6 +38,12 @@ describe("SQLite FTS5 searcher", () => {
       updated_at: now,
       data,
     };
+    // A collection is a record with a NOT NULL schema since D51, and `put`
+    // refuses one that has none. The `schema` argument is the *search* schema
+    // these tests vary, so the record gets whatever it is or a permissive one.
+    if (!(await store.findCollection(scope, collection))) {
+      await store.putSchema(scope, collection, schema ?? { type: "object" });
+    }
     await store.put(e, {
       usages: [],
       search: collection.startsWith("_") ? null : SearchText.extract(data, schema),
@@ -62,7 +68,7 @@ describe("SQLite FTS5 searcher", () => {
 
   afterEach(async () => {
     await store.close();
-    await fs.rm(tempDir, { recursive: true, force: true }).catch(() => {});
+    await fs.rm(tempDir, { recursive: true, force: true });
   });
 
   test("the shipped build has FTS5, so the native engine is the one in use", () => {
@@ -236,7 +242,15 @@ describe("SQLite FTS5 searcher", () => {
       await put(Scope.Default, "posts", { title: "drifting" }, schema);
       // Delete the entry behind the index's back. FTS5's own integrity-check
       // compares the index to the document table and is blind to this.
+      //
+      // Foreign keys are switched off to construct the drift at all: since D51
+      // `entry_search` cascades from `entries`, so an ordinary delete takes the
+      // document with it and this state is unreachable through the port. That is
+      // the point — the anti-join is what would notice if it ever became
+      // reachable again, through a hand-edited database or a future bug.
+      (store as any).database.exec(`PRAGMA foreign_keys = OFF`);
       (store as any).database.exec(`DELETE FROM entries`);
+      (store as any).database.exec(`PRAGMA foreign_keys = ON`);
       const report = searcher.check();
       expect(report.index).toBe("ok");
       expect(report.orphanDocuments).toBe(1);
@@ -283,8 +297,10 @@ describe("SQLite FTS5 searcher", () => {
     await store.close();
 
     const disabled = await SqliteStore.open(dbPath, { enabled: false, tokenizer: Unicode61 });
+    // Through the store's own connection, so the statement is finalized when
+    // it closes rather than left holding the file open.
     const rows = (disabled as any).database
-      .prepare(`SELECT COUNT(*) AS n FROM ${SearchIndex.Documents}`)
+      .query(`SELECT COUNT(*) AS n FROM ${SearchIndex.Documents}`)
       .get();
     expect(rows.n).toBe(1);
     await disabled.close();
@@ -314,12 +330,13 @@ describe("trigram tokenizer", () => {
 
   afterEach(async () => {
     await store.close();
-    await fs.rm(tempDir, { recursive: true, force: true }).catch(() => {});
+    await fs.rm(tempDir, { recursive: true, force: true });
   });
 
   test("substring matching, which unicode61 cannot do", async () => {
     const now = EntryUtils.now();
     const data = { title: "internationalisation" };
+    await store.putSchema(Scope.Default, "posts", { type: "object" });
     await store.put(
       {
         id: EntryUtils.newID(),
@@ -342,6 +359,7 @@ describe("trigram tokenizer", () => {
   test("a term shorter than a trigram falls back rather than failing", async () => {
     const now = EntryUtils.now();
     const data = { title: "go lang" };
+    await store.putSchema(Scope.Default, "posts", { type: "object" });
     await store.put(
       {
         id: EntryUtils.newID(),

@@ -1,4 +1,4 @@
-import { Database } from "bun:sqlite";
+import type { SqliteConnection } from "./sqlite-connection";
 import { EntryUtils } from "../../../core/domain/entry-utils";
 import type { Entry } from "../../../core/domain/entry";
 import { Scope } from "../../../core/domain/scope";
@@ -31,11 +31,39 @@ export class SqliteSearcher implements Searcher {
   /** Trigram cannot match a term shorter than this; unicode61 has no floor. */
   private static readonly TrigramMinTerm = 3;
 
-  private readonly db: Database;
+  /**
+   * The entry behind each document, and the three record rows that carry its
+   * scope's **names** (D51).
+   *
+   * The name joins are not decoration. A claim's scope segments are names with
+   * independent wildcards, so resolving a plan to ids up front would mean
+   * expanding every `*` into the set of ids it currently covers — a set that
+   * changes under the query. Joining instead lets `accessPredicate` stay what
+   * it was, a name comparison in the same statement as the match, which is what
+   * keeps `total` and every page boundary honest.
+   *
+   * Each record table is joined through a subquery that **renames its
+   * columns**. All three carry `id`, `name`, `created_at` and `updated_at`, and
+   * `SqliteCompiler` emits envelope columns unqualified — shared with
+   * `SqliteEntryStore.list`, which joins nothing — so a plain join makes every
+   * `ORDER BY id` and every `created_at` filter ambiguous. Renaming here keeps
+   * the compiler's output valid in both callers rather than teaching it an
+   * alias it only ever needs in one.
+   */
+  private static readonly Joins = `JOIN entries e
+      ON e.collection_id = d.collection_id AND e.id = d.entry_id
+    JOIN (SELECT id AS project_key, name AS project_name FROM projects) p
+      ON p.project_key = d.project_id
+    JOIN (SELECT id AS env_key, name AS env_name FROM environments) v
+      ON v.env_key = d.env_id
+    JOIN (SELECT id AS collection_key, name AS collection_name FROM collections) c
+      ON c.collection_key = d.collection_id`;
+
+  private readonly db: SqliteConnection;
   private readonly store: Storage;
   private readonly tokenizer: string;
 
-  constructor(db: Database, store: Storage, tokenizer: string) {
+  constructor(db: SqliteConnection, store: Storage, tokenizer: string) {
     this.db = db;
     this.store = store;
     this.tokenizer = tokenizer;
@@ -83,21 +111,18 @@ export class SqliteSearcher implements Searcher {
       args.push(...compiled.args);
     }
 
-    const join = `JOIN entries e ON e.project = d.project AND e.env = d.env
-                  AND e.collection = d.collection AND e.id = d.entry_id`;
     const cond = where.join(" AND ");
 
-    const totalRow = this.db
-      .prepare(`SELECT COUNT(*) AS n ${from} ${join} WHERE ${cond}`)
-      .get(...args) as { n: number };
+    const totalRow = this.db.once(`SELECT COUNT(*) AS n ${from} ${SqliteSearcher.Joins} WHERE ${cond}`,
+      (statement) => statement.get(...args)
+    ) as { n: number };
 
     const order = this.order(request, text.match);
-    const rows = this.db
-      .prepare(
-        `SELECT e.id, e.project, e.env, e.collection, e.rev, e.seq, e.created_at, e.updated_at, e.data
-         ${from} ${join} WHERE ${cond} ORDER BY ${order.sql} LIMIT ? OFFSET ?`
-      )
-      .all(...args, ...order.args, limit, offset) as any[];
+    const rows = this.db.once(`SELECT e.id, p.project_name AS project, v.env_name AS env, c.collection_name AS collection,
+                e.rev, e.seq, e.created_at, e.updated_at, e.data
+         ${from} ${SqliteSearcher.Joins} WHERE ${cond} ORDER BY ${order.sql} LIMIT ? OFFSET ?`,
+      (statement) => statement.all(...args, ...order.args, limit, offset)
+    ) as any[];
 
     return {
       items: await this.toHits(rows, query),
@@ -124,11 +149,11 @@ export class SqliteSearcher implements Searcher {
       if (target && target.project !== "*" && target.project !== scope.project) continue;
       if (target && target.env !== "*" && target.env !== scope.env) continue;
 
-      const schemas = await this.store.listSchemas(scope);
-      const names = new Set<string>(schemas.keys());
-      for (const name of await this.store.listEntryCollections(scope)) names.add(name);
-
-      for (const name of names) {
+      // One read, not a union with `listEntryCollections`: since D51 every
+      // collection has a record, so there is no collection holding entries that
+      // this could miss.
+      for (const record of await this.store.listCollections(scope)) {
+        const name = record.name;
         if (EntryUtils.isSystemCollection(name)) continue;
         if (target && target.collection !== "*" && target.collection !== name) continue;
         collections++;
@@ -138,17 +163,24 @@ export class SqliteSearcher implements Searcher {
         while (true) {
           const page = await this.store.list(scope, name, { limit: 200, offset });
           if (page.items.length === 0) break;
-          const schema = schemas.get(name);
-          const insert = this.db.prepare(
-            `INSERT INTO ${SearchIndex.Documents} (project, env, collection, entry_id, label, body)
+          const insert = this.db.query(
+            `INSERT INTO ${SearchIndex.Documents}
+               (project_id, env_id, collection_id, entry_id, label, body)
              VALUES (?, ?, ?, ?, ?, ?)
-             ON CONFLICT (project, env, collection, entry_id) DO UPDATE SET
+             ON CONFLICT (collection_id, entry_id) DO UPDATE SET
                label = excluded.label, body = excluded.body`
           );
           const tx = this.db.transaction(() => {
-            for (const e of page.items) {
-              const text = SearchText.extract(e.data, schema);
-              insert.run(scope.project, scope.env, name, e.id, text.label, text.body);
+            for (const entry of page.items) {
+              const text = SearchText.extract(entry.data, record.schema);
+              insert.run(
+                record.project_id,
+                record.env_id,
+                record.id,
+                entry.id,
+                text.label,
+                text.body
+              );
               entries++;
             }
           });
@@ -176,31 +208,41 @@ export class SqliteSearcher implements Searcher {
     }
 
     const orphan = this.db
-      .prepare(
+      .query(
         `SELECT COUNT(*) AS n FROM ${SearchIndex.Documents} d
-         LEFT JOIN entries e ON e.project = d.project AND e.env = d.env
-           AND e.collection = d.collection AND e.id = d.entry_id
+         LEFT JOIN entries e
+           ON e.collection_id = d.collection_id AND e.id = d.entry_id
          WHERE e.id IS NULL`
       )
       .get() as { n: number };
 
     const missing = this.db
-      .prepare(
+      .query(
         `SELECT COUNT(*) AS n FROM entries e
-         LEFT JOIN ${SearchIndex.Documents} d ON d.project = e.project AND d.env = e.env
-           AND d.collection = e.collection AND d.entry_id = e.id
-         WHERE d.docid IS NULL AND e.project != ? AND e.collection NOT LIKE '\\_%' ESCAPE '\\'`
+         JOIN projects p ON p.id = e.project_id
+         JOIN collections c ON c.id = e.collection_id
+         LEFT JOIN ${SearchIndex.Documents} d
+           ON d.collection_id = e.collection_id AND d.entry_id = e.id
+         WHERE d.docid IS NULL
+           AND SUBSTR(p.name, 1, 1) != '_'
+           AND SUBSTR(c.name, 1, 1) != '_'`
       )
-      .get(Scope.System.project) as { n: number };
+      .get() as { n: number };
 
     return { index, orphanDocuments: orphan.n, missingDocuments: missing.n };
   }
 
+  /** By name, resolved inside the statement: the caller iterates names and the
+   *  documents table holds ids. */
   private clear(target: SearchTarget): void {
     this.db
-      .prepare(
-        `DELETE FROM ${SearchIndex.Documents}
-         WHERE project = ? AND env = ? AND collection = ?`
+      .query(
+        `DELETE FROM ${SearchIndex.Documents} WHERE collection_id IN (
+           SELECT c.id FROM collections c
+             JOIN environments v ON v.id = c.env_id
+             JOIN projects p ON p.id = v.project_id
+           WHERE p.name = ? AND v.name = ? AND c.name = ?
+         )`
       )
       .run(target.project, target.env, target.collection);
   }
@@ -221,9 +263,9 @@ export class SqliteSearcher implements Searcher {
     for (const t of access.targets) {
       const parts: string[] = [];
       for (const [column, value] of [
-        ["d.project", t.project],
-        ["d.env", t.env],
-        ["d.collection", t.collection],
+        ["p.project_name", t.project],
+        ["v.env_name", t.env],
+        ["c.collection_name", t.collection],
       ] as [string, string][]) {
         if (value === "*") continue;
         parts.push(`${column} = ?`);
@@ -236,15 +278,15 @@ export class SqliteSearcher implements Searcher {
     // The reach the route took from its path. Redundant with a narrowed plan,
     // but not with a `*` one, and cheap either way.
     if (request.project) {
-      cond.push("d.project = ?");
+      cond.push("p.project_name = ?");
       args.push(request.project);
     }
     if (request.env) {
-      cond.push("d.env = ?");
+      cond.push("v.env_name = ?");
       args.push(request.env);
     }
     if (request.collection) {
-      cond.push("d.collection = ?");
+      cond.push("c.collection_name = ?");
       args.push(request.collection);
     }
     return { cond: cond.join(" AND "), args };

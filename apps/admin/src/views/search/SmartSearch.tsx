@@ -1,124 +1,134 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { Search } from 'lucide-react'
+import { LoadingState } from '../../components/feedback/LoadingState'
+import { CornerDownLeft, Database, FileText, Image, Search, TriangleAlert } from 'lucide-react'
+import { Claims } from '@silo/shared/claims'
+import { api } from '../../api/silo-api'
+import type { MediaAsset } from '../../api/types/media-asset'
+import type { ScopeRef } from '../../api/types/scope-ref'
+import type { SearchHit } from '../../api/types/search-hit'
+import type { SearchReach } from '../../api/types/search-reach'
+import type { SearchSnippet } from '../../api/types/search-snippet'
+import { router } from '../../router/router'
+import { PaletteResults, type PaletteItem } from './palette-results'
+import { SnippetView } from './snippet-view'
+import { useCollectionSchemas } from '../../store/use-collection-schemas'
 import { ScopeMatcher } from './scope-match'
 import { ScopeSuggest } from './ScopeSuggest'
 import { MentionToken, type ActiveMention } from './mention-token'
-import type { PaletteSeed } from './palette-seed'
 import { CollectionVisits } from '../../utils/collection-visits'
-import type { ScopeRef } from '../../api/types/scope-ref'
+import { PlatformKeys } from '../../utils/platform-keys'
+import { SearchMemory } from './search-memory'
 import styles from './SmartSearch.module.css'
 
 const DEBOUNCE_MS = 200
-
-/** What only the Entries page provides: a live, in-table, collection-scoped search. */
-export interface SmartSearchListQuery {
-  q: string
-  engine: 'fts5' | 'scan' | null
-  onQueryChange: (q: string) => void
-}
+const ENTRY_LIMIT = 20
+const MEDIA_LIMIT = 6
 
 /**
- * The "one smart search field" the redesign collapses three fields into
- * (handoff 1a/1b/1c/1f): a rounded bar in the top chrome, carrying a scope
- * chip that narrows results to one collection, or — chip removed — widens to
- * the whole instance and hands off to the `CommandPalette` overlay.
+ * The top chrome search bar: searches across all collections in the active
+ * scope by default, or narrows to a specific collection when the user scopes
+ * it with an `@`-mention.
  *
- * State here is deliberately all component-local except the one thing that
- * has to be linkable: the query text of an *in-table* search, which the
- * caller (`Entries`) owns and writes to the URL. Everything else — the chip,
- * the `@`-mention popup, the debounce timers — resets on navigation because
- * `collection` changing is exactly what navigation looks like from here.
+ * Full-text search results render in an in-place dropdown directly extending
+ * beneath the search bar, with keyboard navigation and snippet highlights.
  */
 export function SmartSearch({
   serverId,
+  url,
+  apiKey,
   scope,
-  collection,
+  claims,
   collections,
-  listQuery,
-  onNavigateToCollection,
-  onOpenPalette,
 }: {
   serverId: string
-  /** `null` on an unscoped settings page (API keys, connection…) — recency tracking is simply skipped there. */
-  scope: ScopeRef | null
-  /** The page's own collection context, if it has one — prefills the chip. */
-  collection: string | null
-  collections: readonly { name: string; count: number | null; schema?: any }[]
-  /** Present only on the Entries page, where a scoped query replaces the table. */
-  listQuery?: SmartSearchListQuery
-  onNavigateToCollection: (name: string, q: string) => void
-  onOpenPalette: (seed: PaletteSeed) => void
+  url: string
+  apiKey: string
+  scope: ScopeRef
+  claims: string[]
+  /** Names and counts only. Schemas, which only field matching needs, are
+   *  fetched here rather than handed down (D54). */
+  collections: readonly { name: string; count: number | null }[]
 }) {
-  const [text, setText] = useState(listQuery?.q ?? '')
-  const [chip, setChip] = useState<string | null>(collection)
+  const saved = useMemo(
+    () => SearchMemory.get(serverId, scope.project, scope.env),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [serverId, scope.project, scope.env],
+  )
+
+  const [text, setText] = useState(saved?.text ?? '')
+  const [query, setQuery] = useState(saved?.text?.trim() ?? '')
+  const [chip, setChip] = useState<string | null>(saved?.chip ?? null)
   const [mention, setMention] = useState<ActiveMention | null>(null)
-  const [highlighted, setHighlighted] = useState(0)
+  const [highlightedMention, setHighlightedMention] = useState(0)
+  const [hits, setHits] = useState<SearchHit[]>(saved?.hits ?? [])
+  const [assets, setAssets] = useState<MediaAsset[]>(saved?.assets ?? [])
+  const [engine, setEngine] = useState<'fts5' | 'scan' | null>(saved?.engine ?? null)
+  const [truncated, setTruncated] = useState(saved?.truncated ?? false)
+  const [error, setError] = useState(saved?.error ?? '')
+  const [loading, setLoading] = useState(false)
+  const [active, setActive] = useState(0)
   const [focused, setFocused] = useState(false)
-  const input = useRef<HTMLInputElement>(null)
-  // What the URL already holds, for the same reason Entries used to track it
-  // itself: it suppresses a redundant push and lets back/forward reset the box.
-  const synced = useRef(listQuery?.q ?? '')
-  // The instance overlay is opened once per typing session, not once per
-  // keystroke — after it opens, focus moves into its own field and further
-  // characters land there instead of re-seeding this one. Reset whenever the
-  // bar is focused again, which is the signal that the overlay is behind us
-  // and the next query is a new one.
-  const handoff = useRef(false)
-  // The settle timer fires up to `DEBOUNCE_MS` after the render that armed it,
-  // and `onQueryChange` closes over the caller's whole `ListQuery`. Read
-  // through a ref so a filter applied in that window is not reverted by a
-  // callback still holding the query as it was when the user stopped typing.
-  const latest = useRef(listQuery)
-  latest.current = listQuery
+  const [isOpen, setIsOpen] = useState(false)
 
-  // Navigating resets the bar to whatever the page it landed on says: the
-  // chip becomes that page's collection (or nothing), and the text becomes
-  // that page's `?q=`, so a deep link still fills the box while walking away
-  // from a searched list leaves an empty one. A same-page re-render never
-  // fires this, so it does not fight a chip the user just popped by hand.
-  useEffect(() => {
-    const next = listQuery?.q ?? ''
-    setChip(collection)
-    setMention(null)
-    setText(next)
-    synced.current = next
-    handoff.current = false
+  const wrapRef = useRef<HTMLDivElement>(null)
+  const inputRef = useRef<HTMLInputElement>(null)
+  const listRef = useRef<HTMLDivElement>(null)
+  const seq = useRef(0)
+
+  const canReadMedia = Claims.has(claims, Claims.MediaRead)
+
+  const recentOrder = useMemo(
+    () => CollectionVisits.recent(serverId, scope.project, scope.env),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [collection])
+    [serverId, scope.project, scope.env],
+  )
 
-  useEffect(() => {
-    if (!listQuery) return
-    if (listQuery.q === synced.current) return
-    synced.current = listQuery.q
-    setText(listQuery.q)
-  }, [listQuery?.q])
+  // Matching a collection by one of its *field* names (handoff 1f) is the one
+  // thing here that needs schemas, and it needs them only once somebody has
+  // typed. Loading them with the collection list would put every schema in the
+  // scope on the shell's own path, for a match most sessions never ask for
+  // (D54). Until they arrive the bar matches by name, which is the same answer
+  // minus the field group.
+  const wantsFieldMatches = mention !== null || (!chip && query !== '')
+  const schemas = useCollectionSchemas(serverId, url, apiKey, scope, wantsFieldMatches)
+  const matchable = useMemo(() => {
+    if (schemas.collections.length === 0) return collections
+    const byName = new Map(schemas.collections.map((c) => [c.name, c.schema]))
+    return collections.map((c) => ({ ...c, schema: byName.get(c.name) }))
+  }, [collections, schemas.collections])
 
-  useEffect(() => {
-    if (mention) return // still choosing a scope — nothing has "settled" yet
-    if (chip !== null && chip === collection && latest.current) {
-      if (text === synced.current) return
-      const t = setTimeout(() => {
-        synced.current = text
-        latest.current?.onQueryChange(text)
-      }, DEBOUNCE_MS)
-      return () => clearTimeout(t)
-    }
-    if (text.trim() === '') {
-      handoff.current = false
-      return
-    }
-    if (handoff.current) return
-    const t = setTimeout(() => {
-      handoff.current = true
-      onOpenPalette({ q: text.trim(), collection: chip })
-    }, DEBOUNCE_MS)
-    return () => clearTimeout(t)
+  // Collections are matched here rather than asked of the server: the session
+  // already holds every name, so the bar can keep the half of its promise that
+  // needs no request. Only while it is searching the whole scope — once a chip
+  // has narrowed it to one collection, offering a list of collections would
+  // undo the narrowing the reader just asked for.
+  const groups = useMemo(
+    () =>
+      PaletteResults.build(
+        hits,
+        assets,
+        { serverId, scope },
+        chip || !query ? [] : ScopeMatcher.rank(query, matchable, recentOrder),
+      ),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [text, chip, mention])
+    [hits, assets, chip, query, matchable, recentOrder, serverId, scope.project, scope.env],
+  )
+  const items = useMemo(() => PaletteResults.flatten(groups), [groups])
 
-  // ⌘K / Ctrl-K (a chord, safe to catch even from inside another field) and a
-  // bare `/` (only when nothing else is capturing keystrokes) focus the bar
-  // from anywhere on the page. Escape blurs it from anywhere too.
+  // Dismiss dropdown / mention on click outside
+  useEffect(() => {
+    const onMouseDown = (e: MouseEvent) => {
+      if (wrapRef.current && !wrapRef.current.contains(e.target as Node)) {
+        setIsOpen(false)
+        setMention(null)
+      }
+    }
+    document.addEventListener('mousedown', onMouseDown)
+    return () => document.removeEventListener('mousedown', onMouseDown)
+  }, [])
+
+  // ⌘K / Ctrl-K and bare `/` focus the search bar from anywhere; the keycap
+  // beside the field names whichever of the two this platform actually has.
   useEffect(() => {
     const typing = (el: EventTarget | null) => {
       const tag = (el as HTMLElement | null)?.tagName
@@ -127,34 +137,82 @@ export function SmartSearch({
     const onKey = (e: KeyboardEvent) => {
       if (e.key.toLowerCase() === 'k' && (e.metaKey || e.ctrlKey)) {
         e.preventDefault()
-        input.current?.focus()
-        input.current?.select()
+        inputRef.current?.focus()
+        inputRef.current?.select()
+        setIsOpen(true)
       } else if (e.key === '/' && !typing(e.target)) {
         e.preventDefault()
-        input.current?.focus()
-      } else if (e.key === 'Escape') {
-        // Not reached while the mention popup is open — that Escape is handled
-        // on the input and stops there, so dismissing the popup leaves the
-        // caret where it was instead of throwing focus out of the field.
-        input.current?.blur()
+        inputRef.current?.focus()
+        setIsOpen(true)
       }
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
   }, [])
 
-  const recentOrder = useMemo(
-    () => (scope ? CollectionVisits.recent(serverId, scope.project, scope.env) : []),
-    [serverId, scope?.project, scope?.env],
-  )
-  const matchCount = mention ? ScopeMatcher.rank(mention.query, collections, recentOrder).length : 0
+  useEffect(() => {
+    const t = setTimeout(() => setQuery(text.trim()), DEBOUNCE_MS)
+    return () => clearTimeout(t)
+  }, [text])
+
+  const target: SearchReach = chip
+    ? { kind: 'collection', scope, collection: chip }
+    : { kind: 'scope', scope }
+
+  useEffect(() => {
+    setActive(0)
+    if (!query) {
+      setHits([])
+      setAssets([])
+      setEngine(null)
+      setTruncated(false)
+      setError('')
+      return
+    }
+
+    const ticket = ++seq.current
+    setLoading(true)
+    Promise.all([
+      api.search.run(url, apiKey, target, { query, limit: ENTRY_LIMIT }),
+      canReadMedia && !chip
+        ? api.media.list(url, apiKey, { q: query, limit: MEDIA_LIMIT }).catch(() => ({ items: [] as MediaAsset[] }))
+        : Promise.resolve({ items: [] as MediaAsset[] }),
+    ])
+      .then(([page, media]) => {
+        if (seq.current !== ticket) return
+        setHits(page.items)
+        setAssets(media.items)
+        setEngine(page.engine)
+        setTruncated(page.truncated)
+        setError('')
+      })
+      .catch((e: unknown) => {
+        if (seq.current !== ticket) return
+        setHits([])
+        setAssets([])
+        setError(e instanceof Error ? e.message : 'Search failed')
+      })
+      .then(() => {
+        if (seq.current === ticket) setLoading(false)
+      })
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [url, apiKey, query, chip, canReadMedia, scope.project, scope.env])
+
+  const open = (item: PaletteItem) => {
+    router.navigate(item.href)
+    setIsOpen(false)
+    setMention(null)
+  }
+
+  const matchCount = mention ? ScopeMatcher.rank(mention.query, matchable, recentOrder).length : 0
 
   const onChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const next = e.target.value
     setText(next)
+    setIsOpen(true)
     const at = MentionToken.at(next, e.target.selectionStart ?? next.length)
     setMention(at)
-    setHighlighted(0)
+    setHighlightedMention(0)
   }
 
   const commitMention = (name: string) => {
@@ -163,58 +221,117 @@ export function SmartSearch({
     setMention(null)
     setChip(name)
     setText(rest)
-    // Recording the visit is the shell's job (`Workspace`) — it fires for
-    // every way a collection gets opened, not only this one.
-    if (name !== collection) onNavigateToCollection(name, rest)
+    inputRef.current?.focus()
   }
 
   const removeChip = () => {
     setChip(null)
-    handoff.current = false
-    input.current?.focus()
+    inputRef.current?.focus()
   }
+
+  useEffect(() => {
+    const nextSaved = SearchMemory.get(serverId, scope.project, scope.env)
+    setText(nextSaved?.text ?? '')
+    setQuery(nextSaved?.text?.trim() ?? '')
+    setChip(nextSaved?.chip ?? null)
+    setHits(nextSaved?.hits ?? [])
+    setAssets(nextSaved?.assets ?? [])
+    setEngine(nextSaved?.engine ?? null)
+    setTruncated(nextSaved?.truncated ?? false)
+    setError(nextSaved?.error ?? '')
+    setMention(null)
+    setIsOpen(false)
+  }, [serverId, scope.project, scope.env])
+
+  useEffect(() => {
+    SearchMemory.set(serverId, scope.project, scope.env, {
+      text,
+      chip,
+      hits,
+      assets,
+      engine,
+      truncated,
+      error,
+    })
+  }, [serverId, scope.project, scope.env, text, chip, hits, assets, engine, truncated, error])
 
   const clear = () => {
     setText('')
-    handoff.current = false
-    if (chip !== null && chip === collection && listQuery) {
-      synced.current = ''
-      listQuery.onQueryChange('')
-    }
+    setQuery('')
+    setHits([])
+    setAssets([])
+    setEngine(null)
+    setTruncated(false)
+    setError('')
+    setIsOpen(false)
+    SearchMemory.clear(serverId, scope.project, scope.env)
+    inputRef.current?.focus()
   }
 
   const onKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
     if (mention) {
       if (e.key === 'ArrowDown') {
         e.preventDefault()
-        setHighlighted((h) => (matchCount === 0 ? 0 : (h + 1) % matchCount))
+        setHighlightedMention((h) => (matchCount === 0 ? 0 : (h + 1) % matchCount))
       } else if (e.key === 'ArrowUp') {
         e.preventDefault()
-        setHighlighted((h) => (matchCount === 0 ? 0 : (h - 1 + matchCount) % matchCount))
+        setHighlightedMention((h) => (matchCount === 0 ? 0 : (h - 1 + matchCount) % matchCount))
       } else if (e.key === 'Enter') {
         e.preventDefault()
-        const matches = ScopeMatcher.rank(mention.query, collections, recentOrder)
-        const picked = matches[highlighted]
-        if (picked) commitMention(picked.name)
+        const matches = ScopeMatcher.rank(mention.query, matchable, recentOrder)
+        const picked = matches[highlightedMention]
+        if (picked) {
+          commitMention(picked.name)
+        } else {
+          setMention(null)
+        }
       } else if (e.key === 'Escape') {
         e.preventDefault()
-        // Kept off the window handler above, which would blur the field.
-        e.stopPropagation()
-        setMention(null) // the literal `@query` text stays put
+        setMention(null)
       }
       return
     }
+
     if (e.key === 'Backspace' && text === '' && chip !== null) {
       e.preventDefault()
       removeChip()
+      return
+    }
+
+    if (e.key === 'Escape') {
+      e.preventDefault()
+      setIsOpen(false)
+      inputRef.current?.blur()
+      return
+    }
+
+    if (isOpen && items.length > 0) {
+      if (e.key === 'ArrowDown' || (e.key === 'n' && e.ctrlKey)) {
+        e.preventDefault()
+        setActive((at) => (items.length === 0 ? 0 : (at + 1) % items.length))
+      } else if (e.key === 'ArrowUp' || (e.key === 'p' && e.ctrlKey)) {
+        e.preventDefault()
+        setActive((at) => (items.length === 0 ? 0 : (at - 1 + items.length) % items.length))
+      } else if (e.key === 'Enter') {
+        e.preventDefault()
+        const item = items[active]
+        if (item) open(item)
+      }
     }
   }
 
-  const active = text.trim() !== ''
-  const placeholder = chip ? `Search entries in ${chip}…` : 'Search collections, entries, media, etc…'
+  // Keep the highlighted row in view when the arrow keys walk past the edge
+  useEffect(() => {
+    listRef.current?.querySelector(`[data-active="true"]`)?.scrollIntoView({ block: 'nearest' })
+  }, [active])
+
+  const activeInput = text.trim() !== ''
+  const placeholder = chip ? `Search in ${chip}…` : 'Search collections, entries, media…'
+
+  let index = -1
 
   return (
-    <div className={`${styles.wrap} ${focused ? styles.focused : ''}`}>
+    <div ref={wrapRef} className={`${styles.wrap} ${focused ? styles.focused : ''}`}>
       <Search size={15} className={styles.icon} />
       {chip && (
         <span className={styles.chip} title={chip}>
@@ -225,42 +342,110 @@ export function SmartSearch({
         </span>
       )}
       <input
-        ref={input}
+        ref={inputRef}
         value={text}
         placeholder={placeholder}
         onChange={onChange}
         onKeyDown={onKeyDown}
         onFocus={() => {
           setFocused(true)
-          // Coming back to the bar ends the previous typing session, so the
-          // next query may open the overlay again. Without this, a second
-          // search after closing it would silently do nothing.
-          handoff.current = false
+          setIsOpen(true)
         }}
         onBlur={() => setFocused(false)}
         aria-label="Search"
       />
-      {active ? (
-        <>
-          {listQuery?.engine && chip === collection && <span className={styles.engineTag}>{listQuery.engine}</span>}
-          <button type="button" className={styles.clear} onClick={clear} aria-label="Clear search">
-            ×
-          </button>
-        </>
+      {engine && <span className={styles.engineTag}>{engine}</span>}
+      {activeInput ? (
+        <button type="button" className={styles.clear} onClick={clear} aria-label="Clear search">
+          ×
+        </button>
       ) : (
-        <span className={styles.keycap}>⌘K</span>
+        <span className={styles.keycap}>{PlatformKeys.command()}K</span>
       )}
 
-      {mention && (
+      {mention ? (
         <ScopeSuggest
           query={mention.query}
-          collections={collections}
+          collections={matchable}
           recentOrder={recentOrder}
-          highlighted={highlighted}
-          onHighlight={setHighlighted}
+          highlighted={highlightedMention}
+          onHighlight={setHighlightedMention}
           onCommit={commitMention}
         />
+      ) : (
+        isOpen && query && (
+          <div className={styles.dropdown}>
+            {error && (
+              <div className={styles.notice}>
+                <TriangleAlert size={13} /> {error}
+              </div>
+            )}
+            {truncated && !error && (
+              <div className={styles.notice}>
+                <TriangleAlert size={13} /> The scan stopped at its limit — there may be more.
+              </div>
+            )}
+
+            <div className={styles.results} ref={listRef}>
+              {loading && hits.length === 0 && assets.length === 0 && (
+                <LoadingState inline size="sm" message="Searching…" />
+              )}
+              {!loading && items.length === 0 && !error && (
+                <div className={styles.hint}>Nothing matches “{query}”.</div>
+              )}
+
+              {groups.map((group) => (
+                <div key={group.key} className={styles.group}>
+                  <div className={styles.groupHead}>
+                    <GroupIcon kind={group.kind} />
+                    <span className={styles.groupLabel}>{group.label}</span>
+                    {group.scope && <span className={styles.groupScope}>{group.scope}</span>}
+                  </div>
+                  {group.items.map((item) => {
+                    index++
+                    const at = index
+                    return (
+                      <button
+                        key={item.id}
+                        type="button"
+                        className={`${styles.item} ${at === active ? styles.active : ''}`}
+                        data-active={at === active}
+                        onMouseMove={() => setActive(at)}
+                        onClick={() => open(item)}
+                      >
+                        <span className={styles.itemMain}>
+                          <span className={styles.itemTitle}>{item.title}</span>
+                          <span className={styles.itemSubtitle}>{item.subtitle}</span>
+                        </span>
+                        {item.snippets.length > 0 && <Snippet snippet={item.snippets[0]} />}
+                        {at === active && <CornerDownLeft size={13} className={styles.enterHint} />}
+                      </button>
+                    )
+                  })}
+                </div>
+              ))}
+            </div>
+          </div>
+        )
       )}
     </div>
   )
 }
+
+function GroupIcon({ kind }: { kind: 'collection' | 'entry' | 'media' }) {
+  if (kind === 'collection') return <Database size={12} />
+  if (kind === 'media') return <Image size={12} />
+  return <FileText size={12} />
+}
+
+function Snippet({ snippet }: { snippet: SearchSnippet }) {
+  const s = SnippetView.clamp(snippet)
+  return (
+    <span className={styles.itemSnippet}>
+      {s.before}
+      <mark className={styles.match}>{s.match}</mark>
+      {s.after}
+    </span>
+  )
+}
+

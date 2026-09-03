@@ -1,46 +1,36 @@
-import { useEffect, useState } from 'react'
-import { api } from '../api/silo-api'
+import { useEffect } from 'react'
 import type { Entry } from '../api/types/entry'
 import type { ScopeRef } from '../api/types/scope-ref'
+import { useEntry } from '../store/use-entry'
 import { router } from '../router/router'
 import { Routes } from '../router/routes'
 
 /**
- * A deep link to an entry carries only its id, so the entry is fetched here
- * rather than handed down from the list.
+ * A deep link to an entry carries only its id, so the entry comes from the
+ * store rather than being handed down from the list — which is also what makes
+ * going back into a row you just left instant.
  *
- * A stale or bad id falls back to the collection it claims to belong to — an
+ * A stale or bad id falls back to the collection it claims to belong to. An
  * empty form would look like a new entry, which it is not.
  */
 export function useDeepLinkedEntry(
+  serverId: string,
   url: string,
   apiKey: string,
   scope: ScopeRef,
-  serverId: string,
   collection: string | null,
   entryId: string | null,
 ): Entry | null {
-  const [entry, setEntry] = useState<Entry | null>(null)
+  const state = useEntry(serverId, url, apiKey, scope, collection, entryId)
 
+  // Only when nothing is cached: a refresh that failed on an entry already on
+  // screen is not grounds for navigating out of the form it is being edited in.
   useEffect(() => {
-    setEntry(null)
-    if (!collection || !entryId) return
+    if (!collection || !state.error || state.value) return
+    router.navigate(Routes.entries(serverId, scope.project, scope.env, collection), {
+      replace: true,
+    })
+  }, [serverId, scope.project, scope.env, collection, state.error, state.value])
 
-    let alive = true
-    api.entries
-      .get(url, apiKey, scope, collection, entryId)
-      .then((found) => alive && setEntry(found))
-      .catch(() => {
-        if (!alive) return
-        router.navigate(Routes.entries(serverId, scope.project, scope.env, collection), {
-          replace: true,
-        })
-      })
-
-    return () => {
-      alive = false
-    }
-  }, [url, apiKey, scope.project, scope.env, serverId, collection, entryId])
-
-  return entry
+  return state.value
 }

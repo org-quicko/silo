@@ -1,6 +1,8 @@
 import { Folder } from 'lucide-react'
+import type { ReactNode } from 'react'
 import type { MediaAsset } from '../../api/types/media-asset'
 import { Checkbox } from '../../components/controls/Checkbox'
+import { LoadingState } from '../../components/feedback/LoadingState'
 import { FolderRow } from './FolderRow'
 import { FolderTile } from './FolderTile'
 import { MediaCard } from './MediaCard'
@@ -23,6 +25,10 @@ interface Props {
   listCols: string
   onBrowse: () => void
   onEditAsset: (asset: MediaAsset) => void
+  /** List view only — rendered as the card's own last row (the grid has no
+   *  enclosing card to sit inside, so `MediaLibraryView` renders it as its
+   *  own block below the tiles there instead). */
+  pagination?: ReactNode
 }
 
 /**
@@ -46,6 +52,7 @@ export function MediaContents({
   listCols,
   onBrowse,
   onEditAsset,
+  pagination,
 }: Props) {
   const hasQuery = library.query.trim() !== ''
   const nothingHere = library.subfolders.length === 0 && library.assets.length === 0
@@ -71,7 +78,7 @@ export function MediaContents({
   }
 
   if (library.loading && nothingHere) {
-    return <div className={`center-wrap ${styles.loading}`}>Loading media library…</div>
+    return <LoadingState message="Loading the media library…" />
   }
 
   if (nothingHere) {
@@ -102,6 +109,8 @@ export function MediaContents({
               itemCount={library.folderCounts[path]}
               canEdit={canUpload}
               canDelete={canDelete}
+              selected={library.selectedFolders.has(path)}
+              onToggleSelect={() => library.toggleFolderSelected(path)}
               onOpen={openFolder(path)}
               onRename={renameFolder(path)}
               onDelete={deleteFolder(path)}
@@ -126,10 +135,12 @@ export function MediaContents({
     )
   }
 
-  const pageSelected =
-    library.assets.length > 0 && library.assets.every((asset) => library.selected.has(asset.id))
-  const pageIndeterminate =
-    !pageSelected && library.assets.some((asset) => library.selected.has(asset.id))
+  const pageItemCount = library.subfolders.length + library.assets.length
+  const pageSelectedCount =
+    library.subfolders.filter((path) => library.selectedFolders.has(path)).length +
+    library.assets.filter((asset) => library.selected.has(asset.id)).length
+  const pageSelected = pageItemCount > 0 && pageSelectedCount === pageItemCount
+  const pageIndeterminate = !pageSelected && pageSelectedCount > 0
 
   return (
     <>
@@ -141,19 +152,19 @@ export function MediaContents({
                 checked={pageSelected}
                 indeterminate={pageIndeterminate}
                 onChange={(checked) =>
-                  library.selectMany(
+                  library.selectAllOnPage(
                     library.assets.map((asset) => asset.id),
+                    library.subfolders,
                     checked,
                   )
                 }
-                aria-label="Select all files on this page"
+                aria-label="Select all files and folders on this page"
               />
             </span>
           )}
           <span>Name</span>
           <span>Size</span>
           <span>Modified</span>
-          <span>Status</span>
           <span />
         </div>
         {library.subfolders.map((path) => (
@@ -162,7 +173,9 @@ export function MediaContents({
             path={path}
             itemCount={library.folderCounts[path]}
             gridCols={listCols}
-            checkboxGap={canDelete}
+            showCheckbox={canDelete}
+            selected={library.selectedFolders.has(path)}
+            onToggleSelect={() => library.toggleFolderSelected(path)}
             canEdit={canUpload}
             canDelete={canDelete}
             onOpen={openFolder(path)}
@@ -184,6 +197,7 @@ export function MediaContents({
             onDelete={() => deleteFlow.start([asset])}
           />
         ))}
+        {pagination}
       </div>
       {noMatchNote}
     </>

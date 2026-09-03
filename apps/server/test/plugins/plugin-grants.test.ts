@@ -43,7 +43,7 @@ describe("plugin grants", () => {
 
   afterEach(async () => {
     await store.close();
-    await fs.rm(tempDir, { recursive: true, force: true }).catch(() => {});
+    await fs.rm(tempDir, { recursive: true, force: true });
   });
 
   test("an unreconciled plugin starts pending, holding nothing", async () => {
@@ -233,7 +233,7 @@ describe("managed keys", () => {
 
   afterEach(async () => {
     await store.close();
-    await fs.rm(tempDir, { recursive: true, force: true }).catch(() => {});
+    await fs.rm(tempDir, { recursive: true, force: true });
   });
 
   test("a managed key cannot be revoked through the ordinary path", async () => {

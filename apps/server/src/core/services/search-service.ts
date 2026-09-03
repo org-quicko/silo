@@ -116,11 +116,11 @@ export class SearchService {
       if (reach.project && scope.project !== reach.project) continue;
       if (reach.env && scope.env !== reach.env) continue;
 
-      const schemas = await this.context.store.listSchemas(scope);
-      for (const [name, schema] of schemas.entries()) {
+      for (const record of await this.context.store.listCollections(scope)) {
+        const name = record.name;
         if (EntryUtils.isSystemCollection(name)) continue;
         if (reach.collection && name !== reach.collection) continue;
-        if (SchemaAccess.requiresAuth(schema)) continue;
+        if (SchemaAccess.requiresAuth(record.schema)) continue;
         targets.push({ project: scope.project, env: scope.env, collection: name });
       }
     }

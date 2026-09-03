@@ -48,6 +48,7 @@ export class MediaUsageSuite {
             gallery: refs.slice(1).map((r) => MediaRef.url(r)),
           },
         };
+        await context.ensureCollection(store, scope, collection);
         await store.put(e, { usages: MediaRefs.extract(e.data), search: SearchText.extract(e.data) });
         return e;
       };

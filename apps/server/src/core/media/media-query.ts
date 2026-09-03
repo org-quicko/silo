@@ -12,7 +12,16 @@ export interface MediaQuery {
   recursive?: boolean;
   /** Substring match on the content type, e.g. "image/" or "pdf". */
   type?: string;
+  /** Exact file extension, no dot, e.g. "png" or "pdf" — one of
+   *  `MediaService.listExtensions()`'s own values (D51). */
+  ext?: string;
   tag?: string;
+  /** Inclusive ISO-8601 bounds on `updated_at` (D51). Lexicographic string
+   *  comparison over ISO-8601 timestamps already orders chronologically, so
+   *  this needs no operator beyond the `gte`/`lte` every numeric range in the
+   *  admin already uses. */
+  modifiedAfter?: string;
+  modifiedBefore?: string;
   limit?: number;
   offset?: number;
   /** "-created_at" (default), "created_at", "filename", "-filename", "size", "-size". */

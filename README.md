@@ -539,6 +539,7 @@ Present a key as `Authorization: Bearer <key>` or `X-Api-Key: <key>`.
 | `POST` | `/api/plugins/{name}/restart` | bring a dead worker back |
 | `POST` | `/api/plugins/rescan` | re-read `silo.toml` and apply it |
 | `GET` | `/api/audit` | who changed what authority, and when |
+| `GET` | `/api/observability` | aggregate API traffic, errors, latency, process resources, and local storage (`observability:read`) |
 | `GET` / `POST` | `/api/media` | list / upload media |
 | `DELETE` | `/api/media/{id}` | delete a media asset, refused while an entry still references it unless `?force=true` (which also needs `entries:update` at the scopes it reaches) |
 | `POST` | `/api/media/delete` | delete up to 100 assets at once (`{ids, force}`), always `200` with a `deleted`/`failed` body |
@@ -669,7 +670,7 @@ media:read        media:create      media:delete      media:configure
 keys:read         keys:create       keys:revoke
 keys:export       keys:import
 plugins:read      plugins:grant     plugins:enable     plugins:configure
-audit:read        http:route        settings:configure
+audit:read        http:route        settings:configure  observability:read
 transfer:export   transfer:import   transfer:copy
 ```
 
@@ -708,6 +709,14 @@ waiting rather than as in force.
 `plugins:*` and `audit:read` guard the management API and the authority trail.
 There is no `audit:write`: nothing updates or deletes an event, so a claim
 guarding that would imply a capability that does not exist.
+
+`observability:read` exposes bounded operating aggregates: registered API route
+patterns, status classes, latency histograms, process memory and CPU totals, and
+cached local-storage sizes. It never records route parameters, query strings,
+caller identities, request bodies, credentials, content, or filesystem paths.
+`manage` and `root` carry it; plugins may be granted it. There is no write
+counterpart, and remote-provider capacity is reported unavailable rather than
+estimated.
 
 `http:route` is the other plugin-shaped claim, beside `hooks:...`: it lets a
 plugin **be reached** at the routes its manifest declares, and grants no reach of

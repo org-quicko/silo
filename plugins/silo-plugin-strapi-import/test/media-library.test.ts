@@ -11,9 +11,12 @@ import { FakeSilo } from './support/fake-silo'
  * `media:create`.
  */
 describe('media becoming silo media', () => {
-  const list = {
-    media: [{ name: 'entity_icon', multiple: false, rows: 1 }],
-  } as any
+  /** One media field on the entry itself. `MediaLibrary` takes slots rather than
+   *  a field list because most of a real export's media is on a nested
+   *  component — see the last test in this file. */
+  const slots = (...files: unknown[]) => [
+    { path: ['entity_icon'], multiple: false, files },
+  ] as any
 
   const file = {
     name: 'visa_0a2d4ecc.svg',
@@ -41,8 +44,8 @@ describe('media becoming silo media', () => {
 
     const first: Record<string, unknown> = {}
     const second: Record<string, unknown> = {}
-    await library.attach(first, list, { entity_icon: [file] })
-    await library.attach(second, list, { entity_icon: [file] })
+    await library.attach(first, slots(file))
+    await library.attach(second, slots(file))
 
     // A real reference, which is the whole point: the picker renders it, a delete
     // counts the usage, and a read rewrites it against whatever host answered.
@@ -85,7 +88,7 @@ describe('media becoming silo media', () => {
     })
 
     for (const name of ['a.svg', 'b.svg']) {
-      await library.attach({}, list, { entity_icon: [{ ...file, name, url: `/uploads/${name}` }] })
+      await library.attach({}, slots({ ...file, name, url: `/uploads/${name}` }))
     }
 
     const folders = calls.filter((call) => call.path === '/api/media/folders')
@@ -109,7 +112,7 @@ describe('media becoming silo media', () => {
       baseUrl: '',
     })
 
-    await library.attach({}, list, { entity_icon: [file] })
+    await library.attach({}, slots(file))
     expect(calls.some((call) => call.path === '/api/media/folders')).toBe(false)
   })
 
@@ -124,7 +127,7 @@ describe('media becoming silo media', () => {
     })
 
     const entry: Record<string, unknown> = {}
-    await library.attach(entry, list, { entity_icon: [file] })
+    await library.attach(entry, slots(file))
 
     // Silo resolves a foreign URL by leaving it alone, so this is a media value
     // and not a broken one — which is what lets an operator import now and send
@@ -135,7 +138,7 @@ describe('media becoming silo media', () => {
 
     // No file at all is `null`, not absent.
     const empty: Record<string, unknown> = {}
-    await library.attach(empty, list, {})
+    await library.attach(empty, slots())
     expect(empty.entity_icon).toBeNull()
   })
 
@@ -173,7 +176,7 @@ describe('media becoming silo media', () => {
     })
 
     const entry: Record<string, unknown> = {}
-    await library.attach(entry, list, { entity_icon: [file] })
+    await library.attach(entry, slots(file))
 
     expect(entry.entity_icon).toBe('silo://media/01J8XQ50P1R2S3T4U5V6W7X8Y9')
     // Nothing was uploaded, so nothing needed a folder either.
@@ -199,7 +202,7 @@ describe('media becoming silo media', () => {
 
     for (const name of ['a.svg', 'b.svg']) {
       const entry: Record<string, unknown> = {}
-      await library.attach(entry, list, { entity_icon: [{ ...file, name, url: '/uploads/' + name }] })
+      await library.attach(entry, slots({ ...file, name, url: '/uploads/' + name }))
       expect(String(entry.entity_icon)).toStartWith('silo://media/')
     }
 
@@ -229,7 +232,7 @@ describe('media becoming silo media', () => {
 
     for (const _ of [1, 2, 3]) {
       const entry: Record<string, unknown> = {}
-      await library.attach(entry, list, { entity_icon: [file] })
+      await library.attach(entry, slots(file))
       expect(entry.entity_icon).toBe('https://cms.example.com/uploads/visa_0a2d4ecc.svg')
     }
 

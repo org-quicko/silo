@@ -150,7 +150,7 @@ describe("the plugin supervisor (D39)", () => {
     await registry?.stop();
     registry = null;
     await store.close();
-    await fs.rm(tempDir, { recursive: true, force: true }).catch(() => {});
+    await fs.rm(tempDir, { recursive: true, force: true });
   });
 
   describe("the acceptance test (§13.11)", () => {

@@ -1,4 +1,4 @@
-import { Database } from "bun:sqlite";
+import type { SqliteConnection } from "./sqlite-connection";
 
 /** How the index is configured, and what the stamp has to notice changing. */
 export interface SearchIndexOptions {
@@ -24,7 +24,7 @@ export class SearchIndex {
    * triggers. Together with the extractor version and the tokenizer it forms
    * the stamp; a change in any of them rebuilds everything.
    */
-  static readonly EngineVersion = 1;
+  static readonly EngineVersion = 2;
   /** Bumped when `SearchText.extract` would produce different text. */
   static readonly ExtractorVersion = 1;
   static readonly StampKey = "search_index_version";
@@ -39,7 +39,7 @@ export class SearchIndex {
    * sets `OMIT_LOAD_EXTENSION`, so a missing FTS5 cannot be repaired at
    * runtime — it can only be fallen back from.
    */
-  static available(db: Database): boolean {
+  static available(db: SqliteConnection): boolean {
     try {
       db.exec("CREATE VIRTUAL TABLE IF NOT EXISTS silo_fts_probe USING fts5(x)");
       db.exec("DROP TABLE IF EXISTS silo_fts_probe");
@@ -55,10 +55,10 @@ export class SearchIndex {
    * fixed into the virtual table at creation, so a tokenizer change is a
    * rebuild and not an update.
    */
-  static install(db: Database, tokenizer: string): boolean {
+  static install(db: SqliteConnection, tokenizer: string): boolean {
     const want = SearchIndex.stamp(tokenizer);
     const row = db
-      .prepare(`SELECT value FROM meta WHERE key = ?`)
+      .query(`SELECT value FROM meta WHERE key = ?`)
       .get(SearchIndex.StampKey) as { value: string } | undefined;
 
     const stale = !row || row.value !== want;
@@ -66,17 +66,19 @@ export class SearchIndex {
 
     db.exec(`
       CREATE TABLE IF NOT EXISTS ${SearchIndex.Documents} (
-        docid      INTEGER PRIMARY KEY,
-        project    TEXT NOT NULL,
-        env        TEXT NOT NULL,
-        collection TEXT NOT NULL,
-        entry_id   TEXT NOT NULL,
-        label      TEXT NOT NULL,
-        body       TEXT NOT NULL,
-        UNIQUE (project, env, collection, entry_id)
+        docid         INTEGER PRIMARY KEY,
+        project_id    TEXT NOT NULL,
+        env_id        TEXT NOT NULL,
+        collection_id TEXT NOT NULL,
+        entry_id      TEXT NOT NULL,
+        label         TEXT NOT NULL,
+        body          TEXT NOT NULL,
+        UNIQUE (collection_id, entry_id),
+        FOREIGN KEY (collection_id, entry_id)
+          REFERENCES entries(collection_id, id) ON DELETE CASCADE
       );
       CREATE INDEX IF NOT EXISTS idx_entry_search_scope
-        ON ${SearchIndex.Documents}(project, env, collection);
+        ON ${SearchIndex.Documents}(env_id, collection_id);
       CREATE VIRTUAL TABLE IF NOT EXISTS ${SearchIndex.Fts} USING fts5(
         label, body,
         content = '${SearchIndex.Documents}',
@@ -105,7 +107,7 @@ export class SearchIndex {
       END;
     `);
 
-    db.prepare(`INSERT OR REPLACE INTO meta (key, value) VALUES (?, ?)`).run(
+    db.query(`INSERT OR REPLACE INTO meta (key, value) VALUES (?, ?)`).run(
       SearchIndex.StampKey,
       want
     );
@@ -126,11 +128,11 @@ export class SearchIndex {
    * so `install` drops and rebuilds rather than trusting rows that went stale
    * while nothing was maintaining them.
    */
-  static disable(db: Database): void {
-    db.prepare(`DELETE FROM meta WHERE key = ?`).run(SearchIndex.StampKey);
+  static disable(db: SqliteConnection): void {
+    db.query(`DELETE FROM meta WHERE key = ?`).run(SearchIndex.StampKey);
   }
 
-  static drop(db: Database): void {
+  static drop(db: SqliteConnection): void {
     db.exec(`
       DROP TRIGGER IF EXISTS entry_search_ai;
       DROP TRIGGER IF EXISTS entry_search_ad;
@@ -138,17 +140,20 @@ export class SearchIndex {
       DROP TABLE IF EXISTS ${SearchIndex.Fts};
       DROP TABLE IF EXISTS ${SearchIndex.Documents};
     `);
-    db.prepare(`DELETE FROM meta WHERE key = ?`).run(SearchIndex.StampKey);
+    db.query(`DELETE FROM meta WHERE key = ?`).run(SearchIndex.StampKey);
   }
 
   /** True when the index holds nothing but entries exist — a rebuild is due. */
-  static isEmptyWithContent(db: Database): boolean {
-    const docs = db.prepare(`SELECT COUNT(*) AS n FROM ${SearchIndex.Documents}`).get() as {
+  static isEmptyWithContent(db: SqliteConnection): boolean {
+    const docs = db.query(`SELECT COUNT(*) AS n FROM ${SearchIndex.Documents}`).get() as {
       n: number;
     };
     if (docs.n > 0) return false;
     const entries = db
-      .prepare(`SELECT COUNT(*) AS n FROM entries WHERE project != '_system'`)
+      .query(
+        `SELECT COUNT(*) AS n FROM entries e JOIN projects p ON p.id = e.project_id
+         WHERE SUBSTR(p.name, 1, 1) != '_'`
+      )
       .get() as { n: number };
     return entries.n > 0;
   }

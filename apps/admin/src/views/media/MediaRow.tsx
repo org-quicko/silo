@@ -4,7 +4,6 @@ import { Button } from '../../components/buttons/Button'
 import { Checkbox } from '../../components/controls/Checkbox'
 import { ByteSize } from '../../utils/byte-size'
 import { Formatters } from '../../utils/formatters'
-import { MediaUsageBadge } from './media-usage-badge'
 import table from '../../components/data/DataTable.module.css'
 import styles from './MediaLibrary.module.css'
 import { MediaFileUrl } from './media-file-url'
@@ -40,13 +39,6 @@ export function MediaRow({
   const used = asset.usage_count || 0
   const isImage = asset.content_type.startsWith('image/')
 
-  const badgeClass =
-    asset.state === 'deleting'
-      ? styles.stalledBadge
-      : used > 0
-        ? styles.usedBadge
-        : undefined
-
   return (
     <div className={`${table.row} ${styles.fileRow}`} style={{ ['--cols' as any]: gridCols }}>
       {canDelete && (
@@ -66,11 +58,6 @@ export function MediaRow({
       <div className={table.cell} title={new Date(asset.updated_at).toLocaleString()}>
         {Formatters.relativeTime(asset.updated_at)}
       </div>
-      <div className={table.cell}>
-        <span className={badgeClass} title={MediaUsageBadge.title(asset)}>
-          {MediaUsageBadge.label(asset)}
-        </span>
-      </div>
       <div className={`${table.cell} ${table.actions} ${styles.rowActions}`}>
         <Button
           variant="secondary"
@@ -79,7 +66,7 @@ export function MediaRow({
           title="Copy the public URL"
           onClick={() => navigator.clipboard.writeText(fileUrl)}
         >
-          <Link size={11} />
+          <Link size={14} />
         </Button>
         {canEdit && (
           <Button
@@ -89,7 +76,7 @@ export function MediaRow({
             title="Rename or move"
             onClick={onEdit}
           >
-            <Pencil size={11} />
+            <Pencil size={14} />
           </Button>
         )}
         {canDelete && (
@@ -100,7 +87,7 @@ export function MediaRow({
             title={used > 0 ? 'Referenced by entries' : 'Delete file'}
             onClick={onDelete}
           >
-            <Trash2 size={11} />
+            <Trash2 size={14} />
           </Button>
         )}
       </div>

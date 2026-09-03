@@ -1,44 +1,54 @@
-import { useRef, useState } from 'react'
-import { FolderPlus, LayoutGrid, List, Plus, Trash2 } from 'lucide-react'
+import { useEffect, useRef, useState } from 'react'
+import { FolderPlus, LayoutGrid, List, MoreVertical, Plus, Settings, Trash2 } from 'lucide-react'
 import { Claims } from '@silo/shared/claims'
 import type { MediaAsset } from '../../api/types/media-asset'
 import type { ScopeRef } from '../../api/types/scope-ref'
 import { Button } from '../../components/buttons/Button'
 import { Segmented } from '../../components/controls/Segmented'
 import { Breadcrumb } from '../../components/navigation/Breadcrumb'
+import { Pagination } from '../../components/data/Pagination'
+import { Link } from '../../router/Link'
+import { Routes } from '../../router/routes'
 import { SmartSearch } from '../search/SmartSearch'
-import type { PaletteSeed } from '../search/palette-seed'
 import { TopBar } from '../shell/TopBar'
 import { MediaDialogs } from './MediaDialogs'
+import { MediaModifiedFilter } from './MediaModifiedFilter'
 import { MediaNotice } from './MediaNotice'
+import { MediaPath } from './media-path'
 import { MediaPathTrail } from './MediaPathTrail'
 import { MediaContents } from './MediaContents'
 import { MediaSelectionBar } from './MediaSelectionBar'
-import { useMediaDeleteFlow } from './use-media-delete-flow'
-import { MediaPageSize, useMediaLibrary } from './use-media-library'
+import { MediaTypeFilter } from './MediaTypeFilter'
+import { useMediaDeleteFlow, type DeleteSubject } from './use-media-delete-flow'
+import { useMediaLibrary } from './use-media-library'
 import { useMediaPurge } from './use-media-purge'
 import { useMediaRenameFolderFlow } from './use-media-rename-folder-flow'
+import { ToastManager } from '../../utils/toast-manager'
 import styles from './MediaLibrary.module.css'
 
 type LibraryView = 'grid' | 'list'
 
 const VIEW_KEY = 'silo_media_view'
-const LIST_COLS = 'minmax(0, 1fr) 100px 100px 140px 96px'
+const LIST_COLS = 'minmax(0, 1fr) 100px 100px 112px'
 /** With the leading checkbox column — list view, once `media:delete` makes
  *  a row selectable. */
 const LIST_COLS_SELECTABLE = `28px ${LIST_COLS}`
 
+function deletedMessage(subject: DeleteSubject): string {
+  if (subject.kind === 'folder') return `Folder "${MediaPath.name(subject.path)}" deleted`
+  const count = subject.kind === 'mixed' ? subject.assets.length + subject.folderPaths.length : subject.assets.length
+  return count === 1 ? 'File deleted' : `${count} items deleted`
+}
+
 interface Props {
   serverId: string
   scope: ScopeRef
-  collections: readonly { name: string; count: number | null; schema?: any }[]
+  collections: readonly { name: string; count: number | null }[]
   url: string
   apiKey: string
   claims: string[]
   /** A search carried in by the URL — the command palette links assets this way. */
   initialQuery?: string
-  onOpenPalette: (seed: PaletteSeed) => void
-  onNavigateToCollection: (name: string, q: string) => void
 }
 
 /**
@@ -58,19 +68,32 @@ export function MediaLibraryView({
   apiKey,
   claims,
   initialQuery = '',
-  onOpenPalette,
-  onNavigateToCollection,
 }: Props) {
   const library = useMediaLibrary(url, apiKey, initialQuery)
-  const deleteFlow = useMediaDeleteFlow(library.bulkDelete, library.deleteFolderRecursive)
-  const purgeFlow = useMediaPurge(library.purge)
-  const renameFolderFlow = useMediaRenameFolderFlow(library.renameFolder)
+  const deleteFlow = useMediaDeleteFlow(library.bulkDelete, library.deleteFolderRecursive, (subject) =>
+    ToastManager.show(deletedMessage(subject)),
+  )
+  const purgeFlow = useMediaPurge(library.purge, () => ToastManager.show('Media library purged'))
+  const renameFolderFlow = useMediaRenameFolderFlow(library.renameFolder, () => ToastManager.show('Folder renamed'))
   const [editing, setEditing] = useState<MediaAsset | null>(null)
   const [editingBusy, setEditingBusy] = useState(false)
+  const [creatingFolder, setCreatingFolder] = useState(false)
+  const [creatingFolderBusy, setCreatingFolderBusy] = useState(false)
+  const [headMenuOpen, setHeadMenuOpen] = useState(false)
   const [view, setView] = useState<LibraryView>(
     () => (localStorage.getItem(VIEW_KEY) as LibraryView | null) || 'grid',
   )
   const fileInput = useRef<HTMLInputElement>(null)
+  const headMenuRef = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    if (!headMenuOpen) return
+    const onDoc = (e: MouseEvent) => {
+      if (headMenuRef.current && !headMenuRef.current.contains(e.target as Node)) setHeadMenuOpen(false)
+    }
+    document.addEventListener('mousedown', onDoc)
+    return () => document.removeEventListener('mousedown', onDoc)
+  }, [headMenuOpen])
 
   const canUpload = Claims.has(claims, Claims.MediaCreate)
   const canDelete = Claims.has(claims, Claims.MediaDelete)
@@ -84,13 +107,32 @@ export function MediaLibraryView({
     localStorage.setItem(VIEW_KEY, next)
   }
 
-  const createFolder = () => {
-    const name = prompt('New folder name')?.trim()
-    if (!name) return
-    library.createFolder(library.folder ? `${library.folder}/${name}` : `/${name}`)
+  const submitNewFolder = async (name: string) => {
+    setCreatingFolderBusy(true)
+    try {
+      if (await library.createFolder(library.folder ? `${library.folder}/${name}` : `/${name}`)) {
+        ToastManager.show(`Folder "${name}" created`)
+      }
+    } finally {
+      setCreatingFolderBusy(false)
+      setCreatingFolder(false)
+    }
   }
 
   const selectedAssets = library.assets.filter((asset) => library.selected.has(asset.id))
+  const selectedFolderPaths = library.subfolders.filter((path) => library.selectedFolders.has(path))
+  const selectedCount = selectedAssets.length + selectedFolderPaths.length
+
+  const pager = library.total > 0 && (
+    <Pagination
+      bordered={view === 'grid'}
+      page={Math.floor(library.offset / library.pageSize) + 1}
+      pageSize={library.pageSize}
+      total={library.total}
+      onPageChange={(page) => library.setOffset((page - 1) * library.pageSize)}
+      onPageSizeChange={library.setPageSize}
+    />
+  )
 
 
   return (
@@ -99,11 +141,11 @@ export function MediaLibraryView({
         search={
           <SmartSearch
             serverId={serverId}
+            url={url}
+            apiKey={apiKey}
             scope={scope}
-            collection={null}
+            claims={claims}
             collections={collections}
-            onNavigateToCollection={onNavigateToCollection}
-            onOpenPalette={onOpenPalette}
           />
         }
       />
@@ -127,25 +169,53 @@ export function MediaLibraryView({
               so a file can be reused across entries.
             </span>
           </div>
-          {canUpload && (
-            <div className="head-actions">
-              <Button variant="secondary" onClick={createFolder}>
-                <FolderPlus size={14} /> New folder
+          <div className="head-actions">
+            {canUpload && (
+              <>
+                <Button variant="secondary" onClick={() => setCreatingFolder(true)}>
+                  <FolderPlus size={14} /> New folder
+                </Button>
+                <Button variant="primary" onClick={browse} disabled={library.uploading}>
+                  <Plus size={14} /> Upload files
+                </Button>
+              </>
+            )}
+            <div ref={headMenuRef} className={styles.headMenuWrap}>
+              <Button
+                variant="secondary"
+                className={styles.headMenuButton}
+                aria-label="More actions"
+                title="More actions"
+                onClick={() => setHeadMenuOpen((open) => !open)}
+              >
+                <MoreVertical size={16} />
               </Button>
-              <Button variant="primary" onClick={browse} disabled={library.uploading}>
-                <Plus size={14} /> Upload files
-              </Button>
+              {headMenuOpen && (
+                <div className={styles.headMenu}>
+                  <Link
+                    to={Routes.serverSettings(serverId, 'media-storage')}
+                    className={styles.cardMenuItem}
+                    onNavigate={() => setHeadMenuOpen(false)}
+                  >
+                    <Settings size={14} /> <span>Storage settings</span>
+                  </Link>
+                  {canDelete && (
+                    <button
+                      type="button"
+                      className={`${styles.cardMenuItem} ${styles.cardMenuDanger}`}
+                      onClick={() => {
+                        setHeadMenuOpen(false)
+                        purgeFlow.start()
+                      }}
+                    >
+                      <Trash2 size={14} /> <span>Purge library</span>
+                    </button>
+                  )}
+                </div>
+              )}
             </div>
-          )}
-        </div>
-
-        {canDelete && (
-          <div className={styles.purgeRow}>
-            <Button variant="dangerGhost" size="sm" onClick={purgeFlow.start}>
-              <Trash2 size={12} /> Purge library
-            </Button>
           </div>
-        )}
+        </div>
 
         <MediaNotice
           message={library.error}
@@ -166,9 +236,13 @@ export function MediaLibraryView({
         <MediaPathTrail folder={library.folder} onSelectFolder={library.selectFolder} />
 
         <div className={styles.toolbar}>
-          <span className={styles.count}>
-            {library.total} file{library.total === 1 ? '' : 's'}
-          </span>
+          <div className={styles.toolbarLeft}>
+            <span className={styles.count}>
+              {library.total} file{library.total === 1 ? '' : 's'}
+            </span>
+            <MediaTypeFilter extensions={library.extensions} value={library.ext} onChange={library.setExt} />
+            <MediaModifiedFilter value={library.modified} onChange={library.setModified} />
+          </div>
           <Segmented
             value={view}
             onChange={changeView}
@@ -180,11 +254,11 @@ export function MediaLibraryView({
           />
         </div>
 
-        {canDelete && selectedAssets.length > 0 && (
+        {canDelete && selectedCount > 0 && (
           <MediaSelectionBar
-            count={selectedAssets.length}
+            count={selectedCount}
             onClear={library.clearSelection}
-            onDelete={() => deleteFlow.start(selectedAssets)}
+            onDelete={() => deleteFlow.startMixed(selectedAssets, selectedFolderPaths)}
           />
         )}
 
@@ -199,32 +273,10 @@ export function MediaLibraryView({
           listCols={listCols}
           onBrowse={browse}
           onEditAsset={setEditing}
+          pagination={view === 'list' ? pager : undefined}
         />
 
-        {library.total > MediaPageSize && (
-          <div className={styles.pager}>
-            <Button
-              variant="secondary"
-              size="sm"
-              disabled={library.offset === 0}
-              onClick={() => library.setOffset(Math.max(0, library.offset - MediaPageSize))}
-            >
-              Previous
-            </Button>
-            <span>
-              {library.offset + 1}–{Math.min(library.offset + MediaPageSize, library.total)} of{' '}
-              {library.total}
-            </span>
-            <Button
-              variant="secondary"
-              size="sm"
-              disabled={library.offset + MediaPageSize >= library.total}
-              onClick={() => library.setOffset(library.offset + MediaPageSize)}
-            >
-              Next
-            </Button>
-          </div>
-        )}
+        {view === 'grid' && pager}
       </div>
 
       <MediaDialogs
@@ -238,12 +290,20 @@ export function MediaLibraryView({
           if (!editing) return
           setEditingBusy(true)
           try {
-            if (await library.rename(editing.id, filename, folder)) setEditing(null)
+            if (await library.rename(editing.id, filename, folder)) {
+              setEditing(null)
+              ToastManager.show('File updated')
+            }
           } finally {
             setEditingBusy(false)
           }
         }}
         onCloseRenameAsset={() => setEditing(null)}
+        creatingFolder={creatingFolder}
+        creatingFolderBusy={creatingFolderBusy}
+        newFolderParent={library.folder}
+        onCreateFolder={submitNewFolder}
+        onCloseNewFolder={() => setCreatingFolder(false)}
       />
     </>
   )

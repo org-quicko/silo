@@ -1,8 +1,24 @@
 .group { display: flex; flex-direction: column; gap: 22px; }
 
+/* A labelled group closes the gap under its label: the label names the rail
+   below it, not the field above it. */
+.labelled { gap: 9px; }
+
 .label {
   color: var(--text-3);
-  font-family: var(--font-mono);
+  font-family: var(--font-ui);
   font-size: 10.5px;
   letter-spacing: 0.14em;
+}
+
+/* The nesting ladder: --nest-depth (set by the template) steps the rail one
+   shade lighter per level, the same direction the item cards step. */
+.rail {
+  --nest-step: min(var(--nest-depth, 0), 4);
+
+  display: flex;
+  flex-direction: column;
+  gap: 22px;
+  padding-left: 15px;
+  border-left: 1px solid color-mix(in oklab, var(--line), var(--text-3) calc(var(--nest-step) * 12%));
 }

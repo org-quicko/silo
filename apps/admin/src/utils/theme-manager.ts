@@ -16,7 +16,6 @@ export interface FontPreset {
 export interface ThemePreset {
   name: string
   description?: string
-  group: 'Theme' | 'Vision assistive'
   accent: string
   sidebar: string
   sidebarHover: string
@@ -39,22 +38,13 @@ export class ThemeManager {
     { name: 'Hanken Grotesk', category: 'Sans-Serif' },
     { name: 'Inter', category: 'Sans-Serif' },
     { name: 'Outfit', category: 'Sans-Serif' },
-    { name: 'Plus Jakarta Sans', category: 'Sans-Serif' },
-    { name: 'Poppins', category: 'Sans-Serif' },
     { name: 'DM Sans', category: 'Sans-Serif' },
+    { name: 'Poppins', category: 'Sans-Serif' },
     { name: 'Space Grotesk', category: 'Sans-Serif' },
-    { name: 'Montserrat', category: 'Sans-Serif' },
     { name: 'Raleway', category: 'Sans-Serif' },
     { name: 'Nunito', category: 'Sans-Serif' },
     { name: 'Rubik', category: 'Sans-Serif' },
-    { name: 'Playfair Display', category: 'Serif' },
     { name: 'Lora', category: 'Serif' },
-    { name: 'Merriweather', category: 'Serif' },
-    { name: 'Cinzel', category: 'Serif' },
-    { name: 'Syne', category: 'Display' },
-    { name: 'Bricolage Grotesque', category: 'Display' },
-    { name: 'JetBrains Mono', category: 'Monospace' },
-    { name: 'Fira Code', category: 'Monospace' },
   ]
 
   // Curated to a spread of visually distinct hues rather than every shade —
@@ -63,15 +53,12 @@ export class ThemeManager {
   // beside Emerald) added variety without adding a meaningfully different
   // choice, so they're gone rather than kept for the sake of a bigger grid.
   public static readonly THEME_PRESETS: ThemePreset[] = [
-    { name: 'Silo Indigo', description: 'Default', group: 'Theme', accent: ThemeManager.DEFAULT_ACCENT, sidebar: ThemeManager.DEFAULT_SIDEBAR, sidebarHover: ThemeManager.DEFAULT_SIDEBAR_HOVER },
-    { name: 'Electric Violet', group: 'Theme', accent: '#8b5cf6', sidebar: '#1d1630', sidebarHover: '#2a2040' },
-    { name: 'Sky Blue', group: 'Theme', accent: '#38bdf8', sidebar: '#101d2b', sidebarHover: '#19293b' },
-    { name: 'Emerald', group: 'Theme', accent: '#34d399', sidebar: '#0f1f1a', sidebarHover: '#172c25' },
-    { name: 'Amber Gold', group: 'Theme', accent: '#f59e0b', sidebar: '#221a10', sidebarHover: '#302617' },
-    { name: 'Rose Pink', group: 'Theme', accent: '#f43f5e', sidebar: '#26121a', sidebarHover: '#351b26' },
-    // Vision assistive — colour-blind-safe accent/sidebar pairs.
-    { name: 'Tritanopia', description: 'Blue / red safe', group: 'Vision assistive', accent: '#2f81f7', sidebar: '#12161c', sidebarHover: '#1d242e' },
-    { name: 'Protanopia & Deuteranopia', description: 'Blue / yellow safe', group: 'Vision assistive', accent: '#4c8df6', sidebar: '#171224', sidebarHover: '#231a33' },
+    { name: 'Silo Indigo', description: 'Default', accent: ThemeManager.DEFAULT_ACCENT, sidebar: ThemeManager.DEFAULT_SIDEBAR, sidebarHover: ThemeManager.DEFAULT_SIDEBAR_HOVER },
+    { name: 'Violet', accent: '#bf5af2', sidebar: '#1d1630', sidebarHover: '#2a2040' },
+    { name: 'Sky Blue', accent: '#4c8df6', sidebar: '#101d2b', sidebarHover: '#19293b' },
+    { name: 'Emerald', accent: '#00a86b', sidebar: '#0f1f1a', sidebarHover: '#172c25' },
+    { name: 'Amber Gold', accent: '#f59e0b', sidebar: '#221a10', sidebarHover: '#302617' },
+    { name: 'Rose Pink', accent: '#f43f5e', sidebar: '#26121a', sidebarHover: '#351b26' },
   ]
 
   public static getSettings(): ThemeSettings {

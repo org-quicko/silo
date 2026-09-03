@@ -4,6 +4,852 @@
 > The *current* state is [CONTEXT.md](../../CONTEXT.md); this is how it got
 > there.
 
+- **`SqliteStore.close()` now releases the database file, and the test suites
+  stopped hiding it when it does not (2026-09-03).** `close()` stopped using the
+  database but did not let go of it, so on Windows the data directory could not
+  be deleted or moved afterwards.
+
+  bun:sqlite finalizes a statement only if it is still in `Database.query`'s own
+  cache when the database closes, and that cache holds exactly **twenty**: the
+  twenty-first distinct statement evicts the first, and an evicted statement is
+  never finalized. `Database.prepare` is not cached at all. Either way the
+  unfinalized statement keeps the file open, and `close(true)` does not help —
+  it throws `database is locked`, which is the same fact stated louder. The
+  adapter prepared upwards of twenty distinct statements, so it leaked whichever
+  fell off the end; writing an entry was the first operation that reliably did.
+
+  The fix is a `SqliteConnection` (new) that owns the `Database` and every
+  statement prepared against it: `query` caches without a bound, `once` prepares
+  and finalizes in a `finally` for SQL whose text varies per call, and `close()`
+  finalizes the lot before closing. Every class in the adapter holds one of these
+  instead of the raw `Database`; the call sites did not change, only the type.
+
+  The same leak existed test-side, where `sqlite.test.ts` read a database back
+  with `db.prepare(...)` and closed without finalizing.
+
+  This had been invisible because 55 files under `apps/server/test/` removed
+  their temp directory as `fs.rm(...).catch(() => {})`, and the swallowed error
+  was this one — `observability-api.test.ts` was the one suite that did not
+  swallow it, and so the only one that failed. Those catches are gone: 53 of the
+  55 now let the failure through, which is what turned one visible failure into
+  336 and then back to none. The two that keep it are `detached-serve` and
+  `compiled-detach`, which remove a directory held by a detached OS process they
+  cannot wait on — a start that loses the port race deliberately writes no run
+  file, so its pid is never recorded — and each says so on the line above.
+
+  A test in `test/adapters/sqlite.test.ts` now opens a store, writes, closes and
+  removes the directory with no `catch`, so a returning leak fails there.
+
+- **A collection listing stopped shipping every schema, and counting entries
+  stopped costing a request each (2026-09-03, D54).** Opening a scope of forty
+  content types cost about four megabytes and forty-odd requests before the
+  sidebar could be drawn, and both halves of that were the same mistake in two
+  places. `GET .../collections` returned each collection's full JSON Schema to a
+  surface that renders names, and the counts beside those names were read by
+  listing every collection with `limit=1` — which transfers a whole entry to
+  learn a number, and where the entries are tabular reference data that entry is
+  a hundred kilobytes.
+
+  Neither is a tuning problem, and the store landed the day before is precisely
+  what would have hidden it: a cache makes the second visit free and leaves the
+  first exactly as expensive. So this is a change of shape.
+
+  **The listing answers summaries.** `{id, name, entries, requires_auth,
+  created_at, updated_at}`, and no schema. `requires_auth` rides along because
+  it is read off the schema that is no longer there, and both the route's own
+  visibility filter and the admin's public/private badge need it.
+
+  **The schemas have their own route.** `GET .../schemas` answers every schema
+  in the scope, for a caller that genuinely reads across all of them;
+  `.../collections/{name}/schema` still answers one. It is a **sibling** of
+  `collections` rather than a path beneath it, because `schemas` is a legal
+  collection name and `/collections/schemas` would have shadowed that
+  collection's own entry list — a test pins exactly that.
+
+  **And one schema is enough, because the single-collection route bundles on
+  the way out.** `putSchema` already embeds every referenced collection's
+  schema into `$defs`, transitively — that is what `SchemaBundler` is for — but
+  only as of that save, so a referenced collection whose shape had changed
+  since was embedded as it was then. `getBundled` re-resolves at read time, and
+  is deliberately *not* on `CollectionService.get`, which the entry routes call
+  on every request to check access and which needs the record and nothing else.
+  `SiloRefs.resolveForForm` now reads the document's own `$defs` and takes no
+  collection list at all.
+
+  **Counting is a storage question now.** `Storage.countEntries(scope)` is a new
+  port method: one `GROUP BY` in SQLite, one directory listing per collection on
+  the filesystem, a collection with no entries absent rather than zero, and the
+  conformance suite holding both adapters to the same answers. Same reasoning as
+  `countMediaUsages` (D23) — a per-item loop over a port is a port missing a
+  method — and `ScopeService.collectionsIn` drops its own copy of that loop,
+  where nothing about the admin was ever involved.
+
+  In the admin the shell now asks **one** question per scope, and a page asks
+  for **the one collection it draws**. `useCollections` carries the counts, so
+  `use-entry-counts` and `entry-counts` are gone. `useCollectionSchema` is a
+  store key per collection, so the entries list warms it and every entry opened
+  out of that list is a cache read — the entry form included, which is the part
+  that looked like it needed more and does not. The schema editor is the same
+  story from the other side: choosing a ref target writes a `silo://` URL, and a
+  list of names is all that needs.
+
+  So `useCollectionSchemas` survives for exactly one caller — the search bar
+  matching a collection by one of its *field* names, the only thing in the app
+  that genuinely reads across every schema. It is gated on somebody having
+  typed, and until the schemas arrive the bar matches by name, which is the same
+  answer minus the field group.
+
+  The cost accepted is two shapes where there was one — `Collection` and
+  `CollectionSummary` — and a reader having to know which route answers which.
+  The alternative, a `?schema=true` switch on the listing, keeps one route and
+  makes its response shape depend on a query parameter, which is what makes a
+  client's types dishonest.
+
+- **The entries list keeps its place when you open a row and come back
+  (2026-09-03).** Scrolling a long way down a collection, opening an entry and
+  going back put you at the top of the list again, with no way to find where you
+  had been. The pane's offset is now remembered per URL (`ScrollMemory`,
+  `views/entries/use-scroll-memory.ts`), which is what makes page, sort, filter
+  and search each keep their own place and none inherit another's — and what
+  makes paging land at the top of the *next* page rather than halfway down it,
+  which it did not before either.
+
+  Recorded on every scroll rather than on the way out, because a reader leaves a
+  list by a row click, the breadcrumb, `Enter` on the cursor or the browser's
+  own back button and none of those is one place to hang a save. Restored in a
+  layout effect once the rows are rendered, so the list does not visibly jump —
+  which the store makes ordinary rather than lucky, since a page already
+  answered renders from the cache on the first frame. Held in memory and capped,
+  not written to storage: this is about a navigation within one session, and
+  dropping somebody into the middle of a list whose contents may have moved
+  since a reload is worse than starting at the top.
+
+- **The admin UI reads its server state from a store, and a waiting state is a
+  loader (2026-09-02, D53).** Every read was a `useState` and a `useEffect`
+  inside the view that wanted it, and the loading behaviour was the symptom of
+  that shape rather than a bug on top of it. The shell blocked on
+  `Connecting to <server>…` on every full load *and* on every return from
+  settings, because the session and the collection list were fetched from
+  scratch whenever the shell mounted although nothing about them had changed;
+  the entries table re-fetched a page it had answered a moment before; and that
+  table had to **ticket its own responses**, because typing fires several
+  searches that can land out of order and the last one *asked for* has to win.
+
+  `apps/admin/src/store/` is the replacement. `Store` holds one
+  `ResourceState` per cache key — value, in-flight, last error, last success —
+  and `useResource` subscribes to a key through `useSyncExternalStore` and
+  dispatches the load from an effect, so **a read renders the cache and the
+  request goes out behind it**. The ticketing is gone outright: each distinct
+  query is its own key, so a response can only write the key it was asked for.
+  It is hand-rolled for the reason `router/router.ts` is — the UI ships inside
+  the executable, the design principle is a fast first load, and the whole
+  store is under two hundred lines; a query library would have been larger than
+  the code it replaced.
+
+  Four rules in it are load-bearing. A key is rooted at the **saved
+  connection's id**, not the server's URL: two saved servers can address one
+  instance with different API keys and a key's claims decide what every answer
+  contains, so caching by URL would let a read-only key's shell be drawn from a
+  root key's answers. Keys are `/`-separated so `invalidatePrefix` can take one
+  collection's whole subtree after a write, matching on the separator so a
+  collection named `city` does not invalidate `cities`. Each key carries an
+  **epoch**, and a request settling behind its key's epoch writes nothing —
+  without it a read that started before a save puts the pre-save answer back
+  when it lands, which is the one way a cache is worse than none. A **failure
+  is state and `dispatch` never rejects**, since it is called from effects
+  where nothing would catch, so a failed reload keeps the value it had. And
+  `keepPrevious` is opt-in: the paged entries table keeps the last answer while
+  the next loads, a form must not, and it is off entirely when the URL's
+  `?filter=` cannot be read, since an unfiltered list under a filtered URL is
+  the one wrong thing that page can show.
+
+  One behaviour changed deliberately: a 401 and a failed request are no longer
+  the same event. A revoked key still sends the app back to the gate; a request
+  that merely failed does so only when there is nothing cached to show, because
+  a server that blinked should not cost a reader their place. The store is
+  emptied on disconnect and when a connection's API key changes.
+
+  The store is **additive** rather than a rewrite — it sits between `api/` and
+  the views, so the shell's session, the instance version, the collection list,
+  the per-collection counts, one entry and one page of a collection's entries
+  go through it today, and a read site that has not adopted it works exactly as
+  it did with no caching.
+
+  Alongside it, **one waiting state**: `components/feedback/LoadingState` over
+  `Spinner` — a circular loader in the theme's own colours (`--line-2` track,
+  `--accent` arc, so a custom accent or light mode retints it with no second
+  definition) beside a sentence naming what is being waited for, with
+  `prefers-reduced-motion` answered in the one place, where the arc breathes
+  instead of turning. A state that *is* the screen centres in the viewport,
+  which is what the connecting message never did: it used the shared
+  `center-wrap` utility and its `min-height: 60vh`, so it sat a third of the
+  way down an otherwise empty page. Every centred loading state in the app now
+  goes through it, and `ServerManager`'s bespoke ring is the shared one.
+
+  Two smaller UI fixes ride along. **`Ctrl`/`⌘` `,` goes to Settings**, from
+  anywhere in the workspace and to the same page the sidebar's own Settings
+  item opens; it joins `?` in `views/shell/use-shell-shortcuts.ts`, since both
+  belong to the shell rather than to a page, and it is listed in the shortcuts
+  dialog. `?` stands down while somebody is typing because it is a character
+  they meant to write; the modified press does not, for the same reason `⌘K`
+  does not. And **an array item card opens from anywhere on its row**: the
+  header owned the padding while the disclosure button was one line of text
+  tall, so the space above and below a title looked clickable and was not — a
+  thirty-seven item list being exactly where that is felt. The padding is the
+  button's now and the button stretches to the row, with the title taking the
+  remaining width so its ellipsis lands at the row's edge.
+
+- **Importing and copying an archive no longer have to fit in memory either
+  (2026-09-02).** The entry below made export streaming and left the receiving
+  side as the same problem mirrored: `/api/import` did
+  `Buffer.from(await c.req.arrayBuffer())`, and `HttpSiloClient.exportArchive`
+  did the same to the source's response — so `/api/copy` had a source that
+  streamed and a destination that undid it, allocating as much memory as the
+  source instance's media library.
+
+  `Importer.importTarGzStream` is the counterpart to `exportTarGzStream`. `tar.x`
+  with no `file` is a writable parser, so extraction is a pump: write each chunk,
+  wait for `drain` when it asks, and finish on the `end` it emits only once the
+  input has ended *and* its pending-write count has reached zero — that last part
+  is what guarantees `importDir` never walks a half-extracted tree. No
+  intermediate `.tar.gz` is written, which also removed the one the old `Buffer`
+  branch wrote and deleted; that branch now goes through the same extraction as a
+  single chunk, since a `Buffer` is already whole and has nothing left to stream.
+  The *extracted* tree still lands in a temp dir, because `importDir` walks a
+  directory and an archive is not ordered for a single pass.
+
+  A tar-level failure is recorded and rethrown rather than raced as a rejection.
+  This is load-bearing, not tidiness: on a truncated upload the correct pump
+  fails with `zlib: unexpected end of file` and extracts nothing, while dropping
+  that error surfaced an ENOENT on a `manifest.json` that was never written — a
+  downstream symptom that says nothing about the upload being truncated. The test
+  asserts the gzip message for exactly that reason; a bare `rejects.toThrow()`
+  passed against both.
+
+  `/api/import` hands the request body straight through, and **the admin sends
+  the archive as a raw body instead of a `FormData` part**. That is what makes
+  the admin's own import stream: a form has to be parsed before the archive
+  inside it can be found, so the multipart branch is still bounded by whatever
+  the runtime does with a large upload. It stays for callers already posting one,
+  and now takes the part's own `stream()` rather than a second full copy of it.
+  A request with no body at all is a 400 rather than an empty-archive tar
+  failure.
+
+  `exportArchiveStream` replaces `exportArchive` on the copy client. The one
+  thing the buffered version got for free was seeing that an archive was empty,
+  so that check is kept by pulling the first chunk before answering and putting
+  it back at the head of the stream the caller gets — a peek that forgot to
+  restore it would corrupt every copy, which the copy tests and a byte-for-byte
+  unit test both catch. Zero-length chunks are skipped rather than mistaken for
+  the end of the stream.
+
+  `TransferService.importTarGz` also stopped lying about its parameter: it was
+  typed `ReadableStream | any` and a `ReadableStream` was the one thing it could
+  not take. It is `string | Buffer` now, with the stream case on
+  `importTarGzStream` beside it.
+
+- **A whole-instance export no longer has to fit in memory (2026-09-02).**
+  `GET /api/export` read the finished tarball into one `Buffer` and answered
+  with it. An archive is assembled in a temp tree that holds a copy of every
+  media byte, so the response cost as much memory as the media library takes on
+  disk: an export that should have been merely slow on a small host failed
+  outright instead. The design doc's "streams (no full-dataset buffering)" was
+  true of `silo export --out`, which hands its path to `tar.c`, and aspirational
+  on the one surface where it mattered most.
+
+  `Exporter.exportTarGzStream` is the new shape — gzip `tar.c` straight into a
+  `ReadableStream`, write no intermediate `.tar.gz` at all, and let the route
+  return it as the response body. The pack is paused as soon as its `data`
+  listener is attached and resumed on `pull`, so the consumer's backpressure
+  reaches the tar walk rather than the archive piling up ahead of it, and peak
+  memory is one gzip chunk. The temp tree is the stream's to clean up, on `end`,
+  on `error`, and on `cancel` — the last being a client that disconnects
+  mid-download, which the old route could not represent.
+
+  What did *not* change is where errors land. `exportDir` is awaited before the
+  stream is returned, so the walk that touches storage and blobs still completes
+  before a single byte is sent: a failing export is an error response, not a
+  truncated archive. Only a later gzip-level failure can truncate. The bytes are
+  identical — the same reproducible tarball `--out` writes.
+
+  `exportTarGz` keeps both of its branches and buffers in neither. A string path
+  still goes to `tar.c` directly; any other writer is now drained from
+  `exportTarGzStream` a chunk at a time, each `write` awaited, and is not closed
+  by the exporter since the exporter did not open it. Its dead arm is gone:
+  `if (w.write)` followed by `else if (typeof w === "object" && "write" in w)`
+  tested the same thing twice, so the second was unreachable and the
+  `"unsupported writer type"` throw beneath it was only ever reached for a
+  falsy `write` — a `null` writer hit a `TypeError` first. The check is
+  `typeof w?.write !== "function"` now, and that error is reachable.
+
+  Tests cover what a buffered implementation would pass: that the stream and the
+  writer both deliver more than one chunk, that no `silo-export-*` temp tree
+  survives the stream, and that `GET /api/export`'s body is a gzip archive that
+  imports.
+
+- **An entry form shows how deep it is (2026-09-02).**
+  A component three levels down was drawn exactly like a top-level one. RJSF
+  tells a template nothing about where in the tree it sits, so every array item
+  card carried the same surface and the same edge as the card holding it, and a
+  nested object was a dim mono label with its fields flush under it: on a real
+  imported entry, `connection_method.oauth.url` read as three top-level fields,
+  and an array of components inside an array of components was a stack of
+  identical cards.
+
+  `NestingDepthContext` is the missing notion of position — a labelled object
+  group and an expanded array item each add one level — and the two templates
+  that draw containers publish it to CSS as `--nest-depth`. From there it is one
+  rule in each stylesheet: a card's surface and border step one shade lighter per
+  level, and a labelled group's fields sit in an indented rail whose line steps
+  the same way. Both hold at four levels, because a ladder that keeps lightening
+  ends up brighter than the text on it.
+
+  The group label goes from `--text-3` to `--text-2` and sits closer to what it
+  names, since it is now the head of a visible block rather than a hint floating
+  above unindented fields. An array's title states its length in the slot a
+  scalar field states its type in (`2 items · required`), so a subtree is no
+  longer labelled exactly like a text box.
+
+- **The entries table's columns can be dragged, and a page's actions moved down
+  to the page (2026-09-02).**
+  A column was whatever fraction of the row the schema's shape gave it. A
+  `sub_category` holding `senior_citizen_self_or_dependent` was an ellipsis in
+  all sixteen rows, and no amount of choosing *which* columns to show fixed the
+  one that was too narrow.
+
+  Every column's right edge is a handle now. `ColumnWidths` is the pure half —
+  the `grid-template-columns` for a set of widths, and the clamp that keeps a
+  drag between a 72px floor and whatever still leaves every other column its
+  own; `useColumnWidths` keeps them in `localStorage` per (server, project, env,
+  collection). Deliberately not in the URL, which carries everything else on
+  screen: a width is one reader's ergonomics on one screen, and a shared link
+  should open the same *view*, not impose the sender's column widths. A
+  double-click hands one column back to the table's own sizing.
+
+  `Updated` has no handle and the actions cell is fixed, so whatever the others
+  are set to, the row still fills the width it was given rather than trailing an
+  empty strip. The drag itself never re-renders a page of rows: `--cols` moved
+  onto the card, where it inherits, so a pointer move writes one property on one
+  element and only the release reaches React state. A heading narrowed past its
+  own name now ellipsises rather than painting over the column beside it — it
+  always could, the resize just makes it easy to reach.
+
+  **The visual builder had the same defect in a worse place.** A field's summary
+  line printed every enum value it had, so a seventeen-value `sub_category` was a
+  ten-line paragraph inside a row meant to be one line, and its longest value —
+  one unbreakable 88-character token — overflowed the summary and painted over
+  the `enum` and `optional` badges. `SchemaFieldSummary` leads with the count
+  past four values (`Enum · 17 values · …`), because the count is the half that
+  survives an ellipsis; the row's name and summary clip to one line each, with
+  the full text as the summary's tooltip; and the type badges stop shrinking.
+  Inside the open editor a long value wraps within its own chip rather than
+  clipping: there it is the thing being edited.
+
+  Two more things about that row. **It is the control now** — a click anywhere on
+  it opens the field, with the gear left as the affordance rather than a second
+  tab stop, since a 14px target sat on a row whose every other pixel looked just
+  as clickable. And **the grip drags**: it had `cursor: grab` and no handler
+  behind it, so pulling on it selected text instead. `SchemaDraft.reorder` moves
+  the field and `reorderIndex` keeps the open editor on its own field through the
+  move; the list reorders as the dragged row passes over another, so there is no
+  drop target to find. Property order is the order every generated form and table
+  reads, which is what makes this a schema edit rather than a view preference.
+
+  Alongside it, **the top bar is the search's**. The entries list already kept
+  its actions under the bar; an entry and a collection's schema put Save and
+  Discard *in* the bar, so the same two buttons lived in two different places
+  depending on the page. Both pages now carry every action they have — Save,
+  Discard or Cancel, and Delete — as one block in their right rail, under the
+  facts that rail already stated: a rail that lists what a thing is, and then
+  what can be done to it. `CollectionRail` therefore renders for a collection
+  that does not exist yet, where it is the actions alone. Both rails run the full
+  height of the view (`min-height: 100%` on the shell) rather than stopping where
+  their content does. A page with no search (settings, keys, a plugin) still
+  keeps its actions in the bar, which is otherwise not drawn at all.
+
+  **The keycap beside the search field said `⌘K` on Windows**, and the sidebar
+  filter's tooltip said `⌥F` — labels for keys those keyboards do not have,
+  though both handlers have always accepted either modifier (`metaKey ||
+  ctrlKey`, and `altKey` for the filter). `PlatformKeys` reads the platform
+  through `userAgentData` with the deprecated `navigator.platform` and the UA
+  string behind it, and the labels take the platform as an argument so the rule
+  is testable without a DOM.
+
+  **And the heading stopped moving between pages.** The entries list put the
+  collection name 105px down; an entry put `Edit entry` at 127 and the schema
+  editor `Edit collection` at 123, because in those two the breadcrumb and the
+  heading were separate flex items and took the column's gap between them as
+  well as the breadcrumb's own margin. Pairing them in one block puts all three
+  headings in the same place, which is the whole of what stops a page from
+  looking like it jumped. The collection name field went from 340px to 560px in
+  the same pass: an imported name runs to 55 characters and was being clipped
+  inside its own editor.
+
+- **The entries list, and the way out of an editor, from the keyboard
+  (2026-09-02).**
+  The table was a mouse-only surface: rows were `div`s with an `onClick`, the
+  sortable headings were `span`s with one too, and nothing on the page could be
+  reached with Tab except the row menus and the pager.
+
+  **A row cursor.** `↓`/`j` and `↑`/`k` move it, `Home`/`End` jump it, `←`/`h`
+  and `→`/`l` change page, `e` opens the row under it, `⌫` deletes it, and `n`,
+  `f`, `c` reach New entry, the filter builder and the column picker. `Esc`
+  closes whatever is open and only gives up the cursor when nothing was — a
+  press that shuts a popover should not also lose your place. The cursor row is
+  the focused element, not a highlight painted over one: the browser scrolls it
+  into view, a screen reader reads the row it lands on, and a roving `tabindex`
+  keeps the table at one tab stop instead of fifty. `EntriesShortcuts` is the
+  whole map as a pure lookup, so what a key does is a test rather than a
+  reading of an event handler; `Enter` is deliberately not in it, because the
+  focused row is a button and already activates itself.
+
+  **The headings are buttons now**, which is what puts sorting on the keyboard
+  at all. The padding moved from the cell to the button inside it (through a
+  doubled class, since `DataTable`'s own `.header > span` is more specific than
+  one), so the whole heading is the target and the resize handle still anchors
+  to the cell's edge.
+
+  **`?` opens a shortcut list**, from the shell rather than from the page, since
+  half of what it lists is scope-wide; the sidebar carries the same dialog as an
+  item under Settings, because a shortcut nobody can find is not a shortcut.
+  **`Esc` discards an entry form or a schema editor**, exactly as their Discard
+  and Cancel buttons do. It stands down for a press something else already
+  claimed — the search bar calls `preventDefault` on its own Escape — so leaving
+  a search never throws away the form behind it.
+
+- **Imported content is readable in the admin, and a Strapi enumeration
+  survives the trip (2026-09-02).**
+  The importer's own mapping was right; what the admin did with it was not. Five
+  things, all of them visible on the first collection a real import produces.
+
+  **The entries table titled an entry by `String(value)`.** A collection whose
+  only property is a repeatable component is ordinary in Strapi, so the heading
+  column read `[object Object],[object Object],[object Object]`. `EntryLabels`
+  now summarises the way `CellValue` already does in every other cell: a list of
+  objects is its length, a list of scalars is itself, an object is its first
+  filled field or a key count. It also *picks* better — a property that can carry
+  a name wins over a list that happens to be declared first, the rule `Columns`
+  already applies to the default columns — and the id stops appearing on both
+  lines of a row when it is the fallback title as well as the subtitle.
+
+  **A property that declares nothing rendered as nothing.** `{}` is the honest
+  schema for a Strapi `json` column, and RJSF returns `null` for a schema with no
+  keywords *before* `ui:field` is read, so an entry whose only field was a JSON
+  column opened as a blank page: not editable, not visible, not reported missing.
+  `FormSchema` marks such a property with the widget the form already
+  understands, which makes it non-empty in the same stroke, and `JsonField` reads
+  as "any JSON value" rather than as a subtree it failed to draw.
+
+  **Widget selection stopped at the first nested component.** `buildUiSchema`
+  compared `type` against `'object'` and `'array'` while every imported property
+  is `["object", "null"]`, and it never descended into an array's `items` at all.
+  So the fields inside a component got no widget: a media reference two levels
+  down was a text box holding `silo://media/<id>`. It reads types through
+  `SchemaType` now and walks item schemas, which is what puts the picker and the
+  thumbnail on the 1646 attachments that live down there.
+
+  **The breadcrumb inside an entry stopped at the collection**, and the
+  collection crumb linked nowhere. It is `Collections / <collection> / <id>` now,
+  with the middle crumb going back to the list. The `Collections` crumb itself
+  forwarded to `collections[0]`, so leaving an entry moved you to a collection
+  you had not asked for; the index resolves through `CollectionVisits` instead
+  and lands on the last one opened in this scope.
+
+  **A Strapi `enumeration` imported as free text.** Strapi stores one as a plain
+  `varchar`, so the declaration is the only evidence it exists, and `StrapiEnums`
+  carries it — but only after confirming it against the column, because Strapi
+  enforces an enumeration on write and never on the rows already stored, and a
+  value dropped from a content type stays in the table it was written to. `null`
+  is a member of the emitted `enum`, not merely of the `type`: an unfilled
+  enumeration column is `NULL`, and one instance had 2 such rows beside 108
+  filled ones. That exposed a latent bug in the visual schema builder, which
+  wrote `["string", "null"]` beside `["draft", "live"]` — a field whose type
+  permits a null its `enum` refuses — so `SchemaDraft` now rebuilds both halves
+  from the one nullable flag, `SelectWidget` offers the null member as "Not set"
+  and addresses options by index (a DOM attribute turns `null` into `"null"`),
+  and `FilterFields` ignores it rather than falling back to a free-text box.
+
+- **The Strapi importer carries components, single types and long table names
+  (2026-09-02).**
+  Three failures against a live 45-content-type export, and one of them was the
+  mapping rather than a bug in it.
+
+  **Components are nested inside the entry now**, at whatever depth the source
+  has them, instead of each repeatable component being lifted into a collection
+  of its own. The flattening read well on the one shape it was designed against
+  and had no answer for the rest: a component holding a component became a
+  collection of rows whose children were nowhere (`validation.item` imported its
+  `entity` and dropped all 988 `validation.issue` rows under it), a component
+  with no scalar columns of its own became a collection with an empty schema
+  (`com-quicko-app-store.connection`, which holds nothing but an `oauth`), one
+  component reached from two content types became two collections fighting over
+  one proposed name, and a collection type's components were split away from the
+  entries that own them. A **single type is now a collection with one entry**
+  holding its components, which is what Strapi itself does with it. `StrapiShape`
+  is the new artifact: one description covering a content type and a component
+  alike, since Strapi stores them the same way, read recursively from the tables,
+  the `_cmps` join tables and `files_related_mph`. `StrapiEntries` walks it
+  breadth-first — one query per level per field, not one per row — and
+  `StrapiSchema` turns it into nested objects and arrays. Dynamic zones come
+  across as one array whose items carry Strapi's `__component`, and **not** as a
+  `oneOf`: every branch is an open object, so more than one matches and `oneOf`
+  would fail exactly when the data is right.
+
+  Media moved with it. A media field is no longer a key on the entry but a *path*
+  into it, because most of a real export's attachments are on a nested component
+  — this one had 1646 of them two levels below the content type that owns them,
+  and the previous version never reached that component, so it never asked the
+  operator for those files either. `StrapiMediaSlot` carries
+  `["items", 3, "issues", 11, "mobile_icon"]` and `MediaLibrary.attach` follows
+  it.
+
+  **A content type whose `collectionName` is over 55 characters was reported as
+  missing from an export holding every one of its rows.** Strapi caps a database
+  identifier at 55 and shortens anything longer to its first 50 plus a digest, so
+  `com_quicko_it_file_2026_incomes_bnp_settlements_templates` is stored as
+  `…_settlements_teec0f2` and the schema keeps the long name. `StrapiIdentifiers`
+  resolves the two spellings. The digest is **shake256**, which is worth writing
+  down because the four better guesses are all wrong: sha256, sha1, md5 and
+  sha3-256 each produce five plausible characters and none of them produce
+  Strapi's. `StrapiComponents` gained the same as a last search tier, narrowed by
+  the surviving prefix since the name it would have to hash is the pluralised
+  table name it is looking for.
+
+  Last, `StrapiFields` reads the content-manager's per-component configuration —
+  the only place an export names a component's fields, since component *schemas*
+  live in the project's `src/components/*.json` and never travel. A field
+  declared there and never filled has no rows to be read from, so it lands in
+  the collection as an untyped property rather than as a field an operator can
+  see in Strapi and not in silo. What no source in the export can say is that
+  field's kind, so nothing guesses at it.
+
+- **A staged Strapi upload can no longer overwrite the one before it
+  (2026-09-02).**
+  `SourceStore.put` named each staged `.db` `source-<Date.now() in base 36>.db`.
+  Two uploads inside the same millisecond therefore produced one path: the second
+  `writeFile` landed on the first file, `put` returned a path its caller already
+  held, and the sweep — which keeps exactly the name it was handed — left one
+  file where there should have been two. It surfaced as a flaky
+  `source-store.test.ts` (`second.path` equal to `first.path` whenever the clock
+  did not tick between the two calls), but the failure was the store's, not the
+  test's: the millisecond gap the names depended on was only ever supplied by
+  whatever work happened to sit between two uploads.
+  `SourceStore.nextName` replaces the bare clock read. The stamp is carried
+  forward by a tick when `Date.now()` has not moved, so names are strictly
+  increasing within a process, and four random base-36 characters follow it, so
+  a restarted process cannot land on a name the previous one used. Ordering is
+  the reason the stamp still leads and stays fixed-width: `recover` picks the
+  newest staged file by sorting names, and that is the only thing standing
+  between a restart and adopting a stale export. The `source-` prefix and `.db`
+  suffix are untouched, so `sweep` and the recovery pass still match every file
+  they own.
+  The tests changed with it. A new case puts fifty times with no sleep and
+  asserts fifty distinct paths — deterministic against the old code, where all
+  fifty collapsed to one. The `Bun.sleep(2)` in the sweep and recovery tests is
+  gone: those sleeps were working around the bug, and without them both cases now
+  exercise same-millisecond writes, which is where the ordering `recover` needs
+  is actually at risk.
+  `put`'s doc comment was rewritten in the same pass, having described a
+  write-then-rename removed some time ago: it claimed the upload was staged under
+  a temporary name and moved into place, that the destination was deleted first
+  to dodge `fs.rename`'s `EPERM` on Windows, and that `staged` was cleared for
+  the duration — none of which the body did, and an inline comment two lines
+  below already contradicted the first two. It now says what happens (a fresh
+  name, a direct write, a best-effort sweep) and why the mid-upload window is
+  safe: the previously staged file is readable until the sweep, so no reader is
+  handed a path that is briefly missing. The Windows history that justifies a new
+  name at all stays where it belongs, on the `Prefix` block, rather than being
+  restated.
+
+- **Operating metrics are a bounded core snapshot, drawn by an ordinary
+  first-party plugin (D52, 2026-09-01).**
+  `GET /api/observability` reports what the process has done — API counters
+  grouped by Hono's *registered route pattern*, status classes, latency
+  histograms, sixty one-minute chart buckets, memory and cumulative CPU, and
+  cached local storage sizes — behind a new read-only `observability:read`
+  claim carried by `manage` and `root`. `apps/server/src/observability/` is the
+  accumulator: `RequestMetrics` over `LatencyHistogram`, plus `StorageMetrics`
+  for the directory and filesystem probes. `LoggingMiddleware` feeds it from the
+  point it already owned — one completed request, one timer — but on a switch
+  independent of `[log] requests`, so an operator gets metrics without an access
+  log and either without a restart. It measures `/api/` only, and reads
+  `c.req.routePath` *after* `next()`, which is what makes `/entries/01ABC…` and
+  `/entries/01XYZ…` one series and an unmatched path `/api/*` rather than
+  itself.
+  `plugins/silo-plugin-observability/` is the second first-party package and
+  holds **no** privilege a third-party one could not ask for: one declared
+  `GET /snapshot` that calls the core endpoint through `ctx.fetch`, and a
+  sandboxed panel that calls only that route. A remote dashboard can use the
+  same endpoint and the same claim. The panel's charts answer the pointer —
+  a minute on the traffic chart, a latency band, a status class — through one
+  shared tooltip positioned `fixed`, because an in-flow tooltip would grow
+  `body.scrollHeight`, which is the number the admin sizes the frame from, so
+  pointing at something would move it. The status mix gained real bars beside
+  its proportion strip, the traffic chart re-fits its `viewBox` to the box the
+  card gives it rather than letterboxing a fixed aspect into it, and every
+  panel carries an `i` explaining its own numbers in two lines.
+  The bounds are the product, not an implementation detail: route patterns keep
+  ids and project names out of the series space, endpoints past 256 collapse to
+  one `* <other>` row, the chart prunes to sixty minutes, latency is a fixed
+  histogram rather than retained requests, directory walks follow no symlink and
+  stop at 50,000 entries, and remote-provider capacity is `null` rather than
+  guessed. No request parameter, query string, caller, body, credential, content
+  or filesystem path enters the accumulator — the API test asserts the snapshot
+  does not contain the path it was configured with.
+  Three defects were fixed in review before this landed. A **percentile could
+  read above the maximum beside it**: `LatencyHistogram.percentile` returned the
+  bucket's upper boundary unclamped, so ten 3ms requests answered
+  `p95 = 5, max = 3` — and since a healthy silo puts nearly every request in the
+  1–5ms buckets, that was the *normal* display rather than an edge case, printed
+  side by side in one endpoints row. The bound is clamped to the slowest request
+  actually observed; where the maximum is the looser of the two, the boundary
+  still wins. The **media library was counted twice**: `[blob_storage] path`
+  defaults to `<storage.path>/media`, so the data-directory walk already
+  contained every media byte, and the panel drew the two as peer cards a reader
+  would add — a 40 GiB library showed as "data 42 GiB" beside "media 40 GiB".
+  `StorageMetrics.directory` now takes a subtree to skip and `sample` passes the
+  media root when it is strictly nested, which keeps `files` and the truncation
+  cap honest as well as `bytes`; a library pinned outside the data directory is
+  unaffected, and one pointed at the data directory *itself* is left alone
+  rather than reported as empty. And the plugin shipped a **hand-written 49-line
+  `silo:api`** instead of silo's own 319-line file: its `SiloPluginDefinition`
+  was a bare `[name: string]` index signature, so a mistyped route key or a
+  wrong handler arity typechecked clean, and `ValidationError`/`ForbiddenError`
+  were not declared at all. It carries the canonical file now, and
+  `first-party-plugin-drift.test.ts` holds **both** first-party plugins to it,
+  byte for byte, the way `create-silo-plugin-drift.test.ts` already held the
+  scaffolder's copy.
+
+- **The visual schema editor round-trips every shape `type` can take, so a save
+  no longer rewrites an imported collection (2026-09-01).**
+  `SchemaDraft` was the reader the entries-view change above deliberately left
+  alone, and the only one of them that also *writes* — which is what made it
+  the damaging one rather than the cosmetic one. Two halves had to line up for
+  the corruption: `kindOf` matched `property.type` against `SchemaFieldLabels`
+  as a scalar, so `["integer", "null"]` hit no label and fell through to the
+  `'string'` default, and `build` maps **every** field through
+  `toProperty`/`applyKind` — not just edited ones — whose default branch did
+  `property.type = field.kind`. So opening an imported collection in the visual
+  editor and saving *anything*, a description typo included, rewrote every
+  column from `["integer", "null"]` to `"string"`, and the collection then
+  refused the nulls it already stored: content that imported fine became
+  content that would not save. `kindOf` reads through `SchemaType.of` now.
+  Writing it back needed somewhere to put the fact, because `toProperty`
+  spreads `field.raw` and then `applyKind` assigns over `type` — so `raw`
+  cannot be what carries it. `SchemaField.nullable` is that place, read by
+  `toField` through the new `SchemaType.isNullable` and applied by a `setType`
+  helper every branch of `applyKind` goes through (`media`, `enum` and
+  `ref-array` write a type too, and a nullable one of those is just as real).
+  Kind and nullability stay **independent**: switching an imported integer to a
+  string writes `["string", "null"]`, because the dropdown says what the column
+  holds and the rows underneath still say it may be blank. `ref` is the one
+  branch that cannot honour it — a `$ref` carries no `type` — so the fact stays
+  on the field and reappears if the author picks a drawable kind again. The
+  third scalar read in the same file went with them: `toField` detected a
+  reference *list* with `property.type === 'array'`, so a nullable one
+  (`["array", "null"]` with `items.$ref`) read as a plain string field and
+  saved as one, losing the `items` subtree along with the union.
+  The default branch was reached by two other shapes as well, and both got an
+  answer of their own rather than the shared fallback that was the whole
+  defect. A property declaring **no** type — what `StrapiColumns.schemaFor`
+  writes for a `json` column, where the honest schema is "anything" and
+  narrowing to `object` would refuse the arrays that are just as common — is
+  now the **`any` kind**, read by `SchemaType.isUntyped` and written back as no
+  `type` at all. It is a real entry in `FieldKindSelect` rather than a
+  construct, because unlike `oneOf` it *is* drawable and has no subtree to
+  preserve: an author can widen a typed column to `any` and narrow a `json` one
+  to `object` without leaving the visual editor, which the Code-view escape
+  hatch would have denied them. An **array form naming anything other than one
+  real type** is the case that genuinely cannot be drawn, and joins
+  `oneOf`/`anyOf`/`allOf` as a `construct`: `SchemaType.isUnresolved` feeds
+  `constructOf`, so `["string", "number"]` — and a degenerate lone `["null"]` —
+  keeps its original subtree and is labelled `type union · edit in Code view`.
+  Guessing a winner there would throw the other type away, which is the shape
+  of the bug being fixed. The three readers are deliberately **total** over the
+  keyword: `of` answers when it resolves to one type, `isUntyped` when there is
+  none, `isUnresolved` for the rest, and a test asserts exactly one of them
+  claims any given shape — that totality is what leaves no path back to a
+  fallback. `schema-draft.test.ts` pins the cases the report named
+  (`["integer", "null"]`, `["string", "null"]`, `["string", "number"]`) plus
+  the ones that would regress quietly: a plain `"string"` must stay a bare
+  scalar, a bare `{}` must stay bare, and a whole imported document — nullable
+  columns and a `json` one — must come back unchanged from a save that edits
+  one description.
+
+- **A property's `type` is read as the union JSON Schema allows, so an imported
+  nullable number is a number again (2026-09-01).**
+  `type` is a string *or an array of them*, and the array form is what content
+  from an import carries: `StrapiColumns.schemaFor` writes `["integer", "null"]`
+  for every integer column, because a field left blank in Strapi's admin is a
+  `NULL` and refusing those would refuse most real content. Three readers in the
+  entries view compared it against `'integer'` — `EntriesTable`'s own
+  `isNumeric`, `FilterFields.valueType` and `Columns.isAutoSafe` — so each was
+  false for exactly the fields a real import produces, and nothing looked broken
+  enough to name: `org-quicko-countries` drew `numeric_code`'s **values**
+  right-aligned, because `CellValue` decides that from `typeof value` per row,
+  under a heading still aligned left, which is the "two different columns" the
+  header comment already warned about. The quieter half was the filter builder,
+  which offered the column the *string* ops: `FilterModel.coerce` would then have
+  sent `"290"` for a field holding `290`, a filter that draws correctly, sends
+  correctly, and matches nothing. The keyword now has one reader,
+  `schema/schema-type.ts` — `SchemaType.of` drops `"null"` and answers `null` for
+  a genuine two-type union (`["string", "number"]`), because no cell, op list or
+  input can render two types as one thing and guessing which one wins is how the
+  original defect got written. Alignment moved with it: a numeric column is
+  right-aligned end to end (`.numericCell` beside `.numericHead`), the heading is
+  `row-reverse` rather than merely pushed right so the *label* is what lines up
+  with the numbers instead of the sort icon, and the em-dash an absent value
+  shows sits with the numbers rather than on the far side of its own column —
+  which a nullable column has plenty of by construction. Deliberately left
+  alone: the readers in `forms/` (`BaseInputTemplate`, `build-ui-schema.ts`,
+  `media-value.ts`), `ApiGuide`'s sample value, and `SchemaDraft`. That last one
+  is the one worth fixing next and is not cosmetic — `kindOf` reads a nullable
+  integer as a `string` kind and `build` rewrites *every* field on save, so one
+  visual-mode save of an imported schema collapses `["integer", "null"]` to
+  `"string"` and the collection then rejects the nulls it already stores.
+
+- **The `⌘K` command palette is gone; the smart bar is the only search UI
+  (2026-09-01).**
+  The rework that moved results into a dropdown beneath the bar left
+  `views/search/CommandPalette.tsx`, its CSS Module and `palette-seed.ts` in
+  the tree with nothing mounting them. `SmartSearch` had already absorbed the
+  whole of what the overlay did — the same `api.search.run` call, the same
+  `PaletteResults`/`SnippetView` pipeline, the same keyboard walk — and `⌘K`
+  focuses the bar now rather than opening anything. All three are **deleted
+  rather than re-mounted**: the alternative was two UIs answering one question
+  from one pipeline, free to drift apart on every later change to it, and the
+  overlay's own reason for existing is gone — it searched the whole instance
+  because it had no page to sit on, where the bar is already in the scope the
+  sidebar and breadcrumbs put the reader in. `PaletteSeed` went with them; it
+  existed only to carry the typed text and the scope chip *across* to the
+  overlay, and an in-place dropdown reads both from the state it already
+  renders from. The `Palette*` names in `views/search/palette-results.ts`
+  stay — that file is the bar's result builder and always was; only the second
+  consumer it once had is gone. The sidebar's `⌘K` trigger is struck from
+  `docs/design/admin-ui.md` too: that button became the `⌥F` collection filter
+  earlier and the doc had not caught up.
+
+- **The top-bar search reaches the whole scope again, and lists the collections
+  it promised (2026-09-01).**
+  Two defects in the same day's search rework, one of them a silent one.
+  **The text stopped arriving.** The admin had been changed to send its query as
+  `?query=`, but §5.5 names that parameter `q` and that is what the routes read.
+  A server process started before the rename therefore saw *no text at all* —
+  and a search with no text is a legitimate filter-only search (§5.5), so it
+  answered with every entry the key can read, ordered `-$.updated_at`. The first
+  page of that is whichever collection was written last, which is why a
+  scope-wide search for "United" came back as a page of Indian states. **That is
+  the failure direction D19/D30 exists to prevent**: a parameter the far side
+  does not recognize *widened* the search rather than failing it, and no error
+  said so — the reason the reach lives in the path is that a forgotten parameter
+  must not be able to do this. Renaming a wire parameter also silently coupled
+  the admin to a server restart, which is what turned a same-tree change into a
+  bug. The wire name is `q` on both sides again, `SearchQuery.query` stays the
+  only field the admin's own call sites name, and `search-api.test.ts` pins the
+  built request URL so the rename cannot come back unnoticed.
+  **Collections are results now.** The bar says "Search collections, entries,
+  media…" and listed only the last two. `PaletteResults.build` takes ranked
+  `ScopeMatch`es and emits them as a **leading** group: they are navigation
+  rather than content, and there are at most a handful. They are matched from
+  the session's own collection list through the same `ScopeMatcher.rank` the
+  `@`-mention popup uses — no second request, and no second definition of what
+  "matches a collection" means, including its field-name matches, which the row
+  names (`field: gst_code`) since the collection's own name does not explain why
+  it is on screen. Capped at five so the entry hits stay above the fold, and
+  suppressed entirely while a chip is set: the reader has already narrowed to
+  one collection, and offering a list of collections would undo that. The
+  `Searching…` row now waits on the entry search alone, since a matched
+  collection fills the list before the request returns.
+
+- **Projects, environments and collections became ULID-keyed records, so all
+  three can be renamed (D51, 2026-09-01).**
+  A typo in any of the three names was permanent, and the cause was that none
+  of them was a keyed entity: `entries`, `schemas`, `media_references` and
+  `entry_search` each repeated the names as literal columns. All three are now
+  records with a ULID primary key and a mutable `name`, every internal
+  reference is by id, and a rename is one `UPDATE` of a `name` column — no
+  entry, index row or blob moves, and `seq`, `rev`, timestamps and entry ids are
+  all preserved. `PATCH /api/projects/{p}`, `PATCH .../environments/{e}` (both
+  spellings) and `PATCH .../collections/{c}` take `{name}`, are bound to
+  `?expected_id=` so a request delayed in flight cannot rename whatever took the
+  name meanwhile, and answer a preview under `?dry_run=true`. Authority is a new
+  `RenamePermissions = [collections:create, collections:delete]` at the
+  subject's own reach, checked at **both** names.
+  **`collections` replaced the `schemas` table** rather than joining it — two
+  tables would give "does this collection exist" two answers that can drift —
+  and its `schema` column is `NOT NULL`. That costs two things, both stated
+  rather than discovered: an archive carrying `content/<name>/` with no
+  `schemas/<name>.schema.json` is **refused by name** instead of having a
+  permissive schema invented for it, and `Storage.put` **refuses an entry whose
+  collection has no record** (a project and an environment are pure containers
+  and are still created implicitly; a collection is not). The seven system
+  collections are named once in `SystemCollections` and seeded into both
+  adapters with `{"x-silo-system": true}` and the reserved names as their ids.
+  Together those rules retire the `listSchemas ∪ listEntryCollections` union in
+  `CollectionService`, `ScopeService.collectionsIn`, `Exporter`, `ScopeCopier`,
+  `ScanSearcher` and `SqliteSearcher.reindex`.
+  SQLite relationships are composite (`environments(project_id, id)`,
+  `collections(project_id, env_id, id)`, entries referencing that triple,
+  `media_references`/`entry_search` referencing the entry pair
+  `ON DELETE CASCADE`), `PRAGMA foreign_keys` is on, `foreign_key_check` runs at
+  open, and DDL, seeding and the format stamp are one transaction. Resolution is
+  per adapter on purpose: SQLite caches name→id and drops it whole on any write,
+  the fs adapter caches nothing and reads markers per operation, because that
+  adapter exists for `rsync` and `git checkout` (D23's argument). On disk the
+  layout still uses names — it is the export format and is meant to be read —
+  so ids live in `.silo-project`, `.silo-env` and a new
+  `schemas/.<collection>.silo-collection`, which `Exporter` writes and
+  `ImportWalker` reads, minting when absent and keeping the destination's id
+  where the name already exists. Two long-standing transfer bugs go with it: a
+  project holding no environment is finally exported (`listScopes()` answers
+  pairs and could never name one), and replace-import stops deleting a schema
+  before re-putting it, which under record keying destroyed the record and
+  reminted its id. `FormatVersion` resets to `"1"` and there is **no
+  migration** — both adapters refuse an older directory with the message they
+  already had.
+  **Claims stay name-based**, because a ULID fails the claim grammar's id
+  pattern and ULID claims would be unreadable and would break the
+  cross-instance key portability `--with-keys` exists for. So the one cascade
+  records do not remove is the claim rewrite, and it turns on a single
+  distinction: **a literal segment is a reference and is rewritten; a wildcard
+  segment is a pattern over names and never is.** `collections:*/dev/*` already
+  matches scopes that do not exist yet, which is what per-segment wildcards are
+  for (D19), so rewriting it to `*/prod/*` would silently change authority in
+  every project — and leaving it alone genuinely changes what the key reaches.
+  Both readings are correct and neither is a rewrite, so the answer is
+  disclosure: `ClaimRewrite` (pure, in `shared`) reports those separately, and
+  the route, the response, the audit `detail` and the admin's confirm dialog all
+  print both lists. Completeness is a correctness requirement rather than a
+  nicety, because D34 checks `hooks:` claims before an event crosses into a
+  worker, so a missed rewrite stops hook delivery with no error anyone sees. The
+  cascade covers `_keys` and `_plugins`, staged behind a `_scope_renames` marker
+  carrying the **enumerated record ids** — a bounded worklist, not a re-derived
+  query, which would rewrite the wrong records if a new project took the freed
+  name first — and the marker **doubles as a name reservation**, which is what
+  makes `resumePending` safe to be non-fatal. It runs before plugins load,
+  unlike the two media resumes, since a plugin boots on the authority its record
+  holds; one whose grant moved is restarted onto it. `silo.toml`'s
+  `[[plugins]] claims` half is **refused rather than rewritten**, on D34's own
+  reasoning that an API able to write that file is a code-execution primitive
+  wearing a management claim.
+  A **collection** rename additionally rewrites the schema graph: `$ref`
+  strings including self-references, and the `$defs` keys `SchemaBundler`
+  derives from collection names — stripped and re-bundled rather than patched,
+  validated before anything is written, and asking for
+  `collections:schema:update` on every referrer up front. On the filesystem it
+  is the one rename that is not a single syscall, so the destination marker
+  carries `moving_from` and `FsCollectionStore.resumePending` finishes it at the
+  next open; recovery is decidable because the id is in both places — a
+  destination marker holding this id is this rename half-done, any other id is a
+  real collision. `SqliteSearcher` keeps its claim predicate as a name
+  comparison in the same statement as the match, over record tables joined
+  through subqueries that **rename their columns**, because all three carry
+  `id`/`name`/`created_at` and the shared compiler emits envelope columns
+  unqualified. `Meta` gains `defaults_initialized`, so `initDefaults` seeds once
+  per instance and a renamed or deleted default is not resurrected at the next
+  start. D20's derived existence rule is **superseded**: a scope exists exactly
+  when its record does, and emptying one no longer removes it.
+
 - **The Strapi importer's target is the plan's, its uploads land in the folder
   that was configured, and the package is a directory per subject (2026-09-01).**
   Three bugs from one live run, and none of them was in the importing.
@@ -460,7 +1306,6 @@
   remote servers or running under the Vite dev server (`http://localhost:5173`). The server's base
   URL is now threaded through `EntriesView` -> `EntriesTable` -> `CellValue` and prefixed to `asset.url`
   identically to `MediaCard`, `MediaRow`, and `MediaWidget`.
-
 
 - **The Strapi importer carries media as silo media, and the uploads reach it one
   file at a time (2026-08-27).** §13.20 in

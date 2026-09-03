@@ -24,7 +24,7 @@ describe("ConfigFileAccess", () => {
 
   afterEach(async () => {
     await fs.chmod(dir, 0o700).catch(() => {});
-    await fs.rm(dir, { recursive: true, force: true }).catch(() => {});
+    await fs.rm(dir, { recursive: true, force: true });
   });
 
   test("a process with no config file, or no way to re-read one, cannot save", async () => {

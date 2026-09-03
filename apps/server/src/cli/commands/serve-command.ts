@@ -5,6 +5,7 @@ import { ListenAddress } from "../../runtime/listen-address";
 import { ProcessTitle } from "../../runtime/process-title";
 import { RunFile } from "../../runtime/run-file";
 import { BootstrapBanner } from "../bootstrap-banner";
+import { Observability } from "../../observability";
 
 /**
  * `silo serve` — the long-running server.
@@ -89,6 +90,13 @@ export class ServeCommand {
       mediaStorage,
       mediaPolicy,
       settings,
+      observability: new Observability({
+        dataDirectory: config.storage.path,
+        mediaDirectory:
+          config.blob_storage.driver === "fs" ? config.blob_storage.path : undefined,
+        storageDriver: config.storage.driver,
+        blobDriver: config.blob_storage.driver,
+      }),
     }).build();
 
     // Before the bind, so no request can arrive while a plugin's `ctx.fetch`

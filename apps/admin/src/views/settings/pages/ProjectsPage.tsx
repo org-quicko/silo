@@ -1,4 +1,5 @@
 import React, { useState } from 'react'
+import { LoadingState } from '../../../components/feedback/LoadingState'
 import { AlertTriangle, ChevronRight, FolderGit2, Plus } from 'lucide-react'
 import { Claims } from '@silo/shared/claims'
 import { Button } from '../../../components/buttons/Button'
@@ -122,7 +123,7 @@ export function ProjectsPage({
 
         <div className={styles.listContainer}>
           {loading ? (
-            <div className={styles.loadingBox}>Loading projects…</div>
+            <LoadingState message="Loading projects…" />
           ) : projects.length === 0 ? (
             <div className={styles.emptyBox}>
               No projects on this server yet{canCreate ? ' — create one to get started.' : '.'}

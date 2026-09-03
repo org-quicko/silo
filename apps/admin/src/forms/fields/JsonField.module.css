@@ -18,6 +18,10 @@
 
 .notice svg { flex: none; color: var(--warn); }
 
+/* An "any" field is not a failure to render one, so it carries no warning tint. */
+.plain { background: var(--panel); }
+.plain svg { color: var(--text-3); }
+
 .area {
   width: 100%;
   min-height: 108px;

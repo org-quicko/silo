@@ -86,6 +86,13 @@ export function useSchemaDraft(collection: Collection | null) {
       applyFields(next)
       setExpanded(next.length - 1)
     },
+    /** Reorders the properties, which is the order every generated form and
+     *  table reads; the open editor follows its own field. */
+    moveField: (from: number, to: number) => {
+      if (from === to) return
+      applyFields(SchemaDraft.reorder(fields, from, to))
+      setExpanded(expanded === null ? null : SchemaDraft.reorderIndex(expanded, from, to))
+    },
     removeField: (index: number) => {
       applyFields(fields.filter((_, at) => at !== index))
       setExpanded(null)

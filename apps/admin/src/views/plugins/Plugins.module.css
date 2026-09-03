@@ -19,7 +19,7 @@
    not to a flex item inside it, so the name column truncates itself. */
 .nameGroup { display: flex; min-width: 0; flex-direction: column; gap: 2px; }
 .name { overflow: hidden; color: var(--text); font-weight: 500; text-overflow: ellipsis; }
-.kind { color: var(--text-3); font-family: var(--font-mono); font-size: 11px; }
+.kind { color: var(--text-3); font-family: var(--font-ui); font-size: 11px; }
 
 .chevron { display: flex; justify-content: flex-end; color: var(--text-3); }
 

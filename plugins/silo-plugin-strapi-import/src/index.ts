@@ -14,7 +14,7 @@ import { ImportRuntime } from './worker/import-runtime'
  * 1. `SourceRoutes` takes the `.db` as bytes and answers with what is in it.
  * 2. `UploadRoutes` says which uploads the import wants and takes them, one file
  *    per request.
- * 3. `PlanRoutes` proposes one collection per Strapi list, and says which
+ * 3. `PlanRoutes` proposes one collection per Strapi content type, and says which
  *    projects and environments it could be written into. Nothing is written by
  *    either.
  * 4. `ImportRoutes` validates the edited plan, starts a job, and reports on it.

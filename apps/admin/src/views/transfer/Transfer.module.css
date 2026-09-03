@@ -107,7 +107,7 @@
   border-radius: 5px;
   background: var(--bg);
   color: var(--text-2);
-  font-family: var(--font-mono);
+  font-family: var(--font-ui);
   font-size: 11.5px;
 }
 
@@ -147,7 +147,7 @@
 
 .checkCount {
   color: var(--text-3);
-  font-family: var(--font-mono);
+  font-family: var(--font-ui);
   font-size: 11px;
 }
 

@@ -1,0 +1,41 @@
+/* The ring is the theme's own line colour with the accent as its moving arc,
+   so a custom accent or light mode retints it without a second definition. */
+.spinner {
+  display: inline-block;
+  flex: none;
+  border: 2px solid color-mix(in oklab, var(--line-2) 75%, transparent);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: ring 0.7s linear infinite;
+}
+
+.sm {
+  width: 13px;
+  height: 13px;
+  border-width: 1.5px;
+}
+
+.md {
+  width: 18px;
+  height: 18px;
+}
+
+.lg {
+  width: 26px;
+  height: 26px;
+  border-width: 2.5px;
+}
+
+@keyframes ring {
+  to { transform: rotate(360deg); }
+}
+
+/* A reader who has asked for less motion still needs to see that something is
+   working, so the arc breathes instead of turning. */
+@media (prefers-reduced-motion: reduce) {
+  .spinner { animation: breathe 1.4s ease-in-out infinite; }
+}
+
+@keyframes breathe {
+  50% { opacity: 0.35; }
+}

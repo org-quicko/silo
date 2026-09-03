@@ -163,3 +163,17 @@ describe("the audit claim (D38)", () => {
     expect(Claims.PluginForbiddenClaims).not.toContain(Claims.AuditRead);
   });
 });
+
+describe("the observability claim", () => {
+  test("it is read-only operating visibility, available to operators and plugins", () => {
+    expect(Claims.isValid(Claims.ObservabilityRead)).toBe(true);
+    expect(Claims.has([Claims.Root], Claims.ObservabilityRead)).toBe(true);
+    expect(Claims.has([Claims.AuditRead], Claims.ObservabilityRead)).toBe(false);
+    expect(Claims.isValid("observability:write")).toBe(false);
+
+    expect(Claims.presetFixedClaims("manage")).toContain(Claims.ObservabilityRead);
+    expect(Claims.presetFixedClaims("write")).not.toContain(Claims.ObservabilityRead);
+    expect(Claims.presetFixedClaims("read")).not.toContain(Claims.ObservabilityRead);
+    expect(Claims.PluginForbiddenClaims).not.toContain(Claims.ObservabilityRead);
+  });
+});

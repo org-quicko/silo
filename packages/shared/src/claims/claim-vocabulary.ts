@@ -65,6 +65,17 @@ export class ClaimVocabulary {
   static readonly AuditRead = "audit:read";
 
   /**
+   * Read bounded, aggregate operating metrics for this process: normalized API
+   * routes, status classes, latency, memory/CPU totals and local storage size.
+   *
+   * No request path parameters, query strings, caller identities, content or
+   * filesystem paths cross this boundary. Keeping it separate from
+   * `settings:configure` lets an operator or an ordinary plugin inspect health
+   * without gaining the ability to rewrite `silo.toml`.
+   */
+  static readonly ObservabilityRead = "observability:read";
+
+  /**
    * Serving the routes a plugin declared, under `/api/ext/{name}/*` (D36, phase
    * 6).
    *
@@ -114,6 +125,7 @@ export class ClaimVocabulary {
     [ClaimVocabulary.PluginsGrant]: true,
     [ClaimVocabulary.PluginsEnable]: true,
     [ClaimVocabulary.AuditRead]: true,
+    [ClaimVocabulary.ObservabilityRead]: true,
     [ClaimVocabulary.HttpRoute]: true,
   };
 

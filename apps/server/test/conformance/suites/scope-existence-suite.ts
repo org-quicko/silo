@@ -1,12 +1,23 @@
 import { describe, expect, test } from "bun:test";
 import { Scope } from "../../../src/core/domain/scope";
+import { CollectionSchemas } from "../../../src/core/schema/collection-schemas";
 import type { StorageTestContext } from "../storage-test-context";
 
-/** D20's rule in both adapters: a scope exists when it was created explicitly *or* still holds content — and stops existing only when neither is true. */
+/**
+ * D51's rule in both adapters: a project, environment or collection exists
+ * exactly when its **record** exists.
+ *
+ * This supersedes D20, where a scope existed if it had been created *or* still
+ * held content. That reading has no answer to "what is this scope's id", and it
+ * is no longer reachable either: a child references its parent by id, so content
+ * cannot imply a parent that has no record.
+ */
 export class ScopeExistenceSuite {
   static register(context: StorageTestContext): void {
     const getFreshStore = () => context.fresh();
     const putEntry = context.putEntry.bind(context);
+    const names = async (records: Promise<{ name: string }[]>) =>
+      (await records).map((record) => record.name);
 
     describe("scope existence", () => {
       test("ListScopes", async () => {
@@ -34,112 +45,153 @@ export class ScopeExistenceSuite {
         expect(list.items[0].data.label).toBe("root");
       });
 
-      test("ListScopesPrunesScopesWithNoRemainingContent", async () => {
+      test("EmptyingAScopeDoesNotRemoveIt", async () => {
         const store = await getFreshStore();
         const scope = Scope.of("acme", "dev");
         const other = Scope.of("acme", "prod");
 
         await store.putSchema(scope, "posts", { type: "object" });
-        const e = await putEntry(store, scope, "posts", 1, { title: "x" });
+        const entry = await putEntry(store, scope, "posts", 1, { title: "x" });
         await store.putSchema(other, "posts", { type: "object" });
 
-        expect((await store.listScopes()).map((s) => s.key()).sort()).toEqual(["acme/dev", "acme/prod"]);
+        expect((await store.listScopes()).map((s) => s.key()).sort()).toEqual([
+          "acme/dev",
+          "acme/prod",
+        ]);
 
-        // Deleting every schema and entry in a scope must make listScopes()
-        // stop reporting it — "exists" is derived from content, not from a
-        // directory (fs) or a row that merely used to exist (D18).
-        await store.delete(scope, "posts", e.id);
+        // The reverse of what D20 promised, and deliberately so: deleting every
+        // schema and entry empties the scope, it does not delete it. The records
+        // are what exist, and only `deleteEnvironment` removes one.
+        await store.delete(scope, "posts", entry.id);
         await store.deleteSchema(scope, "posts");
 
-        expect((await store.listScopes()).map((s) => s.key())).toEqual(["acme/prod"]);
+        expect((await store.listScopes()).map((s) => s.key()).sort()).toEqual([
+          "acme/dev",
+          "acme/prod",
+        ]);
+        expect(await store.listCollections(scope)).toEqual([]);
 
-        await store.deleteSchema(other, "posts");
-        expect(await store.listScopes()).toEqual([]);
+        await store.deleteEnvironment("acme", "dev");
+        expect((await store.listScopes()).map((s) => s.key())).toEqual(["acme/prod"]);
       });
 
-      // ---- Projects and environments (D20) ----
+      // ---- Projects, environments and collections as records (D51) ----
       //
-      // These six port methods carry the whole "does this scope exist" question,
-      // and the two adapters answer it from completely different material —
-      // rows in `projects`/`environments` on one side, directories on the
-      // other. Anything only one of them gets right is a portability bug by
+      // These port methods carry the whole "does this exist, and what is its
+      // id" question, and the two adapters answer it from completely different
+      // material — rows on one side, directories and marker files on the other.
+      // Anything only one of them gets right is a portability bug by
       // construction: an export enumerates `listScopes()`, so a scope one
-      // adapter reports and the other doesn't is data that survives on SQLite
+      // adapter reports and the other does not is data that survives on SQLite
       // and vanishes on files.
 
       test("CreatedProjectIsListedBeforeItHoldsAnything", async () => {
         const store = await getFreshStore();
 
-        await store.createProject("acme");
-        expect(await store.listProjects()).toEqual(["acme"]);
+        const project = await store.createProject("acme");
+        expect(project.name).toBe("acme");
+        expect(project.id.length).toBeGreaterThan(0);
+        expect(await names(store.listProjects())).toEqual(["acme"]);
         // A project with no env yet is not a scope — there is nothing to address.
         expect(await store.listEnvironments("acme")).toEqual([]);
         expect(await store.listScopes()).toEqual([]);
 
-        await store.createEnvironment("acme", "dev");
-        expect(await store.listEnvironments("acme")).toEqual(["dev"]);
+        const environment = await store.createEnvironment("acme", "dev");
+        expect(environment.project_id).toBe(project.id);
+        expect(await names(store.listEnvironments("acme"))).toEqual(["dev"]);
         // The export-critical half: an env that was created but holds nothing
         // still exists, so `Exporter` can carry it across a round trip.
         expect((await store.listScopes()).map((sc) => sc.key())).toEqual(["acme/dev"]);
       });
 
-      test("CreateIsIdempotentAndDeleteOfTheUnknownIsANoOp", async () => {
+      test("CreateIsIdempotentAndKeepsTheOriginalId", async () => {
         const store = await getFreshStore();
 
-        await store.createProject("acme");
-        await store.createProject("acme");
-        await store.createEnvironment("acme", "dev");
-        await store.createEnvironment("acme", "dev");
-        expect(await store.listProjects()).toEqual(["acme"]);
-        expect(await store.listEnvironments("acme")).toEqual(["dev"]);
+        const first = await store.createProject("acme");
+        const again = await store.createProject("acme");
+        expect(again.id).toBe(first.id);
+
+        const env = await store.createEnvironment("acme", "dev");
+        expect((await store.createEnvironment("acme", "dev")).id).toBe(env.id);
 
         await store.deleteProject("never-existed");
         await store.deleteEnvironment("acme", "never-existed");
         await store.deleteEnvironment("never-existed", "dev");
-        expect(await store.listProjects()).toEqual(["acme"]);
-        expect(await store.listEnvironments("acme")).toEqual(["dev"]);
+        expect(await names(store.listProjects())).toEqual(["acme"]);
+        expect(await names(store.listEnvironments("acme"))).toEqual(["dev"]);
       });
 
-      test("ContentBringsAScopeIntoExistenceWithoutCreatingIt", async () => {
+      test("SuppliedIdIsPreservedAndACollisionIsRefused", async () => {
+        const store = await getFreshStore();
+
+        // Import carries ids in its markers and must be able to keep them.
+        const project = await store.createProject("acme", "01AAAAAAAAAAAAAAAAAAAAAAAA");
+        expect(project.id).toBe("01AAAAAAAAAAAAAAAAAAAAAAAA");
+
+        await expect(
+          store.createProject("other", "01AAAAAAAAAAAAAAAAAAAAAAAA")
+        ).rejects.toThrow();
+        // Reserved ids belong to the system records and are never handed out.
+        await expect(store.createProject("other", "_system")).rejects.toThrow();
+
+        // A name that already exists keeps its own id, ignoring the archive's.
+        expect((await store.createProject("acme", "01BBBBBBBBBBBBBBBBBBBBBBBB")).id).toBe(
+          "01AAAAAAAAAAAAAAAAAAAAAAAA"
+        );
+      });
+
+      test("PutSchemaCreatesTheScopeButAnEntryNeedsItsCollection", async () => {
         const store = await getFreshStore();
         const scope = Scope.of("ghost", "prod");
 
-        // An import or a direct put can write into a scope nobody created.
-        await store.putSchema(scope, "posts", { type: "object" });
-        expect(await store.listProjects()).toEqual(["ghost"]);
-        expect(await store.listEnvironments("ghost")).toEqual(["prod"]);
+        // A project and an environment are pure containers, so `putSchema`
+        // still brings them into being implicitly.
+        const record = await store.putSchema(scope, "posts", { type: "object" });
+        expect(record.name).toBe("posts");
+        expect(await names(store.listProjects())).toEqual(["ghost"]);
+        expect(await names(store.listEnvironments("ghost"))).toEqual(["prod"]);
         expect((await store.listScopes()).map((sc) => sc.key())).toEqual(["ghost/prod"]);
 
-        // ...and it stops existing when that content goes, since nothing ever
-        // recorded it explicitly. A scope that lingers here is one no API call
-        // can remove.
-        await store.deleteSchema(scope, "posts");
-        expect(await store.listProjects()).toEqual([]);
-        expect(await store.listEnvironments("ghost")).toEqual([]);
-        expect(await store.listScopes()).toEqual([]);
+        // A collection is not a pure container — its schema is NOT NULL — so
+        // nothing implicit can create one, and an entry into a collection that
+        // has no record is refused rather than written unvalidated.
+        await expect(
+          store.put(
+            {
+              id: "01CCCCCCCCCCCCCCCCCCCCCCCC",
+              project: scope.project,
+              env: scope.env,
+              collection: "absent",
+              rev: 1,
+              seq: 0,
+              created_at: new Date(),
+              updated_at: new Date(),
+              data: {},
+            },
+            { usages: [], search: null }
+          )
+        ).rejects.toThrow(/not found/);
       });
 
-      test("ExplicitlyCreatedScopeOutlivesItsContent", async () => {
+      test("PutSchemaTwiceKeepsTheCollectionId", async () => {
         const store = await getFreshStore();
         const scope = Scope.of("acme", "dev");
 
-        await store.createEnvironment("acme", "dev");
-        const e = await putEntry(store, scope, "posts", 1, { title: "x" });
-        await store.putSchema(scope, "posts", { type: "object" });
+        const first = await store.putSchema(scope, "posts", { type: "object" });
+        const second = await store.putSchema(scope, "posts", {
+          type: "object",
+          properties: { title: { type: "string" } },
+        });
 
-        await store.delete(scope, "posts", e.id);
-        await store.deleteSchema(scope, "posts");
-
-        // Emptying a scope is not the same as deleting it.
-        expect(await store.listProjects()).toEqual(["acme"]);
-        expect(await store.listEnvironments("acme")).toEqual(["dev"]);
-        expect((await store.listScopes()).map((sc) => sc.key())).toEqual(["acme/dev"]);
+        // A re-put is a schema edit, not a new collection wearing the same name.
+        expect(second.id).toBe(first.id);
+        expect((await store.findCollection(scope, "posts"))?.id).toBe(first.id);
       });
 
       test("CreateEnvironmentImpliesItsProject", async () => {
         const store = await getFreshStore();
         await store.createEnvironment("acme", "dev");
-        expect(await store.listProjects()).toEqual(["acme"]);
+        expect(await names(store.listProjects())).toEqual(["acme"]);
       });
 
       test("DeleteEnvironmentRemovesItsContentAndSparesItsSiblings", async () => {
@@ -156,14 +208,14 @@ export class ScopeExistenceSuite {
 
         await store.deleteEnvironment("acme", "dev");
 
-        expect(await store.listEnvironments("acme")).toEqual(["prod"]);
+        expect(await names(store.listEnvironments("acme"))).toEqual(["prod"]);
         expect((await store.listScopes()).map((sc) => sc.key())).toEqual(["acme/prod"]);
-        expect((await store.listSchemas(dev)).size).toBe(0);
+        expect(CollectionSchemas.map(await store.listCollections(dev)).size).toBe(0);
         expect((await store.list(dev, "posts", { limit: 50, offset: 0 })).total).toBe(0);
         // The sibling is untouched, and the project outlives the env.
-        expect((await store.listSchemas(prod)).size).toBe(1);
+        expect(CollectionSchemas.map(await store.listCollections(prod)).size).toBe(1);
         expect((await store.list(prod, "posts", { limit: 50, offset: 0 })).total).toBe(1);
-        expect(await store.listProjects()).toEqual(["acme"]);
+        expect(await names(store.listProjects())).toEqual(["acme"]);
       });
 
       test("DeleteProjectRemovesEveryEnvironmentBeneathIt", async () => {
@@ -180,12 +232,12 @@ export class ScopeExistenceSuite {
 
         await store.deleteProject("acme");
 
-        expect(await store.listProjects()).toEqual(["other"]);
+        expect(await names(store.listProjects())).toEqual(["other"]);
         expect(await store.listEnvironments("acme")).toEqual([]);
         expect((await store.listScopes()).map((sc) => sc.key())).toEqual(["other/prod"]);
-        expect((await store.listSchemas(dev)).size).toBe(0);
+        expect(CollectionSchemas.map(await store.listCollections(dev)).size).toBe(0);
         expect((await store.list(prod, "posts", { limit: 50, offset: 0 })).total).toBe(0);
-        expect((await store.listSchemas(other)).size).toBe(1);
+        expect(CollectionSchemas.map(await store.listCollections(other)).size).toBe(1);
       });
 
       test("SystemScopeIsNeverListedAsAProjectOrEnvironment", async () => {
@@ -194,11 +246,22 @@ export class ScopeExistenceSuite {
         await putEntry(store, Scope.System, "_keys", 1, { label: "root" });
         await store.createProject("acme");
 
-        expect(await store.listProjects()).toEqual(["acme"]);
+        expect(await names(store.listProjects())).toEqual(["acme"]);
         expect(await store.listEnvironments(Scope.System.project)).toEqual([]);
         expect(await store.listScopes()).toEqual([]);
-        // Still reachable directly — it is hidden from listings, not gone.
-        expect((await store.list(Scope.System, "_keys", { limit: 50, offset: 0 })).total).toBe(1);
+      });
+
+      test("SystemCollectionsAreRecordsButStayOutOfUserListings", async () => {
+        const store = await getFreshStore();
+
+        // Seeded by both adapters, so `_keys` has a collection record to hang
+        // its entries off and the two answer `listCollections` alike.
+        const system = await store.listCollections(Scope.System);
+        expect(system.map((record) => record.name)).toContain("_keys");
+        expect(system.map((record) => record.name)).toContain("_scope_renames");
+        // Their ids are the reserved names, so every instance addresses them
+        // identically and an archive needs no translation.
+        expect(system.find((record) => record.name === "_keys")?.id).toBe("_keys");
       });
     });
   }

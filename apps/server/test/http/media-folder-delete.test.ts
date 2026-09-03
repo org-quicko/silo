@@ -29,7 +29,7 @@ describe("media folder delete (D49)", () => {
 
   afterEach(async () => {
     await store.close();
-    await fs.rm(tempDir, { recursive: true, force: true }).catch(() => {});
+    await fs.rm(tempDir, { recursive: true, force: true });
   });
 
   const del = (query: string) => app.request(`/api/media/folders?${query}`, { method: "DELETE" });

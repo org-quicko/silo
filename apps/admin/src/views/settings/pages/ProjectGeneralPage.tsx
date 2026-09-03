@@ -6,27 +6,34 @@ import { Breadcrumb } from '../../../components/navigation/Breadcrumb'
 import { DangerConfirm } from '../../../components/modal/DangerConfirm'
 import { api } from '../../../api/silo-api'
 import { Routes } from '../../../router/routes'
+import { RenameForm } from '../rename/RenameForm'
 import { TopBar } from '../../shell/TopBar'
 import type { Server } from '../../servers/server'
 import styles from '../SettingsView.module.css'
 
 /**
- * What a project *is* on this instance, and the one irreversible thing you can
- * do to it. A project has no metadata beyond its id (D18/D20), so there is
- * nothing here to rename or edit — the page exists to state the identity and
- * to keep the delete away from every other control.
+ * What a project *is* on this instance, what it is called, and the one
+ * irreversible thing you can do to it.
+ *
+ * Since D51 a project is a record with a stable ULID and a mutable name, so the
+ * Identity card carries a rename. The delete stays in its own card, away from
+ * every other control.
  */
 export function ProjectGeneralPage({
   server,
   project,
+  projectId,
   environments,
   claims,
+  onRenamed,
   onDeleted,
 }: {
   server: Server
   project: string
+  projectId: string
   environments: string[]
   claims: string[]
+  onRenamed: (name: string) => void | Promise<void>
   onDeleted: () => void
 }) {
   const [confirming, setConfirming] = useState(false)
@@ -36,6 +43,12 @@ export function ProjectGeneralPage({
   // Every environment of the project, and both halves of what `force` costs
   // (D37) — see `EnvGeneralPage` for why "any collection" was the wrong question.
   const canDelete = Claims.hasScopeWide(claims, Claims.ForcedDeletePermissions, project, '*')
+  // A rename is a create at the new name and a delete at the old, project-wide
+  // (D51). The server also checks the *new* name, which it cannot know here, so
+  // a refusal can still arrive — the control reports it rather than hiding it.
+  const canRename =
+    projectId.length > 0 &&
+    Claims.hasScopeWide(claims, Claims.RenamePermissions, project, '*')
 
   const remove = async () => {
     setBusy(true)
@@ -86,15 +99,15 @@ export function ProjectGeneralPage({
                 <h2>Identity</h2>
               </div>
               <p>
-                The id is fixed: it appears in every API path and in every claim naming this project, so
-                renaming it would invalidate existing keys and integrations.
+                The name appears in every API path and in every claim naming this project.
+                Renaming rewrites those claims. The id never changes.
               </p>
             </div>
 
             <div className={styles.diagnosticsGrid}>
               <div className={styles.diagCard}>
                 <span className={styles.diagLabel}>Project id</span>
-                <span className={styles.diagMono}>{project}</span>
+                <span className={styles.diagMono}>{projectId || '—'}</span>
               </div>
               <div className={styles.diagCard}>
                 <span className={styles.diagLabel}>Environments</span>
@@ -105,6 +118,16 @@ export function ProjectGeneralPage({
                 <span className={styles.diagMono}>/api/projects/{project}</span>
               </div>
             </div>
+
+            <RenameForm
+              subject={{ noun: 'project', currentName: project, id: projectId }}
+              allowed={canRename}
+              unavailableReason={`This key cannot rename ${project}. A rename retires the old name and introduces a new one, so it needs collections:create and collections:delete across the project.`}
+              rename={(name, dryRun) =>
+                api.projects.rename(server.url, server.apiKey, project, name, projectId, dryRun)
+              }
+              onRenamed={onRenamed}
+            />
           </section>
 
           <section className={`${styles.card} ${styles.dangerCard}`}>

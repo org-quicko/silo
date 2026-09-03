@@ -1,22 +1,39 @@
 import { Database } from 'bun:sqlite'
 import type { StrapiColumn } from './strapi-columns'
+import { StrapiIdentifiers } from './strapi-identifiers'
 
 /** One `api::` content type, as `strapi_content_types_schema` records it. */
 export interface StrapiContentType {
   uid: string
   kind: 'singleType' | 'collectionType'
-  /** The physical table — Strapi's own `collectionName`. */
-  table: string
+  /** The table Strapi's schema names. Not always the one it stored — see
+   *  `StrapiIdentifiers`. */
+  collectionName: string
+  /** The physical table, resolved against what the export actually holds, or
+   *  `null` when nothing in it answers to that name. */
+  table: string | null
   displayName: string
   draftAndPublish: boolean
   attributes: Record<string, StrapiAttribute>
 }
+
+/** A content type whose rows are in this database. Everything that reads rows
+ *  takes this rather than re-checking the table it was handed. */
+export type StrapiStoredType = StrapiContentType & { table: string }
 
 export interface StrapiAttribute {
   type: string
   /** Component uid, on a `component` attribute. */
   component?: string
   repeatable?: boolean
+  /** Whether a `media` attribute holds more than one file. */
+  multiple?: boolean
+  /** The component uids a `dynamiczone` attribute may hold. */
+  components?: string[]
+  /** The values an `enumeration` attribute declares. Carried as `unknown`
+   *  because it comes out of a JSON document, and `StrapiEnums` is where it is
+   *  checked. */
+  enum?: unknown
 }
 
 /**
@@ -97,6 +114,20 @@ export class StrapiDatabase {
     )
   }
 
+  /**
+   * The physical table `declared` is stored under, or `null`.
+   *
+   * Strapi shortens an identifier past 55 characters, so a `collectionName` and
+   * the table holding its rows are two different strings for exactly the longest
+   * names — see `StrapiIdentifiers`.
+   */
+  table(declared: string): string | null {
+    for (const spelling of StrapiIdentifiers.spellings(declared)) {
+      if (this.hasTable(spelling)) return spelling
+    }
+    return null
+  }
+
   tables(prefix: string): string[] {
     return this.rows<{ name: string }>(
       `SELECT name FROM sqlite_master WHERE type = 'table' AND name LIKE ? ORDER BY name`,
@@ -171,7 +202,8 @@ export class StrapiDatabase {
       types.push({
         uid,
         kind: model.kind === 'singleType' ? 'singleType' : 'collectionType',
-        table: model.collectionName,
+        collectionName: model.collectionName,
+        table: this.table(model.collectionName),
         displayName: model.info?.displayName ?? model.modelName ?? uid,
         draftAndPublish: model.options?.draftAndPublish === true,
         // `__schema__` is what the author declared; the sibling `attributes` adds

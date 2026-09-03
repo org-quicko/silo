@@ -154,7 +154,7 @@
 .itemMeta {
   font-size: 11.5px;
   color: var(--text-3);
-  font-family: var(--font-mono);
+  font-family: var(--font-ui);
 }
 
 .itemActions {
@@ -163,7 +163,6 @@
   gap: 8px;
 }
 
-.loadingBox,
 .emptyBox {
   padding: 30px;
   text-align: center;
@@ -363,7 +362,7 @@
 
 .diagMono {
   color: var(--text-2);
-  font-family: var(--font-mono);
+  font-family: var(--font-ui);
   font-size: 11.5px;
   word-break: break-all;
 }

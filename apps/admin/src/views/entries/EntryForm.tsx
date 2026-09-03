@@ -12,6 +12,7 @@ import { Formatters } from '../../utils/formatters'
 import type { Collection } from '../../api/types/collection'
 import type { Entry } from '../../api/types/entry'
 import type { ScopeRef } from '../../api/types/scope-ref'
+import { Routes } from '../../router/routes'
 import { Modal } from '../../components/modal/Modal'
 import { ModalActions } from '../../components/modal/ModalActions'
 import { ModalBody } from '../../components/modal/ModalBody'
@@ -21,11 +22,13 @@ import { ModalIcon } from '../../components/modal/ModalIcon'
 import { ModalSubject } from '../../components/modal/ModalSubject'
 import { slateTemplates, slateWidgets, slateFields } from '../../forms/theme'
 import { buildUiSchema } from '../../forms/build-ui-schema'
+import { FormSchema } from '../../forms/form-schema'
 import { MediaValue } from '../../forms/widgets/media-value'
 import { SiloRefs } from '../../schema/silo-refs'
+import { ToastManager } from '../../utils/toast-manager'
 import { TopBar } from '../shell/TopBar'
 import { SmartSearch } from '../search/SmartSearch'
-import type { PaletteSeed } from '../search/palette-seed'
+import { useEscapeToDiscard } from '../use-escape-to-discard'
 import styles from './EntryForm.module.css'
 
 // Convert server ValidationDetails (JSON Pointer paths) into RJSF extraErrors.
@@ -51,7 +54,9 @@ function toExtraErrors(details?: ValidationDetail[]): any {
 interface Props {
   serverId: string
   collection: Collection
-  collections: Collection[]
+  /** Names and counts, for the search bar in the top chrome. The schema this
+   *  form renders is self-contained (D54), so no other collection is fetched. */
+  collections: readonly { name: string; count: number | null }[]
   url: string
   entry: Entry | null
   apiKey: string
@@ -62,8 +67,6 @@ interface Props {
   onSaved: () => void
   onCancel: () => void
   onDeleted: () => void
-  onOpenPalette: (seed: PaletteSeed) => void
-  onNavigateToCollection: (name: string, q: string) => void
 }
 
 export function EntryForm({
@@ -79,14 +82,16 @@ export function EntryForm({
   onSaved,
   onCancel,
   onDeleted,
-  onOpenPalette,
-  onNavigateToCollection,
 }: Props) {
   // SiloRefs inlines silo://collections/* refs as internal pointers (RJSF and
   // its ajv8 validator only follow #/... pointers) and strips $schema, which
-  // the draft-07 ajv8 meta-schema would trip over. The server remains the
-  // authoritative validator (full 2020-12, remote refs if enabled).
-  const schema = useMemo(() => SiloRefs.resolveForForm(collection.name, collection.schema, collections), [collection, collections])
+  // the draft-07 ajv8 meta-schema would trip over. FormSchema then marks the
+  // properties that constrain nothing, which RJSF drops on sight. The server
+  // remains the authoritative validator (full 2020-12, remote refs if enabled).
+  const schema = useMemo(
+    () => FormSchema.forEntry(SiloRefs.resolveForForm(collection.name, collection.schema)),
+    [collection],
+  )
   const uiSchema = useMemo(() => buildUiSchema(schema), [schema])
   const initial = useMemo(() => entry?.data ?? {}, [entry])
 
@@ -107,6 +112,10 @@ export function EntryForm({
     }, 0)
     return () => clearTimeout(id)
   }, [])
+
+  // Escape is Discard, unless the delete dialog is up — that one's Escape closes
+  // the dialog rather than the page under it.
+  useEscapeToDiscard(onCancel, !showDelete)
 
   const canSave = Claims.has(
     claims,
@@ -133,6 +142,7 @@ export function EntryForm({
     try {
       if (entry) await api.entries.update(url, apiKey, scope, collection.name, entry.id, entry.rev, data)
       else await api.entries.create(url, apiKey, scope, collection.name, data)
+      ToastManager.show(entry ? 'Entry updated' : 'Entry created')
       onSaved()
     } catch (caught: any) {
       if (caught instanceof ApiError && caught.details && caught.details.length) {
@@ -151,6 +161,7 @@ export function EntryForm({
     try {
       await api.entries.delete(url, apiKey, scope, collection.name, entry.id, entry.rev)
       setShowDelete(false)
+      ToastManager.show('Entry deleted')
       onDeleted()
     } catch (caught: any) {
       alert(caught.message || 'Delete failed')
@@ -163,39 +174,36 @@ export function EntryForm({
         search={
           <SmartSearch
             serverId={serverId}
+            url={url}
+            apiKey={apiKey}
             scope={scope}
-            collection={collection.name}
-            collections={collections.map((c) => ({ name: c.name, count: null, schema: c.schema }))}
-            onNavigateToCollection={onNavigateToCollection}
-            onOpenPalette={onOpenPalette}
+            claims={claims}
+            collections={collections}
           />
         }
-      >
-        {dirty && (
-          <span className={styles.unsaved}>
-            <span className={styles.unsavedDot} /> Unsaved changes
-          </span>
-        )}
-        <Button variant="secondary" onClick={onCancel}>
-          Discard
-        </Button>
-        {canSave && (
-          <Button variant="primary" onClick={() => formRef.current?.submit()} disabled={saving}>
-            {saving ? 'Saving…' : 'Save entry'}
-          </Button>
-        )}
-      </TopBar>
+      />
 
       <div className={`content ${styles.content}`}>
-        <Breadcrumb
-          crumbs={[
-            { label: 'Collections', to: backTo },
-            { label: collection.name, to: backTo },
-            { label: entry ? 'Edit entry' : 'New entry' },
-          ]}
-        />
         <div className={styles.shell}>
           <div className={styles.main}>
+            {/* Crumbs and heading are one block, so the column's gap falls after
+                the pair and the heading lands exactly where the entries list
+                puts the collection name. A title that moves between pages reads
+                as the page jumping. */}
+            <div>
+              <Breadcrumb
+                crumbs={[
+                  { label: 'Collections', to: Routes.collections(serverId, scope.project, scope.env) },
+                  { label: collection.name, to: backTo },
+                  { label: entry ? Formatters.shortId(entry.id) : 'New entry' },
+                ]}
+              />
+              <div className={`page-head ${styles.pageHead}`}>
+                <div className="page-title-group">
+                  <h2 className="page-title">{entry ? 'Edit entry' : 'New entry'}</h2>
+                </div>
+              </div>
+            </div>
             {formError && (
               <div className="banner banner-bad">
                 <span>{formError}</span>
@@ -264,17 +272,34 @@ export function EntryForm({
               </div>
             )}
 
-            {entry && canDelete && (
-              <>
-                <div className={styles.divider} />
-                <Button variant="dangerGhost" onClick={() => setShowDelete(true)}>
-                  <Trash2 size={14} /> Delete entry
-                </Button>
-                <span className={styles.caption}>
-                  Deleting removes the row and bumps the collection revision. This can't be undone.
+            {/* Every action the page has, in one block under what it is acting
+                on: the top bar belongs to the scope-wide search. */}
+            <div className={styles.divider} />
+            <div className={styles.actions}>
+              {dirty && (
+                <span className={styles.unsaved}>
+                  <span className={styles.unsavedDot} /> Unsaved changes
                 </span>
-              </>
-            )}
+              )}
+              {canSave && (
+                <Button variant="primary" onClick={() => formRef.current?.submit()} disabled={saving}>
+                  {saving ? 'Saving…' : 'Save entry'}
+                </Button>
+              )}
+              <Button variant="secondary" onClick={onCancel}>
+                Discard
+              </Button>
+              {entry && canDelete && (
+                <>
+                  <Button variant="dangerGhost" onClick={() => setShowDelete(true)}>
+                    <Trash2 size={14} /> Delete entry
+                  </Button>
+                  <span className={styles.caption}>
+                    Deleting removes the row and bumps the collection revision. This can't be undone.
+                  </span>
+                </>
+              )}
+            </div>
           </div>
         </div>
       </div>

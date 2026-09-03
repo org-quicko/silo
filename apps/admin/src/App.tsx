@@ -1,7 +1,9 @@
 import { useCallback, useEffect, useState } from 'react'
 import { api } from './api/silo-api'
+import { ToastHost } from './components/feedback/ToastHost'
 import { Routes } from './router/routes'
 import { router, useLocation, useRoute } from './router/router'
+import { store } from './store/store'
 import { ScopeMemory } from './utils/scope-memory'
 import { ServerManager } from './views/servers/ServerManager'
 import type { Server } from './views/servers/server'
@@ -23,8 +25,12 @@ export default function App() {
   const serverId = route && route.view !== 'servers' ? route.serverId : null
   const server = servers.find((s) => s.id === serverId) ?? null
 
+  // The store is emptied on the way out: the next key to hold these cache
+  // entries may be a different one, and a key's claims decide what its answers
+  // contain.
   const disconnect = useCallback(() => {
     localStorage.removeItem(ACTIVE_KEY)
+    store.clear()
     router.navigate(Routes.servers())
   }, [])
 
@@ -66,42 +72,33 @@ export default function App() {
 
   const patchServer = (patch: Partial<Server>) => {
     if (!server) return
+    // A new API key sees a different instance: its claims decide what every
+    // answer contains, so nothing cached under the old one may outlive it.
+    if (patch.apiKey && patch.apiKey !== server.apiKey) store.clear()
     saveServers(servers.map((item) => (item.id === server.id ? { ...item, ...patch } : item)))
   }
 
-  if (!route || route.view === 'servers' || !server) {
-    return (
-      <ServerManager
-        servers={servers}
-        onConnect={(id, project, env) => router.navigate(Routes.collections(id, project, env))}
-        onAddServer={(s) => saveServers([...servers, s])}
-        onOpenStatus={(id) => router.navigate(Routes.serverSettings(id, 'connection'))}
-      />
-    )
-  }
-
-  if (
-    route.view === 'server-settings' ||
-    route.view === 'project-settings' ||
-    route.view === 'env-settings'
-  ) {
-    return (
-      <SettingsView
-        server={server}
-        route={route}
-        onUpdateServer={patchServer}
-        onDeleteServer={() => {
-          saveServers(servers.filter((s) => s.id !== server.id))
-          if (localStorage.getItem(ACTIVE_KEY) === server.id) localStorage.removeItem(ACTIVE_KEY)
-          ScopeMemory.forget(server.id)
-          router.navigate(Routes.servers())
-        }}
-        onBack={() => router.navigate(Routes.servers())}
-      />
-    )
-  }
-
-  return (
+  const content = !route || route.view === 'servers' || !server ? (
+    <ServerManager
+      servers={servers}
+      onConnect={(id, project, env) => router.navigate(Routes.collections(id, project, env))}
+      onAddServer={(s) => saveServers([...servers, s])}
+      onOpenStatus={(id) => router.navigate(Routes.serverSettings(id, 'connection'))}
+    />
+  ) : route.view === 'server-settings' || route.view === 'project-settings' || route.view === 'env-settings' ? (
+    <SettingsView
+      server={server}
+      route={route}
+      onUpdateServer={patchServer}
+      onDeleteServer={() => {
+        saveServers(servers.filter((s) => s.id !== server.id))
+        if (localStorage.getItem(ACTIVE_KEY) === server.id) localStorage.removeItem(ACTIVE_KEY)
+        ScopeMemory.forget(server.id)
+        router.navigate(Routes.servers())
+      }}
+      onBack={() => router.navigate(Routes.servers())}
+    />
+  ) : (
     <Workspace
       key={`${server.id}:${route.project}/${route.env}`}
       server={server}
@@ -111,5 +108,12 @@ export default function App() {
       onApiKeyChange={(apiKey) => patchServer({ apiKey })}
       onAddServer={(s) => saveServers([...servers, s])}
     />
+  )
+
+  return (
+    <>
+      {content}
+      <ToastHost />
+    </>
   )
 }

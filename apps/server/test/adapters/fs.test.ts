@@ -2,6 +2,7 @@ import { describe, test, expect } from "bun:test";
 import { runStorageTestSuite } from "../conformance/storage-conformance";
 import { FsStore } from "../../src/adapters/storage/fs/fs-store";
 import { Scope } from "../../src/core/domain/scope";
+import { FormatVersion } from "../../src/core/transfer/format-version";
 import fs from "fs/promises";
 import path from "path";
 import os from "os";
@@ -17,24 +18,24 @@ runStorageTestSuite(
   async (store) => {
     await store.close();
     if (tempFsDir) {
-      await fs.rm(tempFsDir, { recursive: true, force: true }).catch(() => {});
+      await fs.rm(tempFsDir, { recursive: true, force: true });
     }
   }
 );
 
 describe("FsStore data-dir format guard", () => {
-  test("refuses a pre-D18 dir (flat schemas/content, format_version 1) rather than reading it as empty", async () => {
+  test("refuses a pre-D51 dir (stamped format_version 2) rather than reading it as empty", async () => {
     const dir = await fs.mkdtemp(path.join(os.tmpdir(), "silo-fs-guard-"));
     try {
       await fs.mkdir(path.join(dir, "schemas"), { recursive: true });
       await fs.mkdir(path.join(dir, "content", "posts"), { recursive: true });
       await fs.writeFile(
         path.join(dir, "manifest.json"),
-        JSON.stringify({ format_version: "1", instance_id: "x", last_seq: 0 }, null, 2),
+        JSON.stringify({ format_version: "2", instance_id: "x", last_seq: 0 }, null, 2),
         "utf8"
       );
 
-      await expect(FsStore.open(dir)).rejects.toThrow(/format_version "1"/);
+      await expect(FsStore.open(dir)).rejects.toThrow(/format_version "2"/);
 
       // The refused dir must be left exactly as found — no stray `projects/`
       // directory created on the way to rejecting it.
@@ -52,7 +53,7 @@ describe("FsStore data-dir format guard", () => {
       await store.close();
 
       const manifest = JSON.parse(await fs.readFile(path.join(dir, "manifest.json"), "utf8"));
-      expect(manifest.format_version).toBe("2");
+      expect(manifest.format_version).toBe(FormatVersion);
 
       const projectsStat = await fs.stat(path.join(dir, "projects"));
       expect(projectsStat.isDirectory()).toBe(true);

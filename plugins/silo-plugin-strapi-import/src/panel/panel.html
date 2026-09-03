@@ -125,7 +125,8 @@
   <section id="plan-box" class="box hidden">
     <div class="step-head"><span class="num">3</span><h3>The plan</h3></div>
     <p class="dim" style="margin-top: 6px">
-      One collection per Strapi list, one entry per row. Rename anything, untick what you do not
+      One collection per Strapi content type, one entry per document, with components nested
+      inside it. Rename anything, untick what you do not
       want, and choose what happens to a collection that already has entries.
     </p>
 
@@ -140,10 +141,10 @@
       <thead>
         <tr>
           <th class="cell-tick"></th>
-          <th>Strapi list</th>
+          <th>Strapi content type</th>
           <th class="cell-name">silo collection</th>
           <th class="cell-mode">If it exists</th>
-          <th class="cell-n">Rows</th>
+          <th class="cell-n">Entries</th>
         </tr>
       </thead>
       <tbody id="steps"></tbody>
@@ -507,8 +508,8 @@
       label.innerHTML =
         '<div>' + text(list.label) + '</div>' +
         '<div class="dim"><code>' + text(list.table) + '</code>' +
-        (list.media.length > 0
-          ? ' · ' + list.media.length + ' media field' + (list.media.length === 1 ? '' : 's')
+        (list.mediaFields > 0
+          ? ' · ' + list.mediaFields + ' media field' + (list.mediaFields === 1 ? '' : 's')
           : '') +
         '</div>' +
         (list.notes.length > 0
@@ -690,7 +691,7 @@
       const notes = $('source-notes')
       const inventory = state.inventory || { lists: [], skipped: [], media: { files: 0, attached: 0 } }
       notes.innerHTML =
-        '<div class="dim">' + inventory.lists.length + ' importable list' +
+        '<div class="dim">' + inventory.lists.length + ' importable content type' +
         (inventory.lists.length === 1 ? '' : 's') + ' · reading the <b>' +
         text(inventory.version) + '</b> version · ' + inventory.media.files +
         ' files in the catalog</div>' +

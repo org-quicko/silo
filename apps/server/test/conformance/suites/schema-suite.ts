@@ -1,3 +1,4 @@
+import { CollectionSchemas } from "../../../src/core/schema/collection-schemas";
 import { describe, expect, test } from "bun:test";
 import { Scope } from "../../../src/core/domain/scope";
 import type { StorageTestContext } from "../storage-test-context";
@@ -22,7 +23,7 @@ export class SchemaSuite {
         got = await store.getSchema(scope, "posts");
         expect(got).toEqual(s2);
 
-        const all = await store.listSchemas(scope);
+        const all = CollectionSchemas.map(await store.listCollections(scope));
         expect(all.size).toBe(1);
         expect(all.get("posts")).toEqual(s2);
 
@@ -40,11 +41,11 @@ export class SchemaSuite {
         await store.putSchema(scopeA, "pages", { type: "object" });
         await store.putSchema(scopeB, "posts", { type: "object" });
 
-        const aSchemas = await store.listSchemas(scopeA);
+        const aSchemas = CollectionSchemas.map(await store.listCollections(scopeA));
         expect(aSchemas.size).toBe(2);
         expect([...aSchemas.keys()].sort()).toEqual(["pages", "posts"]);
 
-        const bSchemas = await store.listSchemas(scopeB);
+        const bSchemas = CollectionSchemas.map(await store.listCollections(scopeB));
         expect(bSchemas.size).toBe(1);
         expect([...bSchemas.keys()]).toEqual(["posts"]);
       });

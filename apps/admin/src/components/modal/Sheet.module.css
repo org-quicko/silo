@@ -57,7 +57,7 @@
 .copy { display: flex; min-width: 0; flex-direction: column; gap: 4px; }
 .copy h2 { margin: 0; color: var(--text); font-size: 15px; font-weight: 600; }
 .copy p { margin: 0; color: var(--text-3); font-size: 12.5px; line-height: 1.6; }
-.copy code { font-family: var(--font-mono); font-size: 11.5px; }
+.copy code { font-family: var(--font-ui); font-size: 11.5px; }
 
 .close {
   display: flex;

@@ -7,6 +7,7 @@ import { Claims } from '@silo/shared/claims'
 import { KeyFormat } from '@silo/shared/key-format'
 import { api } from '../../api/silo-api'
 import { Formatters } from '../../utils/formatters'
+import { ToastManager } from '../../utils/toast-manager'
 import type { KeyView } from '../../api/types/key-view'
 import { Modal } from '../../components/modal/Modal'
 import { ModalActions } from '../../components/modal/ModalActions'
@@ -79,6 +80,7 @@ export function KeysView({
     try {
       await api.keys.revoke(url, apiKey, toRevoke.id)
       setToRevoke(null)
+      ToastManager.show(`Key "${toRevoke.label}" revoked`)
       load()
     } catch (error: any) {
       alert(error.message || 'Revoke failed')

@@ -37,6 +37,7 @@ export class FsManifestStore {
         format_version: FormatVersion,
         instance_id: EntryUtils.newID(),
         last_seq: 0,
+        defaults_initialized: false,
       };
       await fs.mkdir(layout.projectsDir, { recursive: true });
       await FsFiles.writeAtomic(layout.manifestFile, JSON.stringify(manifest, null, 2));
@@ -56,6 +57,7 @@ export class FsManifestStore {
     const store = new FsManifestStore(layout, {
       instance_id: manifest.instance_id,
       last_seq: manifest.last_seq,
+      defaults_initialized: manifest.defaults_initialized === true,
     });
     await store.repairFromDisk();
     return store;
@@ -87,11 +89,20 @@ export class FsManifestStore {
     await this.write();
   }
 
+  /** Idempotent, and persisted rather than derived: "no projects exist" would
+   *  reseed the default the moment the last one is deleted or renamed (D51). */
+  async markDefaultsInitialized(): Promise<void> {
+    if (this.metadata.defaults_initialized) return;
+    this.metadata.defaults_initialized = true;
+    await this.write();
+  }
+
   private async write(): Promise<void> {
     const manifest: FsManifest = {
       format_version: FormatVersion,
       instance_id: this.metadata.instance_id,
       last_seq: this.metadata.last_seq,
+      defaults_initialized: this.metadata.defaults_initialized,
     };
     await FsFiles.writeAtomic(this.layout.manifestFile, JSON.stringify(manifest, null, 2));
   }
