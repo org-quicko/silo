@@ -104,7 +104,7 @@ describe("plugin routes (D36)", () => {
     await registry?.stop();
     registry = null;
     await store.close();
-    await fs.rm(tempDir, { recursive: true, force: true }).catch(() => {});
+    await fs.rm(tempDir, { recursive: true, force: true });
   });
 
   describe("who may reach one", () => {

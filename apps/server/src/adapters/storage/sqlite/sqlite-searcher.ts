@@ -1,4 +1,4 @@
-import { Database } from "bun:sqlite";
+import type { SqliteConnection } from "./sqlite-connection";
 import { EntryUtils } from "../../../core/domain/entry-utils";
 import type { Entry } from "../../../core/domain/entry";
 import { Scope } from "../../../core/domain/scope";
@@ -59,11 +59,11 @@ export class SqliteSearcher implements Searcher {
     JOIN (SELECT id AS collection_key, name AS collection_name FROM collections) c
       ON c.collection_key = d.collection_id`;
 
-  private readonly db: Database;
+  private readonly db: SqliteConnection;
   private readonly store: Storage;
   private readonly tokenizer: string;
 
-  constructor(db: Database, store: Storage, tokenizer: string) {
+  constructor(db: SqliteConnection, store: Storage, tokenizer: string) {
     this.db = db;
     this.store = store;
     this.tokenizer = tokenizer;
@@ -113,18 +113,16 @@ export class SqliteSearcher implements Searcher {
 
     const cond = where.join(" AND ");
 
-    const totalRow = this.db
-      .prepare(`SELECT COUNT(*) AS n ${from} ${SqliteSearcher.Joins} WHERE ${cond}`)
-      .get(...args) as { n: number };
+    const totalRow = this.db.once(`SELECT COUNT(*) AS n ${from} ${SqliteSearcher.Joins} WHERE ${cond}`,
+      (statement) => statement.get(...args)
+    ) as { n: number };
 
     const order = this.order(request, text.match);
-    const rows = this.db
-      .prepare(
-        `SELECT e.id, p.project_name AS project, v.env_name AS env, c.collection_name AS collection,
+    const rows = this.db.once(`SELECT e.id, p.project_name AS project, v.env_name AS env, c.collection_name AS collection,
                 e.rev, e.seq, e.created_at, e.updated_at, e.data
-         ${from} ${SqliteSearcher.Joins} WHERE ${cond} ORDER BY ${order.sql} LIMIT ? OFFSET ?`
-      )
-      .all(...args, ...order.args, limit, offset) as any[];
+         ${from} ${SqliteSearcher.Joins} WHERE ${cond} ORDER BY ${order.sql} LIMIT ? OFFSET ?`,
+      (statement) => statement.all(...args, ...order.args, limit, offset)
+    ) as any[];
 
     return {
       items: await this.toHits(rows, query),
@@ -165,7 +163,7 @@ export class SqliteSearcher implements Searcher {
         while (true) {
           const page = await this.store.list(scope, name, { limit: 200, offset });
           if (page.items.length === 0) break;
-          const insert = this.db.prepare(
+          const insert = this.db.query(
             `INSERT INTO ${SearchIndex.Documents}
                (project_id, env_id, collection_id, entry_id, label, body)
              VALUES (?, ?, ?, ?, ?, ?)
@@ -210,7 +208,7 @@ export class SqliteSearcher implements Searcher {
     }
 
     const orphan = this.db
-      .prepare(
+      .query(
         `SELECT COUNT(*) AS n FROM ${SearchIndex.Documents} d
          LEFT JOIN entries e
            ON e.collection_id = d.collection_id AND e.id = d.entry_id
@@ -219,7 +217,7 @@ export class SqliteSearcher implements Searcher {
       .get() as { n: number };
 
     const missing = this.db
-      .prepare(
+      .query(
         `SELECT COUNT(*) AS n FROM entries e
          JOIN projects p ON p.id = e.project_id
          JOIN collections c ON c.id = e.collection_id
@@ -238,7 +236,7 @@ export class SqliteSearcher implements Searcher {
    *  documents table holds ids. */
   private clear(target: SearchTarget): void {
     this.db
-      .prepare(
+      .query(
         `DELETE FROM ${SearchIndex.Documents} WHERE collection_id IN (
            SELECT c.id FROM collections c
              JOIN environments v ON v.id = c.env_id

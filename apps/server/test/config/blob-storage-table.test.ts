@@ -39,7 +39,7 @@ describe("BlobStorageTable", () => {
       if (value === undefined) delete process.env[key];
       else process.env[key] = value;
     }
-    await fs.rm(dir, { recursive: true, force: true }).catch(() => {});
+    await fs.rm(dir, { recursive: true, force: true });
   });
 
   test("an s3 configuration reads back through the loader", async () => {

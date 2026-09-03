@@ -1,4 +1,4 @@
-import type { Database } from "bun:sqlite";
+import type { SqliteConnection } from "./sqlite-connection";
 import type { Entry } from "../../../core/domain/entry";
 import { EntryUtils } from "../../../core/domain/entry-utils";
 import type { Scope } from "../../../core/domain/scope";
@@ -30,14 +30,14 @@ export class SqliteEntryStore {
 
   private static readonly Columns = "id, rev, seq, created_at, updated_at, data";
 
-  private readonly database: Database;
+  private readonly database: SqliteConnection;
   private readonly meta: SqliteMetaStore;
   private readonly mediaReferences: SqliteMediaReferenceStore;
   private readonly searchDocuments: SqliteSearchDocumentStore;
   private readonly resolver: SqliteScopeResolver;
 
   constructor(
-    database: Database,
+    database: SqliteConnection,
     meta: SqliteMetaStore,
     mediaReferences: SqliteMediaReferenceStore,
     searchDocuments: SqliteSearchDocumentStore,
@@ -74,7 +74,7 @@ export class SqliteEntryStore {
       entry.seq = this.meta.nextSeq();
 
       this.database
-        .prepare(
+        .query(
           `INSERT INTO entries
              (id, project_id, env_id, collection_id, rev, seq, created_at, updated_at, data)
            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
@@ -109,7 +109,7 @@ export class SqliteEntryStore {
     if (collectionId === null) throw SqliteEntryStore.notFound(scope, collection, id);
 
     const row = this.database
-      .prepare(
+      .query(
         `SELECT ${SqliteEntryStore.Columns} FROM entries
          WHERE collection_id = ? AND id = ?`
       )
@@ -129,7 +129,7 @@ export class SqliteEntryStore {
     if (collectionId === null) throw SqliteEntryStore.notFound(scope, collection, id);
 
     const changes = this.database
-      .prepare(`DELETE FROM entries WHERE collection_id = ? AND id = ?`)
+      .query(`DELETE FROM entries WHERE collection_id = ? AND id = ?`)
       .run(collectionId, id).changes;
 
     if (changes === 0) throw SqliteEntryStore.notFound(scope, collection, id);
@@ -149,23 +149,21 @@ export class SqliteEntryStore {
       whereArgs.push(...args);
     }
 
-    const countRow = this.database
-      .prepare(`SELECT COUNT(*) as total FROM entries WHERE ${where}`)
-      .get(...whereArgs) as { total: number } | undefined;
+    const countRow = this.database.once(`SELECT COUNT(*) as total FROM entries WHERE ${where}`,
+      (statement) => statement.get(...whereArgs)
+    ) as { total: number } | undefined;
     const total = countRow ? countRow.total : 0;
 
     const { order, args: orderArgs } = SqliteCompiler.buildOrder(query.sort || []);
     const limit = query.limit > 0 ? query.limit : SqliteEntryStore.FallbackLimit;
     const offset = Math.max(query.offset, 0);
 
-    const rows = this.database
-      .prepare(
-        `SELECT ${SqliteEntryStore.Columns} FROM entries
+    const rows = this.database.once(`SELECT ${SqliteEntryStore.Columns} FROM entries
          WHERE ${where}
          ORDER BY ${order}
-         LIMIT ? OFFSET ?`
-      )
-      .all(...whereArgs, ...orderArgs, limit, offset) as any[];
+         LIMIT ? OFFSET ?`,
+      (statement) => statement.all(...whereArgs, ...orderArgs, limit, offset)
+    ) as any[];
 
     return {
       items: rows.map((row) => SqliteRowMapper.toScopedEntry(row, scope, collection)),
@@ -179,7 +177,7 @@ export class SqliteEntryStore {
     if (envId === null) return [];
 
     const rows = this.database
-      .prepare(
+      .query(
         `SELECT DISTINCT c.name AS name
          FROM entries e JOIN collections c ON c.id = e.collection_id
          WHERE e.env_id = ?
@@ -196,7 +194,7 @@ export class SqliteEntryStore {
     if (envId === null) return new Map();
 
     const rows = this.database
-      .prepare(
+      .query(
         `SELECT c.name AS name, COUNT(*) AS total
          FROM entries e JOIN collections c ON c.id = e.collection_id
          WHERE e.env_id = ?
@@ -208,12 +206,12 @@ export class SqliteEntryStore {
 
   /** Called from inside `SqliteScopeStore`'s delete transaction, by record id. */
   purgeProject(projectId: string): void {
-    this.database.prepare(`DELETE FROM entries WHERE project_id = ?`).run(projectId);
+    this.database.query(`DELETE FROM entries WHERE project_id = ?`).run(projectId);
   }
 
   /** Called from inside `SqliteScopeStore`'s delete transaction, by record id. */
   purgeEnvironment(envId: string): void {
-    this.database.prepare(`DELETE FROM entries WHERE env_id = ?`).run(envId);
+    this.database.query(`DELETE FROM entries WHERE env_id = ?`).run(envId);
   }
 
   private static notFound(scope: Scope, collection: string, id: string): NotFoundError {

@@ -1,4 +1,5 @@
 import { Database } from "bun:sqlite";
+import { SqliteConnection } from "./sqlite-connection";
 import fs from "fs/promises";
 import path from "path";
 import type { CollectionRecord } from "../../../core/domain/collection-record";
@@ -32,7 +33,7 @@ import { SqliteSearcher } from "./sqlite-searcher";
  * wiring.
  */
 export class SqliteStore implements Storage {
-  private readonly database: Database;
+  private readonly database: SqliteConnection;
   private readonly meta_: SqliteMetaStore;
   private readonly resolver: SqliteScopeResolver;
   private readonly scopes: SqliteScopeStore;
@@ -50,7 +51,7 @@ export class SqliteStore implements Storage {
   /** Set when the index has to be refilled before it can answer anything. */
   private rebuildDue: boolean;
 
-  private constructor(database: Database, indexing: boolean, rebuildDue: boolean) {
+  private constructor(database: SqliteConnection, indexing: boolean, rebuildDue: boolean) {
     this.database = database;
     this.indexing = indexing;
     this.rebuildDue = rebuildDue;
@@ -76,7 +77,7 @@ export class SqliteStore implements Storage {
     const dir = path.dirname(filePath);
     if (dir !== ".") await fs.mkdir(dir, { recursive: true });
 
-    const database = new Database(filePath, { create: true });
+    const database = new SqliteConnection(new Database(filePath, { create: true }));
     try {
       SqliteMigrations.applyPragmas(database);
       SqliteMigrations.guardFormatVersion(database);
@@ -251,7 +252,7 @@ export class SqliteStore implements Storage {
    * differently-configured process is keeping on the same data dir.
    */
   private static prepareIndex(
-    database: Database,
+    database: SqliteConnection,
     search: SearchIndexOptions,
     indexing: boolean
   ): boolean {

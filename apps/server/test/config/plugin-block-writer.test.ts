@@ -44,7 +44,7 @@ describe("PluginBlockWriter", () => {
     for (const [key, value] of Object.entries(savedEnv)) {
       if (value !== undefined) process.env[key] = value;
     }
-    await fs.rm(dir, { recursive: true, force: true }).catch(() => {});
+    await fs.rm(dir, { recursive: true, force: true });
   });
 
   const add = async (name: string, claims: string[] = []) => {

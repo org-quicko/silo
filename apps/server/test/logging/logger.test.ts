@@ -27,7 +27,7 @@ describe("Logger", () => {
   });
 
   afterEach(async () => {
-    await fs.rm(dir, { recursive: true, force: true }).catch(() => {});
+    await fs.rm(dir, { recursive: true, force: true });
   });
 
   const read = async (file: string) => fs.readFile(file, "utf8");
@@ -123,7 +123,7 @@ describe("FileSink rotation", () => {
   });
 
   afterEach(async () => {
-    await fs.rm(dir, { recursive: true, force: true }).catch(() => {});
+    await fs.rm(dir, { recursive: true, force: true });
   });
 
   test("rotates past the size cap and keeps at most max_files generations", async () => {
@@ -176,7 +176,7 @@ describe("LogTail", () => {
   });
 
   afterEach(async () => {
-    await fs.rm(dir, { recursive: true, force: true }).catch(() => {});
+    await fs.rm(dir, { recursive: true, force: true });
   });
 
   test("reads the last n lines, whole", async () => {

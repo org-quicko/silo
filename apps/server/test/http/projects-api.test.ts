@@ -36,7 +36,7 @@ describe("Projects API", () => {
 
   afterEach(async () => {
     await store.close();
-    await fs.rm(tempDir, { recursive: true, force: true }).catch(() => {});
+    await fs.rm(tempDir, { recursive: true, force: true });
   });
 
   test("GET /api/projects and GET /api/projects/:project/environments list projects and envs", async () => {
@@ -258,7 +258,7 @@ describe("Projects API", () => {
       ]);
     } finally {
       await destStore.close();
-      await fs.rm(destDir, { recursive: true, force: true }).catch(() => {});
+      await fs.rm(destDir, { recursive: true, force: true });
     }
   });
 
@@ -349,7 +349,7 @@ describe("Projects API", () => {
       ).rejects.toThrow(/content\/ghost\//);
     } finally {
       await destStore.close();
-      await fs.rm(destDir, { recursive: true, force: true }).catch(() => {});
+      await fs.rm(destDir, { recursive: true, force: true });
     }
   });
 

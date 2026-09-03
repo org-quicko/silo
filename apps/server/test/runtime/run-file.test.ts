@@ -34,7 +34,7 @@ describe("RunFile", () => {
   });
 
   afterEach(async () => {
-    await fs.rm(dir, { recursive: true, force: true }).catch(() => {});
+    await fs.rm(dir, { recursive: true, force: true });
   });
 
   /** A pid that has certainly exited: started, then reaped. */

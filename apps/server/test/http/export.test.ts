@@ -139,7 +139,7 @@ describe("Export / Import Tests", () => {
       await st2.close();
       await st3.close();
     } finally {
-      await fs.rm(tempDir, { recursive: true, force: true }).catch(() => {});
+      await fs.rm(tempDir, { recursive: true, force: true });
     }
   });
 
@@ -190,7 +190,7 @@ describe("Export / Import Tests", () => {
       await st1.close();
       await st2.close();
     } finally {
-      await fs.rm(tempDir, { recursive: true, force: true }).catch(() => {});
+      await fs.rm(tempDir, { recursive: true, force: true });
     }
   });
 
@@ -244,7 +244,7 @@ describe("Export / Import Tests", () => {
       await st1.close();
       await st2.close();
     } finally {
-      await fs.rm(tempDir, { recursive: true, force: true }).catch(() => {});
+      await fs.rm(tempDir, { recursive: true, force: true });
     }
   });
 
@@ -464,7 +464,7 @@ describe("Export / Import Tests", () => {
 
       await stLocal.close();
     } finally {
-      await fs.rm(tempDir, { recursive: true, force: true }).catch(() => {});
+      await fs.rm(tempDir, { recursive: true, force: true });
     }
   });
 
@@ -485,7 +485,7 @@ describe("Export / Import Tests", () => {
       await expect(Importer.importDir(st, tempDir, { mode: "merge" })).rejects.toThrow(/format_version/);
       await st.close();
     } finally {
-      await fs.rm(tempDir, { recursive: true, force: true }).catch(() => {});
+      await fs.rm(tempDir, { recursive: true, force: true });
     }
   });
 });
@@ -521,7 +521,7 @@ describe("managed keys are not exportable", () => {
 
       await store.close();
     } finally {
-      await fs.rm(tempDir, { recursive: true, force: true }).catch(() => {});
+      await fs.rm(tempDir, { recursive: true, force: true });
     }
   });
 });
@@ -559,7 +559,7 @@ describe("system collections stay out of archives", () => {
 
       await store.close();
     } finally {
-      await fs.rm(tempDir, { recursive: true, force: true }).catch(() => {});
+      await fs.rm(tempDir, { recursive: true, force: true });
     }
   });
 });
@@ -629,7 +629,7 @@ describe("the export tarball streams rather than buffering", () => {
       await store.close();
       await destStore.close();
     } finally {
-      await fs.rm(tempDir, { recursive: true, force: true }).catch(() => {});
+      await fs.rm(tempDir, { recursive: true, force: true });
     }
   });
 
@@ -678,7 +678,7 @@ describe("the export tarball streams rather than buffering", () => {
       await store.close();
       await destStore.close();
     } finally {
-      await fs.rm(tempDir, { recursive: true, force: true }).catch(() => {});
+      await fs.rm(tempDir, { recursive: true, force: true });
     }
   });
 
@@ -696,7 +696,7 @@ describe("the export tarball streams rather than buffering", () => {
       );
       await store.close();
     } finally {
-      await fs.rm(tempDir, { recursive: true, force: true }).catch(() => {});
+      await fs.rm(tempDir, { recursive: true, force: true });
     }
   });
 
@@ -737,7 +737,7 @@ describe("the export tarball streams rather than buffering", () => {
       await store.close();
       await destStore.close();
     } finally {
-      await fs.rm(tempDir, { recursive: true, force: true }).catch(() => {});
+      await fs.rm(tempDir, { recursive: true, force: true });
     }
   });
 });
@@ -791,7 +791,7 @@ describe("an archive can be loaded from a stream, not only a buffer", () => {
 
       await destStore.close();
     } finally {
-      await fs.rm(tempDir, { recursive: true, force: true }).catch(() => {});
+      await fs.rm(tempDir, { recursive: true, force: true });
     }
   });
 
@@ -825,7 +825,7 @@ describe("an archive can be loaded from a stream, not only a buffer", () => {
 
       await destStore.close();
     } finally {
-      await fs.rm(tempDir, { recursive: true, force: true }).catch(() => {});
+      await fs.rm(tempDir, { recursive: true, force: true });
     }
   });
 
@@ -882,7 +882,7 @@ describe("an archive can be loaded from a stream, not only a buffer", () => {
       );
       await multipart.store.close();
     } finally {
-      await fs.rm(tempDir, { recursive: true, force: true }).catch(() => {});
+      await fs.rm(tempDir, { recursive: true, force: true });
     }
   });
 
@@ -909,7 +909,7 @@ describe("an archive can be loaded from a stream, not only a buffer", () => {
 
       await store.close();
     } finally {
-      await fs.rm(tempDir, { recursive: true, force: true }).catch(() => {});
+      await fs.rm(tempDir, { recursive: true, force: true });
     }
   });
 });

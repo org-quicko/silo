@@ -114,7 +114,7 @@ describe("ctx.fetch (D35)", () => {
     await registry?.stop();
     registry = null;
     await store.close();
-    await fs.rm(tempDir, { recursive: true, force: true }).catch(() => {});
+    await fs.rm(tempDir, { recursive: true, force: true });
   });
 
   describe("the route is the guard", () => {

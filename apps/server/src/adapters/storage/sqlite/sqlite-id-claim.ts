@@ -1,4 +1,4 @@
-import type { Database } from "bun:sqlite";
+import type { SqliteConnection } from "./sqlite-connection";
 import { EntryUtils } from "../../../core/domain/entry-utils";
 import { ConflictError } from "../../../core/errors/conflict-error";
 
@@ -17,7 +17,7 @@ import { ConflictError } from "../../../core/errors/conflict-error";
  * elsewhere makes every log line and every bug report ambiguous.
  */
 export class SqliteIdClaim {
-  static claim(database: Database, id: string | undefined, label: string): string {
+  static claim(database: SqliteConnection, id: string | undefined, label: string): string {
     if (id === undefined) return EntryUtils.newID();
 
     EntryUtils.assertSafeSegment(id, `${label} id`);
@@ -29,7 +29,7 @@ export class SqliteIdClaim {
       throw new ConflictError(`record id "${id}" is reserved`);
     }
     const taken = database
-      .prepare(
+      .query(
         `SELECT 1 AS found FROM projects WHERE id = ?
          UNION ALL SELECT 1 FROM environments WHERE id = ?
          UNION ALL SELECT 1 FROM collections WHERE id = ?`

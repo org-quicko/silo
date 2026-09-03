@@ -112,7 +112,7 @@ describe("plugin install API (POST /api/plugins/install)", () => {
     await registry?.stop();
     registry = null;
     await store.close();
-    await fs.rm(tempDir, { recursive: true, force: true }).catch(() => {});
+    await fs.rm(tempDir, { recursive: true, force: true });
   });
 
   test("installs a plugin from a local directory spec and starts it immediately", async () => {

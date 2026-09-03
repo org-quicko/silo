@@ -24,7 +24,7 @@ describe("ConfigLoader blob path resolution", () => {
   afterEach(async () => {
     if (savedBlobPath === undefined) delete process.env.SILO_BLOB_PATH;
     else process.env.SILO_BLOB_PATH = savedBlobPath;
-    await fs.rm(tempDir, { recursive: true, force: true }).catch(() => {});
+    await fs.rm(tempDir, { recursive: true, force: true });
   });
 
   const writeConfig = async (toml: string): Promise<string> => {
@@ -125,7 +125,7 @@ describe("ConfigLoader log settings", () => {
       if (saved[key] === undefined) delete process.env[key];
       else process.env[key] = saved[key]!;
     }
-    await fs.rm(tempDir, { recursive: true, force: true }).catch(() => {});
+    await fs.rm(tempDir, { recursive: true, force: true });
   });
 
   const writeConfig = async (toml: string): Promise<string> => {

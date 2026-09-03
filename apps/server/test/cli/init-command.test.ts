@@ -30,7 +30,7 @@ describe("silo init", () => {
     for (const [key, value] of Object.entries(savedEnv)) {
       if (value !== undefined) process.env[key] = value;
     }
-    await fs.rm(tempDir, { recursive: true, force: true }).catch(() => {});
+    await fs.rm(tempDir, { recursive: true, force: true });
   });
 
   const init = async (name = "silo.toml", force = false): Promise<string> => {

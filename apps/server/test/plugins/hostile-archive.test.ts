@@ -84,7 +84,7 @@ describe("hostile archives", () => {
   });
 
   afterEach(async () => {
-    await fs.rm(root, { recursive: true, force: true }).catch(() => {});
+    await fs.rm(root, { recursive: true, force: true });
   });
 
   const archive = (entries: readonly HostileEntry[]) =>

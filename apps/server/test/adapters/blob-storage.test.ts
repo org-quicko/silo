@@ -17,7 +17,7 @@ describe("FsBlobStorage", () => {
   });
 
   afterEach(async () => {
-    await fs.rm(tempDir, { recursive: true, force: true }).catch(() => {});
+    await fs.rm(tempDir, { recursive: true, force: true });
   });
 
   test("put and get blob", async () => {

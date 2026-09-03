@@ -172,7 +172,7 @@ describe("MediaStorageSettings", () => {
         if (value === undefined) delete process.env[key];
         else process.env[key] = value;
       }
-      await fs.rm(dir, { recursive: true, force: true }).catch(() => {});
+      await fs.rm(dir, { recursive: true, force: true });
     }
   });
 });

@@ -59,6 +59,9 @@ describe("silo serve --detach", () => {
       await Daemon.terminate(pid, 5_000).catch(() => {});
     }
     for (const dir of dirs) {
+      // Forgiving here, and only here: a start that loses the port race writes
+      // no run file (the assertion in that test), so its pid was never
+      // recorded and there is no handle to wait on before the directory goes.
       await fs.rm(dir, { recursive: true, force: true }).catch(() => {});
     }
   });

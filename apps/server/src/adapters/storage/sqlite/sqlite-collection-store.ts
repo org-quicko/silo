@@ -1,4 +1,4 @@
-import type { Database } from "bun:sqlite";
+import type { SqliteConnection } from "./sqlite-connection";
 import type { CollectionRecord } from "../../../core/domain/collection-record";
 import { EntryUtils } from "../../../core/domain/entry-utils";
 import type { Scope } from "../../../core/domain/scope";
@@ -15,11 +15,11 @@ import type { SqliteScopeStore } from "./sqlite-scope-store";
  * two answers to whether a collection exists.
  */
 export class SqliteCollectionStore {
-  private readonly database: Database;
+  private readonly database: SqliteConnection;
   private readonly resolver: SqliteScopeResolver;
   private readonly scopes: SqliteScopeStore;
 
-  constructor(database: Database, resolver: SqliteScopeResolver, scopes: SqliteScopeStore) {
+  constructor(database: SqliteConnection, resolver: SqliteScopeResolver, scopes: SqliteScopeStore) {
     this.database = database;
     this.resolver = resolver;
     this.scopes = scopes;
@@ -46,7 +46,7 @@ export class SqliteCollectionStore {
       const existing = this.read(envId, collection);
       if (existing) {
         this.database
-          .prepare(`UPDATE collections SET schema = ?, updated_at = ? WHERE id = ?`)
+          .query(`UPDATE collections SET schema = ?, updated_at = ? WHERE id = ?`)
           .run(document, now, existing.id);
         record = { ...existing, schema, updated_at: new Date(now) };
         return;
@@ -54,7 +54,7 @@ export class SqliteCollectionStore {
 
       const recordId = SqliteIdClaim.claim(this.database, id, "collection");
       this.database
-        .prepare(
+        .query(
           `INSERT INTO collections
              (id, project_id, env_id, name, schema, created_at, updated_at)
            VALUES (?, ?, ?, ?, ?, ?, ?)`
@@ -86,7 +86,7 @@ export class SqliteCollectionStore {
     if (envId === null) return [];
 
     const rows = this.database
-      .prepare(`${SqliteCollectionStore.Select} WHERE env_id = ? ORDER BY name`)
+      .query(`${SqliteCollectionStore.Select} WHERE env_id = ? ORDER BY name`)
       .all(envId) as any[];
     return rows.map(SqliteRecordMapper.toCollection);
   }
@@ -107,7 +107,7 @@ export class SqliteCollectionStore {
         throw new ConflictError(`collection "${name}" already exists in this environment`);
       }
       this.database
-        .prepare(`UPDATE collections SET name = ?, updated_at = ? WHERE id = ?`)
+        .query(`UPDATE collections SET name = ?, updated_at = ? WHERE id = ?`)
         .run(name, EntryUtils.now().toISOString(), id);
     })();
     this.resolver.clear();
@@ -127,14 +127,14 @@ export class SqliteCollectionStore {
       if (!record) throw SqliteCollectionStore.notFound(scope, collection);
 
       const remaining = this.database
-        .prepare(`SELECT COUNT(*) AS total FROM entries WHERE collection_id = ?`)
+        .query(`SELECT COUNT(*) AS total FROM entries WHERE collection_id = ?`)
         .get(record.id) as { total: number };
       if (remaining.total > 0) {
         throw new ConflictError(
           `collection "${scope.key()}/${collection}" still holds ${remaining.total} entries`
         );
       }
-      this.database.prepare(`DELETE FROM collections WHERE id = ?`).run(record.id);
+      this.database.query(`DELETE FROM collections WHERE id = ?`).run(record.id);
     })();
     this.resolver.clear();
   }
@@ -144,14 +144,14 @@ export class SqliteCollectionStore {
 
   private read(envId: string, collection: string): CollectionRecord | null {
     const row = this.database
-      .prepare(`${SqliteCollectionStore.Select} WHERE env_id = ? AND name = ?`)
+      .query(`${SqliteCollectionStore.Select} WHERE env_id = ? AND name = ?`)
       .get(envId, collection) as any;
     return row ? SqliteRecordMapper.toCollection(row) : null;
   }
 
   private readById(id: string): CollectionRecord {
     const row = this.database
-      .prepare(`${SqliteCollectionStore.Select} WHERE id = ?`)
+      .query(`${SqliteCollectionStore.Select} WHERE id = ?`)
       .get(id) as any;
     if (!row) throw SqliteRecordMapper.noSuchRecord("collection", id);
     return SqliteRecordMapper.toCollection(row);

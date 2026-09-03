@@ -29,7 +29,7 @@ describe("Entries API Response Format", () => {
 
   afterEach(async () => {
     await store.close();
-    await fs.rm(tempDir, { recursive: true, force: true }).catch(() => {});
+    await fs.rm(tempDir, { recursive: true, force: true });
   });
 
   test("EntryUtils.toApiResponse flattens entry correctly", () => {

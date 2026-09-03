@@ -18,7 +18,7 @@ runStorageTestSuite(
   async (store) => {
     await store.close();
     if (tempFsDir) {
-      await fs.rm(tempFsDir, { recursive: true, force: true }).catch(() => {});
+      await fs.rm(tempFsDir, { recursive: true, force: true });
     }
   }
 );

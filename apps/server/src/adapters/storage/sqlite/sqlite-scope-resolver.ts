@@ -1,4 +1,4 @@
-import type { Database } from "bun:sqlite";
+import type { SqliteConnection } from "./sqlite-connection";
 import type { Scope } from "../../../core/domain/scope";
 import { NotFoundError } from "../../../core/errors/not-found-error";
 
@@ -37,10 +37,10 @@ export interface CollectionAddress {
  * exist.
  */
 export class SqliteScopeResolver {
-  private readonly database: Database;
+  private readonly database: SqliteConnection;
   private readonly cache = new Map<string, string | null>();
 
-  constructor(database: Database) {
+  constructor(database: SqliteConnection) {
     this.database = database;
   }
 
@@ -52,7 +52,7 @@ export class SqliteScopeResolver {
   projectId(name: string): string | null {
     return this.lookup(`project:${name}`, () => {
       const row = this.database
-        .prepare(`SELECT id FROM projects WHERE name = ?`)
+        .query(`SELECT id FROM projects WHERE name = ?`)
         .get(name) as { id: string } | undefined;
       return row ? row.id : null;
     });
@@ -64,7 +64,7 @@ export class SqliteScopeResolver {
 
     return this.lookup(`env:${projectId}/${env}`, () => {
       const row = this.database
-        .prepare(`SELECT id FROM environments WHERE project_id = ? AND name = ?`)
+        .query(`SELECT id FROM environments WHERE project_id = ? AND name = ?`)
         .get(projectId, env) as { id: string } | undefined;
       return row ? row.id : null;
     });
@@ -86,7 +86,7 @@ export class SqliteScopeResolver {
 
     return this.lookup(`collection:${envId}/${collection}`, () => {
       const row = this.database
-        .prepare(`SELECT id FROM collections WHERE env_id = ? AND name = ?`)
+        .query(`SELECT id FROM collections WHERE env_id = ? AND name = ?`)
         .get(envId, collection) as { id: string } | undefined;
       return row ? row.id : null;
     });
