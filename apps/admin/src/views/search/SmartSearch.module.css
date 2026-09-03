@@ -147,7 +147,7 @@
 
 .groupScope {
   margin-left: auto;
-  font-family: var(--font-mono);
+  font-family: var(--font-ui);
   font-size: 10.5px;
 }
 
@@ -190,7 +190,7 @@
 
 .itemSubtitle {
   color: var(--text-3);
-  font-family: var(--font-mono);
+  font-family: var(--font-ui);
   font-size: 10.5px;
 }
 

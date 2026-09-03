@@ -160,7 +160,7 @@ export function EntriesView({
     onQueryChange({ ...query, cols: Columns.stringify(next, collection.schema, excludeFromColumns) })
 
   const goToPage = (page: number) => onQueryChange({ ...query, page })
-  const lastPage = Math.max(1, Math.ceil(total / PAGE_SIZE))
+  const lastPage = Math.max(1, Math.ceil(total / pageSize))
 
   const doDelete = async () => {
     if (!toDelete) return

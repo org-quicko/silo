@@ -113,7 +113,7 @@ export class MediaApi {
   }
 
   /** Every distinct file extension in the library — the Type filter's menu
-   *  (D51), built from what is actually there rather than a fixed list. */
+   *  (D55), built from what is actually there rather than a fixed list. */
   listExtensions(url: string, key: string): Promise<string[]> {
     return this.transport
       .request<{ items: string[] }>(url, key, '/api/media/extensions')

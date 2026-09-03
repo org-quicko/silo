@@ -8,6 +8,7 @@ import { ScopeMemory } from './utils/scope-memory'
 import { ServerManager } from './views/servers/ServerManager'
 import type { Server } from './views/servers/server'
 import { SettingsView } from './views/settings/SettingsView'
+import { ShortcutsHost } from './views/shell/ShortcutsHost'
 import { Workspace } from './views/Workspace'
 
 const SERVERS_KEY = 'silo_servers'
@@ -114,6 +115,7 @@ export default function App() {
     <>
       {content}
       <ToastHost />
+      <ShortcutsHost />
     </>
   )
 }

@@ -237,9 +237,6 @@ export function MediaLibraryView({
 
         <div className={styles.toolbar}>
           <div className={styles.toolbarLeft}>
-            <span className={styles.count}>
-              {library.total} file{library.total === 1 ? '' : 's'}
-            </span>
             <MediaTypeFilter extensions={library.extensions} value={library.ext} onChange={library.setExt} />
             <MediaModifiedFilter value={library.modified} onChange={library.setModified} />
           </div>

@@ -35,6 +35,7 @@ Hono web framework on Bun. JSON everywhere. Admin UI served at `/`; API under `/
 | POST | `/api/media/delete` | bulk delete (`{ids, force}`, up to 100), always `200` with per-id outcomes (`media:delete`, force as above — D48, D49) — see §8.1 |
 | POST | `/api/media/purge` | empty the whole library (`{confirm: "purge", force?}`), always `200` with per-id outcomes plus a folder count (`media:delete`, force as above — D49) — see §8.1 |
 | GET | `/api/media/{id}/usages` | paginated referrers, claim-filtered (`media:read`) |
+| GET | `/api/media/extensions` | every distinct file extension in the library, for the admin's Type filter (`media:read` — D55) — see §8.1 |
 | GET / POST | `/api/media/folders` | list / create an empty folder (`media:read` / `media:create`) |
 | PATCH | `/api/media/folders` | rename or move a folder (`{from, to, merge?}`), and every asset and descendant folder within — refuses on collision unless `merge: true` (`media:create`, D49) |
 | DELETE | `/api/media/folders` | delete a folder — empty only by default, or `?recursive=true` for everything inside it, `?force=true` as above (`media:delete`, D23/D49) |
@@ -176,7 +177,16 @@ something was filed into it — the exact gap D20 found with empty projects.
 **Search** is the existing Query AST over `_media`: `contains` on `filename`
 for `?q=`, `eq` on `folder`, `contains` on `content_type` for `?type=`,
 membership on `tags`. No new op, so §5.3's "every op is forever" cost is zero,
-and paging plus `total` come from `Storage.list` unchanged.
+and paging plus `total` come from `Storage.list` unchanged. `?ext=` (D55)
+is the same shape — `contains` on `filename` with the leading dot, e.g.
+`.png` — for the admin's Type filter, whose menu comes from `GET
+/api/media/extensions` (`media:read`): every distinct extension
+`MediaExtensions.of` finds across the whole catalog, so the menu never
+names an extension nothing in the library actually has. `?modified_after=`/
+`?modified_before=` (D55) are `gte`/`lte` on `$.updated_at` — the **envelope**
+field, not `$.data.updated_at`, since `created_at`/`updated_at` live on
+`Entry` itself and a query against the `data` path would silently match
+nothing. Both take an ISO-8601 timestamp and are inclusive.
 
 **References.** Entries name an asset by id — `silo://media/<ulid>` — never by
 path, which is what lets a rename leave every entry alone. Extraction is

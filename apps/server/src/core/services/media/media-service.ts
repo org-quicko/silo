@@ -84,7 +84,7 @@ export class MediaService {
   }
 
   /** Every distinct file extension in the library — the admin's Type filter
-   *  menu (D51). */
+   *  menu (D55). */
   listExtensions(): Promise<string[]> {
     return this.assets.listExtensions();
   }

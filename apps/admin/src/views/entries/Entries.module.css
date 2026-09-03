@@ -67,10 +67,10 @@
 
 /* The row the keyboard is on. It is also the focused element, so this is the
    focus indicator and there is no second ring on top of it. */
-.rowCursor { background: color-mix(in oklab, var(--accent) 11%, transparent); box-shadow: inset 2px 0 0 var(--accent); }
+.rowCursor { background: color-mix(in oklab, var(--accent) 11%, transparent); }
 .rowCursor:hover { background: color-mix(in oklab, var(--accent) 15%, transparent); }
-/* The tint and the accent edge are the focus indicator; the UA ring on top of
-   them is a second, louder one saying the same thing. */
+/* The tint alone is the focus indicator; the UA ring on top of it is a
+   second, louder one saying the same thing. */
 .rowCursor:focus,
 .rowCursor:focus-visible { outline: none; }
 

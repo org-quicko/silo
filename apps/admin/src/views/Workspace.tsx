@@ -14,7 +14,6 @@ import { CollectionVisits } from '../utils/collection-visits'
 import { store } from '../store/store'
 import { StoreKeys } from '../store/store-keys'
 import { Sidebar } from './shell/Sidebar'
-import { ShortcutsDialog } from './shell/ShortcutsDialog'
 import { TopBar } from './shell/TopBar'
 import { SmartSearch } from './search/SmartSearch'
 import { EntriesView } from './entries/Entries'
@@ -51,14 +50,10 @@ export function Workspace({
   const scope: ScopeRef = { project: route.project, env: route.env }
 
   const [showServerBrowser, setShowServerBrowser] = useState(false)
-  const [showShortcuts, setShowShortcuts] = useState(false)
 
   // Both belong to the shell rather than to a page: the shortcut list covers
-  // the whole app, and Settings is a detour from wherever you are. The sidebar
-  // carries the same two as items.
-  useShellShortcuts(Routes.projectSettings(serverId, scope.project, 'general'), () =>
-    setShowShortcuts(true),
-  )
+  // the whole app, and Settings is a detour from wherever you are.
+  useShellShortcuts(Routes.projectSettings(serverId, scope.project, 'general'))
 
   // The settings shell's PROJECT/ENVIRONMENT groups need a scope even on its
   // unscoped pages (keys, connection); this is where one is known for certain.
@@ -141,7 +136,6 @@ export function Workspace({
         apiKey={apiKey}
         scope={scope}
         onOpenServerBrowser={() => setShowServerBrowser(true)}
-        onShowShortcuts={() => setShowShortcuts(true)}
       />
 
       <main className={styles.main}>
@@ -279,8 +273,6 @@ export function Workspace({
           </>
         )}
       </main>
-
-      {showShortcuts && <ShortcutsDialog onClose={() => setShowShortcuts(false)} />}
 
       {showServerBrowser && (
         <ServerManager

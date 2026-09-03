@@ -17,7 +17,7 @@ can be cloned with one command.
 
 ## Where things stand
 
-*Last updated: 2026-09-03 (D54)*
+*Last updated: 2026-09-03 (D55)*
 
 Everything through M5 is built and shipping: collections and JSON Schema
 validation, entry CRUD with optimistic concurrency, the query AST and search
@@ -52,7 +52,13 @@ the entries table's response ticketing was for (D53). What it caches got small
 enough to be worth caching in the same breath: a collection listing carries
 names, counts and access rather than every schema in the scope, the schemas
 answer on their own route, and a collection's schema is bundled on the way out
-so rendering one entry costs one schema (D54).
+so rendering one entry costs one schema (D54). The media library can now be
+filtered by **Type** (a menu of the extensions actually in it, off a new
+`GET /api/media/extensions`) and by **Modified** (presets or a custom date
+range, `gte`/`lte` on the envelope's `updated_at`), and the admin has one
+global snackbar (`ToastManager`/`ToastHost`, built to the Material Design 3
+guideline) instead of the Appearance page's one-off `Toast`, confirming media
+and entry actions across the app (D55).
 
 **The most recent change landed on 2026-09-03; everything before it on
 2026-09-02 or earlier.**
