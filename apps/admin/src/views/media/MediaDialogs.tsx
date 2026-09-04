@@ -3,6 +3,7 @@ import { AssetInUseDialog } from './AssetInUseDialog'
 import { DeleteAssetDialog } from './DeleteAssetDialog'
 import { MediaForceAvailability } from './media-force-availability'
 import { MergeFolderDialog } from './MergeFolderDialog'
+import { NewFolderDialog } from './NewFolderDialog'
 import { PurgeLibraryDialog } from './PurgeLibraryDialog'
 import { RenameAssetDialog } from './RenameAssetDialog'
 import { RenameFolderDialog } from './RenameFolderDialog'
@@ -19,6 +20,11 @@ interface Props {
   renameFolderFlow: ReturnType<typeof useMediaRenameFolderFlow>
   onRenameAsset: (filename: string, folder: string) => void
   onCloseRenameAsset: () => void
+  creatingFolder: boolean
+  creatingFolderBusy: boolean
+  newFolderParent: string
+  onCreateFolder: (name: string) => void
+  onCloseNewFolder: () => void
 }
 
 /**
@@ -39,6 +45,11 @@ export function MediaDialogs({
   renameFolderFlow,
   onRenameAsset,
   onCloseRenameAsset,
+  creatingFolder,
+  creatingFolderBusy,
+  newFolderParent,
+  onCreateFolder,
+  onCloseNewFolder,
 }: Props) {
   return (
     <>
@@ -48,6 +59,15 @@ export function MediaDialogs({
           busy={editingBusy}
           onSave={onRenameAsset}
           onClose={onCloseRenameAsset}
+        />
+      )}
+
+      {creatingFolder && (
+        <NewFolderDialog
+          parent={newFolderParent}
+          busy={creatingFolderBusy}
+          onCreate={onCreateFolder}
+          onClose={onCloseNewFolder}
         />
       )}
 

@@ -81,7 +81,7 @@
 }
 
 .claims code {
-  font-family: var(--font-mono);
+  font-family: var(--font-ui);
   font-size: 11px;
   color: var(--text-2);
   word-break: break-all;

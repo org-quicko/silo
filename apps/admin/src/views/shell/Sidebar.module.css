@@ -64,7 +64,7 @@
   border: 1px solid var(--line);
   border-radius: 5px;
   color: var(--sidebar-dim);
-  font-family: var(--font-mono);
+  font-family: var(--font-ui);
   font-size: 10px;
 }
 
@@ -131,7 +131,7 @@
 
 .instanceSubtitle {
   color: var(--sidebar-dim);
-  font-family: var(--font-mono);
+  font-family: var(--font-ui);
   font-size: 10.5px;
 }
 
@@ -151,7 +151,7 @@
 
 .groupCount {
   color: var(--sidebar-dim);
-  font-family: var(--font-mono);
+  font-family: var(--font-ui);
   font-size: 10.5px;
 }
 
@@ -222,7 +222,7 @@
 
 .groupLabel {
   color: var(--sidebar-dim);
-  font-family: var(--font-mono);
+  font-family: var(--font-ui);
   font-size: 10.5px;
   letter-spacing: 0.14em;
 }
@@ -312,7 +312,7 @@
 
 .itemCount {
   color: var(--sidebar-dim);
-  font-family: var(--font-mono);
+  font-family: var(--font-ui);
   font-size: 11px;
 }
 
@@ -344,7 +344,7 @@
   border-radius: 6px;
   background: var(--sidebar-hover);
   color: var(--sidebar-dim);
-  font-family: var(--font-mono);
+  font-family: var(--font-ui);
   font-size: 10.5px;
 }
 
@@ -367,7 +367,7 @@
   display: flex;
   align-items: center;
   gap: 10px;
-  padding: 10px 16px;
+  padding: 10px 16px 16px;
 }
 
 .accountIcon {

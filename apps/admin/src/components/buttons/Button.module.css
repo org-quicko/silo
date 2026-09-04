@@ -1,9 +1,10 @@
 .button {
   display: inline-flex;
+  height: 32px;
   align-items: center;
   justify-content: center;
   gap: 7px;
-  padding: 8px 14px;
+  padding: 0 14px;
   border: 1px solid transparent;
   border-radius: var(--radius-sm);
   font-family: var(--font-ui);
@@ -63,6 +64,7 @@
 
 .dashed {
   width: 100%;
+  height: auto;
   padding: 11px;
   border: 1px dashed var(--line-2);
   background: transparent;
@@ -76,7 +78,8 @@
 }
 
 .small {
-  padding: 5px 11px;
+  height: 26px;
+  padding: 0 11px;
   font-size: 12px;
   font-weight: 500;
 }

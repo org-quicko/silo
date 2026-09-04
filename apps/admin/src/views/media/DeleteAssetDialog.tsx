@@ -21,22 +21,32 @@ interface Props {
  * flow. A second one (`AssetInUseDialog`) replaces it if the server refuses
  * anything.
  *
- * One dialog for both kinds of subject `useMediaDeleteFlow` can start with —
- * a list of files (a single-file trash click is a list of one) or a folder,
- * recursive — rather than a second dialog pair for folders (D49).
+ * One dialog for every kind of subject `useMediaDeleteFlow` can start with —
+ * a list of files (a single-file trash click is a list of one), a folder,
+ * recursive, or a selection spanning both — rather than a dialog pair per
+ * kind (D49).
  */
 export function DeleteAssetDialog({ subject, busy, onConfirm, onClose }: Props) {
-  const count = subject.kind === 'assets' ? subject.assets.length : null
+  const count =
+    subject.kind === 'assets'
+      ? subject.assets.length
+      : subject.kind === 'mixed'
+        ? subject.assets.length + subject.folderPaths.length
+        : null
 
   const title =
     subject.kind === 'folder'
       ? `Delete folder "${MediaPath.name(subject.path)}"?`
       : count === 1
         ? 'Delete file?'
-        : `Delete ${count} files?`
+        : `Delete ${count} items?`
 
   const target =
-    subject.kind === 'folder' ? null : count === 1 ? <strong>{subject.assets[0].filename}</strong> : `these ${count} files`
+    subject.kind === 'folder'
+      ? null
+      : subject.kind === 'assets' && count === 1
+        ? <strong>{subject.assets[0].filename}</strong>
+        : `these ${count} items`
 
   const confirmLabel = busy
     ? 'Deleting…'
@@ -44,7 +54,7 @@ export function DeleteAssetDialog({ subject, busy, onConfirm, onClose }: Props) 
       ? 'Delete folder'
       : count === 1
         ? 'Delete file'
-        : `Delete ${count} files`
+        : `Delete ${count} items`
 
   return (
     <Modal onClose={busy ? () => {} : onClose}>
@@ -57,6 +67,12 @@ export function DeleteAssetDialog({ subject, busy, onConfirm, onClose }: Props) 
           <ModalBody>
             {subject.kind === 'folder' ? (
               'Delete this folder and everything inside it, permanently. If anything inside is still referenced by an entry, you will be asked before forcing the delete.'
+            ) : subject.kind === 'mixed' ? (
+              <>
+                Delete {target} permanently — folders are removed with everything inside them. If
+                anything is still referenced by an entry, you will be asked before forcing the
+                delete.
+              </>
             ) : (
               <>
                 Delete {target} permanently. If any is still referenced by an entry, you will be

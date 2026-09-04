@@ -27,7 +27,7 @@
 .section .cardActions { padding-top: 14px; border-top: 1px solid var(--line); }
 .lead { margin: 0; color: var(--text-3); font-size: 12.5px; line-height: 1.6; }
 .lead b { color: var(--text-2); }
-.lead code { font-family: var(--font-mono); font-size: 11.5px; }
+.lead code { font-family: var(--font-ui); font-size: 11.5px; }
 
 /* The closed sections, on the page. The bottom margin is the same 16px every
    card on this page carries, so the grid sits in the page's rhythm rather than
@@ -120,7 +120,7 @@
 .claimBlocked { cursor: not-allowed; opacity: 0.6; }
 
 .claimBody { display: flex; min-width: 0; flex-direction: column; gap: 3px; }
-.claimText { color: var(--text); font-family: var(--font-mono); font-size: 11.5px; word-break: break-all; }
+.claimText { color: var(--text); font-family: var(--font-ui); font-size: 11.5px; word-break: break-all; }
 
 .claimHead { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; min-width: 0; }
 
@@ -143,7 +143,7 @@
 
 .claimFlag { display: inline-flex; align-items: center; gap: 4px; color: var(--warn); }
 .claimNarrowed { display: flex; flex-wrap: wrap; gap: 6px; color: var(--text-3); font-size: 12px; }
-.claimNarrowed code { color: var(--text-2); font-family: var(--font-mono); font-size: 11px; word-break: break-all; }
+.claimNarrowed code { color: var(--text-2); font-family: var(--font-ui); font-size: 11px; word-break: break-all; }
 .claimBlockedWhy { display: inline-flex; align-items: center; gap: 4px; color: var(--text-3); font-size: 12px; }
 
 .selectRow { display: flex; gap: 8px; }
@@ -168,7 +168,7 @@
 .note b { color: var(--text); }
 
 .codeList { display: flex; flex-direction: column; gap: 3px; }
-.codeList code { color: var(--text-2); font-family: var(--font-mono); font-size: 11.5px; word-break: break-all; }
+.codeList code { color: var(--text-2); font-family: var(--font-ui); font-size: 11.5px; word-break: break-all; }
 
 /* The review */
 .review {
@@ -213,7 +213,7 @@
 .trailWhen { color: var(--text-3); font-size: 12px; }
 .trailWhat { color: var(--text-2); font-size: 12.5px; }
 .trailWhat b { color: var(--text); font-weight: 500; }
-.trailDetail { grid-column: 2; color: var(--text-3); font-family: var(--font-mono); font-size: 11px; word-break: break-all; }
+.trailDetail { grid-column: 2; color: var(--text-3); font-family: var(--font-ui); font-size: 11px; word-break: break-all; }
 
 /* The plugin's own panel */
 .panelCard {

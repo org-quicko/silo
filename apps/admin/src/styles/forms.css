@@ -14,7 +14,7 @@
 
 .input::placeholder { color: var(--text-3); }
 .input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px color-mix(in oklab, var(--accent) 20%, transparent); }
-.input.mono { font-family: var(--font-mono); }
+.input.mono { font-family: var(--font-ui); }
 
 .input.error,
 .input[aria-invalid='true'] {
@@ -33,6 +33,6 @@ select.input {
 .field { display: flex; flex-direction: column; gap: 7px; }
 .field-label-row { display: flex; align-items: baseline; gap: 8px; }
 .field-label { color: var(--text); font-size: 13px; font-weight: 600; }
-.field-hint { color: var(--text-3); font-family: var(--font-mono); font-size: 10.5px; }
+.field-hint { color: var(--text-3); font-family: var(--font-ui); font-size: 10.5px; }
 .field-hint.warn { color: var(--warn); }
 .field-error { display: flex; align-items: center; gap: 6px; color: var(--bad); font-size: 12px; }

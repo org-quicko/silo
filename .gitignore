@@ -24,3 +24,6 @@ node_modules/
 
 # macOS Finder metadata.
 .DS_Store
+
+# Leaked bun bundler temp files from an interrupted build.
+*.bun-build

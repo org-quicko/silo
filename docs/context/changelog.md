@@ -4,6 +4,32 @@
 > The *current* state is [CONTEXT.md](../../CONTEXT.md); this is how it got
 > there.
 
+- **The media library gets a Type and a Modified filter, and the admin gains
+  one global snackbar instead of a one-off `Toast` (D55, 2026-09-03).** Two new
+  `MediaQuery` fields need no new filter operator: `ext` is `contains` on
+  `$.data.filename` with the leading dot, `modifiedAfter`/`modifiedBefore` are
+  `gte`/`lte` on `$.updated_at` — the envelope field, not `$.data.updated_at`,
+  which a first pass got wrong and silently matched nothing. `GET
+  /api/media/extensions` (new, behind `media:read`) answers every distinct
+  extension actually in the library, off the same unbounded catalog scan
+  `MediaFolderService.list` already takes for folders, so the Type menu is
+  built from what is really there and renders nothing while that list is
+  empty. The Modified menu reduces every preset and a custom date range to the
+  same `{after, before}` ISO-8601 bounds before either reaches the query.
+  `ToastManager`/`ToastHost` (a pub-sub singleton beside a host mounted once in
+  `App.tsx`) replace the ad-hoc local `Toast` the Appearance page held alone,
+  built against the Material Design 3 snackbar guideline: one on screen at a
+  time — a new call replaces whatever is showing — no icon, at most one
+  plain-text action, and it auto-dismisses only when it carries none. Wired
+  into media (copy link, rename, folder create/rename/delete, bulk delete,
+  purge), entries (create, update, delete) and key revoke; the copy-link
+  action also flips its icon to a checkmark for 1.5s, since M3's own web
+  accessibility note asks for inline feedback near the trigger too, not only
+  the snackbar. The library's overflow menu (`MoreVertical` beside Upload:
+  Storage settings, Purge library) reverses D49's explicit choice to keep
+  purge low-key and off `.head-actions`, done on direct request rather than a
+  re-litigation of that reasoning.
+
 - **`SqliteStore.close()` now releases the database file, and the test suites
   stopped hiding it when it does not (2026-09-03).** `close()` stopped using the
   database but did not let go of it, so on Windows the data directory could not

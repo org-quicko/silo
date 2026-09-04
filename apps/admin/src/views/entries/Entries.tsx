@@ -7,6 +7,7 @@ import { JsonPath } from '@silo/shared/json-path'
 import type { CollectionPermission } from '@silo/shared/collection-permission'
 import { api } from '../../api/silo-api'
 import { Formatters } from '../../utils/formatters'
+import { ToastManager } from '../../utils/toast-manager'
 import type { Collection } from '../../api/types/collection'
 import type { Entry } from '../../api/types/entry'
 import type { ListQuery } from '../../router/list-query'
@@ -17,12 +18,12 @@ import { PathLabel } from '../../query/path-label'
 import { UrlFilter } from '../../query/url-filter'
 import { TopBar } from '../shell/TopBar'
 import { SmartSearch } from '../search/SmartSearch'
+import { Pagination } from '../../components/data/Pagination'
 import { Columns } from './columns'
 import { DeleteEntryModal } from './DeleteEntryModal'
 import { EntriesTable } from './EntriesTable'
 import { EmptyCollection } from './EmptyCollection'
 import { EntriesHeader } from './EntriesHeader'
-import { EntriesPager } from './EntriesPager'
 import { EntriesToolbar } from './EntriesToolbar'
 import { EntryLabels } from './entry-labels'
 import { useColumnWidths } from './use-column-widths'
@@ -32,7 +33,7 @@ import { useMediaColumns } from './use-media-columns'
 import { useScrollMemory } from './use-scroll-memory'
 import styles from './Entries.module.css'
 
-const PAGE_SIZE = 50
+const DEFAULT_PAGE_SIZE = 50
 
 interface Props {
   serverId: string
@@ -72,9 +73,10 @@ export function EntriesView({
   const [focusRow, setFocusRow] = useState<number | undefined>(undefined)
   const [showColumns, setShowColumns] = useState(false)
   const [toDelete, setToDelete] = useState<Entry | null>(null)
+  const [pageSize, setPageSize] = useState(DEFAULT_PAGE_SIZE)
 
   const { desc } = query
-  const offset = (query.page - 1) * PAGE_SIZE
+  const offset = (query.page - 1) * pageSize
   const searching = query.q.trim() !== ''
 
   // Memoised on the URL string, not recomputed per render: `parsed.filter` is a
@@ -107,7 +109,7 @@ export function EntriesView({
     scope,
     collection: collection.name,
     offset,
-    limit: PAGE_SIZE,
+    limit: pageSize,
     explicitSort: query.sort,
     desc,
     q: query.q,
@@ -158,13 +160,14 @@ export function EntriesView({
     onQueryChange({ ...query, cols: Columns.stringify(next, collection.schema, excludeFromColumns) })
 
   const goToPage = (page: number) => onQueryChange({ ...query, page })
-  const lastPage = Math.max(1, Math.ceil(total / PAGE_SIZE))
+  const lastPage = Math.max(1, Math.ceil(total / pageSize))
 
   const doDelete = async () => {
     if (!toDelete) return
     try {
       await api.entries.delete(url, apiKey, scope, collection.name, toDelete.id, toDelete.rev)
       setToDelete(null)
+      ToastManager.show('Entry deleted')
       await reload()
       onChanged()
     } catch (caught: any) {
@@ -199,7 +202,6 @@ export function EntriesView({
     },
   })
   const conditions = draft ? draft.rows.filter(FilterModel.isComplete).length : 0
-  const filterSummary = draft === null ? 'advanced filter' : conditions === 0 ? 'no filters' : `${conditions} filter${conditions === 1 ? '' : 's'}`
 
   // Real, not guessed: on the untouched first page (no search, no filter, no
   // chosen sort) row zero of the default newest-first order *is* the
@@ -234,7 +236,6 @@ export function EntriesView({
           url={url}
           scope={scope}
           total={total}
-          fieldCount={schemaColumns.length}
           lastUpdated={lastUpdated}
           canCreate={canCreate}
           canEditSchema={canEditSchema}
@@ -278,7 +279,6 @@ export function EntriesView({
               onApplyFilter={applyFilter}
               sort={query.sort}
               desc={desc}
-              searching={searching}
               onClearSort={() => onQueryChange({ ...query, sort: null, page: 1 })}
               eligibleColumns={eligibleColumns}
               selectedColumns={extra}
@@ -286,11 +286,6 @@ export function EntriesView({
               onToggleColumns={() => setShowColumns(!showColumns)}
               onCloseColumns={() => setShowColumns(false)}
               onChangeColumns={toggleColumn}
-              summary={`${
-                total === 0
-                  ? 'No entries'
-                  : `Showing ${offset + 1}–${Math.min(offset + PAGE_SIZE, total)} of ${total}`
-              } · ${filterSummary}`}
             />
 
             {searching && (
@@ -340,14 +335,19 @@ export function EntriesView({
                     ? `Nothing in ${collection.name} matches “${query.q.trim()}”.`
                     : 'No entries match this filter.'
               }
-            />
-
-            <EntriesPager
-              total={total}
-              offset={offset}
-              pageSize={PAGE_SIZE}
-              page={query.page}
-              onGoTo={goToPage}
+              pagination={
+                <Pagination
+                  bordered={false}
+                  total={total}
+                  pageSize={pageSize}
+                  page={query.page}
+                  onPageChange={goToPage}
+                  onPageSizeChange={(next) => {
+                    setPageSize(next)
+                    goToPage(1)
+                  }}
+                />
+              }
             />
           </>
         )}

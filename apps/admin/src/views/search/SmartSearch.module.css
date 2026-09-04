@@ -34,7 +34,7 @@
   border-radius: 6px;
   background: var(--accent-soft);
   color: var(--accent);
-  font-family: var(--font-mono);
+  font-family: var(--font-ui);
   font-size: 11px;
 }
 
@@ -61,7 +61,7 @@
   flex: none;
   border: 1px solid var(--line);
   color: var(--text-3);
-  font-family: var(--font-mono);
+  font-family: var(--font-ui);
 }
 
 .keycap { padding: 1px 5px; border-radius: 4px; font-size: 10px; }
@@ -147,7 +147,7 @@
 
 .groupScope {
   margin-left: auto;
-  font-family: var(--font-mono);
+  font-family: var(--font-ui);
   font-size: 10.5px;
 }
 
@@ -190,7 +190,7 @@
 
 .itemSubtitle {
   color: var(--text-3);
-  font-family: var(--font-mono);
+  font-family: var(--font-ui);
   font-size: 10.5px;
 }
 

@@ -6,16 +6,14 @@
 .empty p { max-width: 400px; margin: 8px 0 0; color: var(--text-3); font-size: 13.5px; line-height: 1.6; }
 .emptyActions { display: flex; align-items: center; gap: 10px; margin-top: 22px; }
 
-.apiHint { margin-top: 20px; padding: 5px 10px; border: 1px solid var(--line); border-radius: 6px; color: var(--text-3); font-family: var(--font-mono); font-size: 11px; }
+.apiHint { margin-top: 20px; padding: 5px 10px; border: 1px solid var(--line); border-radius: 6px; color: var(--text-3); font-family: var(--font-ui); font-size: 11px; }
 /* Wraps: the filter chips are the first item and there can be several. */
 .toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin-bottom: 14px; }
 .toolbarSpacer { flex: 1; }
-.toolbarDivider { width: 1px; height: 20px; flex: none; background: var(--line); }
-.resultSummary { color: var(--text-3); font-size: 12px; }
 
 /* The read-only stand-in for a filter the builder will not redraw. A button,
    not a span — clicking it opens the panel that explains why. */
-.filterPill { display: inline-flex; align-items: center; gap: 7px; padding: 5px 10px; border: 0; border-radius: var(--radius-sm); background: var(--accent-soft); cursor: pointer; font-family: var(--font-mono); font-size: 12px; }
+.filterPill { display: inline-flex; align-items: center; gap: 7px; padding: 5px 10px; border: 0; border-radius: var(--radius-sm); background: var(--accent-soft); cursor: pointer; font-family: var(--font-ui); font-size: 12px; }
 .filterKey { color: var(--accent); }
 .filterOperator { color: var(--text-3); }
 
@@ -69,26 +67,16 @@
 
 /* The row the keyboard is on. It is also the focused element, so this is the
    focus indicator and there is no second ring on top of it. */
-.rowCursor { background: color-mix(in oklab, var(--accent) 11%, transparent); box-shadow: inset 2px 0 0 var(--accent); }
+.rowCursor { background: color-mix(in oklab, var(--accent) 11%, transparent); }
 .rowCursor:hover { background: color-mix(in oklab, var(--accent) 15%, transparent); }
-/* The tint and the accent edge are the focus indicator; the UA ring on top of
-   them is a second, louder one saying the same thing. */
+/* The tint alone is the focus indicator; the UA ring on top of it is a
+   second, louder one saying the same thing. */
 .rowCursor:focus,
 .rowCursor:focus-visible { outline: none; }
-
-.pager { display: flex; align-items: center; justify-content: space-between; margin-top: 14px; }
-.pagerInfo { color: var(--text-3); font-size: 12.5px; }
-.pagerButtons { display: flex; align-items: center; gap: 6px; }
-.pagerButton { min-width: 28px; height: 28px; padding: 0 8px; border: 1px solid var(--line); border-radius: 6px; background: var(--panel); color: var(--text-2); cursor: pointer; font-size: 12.5px; }
-.pagerButton:hover:not(:disabled):not(.active) { background: var(--panel-2); }
-.pagerButton:disabled { color: var(--text-3); cursor: not-allowed; opacity: 0.6; }
-.active { border-color: transparent; background: var(--accent); color: var(--accent-ink); font-weight: 600; }
-.rowsTag { margin-left: 8px; padding: 5px 9px; border: 1px solid var(--line); border-radius: 6px; color: var(--text-3); font-family: var(--font-mono); font-size: 11.5px; }
 
 /* ---- search and filter (P3) ---- */
 
 .filterAnchor { position: relative; }
-.sortNote { color: var(--text-3); font-size: 12px; }
 
 /* What a text query did to the list: how many matched, and in what order.
    Above the rows rather than in the toolbar, because it describes the result
@@ -115,6 +103,6 @@
 
 .snippets { display: flex; flex-direction: column; gap: 3px; margin-top: 5px; }
 .snippet { display: flex; min-width: 0; align-items: baseline; gap: 7px; }
-.snippetPath { flex: none; color: var(--text-3); font-family: var(--font-mono); font-size: 10.5px; }
+.snippetPath { flex: none; color: var(--text-3); font-family: var(--font-ui); font-size: 10.5px; }
 .snippetText { overflow: hidden; color: var(--text-2); font-size: 11.5px; line-height: 1.5; text-overflow: ellipsis; white-space: nowrap; }
 .snippetMatch { border-radius: 3px; background: var(--accent-soft); color: var(--text); font-weight: 600; }

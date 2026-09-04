@@ -1,20 +1,18 @@
-import { useEffect, useRef } from 'react'
+import { useEffect } from 'react'
 import { Keyboard } from '../../utils/keyboard'
 import { router } from '../../router/router'
+import { ShortcutsManager } from './shortcuts-manager'
 
 /**
  * The shortcuts that belong to the shell rather than to a page: `?` opens the
- * shortcut list, and `Ctrl`/`⌘` `,` goes to Settings.
+ * shortcut list (through `ShortcutsManager`, the same door the header
+ * button uses), and `Ctrl`/`⌘` `,` goes to Settings.
  *
  * `?` stands down while someone is typing, because it is a character they meant
  * to write. The Settings shortcut does not, for the same reason `⌘K` does not:
  * a modified press types nothing, so an open field has no claim on it.
  */
-export function useShellShortcuts(settingsTo: string, onShowShortcuts: () => void): void {
-  // Held in a ref so the listener binds once per route rather than per render.
-  const showShortcuts = useRef(onShowShortcuts)
-  showShortcuts.current = onShowShortcuts
-
+export function useShellShortcuts(settingsTo: string): void {
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
       if (event.key === ',' && (event.ctrlKey || event.metaKey) && !event.altKey) {
@@ -25,7 +23,7 @@ export function useShellShortcuts(settingsTo: string, onShowShortcuts: () => voi
       if (event.key !== '?' || event.ctrlKey || event.metaKey || event.altKey) return
       if (Keyboard.isTyping(event.target)) return
       event.preventDefault()
-      showShortcuts.current()
+      ShortcutsManager.show()
     }
 
     window.addEventListener('keydown', onKey)

@@ -24,7 +24,6 @@ interface Props {
 
   sort: string | null
   desc: boolean
-  searching: boolean
   onClearSort: () => void
 
   eligibleColumns: string[]
@@ -33,8 +32,6 @@ interface Props {
   onToggleColumns: () => void
   onCloseColumns: () => void
   onChangeColumns: (columns: string[]) => void
-
-  summary: string
 }
 
 /** Filters, sort, column choice and the result count, above the table. */
@@ -51,7 +48,6 @@ export function EntriesToolbar({
   onApplyFilter,
   sort,
   desc,
-  searching,
   onClearSort,
   eligibleColumns,
   selectedColumns,
@@ -59,7 +55,6 @@ export function EntriesToolbar({
   onToggleColumns,
   onCloseColumns,
   onChangeColumns,
-  summary,
 }: Props) {
   return (
     <div className={styles.toolbar}>
@@ -91,9 +86,7 @@ export function EntriesToolbar({
         )}
       </div>
 
-      <div className={styles.toolbarDivider} />
-
-      {sort ? (
+      {sort && (
         <Button
           variant="secondary"
           size="sm"
@@ -102,11 +95,9 @@ export function EntriesToolbar({
         >
           Sort: {PathLabel.of(sort)} {desc ? <ArrowDown size={13} /> : <ArrowUp size={13} />}
         </Button>
-      ) : (
-        <span className={styles.sortNote}>
-          {searching ? 'Sorted by relevance' : 'Newest first'}
-        </span>
       )}
+
+      <div className={styles.toolbarSpacer} />
 
       <div className={styles.filterAnchor}>
         <Button variant="secondary" size="sm" onClick={onToggleColumns}>
@@ -121,12 +112,6 @@ export function EntriesToolbar({
           />
         )}
       </div>
-
-      <div className={styles.toolbarSpacer} />
-
-      {/* The engine tag lives in the search bar — stating it twice on one
-          screen just asks the reader which one to believe. */}
-      <span className={styles.resultSummary}>{summary}</span>
     </div>
   )
 }

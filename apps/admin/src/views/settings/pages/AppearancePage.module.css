@@ -35,13 +35,6 @@
   font-weight: 600;
 }
 
-.sectionSubtitle {
-  margin: 0;
-  color: var(--text-3);
-  font-size: 12.5px;
-  line-height: 1.4;
-}
-
 /* Presets & Grids */
 .presetsContainer {
   display: flex;
@@ -61,12 +54,6 @@
   font-weight: 500;
 }
 
-.presetsCount {
-  color: var(--text-3);
-  font-family: var(--font-mono);
-  font-size: 11px;
-}
-
 .fontGrid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(190px, 1fr));
@@ -76,8 +63,10 @@
 .fontChip {
   display: flex;
   flex-direction: column;
+  justify-content: center;
+  min-height: 56px;
   gap: 4px;
-  padding: 9px 12px;
+  padding: 14px 12px;
   border: 1px solid var(--line);
   border-radius: var(--radius-sm);
   background: var(--ink-2);
@@ -129,7 +118,7 @@
 .fontChipCat {
   font-size: 9.5px;
   color: var(--text-3);
-  font-family: var(--font-mono);
+  font-family: var(--font-ui);
   text-transform: uppercase;
   letter-spacing: 0.5px;
 }
@@ -137,19 +126,6 @@
 .fontChipCheck {
   color: var(--accent);
   flex-shrink: 0;
-}
-
-.fontChipSample {
-  font-size: 11.5px;
-  color: var(--text-3);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  line-height: 1.3;
-}
-
-.fontChipActive .fontChipSample {
-  color: var(--text-2);
 }
 
 /* Custom Input Row */
@@ -182,19 +158,7 @@
   font-size: 11.5px;
 }
 
-/* Themes — grouped grid of accent + sidebar bundles */
-.themeGroup {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-}
-
-.themeGroupLabel {
-  color: var(--text-2);
-  font-size: 12px;
-  font-weight: 600;
-}
-
+/* Themes — a grid of accent + sidebar bundles */
 .themeGrid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(196px, 1fr));
@@ -300,7 +264,7 @@
   background: var(--ink-2);
   color: var(--text);
   font-size: 13px;
-  font-family: var(--font-mono);
+  font-family: var(--font-ui);
   outline: none;
   transition: border-color 0.15s ease;
 }

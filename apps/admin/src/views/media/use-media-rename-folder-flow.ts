@@ -15,6 +15,7 @@ import type { RenameFolderOutcome } from './use-media-library'
  */
 export function useMediaRenameFolderFlow(
   renameFolder: (from: string, to: string, merge: boolean) => Promise<RenameFolderOutcome>,
+  onRenamed?: () => void,
 ) {
   const [path, setPath] = useState<string | null>(null)
   const [mergeOffer, setMergeOffer] = useState<{ from: string; to: string } | null>(null)
@@ -35,8 +36,10 @@ export function useMediaRenameFolderFlow(
     setBusy(true)
     try {
       const outcome = await renameFolder(path, to, false)
-      if (MediaRenameOutcome.closes(outcome)) cancel()
-      else setMergeOffer(MediaRenameOutcome.mergeOffer(outcome, path, to))
+      if (MediaRenameOutcome.closes(outcome)) {
+        onRenamed?.()
+        cancel()
+      } else setMergeOffer(MediaRenameOutcome.mergeOffer(outcome, path, to))
     } finally {
       setBusy(false)
     }
@@ -47,7 +50,10 @@ export function useMediaRenameFolderFlow(
     setBusy(true)
     try {
       const outcome = await renameFolder(mergeOffer.from, mergeOffer.to, true)
-      if (MediaRenameOutcome.closes(outcome)) cancel()
+      if (MediaRenameOutcome.closes(outcome)) {
+        onRenamed?.()
+        cancel()
+      }
     } finally {
       setBusy(false)
     }

@@ -13,7 +13,7 @@ import { MediaDeleteOutcome } from './media-delete-outcome'
  * so a still-referenced file is reported right here rather than opening a
  * second dialog for it.
  */
-export function useMediaPurge(purge: (force: boolean) => Promise<MediaFolderDeleteResult>) {
+export function useMediaPurge(purge: (force: boolean) => Promise<MediaFolderDeleteResult>, onPurged?: () => void) {
   const [purging, setPurging] = useState(false)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
@@ -33,6 +33,7 @@ export function useMediaPurge(purge: (force: boolean) => Promise<MediaFolderDele
       const { inUse } = MediaDeleteOutcome.classify(result)
       if (inUse.length === 0) {
         setPurging(false)
+        onPurged?.()
         return
       }
       setError(

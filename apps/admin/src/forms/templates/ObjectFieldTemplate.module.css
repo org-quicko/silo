@@ -5,8 +5,8 @@
 .labelled { gap: 9px; }
 
 .label {
-  color: var(--text-2);
-  font-family: var(--font-mono);
+  color: var(--text-3);
+  font-family: var(--font-ui);
   font-size: 10.5px;
   letter-spacing: 0.14em;
 }

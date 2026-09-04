@@ -42,6 +42,7 @@ export function EntriesTable({
   canDelete,
   onDeleteRow,
   emptyMessage,
+  pagination,
 }: {
   schema: any
   entries: Entry[]
@@ -68,6 +69,10 @@ export function EntriesTable({
   onDeleteRow: (e: Entry) => void
   /** Shown when nothing matched — the caller knows *why* (a search or a filter). `null` while a request is still in flight, so a stale "nothing here" never flashes before the real answer arrives. */
   emptyMessage: string | null
+  /** Rendered as the card's own last row, not a block below it — the card's
+   *  `overflow: hidden` then clips it to the same rounded corners and border
+   *  rather than leaving it looking like a second, separate panel. */
+  pagination?: ReactNode
 }) {
   const label = (e: Entry) => EntryLabels.of(e, primary, schema)
   // The id is the fallback title as well as the default subtitle, and an entry
@@ -176,6 +181,8 @@ export function EntriesTable({
       ))}
 
       {entries.length === 0 && emptyMessage && <div className={`${table.cell} ${styles.noResults}`}>{emptyMessage}</div>}
+
+      {pagination}
     </div>
   )
 }

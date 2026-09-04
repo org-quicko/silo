@@ -1,5 +1,5 @@
 /* Deliberately global single-purpose utilities. Keep this list small. */
-.mono { font-family: var(--font-mono); }
+.mono { font-family: var(--font-ui); }
 .muted { color: var(--text-3); }
 
 .spin { animation: silo-spin 0.9s linear infinite; }

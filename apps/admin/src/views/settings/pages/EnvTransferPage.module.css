@@ -54,7 +54,7 @@
   border: 1px solid var(--line);
   border-radius: var(--radius-sm);
   background: var(--ink-2);
-  font-family: var(--font-mono);
+  font-family: var(--font-ui);
   font-size: 13px;
 }
 

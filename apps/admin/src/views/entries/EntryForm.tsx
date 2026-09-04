@@ -25,6 +25,7 @@ import { buildUiSchema } from '../../forms/build-ui-schema'
 import { FormSchema } from '../../forms/form-schema'
 import { MediaValue } from '../../forms/widgets/media-value'
 import { SiloRefs } from '../../schema/silo-refs'
+import { ToastManager } from '../../utils/toast-manager'
 import { TopBar } from '../shell/TopBar'
 import { SmartSearch } from '../search/SmartSearch'
 import { useEscapeToDiscard } from '../use-escape-to-discard'
@@ -141,6 +142,7 @@ export function EntryForm({
     try {
       if (entry) await api.entries.update(url, apiKey, scope, collection.name, entry.id, entry.rev, data)
       else await api.entries.create(url, apiKey, scope, collection.name, data)
+      ToastManager.show(entry ? 'Entry updated' : 'Entry created')
       onSaved()
     } catch (caught: any) {
       if (caught instanceof ApiError && caught.details && caught.details.length) {
@@ -159,6 +161,7 @@ export function EntryForm({
     try {
       await api.entries.delete(url, apiKey, scope, collection.name, entry.id, entry.rev)
       setShowDelete(false)
+      ToastManager.show('Entry deleted')
       onDeleted()
     } catch (caught: any) {
       alert(caught.message || 'Delete failed')

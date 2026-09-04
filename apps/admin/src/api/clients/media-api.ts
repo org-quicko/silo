@@ -36,7 +36,10 @@ export class MediaApi {
       .setEvenIfEmpty('folder', query.folder)
       .set('recursive', query.recursive ? 'true' : undefined)
       .set('type', query.type)
+      .set('ext', query.ext)
       .set('tag', query.tag)
+      .set('modified_after', query.modifiedAfter)
+      .set('modified_before', query.modifiedBefore)
       .set('limit', query.limit)
       .set('offset', query.offset)
       .set('sort', query.sort)
@@ -106,6 +109,14 @@ export class MediaApi {
   listFolders(url: string, key: string): Promise<string[]> {
     return this.transport
       .request<{ items: string[] }>(url, key, '/api/media/folders')
+      .then((response) => response.items)
+  }
+
+  /** Every distinct file extension in the library — the Type filter's menu
+   *  (D55), built from what is actually there rather than a fixed list. */
+  listExtensions(url: string, key: string): Promise<string[]> {
+    return this.transport
+      .request<{ items: string[] }>(url, key, '/api/media/extensions')
       .then((response) => response.items)
   }
 

@@ -5,13 +5,17 @@ import type { MediaAsset } from '../../api/types/media-asset'
 import type { MediaBulkDeleteResult } from '../../api/types/media-bulk-delete'
 import type { MediaFolderDeleteResult } from '../../api/types/media-folder-delete'
 import { MediaDeleteOutcome } from './media-delete-outcome'
+import type { ModifiedRange } from './media-modified-presets'
 import { MediaPath } from './media-path'
 import { useMediaSelection } from './use-media-selection'
 import { useFolderCounts } from './use-folder-counts'
 import { MediaLibraryError } from './media-library-error'
 
-/** How many assets one page of the grid holds. */
-export const MediaPageSize = 48
+/** How many assets one page of the grid holds by default, until the reader
+ *  picks a different row count from the pagination bar. Matches one of
+ *  `Pagination`'s preset options, so the dropdown starts in step with what
+ *  actually loaded rather than falling back to its first option. */
+export const MediaDefaultPageSize = 50
 
 /** What a folder rename attempt did: saved, refused on a collision at `to`
  *  (the one outcome `useMediaRenameFolderFlow` turns into a merge offer), or
@@ -31,6 +35,7 @@ export function useMediaLibrary(url: string, apiKey: string, initialQuery: strin
   const [assets, setAssets] = useState<MediaAsset[]>([])
   const [total, setTotal] = useState(0)
   const [offset, setOffset] = useState(0)
+  const [pageSize, setPageSizeState] = useState(MediaDefaultPageSize)
   const [folders, setFolders] = useState<string[]>([])
   const [folder, setFolder] = useState('')
   const [search, setSearch] = useState(initialQuery)
@@ -38,6 +43,9 @@ export function useMediaLibrary(url: string, apiKey: string, initialQuery: strin
   const [loading, setLoading] = useState(true)
   const [uploading, setUploading] = useState(false)
   const [error, setError] = useState('')
+  const [extensions, setExtensions] = useState<string[]>([])
+  const [ext, setExtState] = useState('')
+  const [modified, setModifiedState] = useState<ModifiedRange | null>(null)
   /** Set when the blob store refused a delete: the asset is staged, not gone. */
   const [stalled, setStalled] = useState('')
   /** Set when a bulk delete's per-id outcomes include a `not_found` or
@@ -48,7 +56,7 @@ export function useMediaLibrary(url: string, apiKey: string, initialQuery: strin
   // Selection lives in its own hook (D49 audit fix) — this hook already does
   // list state and delete orchestration, and selection is a third concern
   // with its own page-boundary reset rule.
-  const selection = useMediaSelection(JSON.stringify([folder, offset, query]))
+  const selection = useMediaSelection(JSON.stringify([folder, offset, query, ext, modified]))
 
   const reload = useCallback(() => {
     setLoading(true)
@@ -57,7 +65,10 @@ export function useMediaLibrary(url: string, apiKey: string, initialQuery: strin
         q: query || undefined,
         folder,
         recursive: false,
-        limit: MediaPageSize,
+        ext: ext || undefined,
+        modifiedAfter: modified?.after,
+        modifiedBefore: modified?.before,
+        limit: pageSize,
         offset,
       }),
       api.media.listFolders(url, apiKey),
@@ -74,7 +85,14 @@ export function useMediaLibrary(url: string, apiKey: string, initialQuery: strin
         setError(MediaLibraryError.message(failure, 'Could not load the media library'))
       })
       .finally(() => setLoading(false))
-  }, [url, apiKey, query, folder, offset])
+  }, [url, apiKey, query, folder, ext, modified, offset, pageSize])
+
+  // The Type filter's menu, fetched once per server connection rather than
+  // on every reload — what extensions exist changes far less often than what
+  // page or folder is showing.
+  useEffect(() => {
+    api.media.listExtensions(url, apiKey).then(setExtensions).catch(() => setExtensions([]))
+  }, [url, apiKey])
 
   useEffect(reload, [reload])
 
@@ -106,6 +124,21 @@ export function useMediaLibrary(url: string, apiKey: string, initialQuery: strin
     setOffset(0)
   }
 
+  const setPageSize = (next: number) => {
+    setPageSizeState(next)
+    setOffset(0)
+  }
+
+  const setExt = (next: string) => {
+    setExtState(next)
+    setOffset(0)
+  }
+
+  const setModified = (next: ModifiedRange | null) => {
+    setModifiedState(next)
+    setOffset(0)
+  }
+
   /** The `stalled`/`deleteIssues` banners `bulkDelete`, `deleteFolderRecursive`
    *  and `purge` all report the same way, off the same `{deleted, failed}`
    *  shape (D49). */
@@ -125,10 +158,17 @@ export function useMediaLibrary(url: string, apiKey: string, initialQuery: strin
     total,
     offset,
     setOffset,
+    pageSize,
+    setPageSize,
     folder,
     subfolders,
     folderCounts,
     selectFolder,
+    extensions,
+    ext,
+    setExt,
+    modified,
+    setModified,
     query,
     loading,
     uploading,
@@ -140,9 +180,11 @@ export function useMediaLibrary(url: string, apiKey: string, initialQuery: strin
     setDeleteIssues,
     reload,
     selected: selection.selected,
+    selectedFolders: selection.selectedFolders,
     clearSelection: selection.clearSelection,
     toggleSelected: selection.toggleSelected,
-    selectMany: selection.selectMany,
+    toggleFolderSelected: selection.toggleFolderSelected,
+    selectAllOnPage: selection.selectAllOnPage,
 
     upload: async (files: FileList) => {
       if (files.length === 0) return
@@ -174,8 +216,10 @@ export function useMediaLibrary(url: string, apiKey: string, initialQuery: strin
       try {
         const created = await api.media.createFolder(url, apiKey, path)
         selectFolder(created.path)
+        return true
       } catch (failure: unknown) {
         setError(MediaLibraryError.message(failure, 'Could not create the folder'))
+        return false
       }
     },
 

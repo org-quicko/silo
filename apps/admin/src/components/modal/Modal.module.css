@@ -51,6 +51,7 @@
 
 .bad { border: 1px solid color-mix(in oklab, var(--bad) 34%, transparent); background: color-mix(in oklab, var(--bad) 15%, transparent); color: var(--bad); }
 .ok { border: 1px solid color-mix(in oklab, var(--ok) 32%, transparent); background: color-mix(in oklab, var(--ok) 16%, transparent); color: var(--ok); }
+.accent { border: 1px solid color-mix(in oklab, var(--accent) 34%, transparent); background: color-mix(in oklab, var(--accent) 15%, transparent); color: var(--accent); }
 .copy { display: flex; flex-direction: column; gap: 7px; }
 .body { margin: 0; color: var(--text-3); font-size: 13px; line-height: 1.6; }
 .body b,
@@ -67,10 +68,10 @@
   background: var(--bg);
 }
 
-.subjectMark { display: flex; width: 26px; height: 26px; align-items: center; justify-content: center; border-radius: 6px; background: var(--accent); color: var(--accent-ink); font-family: var(--font-mono); font-size: 11px; font-weight: 600; }
+.subjectMark { display: flex; width: 26px; height: 26px; align-items: center; justify-content: center; border-radius: 6px; background: var(--accent); color: var(--accent-ink); font-family: var(--font-ui); font-size: 11px; font-weight: 600; }
 .subjectCopy { display: flex; flex-direction: column; gap: 1px; }
 .subjectTitle { color: var(--text); font-size: 12.5px; }
-.subjectSubtitle { color: var(--text-3); font-family: var(--font-mono); font-size: 10.5px; }
+.subjectSubtitle { color: var(--text-3); font-family: var(--font-ui); font-size: 10.5px; }
 .actions { display: flex; gap: 10px; padding: 18px 22px 22px; }
 .actions > * { flex: 1; }
 

@@ -83,6 +83,12 @@ export class MediaService {
     return this.assets.get(id);
   }
 
+  /** Every distinct file extension in the library — the admin's Type filter
+   *  menu (D55). */
+  listExtensions(): Promise<string[]> {
+    return this.assets.listExtensions();
+  }
+
   usages(
     id: string,
     page: { limit?: number; offset?: number } = {},

@@ -1,5 +1,5 @@
 import { useState, useMemo, useCallback, useRef, useEffect } from 'react'
-import { Plus, Image, ChevronsUpDown, Settings, Search, X, Shield, Keyboard } from 'lucide-react'
+import { Plus, Image, ChevronsUpDown, Settings, Search, X, Shield } from 'lucide-react'
 import { Claims } from '@silo/shared/claims'
 import { SiloMark } from '../../components/brand/SiloMark'
 import { Link } from '../../router/Link'
@@ -30,7 +30,6 @@ export function Sidebar({
   session,
   scope,
   onOpenServerBrowser,
-  onShowShortcuts,
 }: {
   serverId: string
   collections: SidebarCollection[]
@@ -45,8 +44,6 @@ export function Sidebar({
   scope: ScopeRef
   onScopeChange?: (next: ScopeRef) => void
   onOpenServerBrowser?: () => void
-  /** Opens the shell's shortcut list, the same dialog `?` opens. */
-  onShowShortcuts: () => void
 }) {
   const [width, setWidth] = useState<number>(() => {
     const stored = localStorage.getItem(SIDEBAR_WIDTH_KEY)
@@ -196,7 +193,7 @@ export function Sidebar({
               title={`Search collections (${PlatformKeys.alt()}F)`}
               aria-label="Search collections"
             >
-              <Search size={15} />
+              <Search size={17} />
             </button>
           )}
         </div>
@@ -291,14 +288,6 @@ export function Sidebar({
           </span>
           <span className={styles.itemName}>Settings</span>
         </Link>
-        {/* A button, not a link: it opens a dialog rather than going anywhere. */}
-        <button type="button" className={styles.item} onClick={onShowShortcuts}>
-          <span className={styles.itemIcon}>
-            <Keyboard size={15} />
-          </span>
-          <span className={styles.itemName}>Keyboard shortcuts</span>
-          <span className={styles.itemCount}>?</span>
-        </button>
       </div>
 
       <div className={styles.divider} />

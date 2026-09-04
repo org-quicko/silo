@@ -11,7 +11,6 @@ interface Props {
   url: string
   scope: ScopeRef
   total: number
-  fieldCount: number
   /** Only shown when the view can honestly back it — see `Entries`. */
   lastUpdated: string | null
   canCreate: boolean
@@ -26,7 +25,6 @@ export function EntriesHeader({
   url,
   scope,
   total,
-  fieldCount,
   lastUpdated,
   canCreate,
   canEditSchema,
@@ -53,8 +51,7 @@ export function EntriesHeader({
           )}
         </div>
         <span className="page-sub">
-          {total} {total === 1 ? 'entry' : 'entries'} · {fieldCount}{' '}
-          {fieldCount === 1 ? 'field' : 'fields'}
+          {total} {total === 1 ? 'entry' : 'entries'}
           {lastUpdated && <> · updated {lastUpdated}</>}
         </span>
       </div>

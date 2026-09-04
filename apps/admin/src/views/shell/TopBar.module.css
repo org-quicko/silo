@@ -27,3 +27,20 @@
   grid-column: 3;
   justify-self: end;
 }
+
+.shortcutsButton {
+  display: flex;
+  width: 30px;
+  height: 30px;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text-3);
+  cursor: pointer;
+}
+
+.shortcutsButton:hover { background: var(--panel-2); color: var(--text-2); }

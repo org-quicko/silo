@@ -15,7 +15,7 @@
 .groupLabel {
   margin-bottom: 4px;
   color: var(--text-3);
-  font-family: var(--font-mono);
+  font-family: var(--font-ui);
   font-size: 10px;
   letter-spacing: 0.14em;
   text-transform: uppercase;
@@ -31,7 +31,7 @@
   border-radius: 4px;
   background: var(--bg);
   color: var(--text-2);
-  font-family: var(--font-mono);
+  font-family: var(--font-ui);
   font-size: 10.5px;
   line-height: 1.5;
 }
