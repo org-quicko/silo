@@ -44,7 +44,7 @@ contents:
     dst: /etc/silo/silo.toml
     type: config|noreplace
     file_info:
-      mode: 0640
+      mode: 0660
       owner: root
       group: silo
 
