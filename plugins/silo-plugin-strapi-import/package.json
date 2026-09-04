@@ -1,12 +1,12 @@
 {
   "name": "silo-plugin-strapi-import",
-  "version": "0.3.0",
+  "version": "1.0.0",
   "description": "Import a Strapi 5 SQLite export into silo collections, from a panel in the admin",
   "type": "module",
   "main": "src/index.ts",
   "license": "AGPL-3.0-or-later",
   "silo": {
-    "silo": "^0.3",
+    "silo": "^1.0.0",
     "contributes": {
       "runtime": true,
       "ui": {
