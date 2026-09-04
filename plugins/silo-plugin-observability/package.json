@@ -1,12 +1,12 @@
 {
   "name": "silo-plugin-observability",
-  "version": "0.3.0",
+  "version": "1.0.0",
   "description": "Operational analytics for silo: API traffic, errors, latency, process memory, and local storage",
   "type": "module",
   "main": "src/index.ts",
   "license": "AGPL-3.0-or-later",
   "silo": {
-    "silo": "^0.3",
+    "silo": "^1.0.0",
     "contributes": {
       "ui": {
         "entry": "./src/panel/panel.html",
