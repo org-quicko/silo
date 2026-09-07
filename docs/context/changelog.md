@@ -4,6 +4,68 @@
 > The *current* state is [CONTEXT.md](../../CONTEXT.md); this is how it got
 > there.
 
+- **Appearance joins the settings ledger (D56, 2026-09-07).** The last page
+  still built from its own cards is now sections and rows like every other:
+  *Theme* (a row of accent swatches, and a hex field), *Typeface* (a grid of
+  specimens, each set in the family it offers, plus a field for any other
+  Google font) and *Reset*. Two controls stay bespoke because their appearance
+  *is* their label — a swatch is the colour and nothing else, and a type
+  specimen has to be shown in its own face — and `font-fallback.ts` gives each
+  specimen a fallback matching its category, since a serif card briefly drawn
+  in a sans is a card showing the wrong answer. There is still no Save and now
+  no scope chip either: nothing here reaches the server, the breadcrumb says
+  "This browser", and every row on the page has that same answer. The mockup's
+  light/dark *Mode* section was again not adopted.
+
+- **Data Transfer's Export tab counts the whole instance, and its Import tab
+  takes a drop (D56, 2026-09-07).** `useArchiveContents` walks projects →
+  environments → collections to report what an export actually carries —
+  collections by name, entries, schemas, media, and the archive's filename.
+  The panel previously showed the *current environment's* collection count
+  under the words "what the archive contains", which is the wrong number on
+  any instance with a second environment; there is no manifest route to ask
+  instead, so this is one request per scope and it runs only while the Export
+  tab is open. `ArchiveName` is now the single source of the download's
+  filename, shared by the anchor and that row. The Import tab's file picker
+  becomes `ArchiveDropzone`, which accepts a real drag-and-drop rather than
+  only saying "drop" beside a button. Alongside: the Projects icon moves from
+  `FolderGit2` — a git-branch folder, implying version control silo projects do
+  not have — to a plain `Folder`, which stays quiet beside `Layers` for
+  Environments at nav size;
+  settings nav groups and the workspace sidebar's `Collections` label drop
+  their all-caps; `DataTable`'s shared heading style is Title Case, with
+  Entries' schema-property headings drawn through a new `ColumnLabel`; and the
+  scope chips come off the pages whose scope was never in doubt.
+
+- **The settings surface is one ledger, not a stack of cards (D56,
+  2026-09-07).** Nine shared primitives in `apps/admin/src/views/settings/parts/`
+  — `SettingsPageHead`, `SettingsSection`, `SettingsRow`, `FactList`,
+  `SettingsList`/`SettingsListRow`, `SettingsAlert`,
+  `DestructiveSection`/`DestructiveRow`, `ScopeChip` and `RenameableTitle` —
+  replace the `.card`/`.inputGrid`/`.diagnosticsGrid`/`.dangerItem` block each
+  settings page had grown its own copy of. A section is now a hairline and a
+  label; a row is name-left, control-flush-right on one grid, so a page of
+  unrelated fields scans down a single edge. Read-only ids and paths are
+  copy-on-click mono rows instead of disabled inputs. What a page's changes
+  reach is a chip in its header (server / this browser / `project` /
+  `project/env`) rather than prose under every section, and every settings
+  breadcrumb is rooted at the server's own name. Renaming a project or
+  environment is now an inline edit of the page title, replacing a form that
+  came pre-filled and therefore sat disabled until you typed; the two-step
+  dry-run preview (D51) is unchanged. Danger zones become a quiet trailing
+  *Destructive* section. Converted: Project General, Environment General,
+  Connection, Configuration, Media Library, Projects, Environments, Data
+  Transfer, plus the page heads of API Keys, Plugins and Appearance.
+  Per-section Saves stay as D46/D47 set them — the redesign's global save bar
+  and its light/dark toggle were deliberately not adopted, and Appearance
+  keeps its own layout. `tokens.css` is re-cut to the new neutrals and gains
+  `--panel-3`, `--text-4`, `--accent-line`, the soft semantic pairs and an
+  `--r-1…--r-4` radius scale. Data Transfer's three jobs (export, import, copy
+  from another silo) move off a three-card grid onto one page behind a
+  `Segmented` tab, each tab now `ExportPanel`, `ImportPanel` or the restyled
+  `CopyServer`; the settings nav's `.navDivider` rule between groups is gone
+  too, since `.group + .group`'s own margin already carried the same spacing.
+
 - **The media library gets a Type and a Modified filter, and the admin gains
   one global snackbar instead of a one-off `Toast` (D55, 2026-09-03).** Two new
   `MediaQuery` fields need no new filter operator: `ext` is `contains` on

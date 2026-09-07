@@ -17,7 +17,7 @@ can be cloned with one command.
 
 ## Where things stand
 
-*Last updated: 2026-09-03 (D55)*
+*Last updated: 2026-09-07 (D56)*
 
 Everything through M5 is built and shipping: collections and JSON Schema
 validation, entry CRUD with optimistic concurrency, the query AST and search
@@ -58,10 +58,16 @@ filtered by **Type** (a menu of the extensions actually in it, off a new
 range, `gte`/`lte` on the envelope's `updated_at`), and the admin has one
 global snackbar (`ToastManager`/`ToastHost`, built to the Material Design 3
 guideline) instead of the Appearance page's one-off `Toast`, confirming media
-and entry actions across the app (D55).
+and entry actions across the app (D55). The settings surface is now **one
+ledger rather than a stack of cards**: nine shared primitives in
+`views/settings/parts/` give every page the same hairline sections,
+name-left/control-right rows, copy-on-click fact lists, server-rooted
+breadcrumbs, a header chip saying what the page's changes reach, inline title
+rename, and a quiet trailing *Destructive* section — with the per-section Saves
+of D46/D47 kept exactly as they were (D56).
 
-**The most recent change landed on 2026-09-03; everything before it on
-2026-09-02 or earlier.**
+**The most recent change landed on 2026-09-07; everything before it on
+2026-09-03 or earlier.**
 
 **`SqliteStore.close()` releases the database file now, and the tests no longer
 hide it when it does not (2026-09-03).** Closing the store left the data

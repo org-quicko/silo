@@ -16,6 +16,7 @@ import { ModalCopy } from '../../components/modal/ModalCopy'
 import { ModalHeader } from '../../components/modal/ModalHeader'
 import { ModalIcon } from '../../components/modal/ModalIcon'
 import { TopBar } from '../shell/TopBar'
+import { SettingsPageHead } from '../settings/parts/SettingsPageHead'
 import table from '../../components/data/DataTable.module.css'
 import styles from './Keys.module.css'
 
@@ -30,11 +31,13 @@ class KeyClaimSummary {
 }
 
 export function KeysView({
+  serverName,
   url,
   apiKey,
   claims,
   onCreate,
 }: {
+  serverName: string
   url: string
   apiKey: string
   claims: string[]
@@ -91,22 +94,22 @@ export function KeysView({
     <>
       <TopBar />
       <div className="content">
-        <Breadcrumb crumbs={[{ label: 'Admin' }, { label: 'API keys' }]} />
-        <div className="page-head">
-          <div className="page-title-group">
-            <h2 className="page-title">API keys</h2>
-            <span className="page-sub">Claims grant explicit capabilities. Secrets are shown once and only their SHA-256 hashes are stored.</span>
-          </div>
-          {canCreate && (
-            <div className="head-actions">
-              <Button variant="primary" onClick={onCreate}><Plus size={14} /> Create key</Button>
-            </div>
-          )}
-        </div>
+        <Breadcrumb crumbs={[{ label: serverName }, { label: 'API keys' }]} />
+        <SettingsPageHead
+          title="API keys"
+          sub="A secret is shown once. Only its hash is stored."
+          actions={
+            canCreate && (
+              <Button variant="primary" onClick={onCreate}>
+                <Plus size={14} /> Create key
+              </Button>
+            )
+          }
+        />
         {loadError && <div className="banner banner-bad"><span>{loadError}</span><Button variant="secondary" size="sm" onClick={load}>Retry</Button></div>}
-        <div className="card">
+        <div className={`card ${styles.table}`}>
           <div className={`${table.header} ${table.table}`} style={{ ['--cols' as any]: gridCols }}>
-            <span>Label</span><span>Key prefix</span><span>Claims</span><span>Created</span><span />
+            <span>Label</span><span>Key Prefix</span><span>Claims</span><span>Created</span><span />
           </div>
           {keys.map((key) => {
             const isCurrent = key.prefix === currentPrefix

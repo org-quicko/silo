@@ -1,0 +1,669 @@
+/* The settings surface's layout language, shared by every page on it.
+   A section is a hairline and a label, never a card: border, fill and radius
+   each say "separate object", and spending them on every paragraph makes them
+   say nothing. */
+
+/* ---- page head ---- */
+
+.head {
+  display: flex;
+  align-items: flex-start;
+  gap: 16px;
+  margin-bottom: 6px;
+}
+
+.headText {
+  min-width: 0;
+  flex: 1;
+}
+
+.title {
+  display: flex;
+  margin: 0;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  font-size: 26px;
+  font-weight: 700;
+  letter-spacing: -0.028em;
+  line-height: 1.15;
+}
+
+/* A name the API addresses is machine truth, so it is set in mono — the same
+   rule the ids and paths below it follow. */
+.titleMono {
+  font-family: var(--font-mono);
+  font-size: 23px;
+  letter-spacing: -0.04em;
+}
+
+.sub {
+  max-width: 62ch;
+  margin: 7px 0 0;
+  color: var(--text-2);
+  font-size: 13px;
+  line-height: 1.55;
+}
+
+.headActions {
+  display: flex;
+  flex: none;
+  gap: 8px;
+  padding-top: 3px;
+}
+
+@media (max-width: 620px) {
+  .head {
+    flex-direction: column;
+    gap: 12px;
+  }
+
+  .headActions {
+    width: 100%;
+  }
+}
+
+/* ---- inline rename ---- */
+
+.renameButton {
+  display: inline-flex;
+  max-width: 100%;
+  align-items: center;
+  gap: 8px;
+  padding: 1px 5px;
+  margin-left: -5px;
+  border: 1px solid transparent;
+  border-radius: var(--r-1);
+  background: transparent;
+  color: inherit;
+  cursor: text;
+  font: inherit;
+  transition: background 0.12s, border-color 0.12s;
+}
+
+.renameButton:hover {
+  border-color: var(--line);
+  background: var(--panel-2);
+}
+
+.renameButton svg {
+  flex: none;
+  color: var(--text-4);
+  opacity: 0;
+  transition: opacity 0.12s;
+}
+
+.renameButton:hover svg {
+  opacity: 1;
+}
+
+.renameInput {
+  width: 100%;
+  max-width: 340px;
+  min-width: 0;
+  padding: 1px 8px;
+  border: 1px solid var(--accent);
+  border-radius: var(--r-2);
+  background: var(--bg);
+  box-shadow: 0 0 0 3px var(--accent-soft);
+  color: inherit;
+  font: inherit;
+  outline: 0;
+}
+
+.renameHint {
+  margin-top: 7px;
+  color: var(--text-3);
+  font-size: 11.5px;
+}
+
+/* Sits inside the title, so it resets the heading's own type. */
+.renameError {
+  display: block;
+  margin-top: 6px;
+  color: var(--bad);
+  font-family: var(--font-ui);
+  font-size: 12px;
+  font-weight: 400;
+  letter-spacing: 0;
+}
+
+.section {
+  margin-top: 30px;
+}
+
+.sectionHead {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  padding-bottom: 9px;
+  border-bottom: 1px solid var(--line);
+  margin-bottom: 2px;
+}
+
+/* A section whose title sits straight above a bordered table: the table's own
+   top edge already draws the line, so a rule here would double it. Without the
+   rule the title needs its own breathing room instead — the space the rule and
+   its padding used to occupy. */
+.sectionHeadPlain {
+  padding-bottom: 14px;
+  border-bottom: 0;
+}
+
+.sectionHead h2 {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 600;
+  letter-spacing: -0.008em;
+}
+
+.hint {
+  margin-left: auto;
+  color: var(--text-3);
+  font-size: 12px;
+  text-align: right;
+}
+
+/* One setting per line: what it is on the left, the control flush right, so a
+   long page of unrelated fields still scans down a single edge. */
+.row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 268px;
+  align-items: start;
+  gap: 16px 24px;
+  padding: 14px 0;
+  border-bottom: 1px solid var(--line);
+}
+
+.row:last-child {
+  border-bottom: 0;
+}
+
+.stack {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.rowLabel {
+  min-width: 0;
+  padding-top: 1px;
+}
+
+.rowLabel .label {
+  display: block;
+  font-size: 13.5px;
+  font-weight: 500;
+  letter-spacing: -0.005em;
+}
+
+.rowLabel p {
+  max-width: 52ch;
+  margin: 3px 0 0;
+  color: var(--text-3);
+  font-size: 12.5px;
+  line-height: 1.5;
+}
+
+.rowControl {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 7px;
+}
+
+.inline {
+  flex-direction: row;
+  align-items: center;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+}
+
+@media (max-width: 680px) {
+  .row {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 9px;
+  }
+
+  .inline {
+    justify-content: flex-start;
+  }
+}
+
+/* ---- controls ---- */
+
+/* The row already names the field, so the control carries no label of its own
+   and can be a plain box sized to the ledger's right column. */
+.field {
+  width: 100%;
+  padding: 7px 10px;
+  border: 1px solid var(--line-2);
+  border-radius: var(--r-2);
+  background: var(--bg);
+  color: var(--text);
+  font-family: inherit;
+  font-size: 13px;
+  outline: 0;
+}
+
+.field:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-soft);
+}
+
+.fieldMono {
+  font-family: var(--font-mono);
+  font-size: 12.5px;
+  letter-spacing: -0.02em;
+}
+
+.field:disabled {
+  background: var(--panel-2);
+  color: var(--text-3);
+}
+
+.select {
+  composes: field;
+  cursor: pointer;
+  appearance: none;
+  background-image: linear-gradient(45deg, transparent 50%, var(--text-3) 50%),
+    linear-gradient(135deg, var(--text-3) 50%, transparent 50%);
+  background-position: calc(100% - 15px) 50%, calc(100% - 10px) 50%;
+  background-repeat: no-repeat;
+  background-size: 5px 5px, 5px 5px;
+  padding-right: 28px;
+}
+
+/* What the running server is actually using, when it differs from what the
+   file now says — the one thing a saved-but-not-applied setting must admit. */
+.controlNote {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  color: var(--text-3);
+  font-size: 11.5px;
+  line-height: 1.45;
+}
+
+.controlNote svg {
+  flex: none;
+}
+
+.controlNotePending {
+  color: var(--warn);
+}
+
+/* Per-section saves are deliberate (D47): each section commits on its own, so
+   the button belongs under the section it commits. */
+.sectionActions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 10px;
+  padding-top: 14px;
+}
+
+.sectionNote {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-right: auto;
+  color: var(--text-3);
+  font-size: 12px;
+}
+
+.sectionNote svg {
+  flex: none;
+}
+
+.noteOk {
+  color: var(--ok);
+}
+
+.noteWarn {
+  color: var(--warn);
+}
+
+.noteBad {
+  color: var(--bad);
+}
+
+.status {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 13px;
+  font-weight: 500;
+}
+
+.statusDot {
+  width: 7px;
+  height: 7px;
+  flex: none;
+  border-radius: 50%;
+  background: currentColor;
+}
+
+.statusOk {
+  color: var(--ok);
+}
+
+.statusBad {
+  color: var(--bad);
+}
+
+.statusIdle {
+  color: var(--text-3);
+}
+
+.chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+/* ---- read-only truth ---- */
+
+/* Identifiers and paths are on screen precisely because someone needs them
+   somewhere else, so the whole row is the copy button. */
+.facts {
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: var(--r-3);
+  background: var(--panel);
+}
+
+.fact {
+  display: grid;
+  width: 100%;
+  min-height: 38px;
+  grid-template-columns: 150px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 12px;
+  padding: 0 10px 0 14px;
+  border: 0;
+  border-bottom: 1px solid var(--line);
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+}
+
+.fact:last-child {
+  border-bottom: 0;
+}
+
+.copyable {
+  cursor: pointer;
+  transition: background 0.1s;
+}
+
+.copyable:hover {
+  background: var(--panel-2);
+}
+
+.factKey {
+  color: var(--text-3);
+  font-size: 12.5px;
+}
+
+.factValue {
+  overflow: hidden;
+  font-family: var(--font-mono);
+  font-size: 12.5px;
+  letter-spacing: -0.02em;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.plain {
+  font-family: var(--font-ui);
+  letter-spacing: 0;
+}
+
+.copyMark {
+  display: flex;
+  flex: none;
+  color: var(--text-4);
+  opacity: 0;
+  transition: opacity 0.12s;
+}
+
+.copyable:hover .copyMark,
+.copyable:focus-visible .copyMark {
+  opacity: 1;
+}
+
+.copied {
+  color: var(--ok);
+  opacity: 1;
+}
+
+@media (max-width: 560px) {
+  .fact {
+    grid-template-columns: minmax(0, 1fr) auto;
+    row-gap: 0;
+    padding: 8px 10px 8px 14px;
+  }
+
+  .factKey {
+    grid-column: 1 / -1;
+  }
+}
+
+/* ---- page-level notices ---- */
+
+/* A page-wide condition — the file is read-only, auth is off — rather than a
+   fact about one field, which belongs under that field's control instead. */
+.alert {
+  display: flex;
+  align-items: flex-start;
+  gap: 11px;
+  padding: 12px 14px;
+  border: 1px solid color-mix(in oklab, var(--warn) 30%, transparent);
+  border-radius: var(--r-3);
+  background: var(--warn-soft);
+  margin-top: 18px;
+}
+
+.alert > svg {
+  flex: none;
+  margin-top: 1px;
+  color: var(--warn);
+}
+
+.alert div {
+  min-width: 0;
+  flex: 1;
+}
+
+.alert b {
+  display: block;
+  margin-bottom: 2px;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.alert p {
+  max-width: 64ch;
+  margin: 0;
+  color: var(--text-2);
+  font-size: 12.5px;
+  line-height: 1.5;
+}
+
+.alertBad {
+  border-color: color-mix(in oklab, var(--bad) 30%, transparent);
+  background: var(--bad-soft);
+}
+
+.alertBad > svg {
+  color: var(--bad);
+}
+
+.alertInfo {
+  border-color: var(--accent-line);
+  background: var(--accent-soft);
+}
+
+.alertInfo > svg {
+  color: var(--accent);
+}
+
+/* ---- index lists ---- */
+
+/* Projects, environments, collections: one hairline-separated row each, whose
+   whole surface is the link to that thing's own page.
+
+   The margin matches what a `SettingsSection` puts above itself: an index is
+   the page's own content sitting straight under its head, and every current
+   use is exactly that, so it holds the same rhythm as a page built of
+   sections instead of butting up against the head's description. */
+.list {
+  margin-top: 30px;
+  display: flex;
+  overflow: hidden;
+  flex-direction: column;
+  border: 1px solid var(--line);
+  border-radius: var(--r-3);
+  background: var(--panel);
+}
+
+.listRow {
+  display: flex;
+  width: 100%;
+  align-items: center;
+  gap: 12px;
+  padding: 11px 14px;
+  border: 0;
+  border-bottom: 1px solid var(--line);
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  text-decoration: none;
+  transition: background 0.1s;
+}
+
+.listRow:last-child {
+  border-bottom: 0;
+}
+
+.listRow:hover {
+  background: var(--panel-2);
+}
+
+.listIcon {
+  display: grid;
+  width: 26px;
+  height: 26px;
+  flex: none;
+  border: 1px solid var(--line);
+  border-radius: var(--r-1);
+  background: var(--panel-2);
+  color: var(--text-3);
+  place-items: center;
+}
+
+.listRow:hover .listIcon {
+  border-color: var(--accent-line);
+  color: var(--accent);
+}
+
+.listBody {
+  min-width: 0;
+  flex: 1;
+}
+
+.listName {
+  display: block;
+  font-family: var(--font-mono);
+  font-size: 13.5px;
+  font-weight: 600;
+  letter-spacing: -0.025em;
+}
+
+.listMeta {
+  display: block;
+  overflow: hidden;
+  margin-top: 1px;
+  color: var(--text-3);
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  letter-spacing: -0.02em;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.listRight {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 12px;
+  color: var(--text-3);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+
+.empty {
+  padding: 26px 14px;
+  border: 1px dashed var(--line);
+  border-radius: var(--r-3);
+  color: var(--text-3);
+  font-size: 13px;
+  text-align: center;
+}
+
+/* ---- destructive ---- */
+
+/* Quiet until confirmed, and always last: the loudest thing on a settings page
+   should not be Delete. What the action actually reaches is stated in the row
+   rather than implied by a red card around it. Its own title still carries
+   the ordinary section hairline below it — only the rule that would sit above
+   the section, doubling up against the space `margin-top` already gives it,
+   is left off. */
+.destructive {
+  margin-top: 34px;
+}
+
+.destructive .sectionHead h2 {
+  color: var(--bad);
+}
+
+.destructiveRow {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 16px;
+  padding: 15px 0;
+  border-bottom: 1px solid var(--line);
+}
+
+.destructiveRow:last-child {
+  border-bottom: 0;
+}
+
+.destructiveRow b {
+  display: block;
+  font-size: 13.5px;
+  font-weight: 500;
+}
+
+.destructiveRow p {
+  max-width: 56ch;
+  margin: 3px 0 0;
+  color: var(--text-3);
+  font-size: 12.5px;
+  line-height: 1.5;
+}
+
+.destructiveRow p strong {
+  color: var(--text-2);
+  font-weight: 500;
+}
+
+@media (max-width: 560px) {
+  .destructiveRow {
+    grid-template-columns: 1fr;
+  }
+}
+

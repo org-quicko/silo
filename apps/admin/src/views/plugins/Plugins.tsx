@@ -12,6 +12,7 @@ import type { PluginInstallResponse } from '../../api/types/plugin-install'
 import type { PluginView } from '../../api/types/plugin-view'
 import type { RescanReport } from '../../api/types/rescan-report'
 import { TopBar } from '../shell/TopBar'
+import { SettingsPageHead } from '../settings/parts/SettingsPageHead'
 import { InstallPluginModal } from './InstallPluginModal'
 import { PluginGrantPlan } from './plugin-grant-plan'
 import { PluginRuntimePill } from './PluginRuntimePill'
@@ -52,11 +53,13 @@ function GrantSummary({ plugin }: { plugin: PluginView }) {
  */
 export function PluginsView({
   serverId,
+  serverName,
   url,
   apiKey,
   claims,
 }: {
   serverId: string
+  serverName: string
   url: string
   apiKey: string
   claims: string[]
@@ -102,26 +105,28 @@ export function PluginsView({
       <TopBar />
 
       <div className="content">
-        <Breadcrumb crumbs={[{ label: 'Admin' }, { label: 'Plugins' }]} />
-        <div className="page-head">
-          <div className="page-title-group">
-            <h2 className="page-title">Plugins</h2>
-            <span className="page-sub">
+        <Breadcrumb crumbs={[{ label: serverName }, { label: 'Plugins' }]} />
+        <SettingsPageHead
+          title="Plugins"
+          sub={
+            <>
               Which plugins load is <code>silo.toml</code>. What each may do is a grant held here,
               and withdrawing one takes effect immediately.
-            </span>
-          </div>
-          {canManage && (
-            <div className="head-actions">
-              <Button variant="secondary" onClick={rescan} disabled={rescanning}>
-                <RefreshCw size={14} /> {rescanning ? 'Re-reading…' : 'Re-read silo.toml'}
-              </Button>
-              <Button variant="primary" onClick={() => setInstalling(true)}>
-                <Download size={14} /> Install plugin
-              </Button>
-            </div>
-          )}
-        </div>
+            </>
+          }
+          actions={
+            canManage && (
+              <>
+                <Button variant="secondary" onClick={rescan} disabled={rescanning}>
+                  <RefreshCw size={14} /> {rescanning ? 'Re-reading…' : 'Re-read silo.toml'}
+                </Button>
+                <Button variant="primary" onClick={() => setInstalling(true)}>
+                  <Download size={14} /> Install plugin
+                </Button>
+              </>
+            )
+          }
+        />
 
         {error && (
           <div className="banner banner-bad">
@@ -132,7 +137,7 @@ export function PluginsView({
         {rescanError && <div className="banner banner-bad"><span>{rescanError}</span></div>}
         {report && <RescanResult report={report} onDismiss={() => setReport(null)} />}
 
-        <div className="card">
+        <div className={`card ${styles.table}`}>
           <div className={`${table.header} ${table.table}`} style={{ ['--cols' as any]: gridCols }}>
             <span>Plugin</span><span>Authority</span><span>Granted</span><span>Runtime</span><span />
           </div>

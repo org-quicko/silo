@@ -178,7 +178,7 @@ export function Sidebar({
 
       <div className={styles.scroll}>
         <div className={styles.groupHead}>
-          <span className={styles.groupLabel}>COLLECTIONS</span>
+          <span className={styles.groupLabel}>Collections</span>
           <span className={styles.groupCount}>{collections.length}</span>
           <span className={styles.groupSpacer} />
           {collections.length > 0 && (

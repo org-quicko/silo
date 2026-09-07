@@ -2,7 +2,7 @@ import {
   ArrowLeft,
   ArrowUpDown,
   FileCog,
-  FolderGit2,
+  Folder,
   Image,
   KeyRound,
   Layers,
@@ -11,7 +11,7 @@ import {
   Server as ServerIcon,
   SlidersHorizontal,
 } from 'lucide-react'
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
 import type { ScopeRef } from '../../api/types/scope-ref'
 import type { SettingsRoute } from '../../router/route'
 import { Routes } from '../../router/routes'
@@ -69,23 +69,14 @@ export function SettingsNav({
   const projectSection = route.view === 'project-settings' ? route.section : null
   const envSection = route.view === 'env-settings' ? route.section : null
 
-  const insideEnvironment = envSection !== null
-  const insideProject = projectSection !== null || insideEnvironment
-
-  const [projectOpen, setProjectOpen] = useState(insideProject)
-  const [environmentOpen, setEnvironmentOpen] = useState(insideEnvironment)
-
-  // Navigating into a scope opens its block; navigating out leaves it as the
-  // user left it, since collapsing under the cursor would be its own surprise.
-  useEffect(() => {
-    if (insideProject) setProjectOpen(true)
-  }, [insideProject])
-  useEffect(() => {
-    if (insideEnvironment) {
-      setProjectOpen(true)
-      setEnvironmentOpen(true)
-    }
-  }, [insideEnvironment])
+  // Opened by acting on the row — its chevron, or following the row itself,
+  // which is the one navigation that is *about* the environments. Still no
+  // opening on route change alone: that used to fight a deliberate collapse
+  // the moment the route re-entered the scope, and a page reached from a
+  // breadcrumb or a link elsewhere is not a request to see this block.
+  // Projects itself has no collapse of its own — it is the one group always
+  // worth seeing into.
+  const [environmentOpen, setEnvironmentOpen] = useState(false)
 
   return (
     <div className={styles.navColumn}>
@@ -104,12 +95,7 @@ export function SettingsNav({
             title={`Back to the ${scope.project}/${scope.env} workspace on ${serverName}`}
           >
             <ArrowLeft size={14} className={styles.navHeaderIcon} />
-            <span className={styles.backCopy}>
-              <span className={styles.navTitle}>Settings</span>
-              <span className={styles.backScope}>
-                {scope.project} · {scope.env}
-              </span>
-            </span>
+            <span className={styles.navTitle}>Settings</span>
           </button>
         ) : (
           <button type="button" className={styles.backBtn} onClick={onBack} title="Back to servers">
@@ -126,129 +112,116 @@ export function SettingsNav({
             to={Routes.serverSettings(serverId, 'keys')}
             icon={<KeyRound size={15} />}
             title="API Keys"
-            subtitle="Access tokens & claims"
             active={serverSection === 'keys' || serverSection === 'key-new'}
           />
           <SettingsNavItem
             to={Routes.serverSettings(serverId, 'transfer')}
             icon={<ArrowUpDown size={15} />}
             title="Data Transfer"
-            subtitle="Whole-instance archive & copy"
             active={serverSection === 'transfer'}
           />
           <SettingsNavItem
             to={Routes.serverSettings(serverId, 'media-storage')}
             icon={<Image size={15} />}
             title="Media Library"
-            subtitle="Storage provider & credentials"
             active={serverSection === 'media-storage'}
           />
           <SettingsNavItem
             to={Routes.serverSettings(serverId, 'configuration')}
             icon={<FileCog size={15} />}
             title="Configuration"
-            subtitle="Logging, search & validation"
             active={serverSection === 'configuration'}
           />
           <SettingsNavItem
             to={Routes.serverSettings(serverId, 'plugins')}
             icon={<Plug size={15} />}
             title="Plugins"
-            subtitle="Grants, config & lifecycle"
             active={serverSection === 'plugins' || serverSection === 'plugin'}
           />
           <SettingsNavItem
             to={Routes.serverSettings(serverId, 'connection')}
             icon={<ServerIcon size={15} />}
             title="Connection"
-            subtitle="Endpoint, health & diagnostics"
             active={serverSection === 'connection'}
           />
         </div>
 
-        <div className={styles.navDivider} />
 
         <div className={styles.group}>
           <span className={styles.groupLabel}>Projects</span>
           <SettingsNavItem
             to={Routes.serverSettings(serverId, 'projects')}
-            icon={<FolderGit2 size={15} />}
+            icon={<Folder size={15} />}
             title="Projects"
-            subtitle="Browse & create projects"
             active={serverSection === 'projects'}
-            expanded={projectOpen}
-            onToggleExpanded={() => setProjectOpen((open) => !open)}
           />
 
-          {projectOpen && (
-            <div className={styles.subGroup}>
-              <ScopeSwitcher
-                icon={<FolderGit2 size={13} />}
-                label="Project"
-                options={projects}
-                value={scope?.project ?? null}
-                loading={loadingProjects}
-                createLabel={canCreateProject ? 'New project' : undefined}
-                onCreate={canCreateProject ? onCreateProject : undefined}
-                onSelect={onSelectProject}
-              />
+          <div className={styles.subGroup}>
+            <ScopeSwitcher
+              icon={<Folder size={13} />}
+              label="Project"
+              options={projects}
+              value={scope?.project ?? null}
+              loading={loadingProjects}
+              createLabel={canCreateProject ? 'New project' : undefined}
+              onCreate={canCreateProject ? onCreateProject : undefined}
+              onSelect={onSelectProject}
+            />
 
-              {scope ? (
-                <>
-                  <SettingsNavItem
-                    to={Routes.projectSettings(serverId, scope.project, 'general')}
-                    icon={<SlidersHorizontal size={15} />}
-                    title="General"
-                    subtitle="Identity & danger zone"
-                    active={projectSection === 'general'}
-                  />
-                  <SettingsNavItem
-                    to={Routes.projectSettings(serverId, scope.project, 'environments')}
-                    icon={<Layers size={15} />}
-                    title="Environments"
-                    subtitle="Browse & create environments"
-                    active={projectSection === 'environments'}
-                    expanded={environmentOpen}
-                    onToggleExpanded={() => setEnvironmentOpen((open) => !open)}
-                  />
+            {scope ? (
+              <>
+                <SettingsNavItem
+                  to={Routes.projectSettings(serverId, scope.project, 'general')}
+                  icon={<SlidersHorizontal size={15} />}
+                  title="General"
+                  active={projectSection === 'general'}
+                />
+                <SettingsNavItem
+                  to={Routes.projectSettings(serverId, scope.project, 'environments')}
+                  icon={<Layers size={15} />}
+                  title="Environments"
+                  active={projectSection === 'environments'}
+                  expanded={environmentOpen}
+                  onToggleExpanded={() => setEnvironmentOpen((open) => !open)}
+                  // Opens rather than toggles: clicking through to the
+                  // environments list and having the block it belongs to shut
+                  // underneath you is not what the click asked for.
+                  onOpen={() => setEnvironmentOpen(true)}
+                />
 
-                  {environmentOpen && (
-                    <div className={styles.subGroup}>
-                      <ScopeSwitcher
-                        icon={<Layers size={13} />}
-                        label="Environment"
-                        options={environments}
-                        value={scope.env}
-                        loading={loadingEnvironments}
-                        createLabel={canCreateEnvironment ? 'New environment' : undefined}
-                        onCreate={canCreateEnvironment ? onCreateEnvironment : undefined}
-                        onSelect={onSelectEnvironment}
-                      />
-                      <SettingsNavItem
-                        to={Routes.envSettings(serverId, scope.project, scope.env, 'general')}
-                        icon={<SlidersHorizontal size={15} />}
-                        title="General"
-                        subtitle="Contents & danger zone"
-                        active={envSection === 'general'}
-                      />
-                      <SettingsNavItem
-                        to={Routes.envSettings(serverId, scope.project, scope.env, 'transfer')}
-                        icon={<ArrowUpDown size={15} />}
-                        title="Data Transfer"
-                        subtitle="Copy from another environment"
-                        active={envSection === 'transfer'}
-                      />
-                    </div>
-                  )}
-                </>
-              ) : (
-                <span className={styles.groupPending}>Create a project to configure one.</span>
-              )}
-            </div>
-          )}
+                {environmentOpen && (
+                  <div className={styles.subGroup}>
+                    <ScopeSwitcher
+                      icon={<Layers size={13} />}
+                      label="Environment"
+                      options={environments}
+                      value={scope.env}
+                      loading={loadingEnvironments}
+                      createLabel={canCreateEnvironment ? 'New environment' : undefined}
+                      onCreate={canCreateEnvironment ? onCreateEnvironment : undefined}
+                      onSelect={onSelectEnvironment}
+                    />
+                    <SettingsNavItem
+                      to={Routes.envSettings(serverId, scope.project, scope.env, 'general')}
+                      icon={<SlidersHorizontal size={15} />}
+                      title="General"
+                      active={envSection === 'general'}
+                    />
+                    <SettingsNavItem
+                      to={Routes.envSettings(serverId, scope.project, scope.env, 'transfer')}
+                      icon={<ArrowUpDown size={15} />}
+                      title="Data Transfer"
+                      active={envSection === 'transfer'}
+                    />
+                  </div>
+                )}
+              </>
+            ) : (
+              <span className={styles.groupPending}>Create a project to configure one.</span>
+            )}
+          </div>
         </div>
 
-        <div className={styles.navDivider} />
 
         <div className={styles.group}>
           <span className={styles.groupLabel}>Application</span>
@@ -256,7 +229,6 @@ export function SettingsNav({
             to={Routes.serverSettings(serverId, 'appearance')}
             icon={<Palette size={15} />}
             title="Appearance"
-            subtitle="Fonts & accent colour"
             active={serverSection === 'appearance'}
           />
         </div>

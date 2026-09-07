@@ -1,9 +1,11 @@
-import { AlertTriangle, RefreshCw, RotateCw } from 'lucide-react'
+import { AlertTriangle, RefreshCw } from 'lucide-react'
 import { Claims } from '@silo/shared/claims'
 import { Button } from '../../../components/buttons/Button'
 import { Breadcrumb } from '../../../components/navigation/Breadcrumb'
 import { TopBar } from '../../shell/TopBar'
 import type { Server } from '../../servers/server'
+import { SettingsAlert } from '../parts/SettingsAlert'
+import { SettingsPageHead } from '../parts/SettingsPageHead'
 import settings from '../SettingsView.module.css'
 import { ConfigSectionCard } from './ConfigSectionCard'
 import { useConfigSettingsForm } from './use-config-settings-form'
@@ -39,28 +41,24 @@ export function ConfigurationPage({ server, claims }: { server: Server; claims: 
 
       <div className="content">
         <Breadcrumb crumbs={[{ label: server.name }, { label: 'Configuration' }]} />
-        <div className="page-head">
-          <div className="page-title-group">
-            <h2 className="page-title">Configuration</h2>
-            <span className="page-sub">
-              {view?.config_path
-                ? `The rest of ${view.config_path}.`
-                : "The server's own settings."}
-            </span>
-          </div>
-          {canConfigure && (
-            <Button variant="secondary" onClick={form.reload} disabled={loading}>
-              <RefreshCw size={14} />
-              <span>Reload</span>
-            </Button>
-          )}
-        </div>
+
+        <SettingsPageHead
+          title="Configuration"
+          actions={
+            canConfigure && (
+              <Button variant="secondary" onClick={form.reload} disabled={loading}>
+                <RefreshCw size={14} />
+                <span>Reload</span>
+              </Button>
+            )
+          }
+        />
 
         {!loading && !canConfigure && (
-          <div className={styles.readOnly}>
-            This key cannot read or change the server settings. It needs the{' '}
+          <SettingsAlert tone="bad" title="Not readable with this key">
+            Reading or changing the server settings needs the{' '}
             <code>{Claims.SettingsConfigure}</code> claim.
-          </div>
+          </SettingsAlert>
         )}
 
         {form.error && (
@@ -73,30 +71,24 @@ export function ConfigurationPage({ server, claims }: { server: Server; claims: 
         {loading && <div className={styles.readOnly}>Loading…</div>}
 
         {view && (
-          <div className={settings.generalContent}>
+          <>
             {!view.writable && (
-              <div className={styles.notice}>
-                <AlertTriangle size={14} />
-                <span>
-                  {view.read_only_reason ??
-                    'This server cannot write its config file, so these settings are read-only.'}
-                </span>
-              </div>
+              <SettingsAlert title="Read-only">
+                {view.read_only_reason ??
+                  'This server cannot write its config file, so these settings cannot be changed here.'}
+              </SettingsAlert>
             )}
 
             {view.restart_pending && (
-              <div className={styles.notice}>
-                <RotateCw size={14} />
-                <span>
-                  Some saved settings take effect the next time this server starts.
-                </span>
-              </div>
+              <SettingsAlert tone="restart" title="Restart pending">
+                Some saved settings take effect the next time this server starts.
+              </SettingsAlert>
             )}
 
             {view.sections.map((section) => (
               <ConfigSectionCard key={section.table} section={section} onSave={form.saveSection} />
             ))}
-          </div>
+          </>
         )}
       </div>
     </>

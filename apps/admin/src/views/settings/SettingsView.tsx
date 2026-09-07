@@ -183,6 +183,7 @@ export function SettingsView({ server, route, onUpdateServer, onDeleteServer, on
 
         {route.view === 'server-settings' && route.section === 'keys' && (
           <KeysView
+            serverName={server.name}
             url={url}
             apiKey={apiKey}
             claims={claims}
@@ -209,6 +210,7 @@ export function SettingsView({ server, route, onUpdateServer, onDeleteServer, on
         {route.view === 'server-settings' && route.section === 'plugins' && (
           <PluginsView
             serverId={serverId}
+            serverName={server.name}
             url={url}
             apiKey={apiKey}
             claims={claims}
@@ -234,10 +236,8 @@ export function SettingsView({ server, route, onUpdateServer, onDeleteServer, on
 
         {route.view === 'server-settings' && route.section === 'transfer' && (
           <ExportImportView
-            url={url}
-            apiKey={apiKey}
+            server={server}
             claims={claims}
-            collectionCount={collections.length}
             onImported={() => {
               reloadProjects()
               reloadEnvironments()
@@ -267,7 +267,7 @@ export function SettingsView({ server, route, onUpdateServer, onDeleteServer, on
         )}
 
         {route.view === 'server-settings' && route.section === 'appearance' && (
-          <AppearancePage />
+          <AppearancePage serverName={server.name} />
         )}
       </div>
     </div>

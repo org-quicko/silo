@@ -1,4 +1,4 @@
-import { FolderGit2 } from 'lucide-react'
+import { Folder } from 'lucide-react'
 import { useState } from 'react'
 import { BrowserColumn } from './BrowserColumn'
 import { ColumnItem } from './ColumnItem'
@@ -33,7 +33,7 @@ export function ProjectColumn({
 
   return (
     <BrowserColumn
-      icon={FolderGit2}
+      icon={Folder}
       title="Projects"
       count={serverId ? projects.length : undefined}
       active={Boolean(serverId)}
@@ -42,7 +42,7 @@ export function ProjectColumn({
     >
       {!serverId ? (
         <ColumnPlaceholder
-          icon={FolderGit2}
+          icon={Folder}
           message="Select a server"
           hint="Projects will appear here"
         />
