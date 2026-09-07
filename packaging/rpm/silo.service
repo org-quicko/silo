@@ -26,6 +26,7 @@ NoNewPrivileges=true
 PrivateTmp=true
 PrivateDevices=true
 ProtectSystem=strict
+ReadWritePaths=/etc/silo
 ProtectHome=true
 ProtectKernelTunables=true
 ProtectKernelModules=true
