@@ -65,6 +65,7 @@ describe('running an import', () => {
         prefix: '',
         mediaBaseUrl: 'https://cms.example.com',
         mediaFolder: 'strapi',
+        mediaLayout: 'single',
       }),
     }
   }
@@ -133,5 +134,50 @@ describe('running an import', () => {
 
     expect(silo.entries.every((write) => write.scope.project === 'archive')).toBe(true)
     expect(silo.calls.some((call) => call.path.includes('/projects/default/'))).toBe(false)
+  })
+
+  /**
+   * The single type is nothing but a wrapper around one repeatable component —
+   * see `strapi-flattening.test.ts` — so flattening it writes one entry per
+   * item, with the component's own schema at the top rather than nested under
+   * `items`.
+   */
+  test('a flattened step writes one entry per component item', async () => {
+    const source = StrapiDatabase.open(file)
+    const { inventory, plan } = planFor(source, { project: 'default', env: 'prod' })
+    source.close()
+
+    const flattened = {
+      ...plan,
+      steps: plan.steps.map((step) =>
+        step.collection === 'org-quicko-payment-entity' ? { ...step, flatten: true } : step,
+      ),
+    }
+
+    const silo = emptySilo()
+    const job = new ImportJob({
+      id: 'import-3',
+      plan: flattened,
+      sourcePath: file,
+      inventory,
+      uploads: FakeSilo.uploads(null),
+      ctx: silo.ctx,
+    })
+    await job.run()
+
+    const progress = job.snapshot()
+    const step = progress.steps.find((entry) => entry.collection === 'org-quicko-payment-entity')!
+    expect(step).toMatchObject({ flatten: true, total: 2, written: 2, failed: 0, state: 'done' })
+
+    const created = silo.created.find((call) => call.body.name === 'org-quicko-payment-entity')!
+    expect(created.body.schema.properties.entity_name).toBeDefined()
+    expect(created.body.schema.properties.items).toBeUndefined()
+
+    const written = silo.entries.filter((entry) => entry.collection === 'org-quicko-payment-entity')
+    expect(written.map((entry) => entry.data.entity_name)).toEqual(['Mastercard', 'Visa'])
+
+    const visa = written.find((entry) => entry.data.entity_name === 'Visa')!.data
+    expect(visa.entity_icon).toBe('https://cms.example.com/uploads/visa_0a2d4ecc.svg')
+    expect(visa.rails[0].rail_icon).toBe('https://cms.example.com/uploads/npci_1b3c5d.svg')
   })
 })

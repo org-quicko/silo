@@ -39,6 +39,14 @@ describe('reading the plugin configuration', () => {
     expect(settingsFor({ version: 'draft' }).version).toBe('draft')
   })
 
+  /** Same rule as `version`: an unconfigured or unusable value is the default
+   *  the manifest advertises, not a start-up failure. */
+  test('an unusable media layout falls back to single', () => {
+    expect(settingsFor({}).mediaLayout).toBe('single')
+    expect(settingsFor({ media_layout: 'by-collection' }).mediaLayout).toBe('by-collection')
+    expect(settingsFor({ media_layout: 'sideways' }).mediaLayout).toBe('single')
+  })
+
   test('a blank work_dir is the system temp directory, not a directory named ""', () => {
     expect(settingsFor({ work_dir: '   ' }).workDir).toBe(
       path.join(os.tmpdir(), 'silo-strapi-import'),

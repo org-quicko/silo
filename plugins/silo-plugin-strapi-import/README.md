@@ -98,6 +98,21 @@ column holding one is a field that looks like a key and is not. A re-import
 matches on content or it does not match at all, which is what the plan's
 `replace` is for.
 
+### Flattening a single type
+
+A single type whose only field is one repeatable component contributes nothing
+of its own — no columns, no other field, one component. Flattening it writes
+one entry per component item instead of one entry holding all of them, and none
+of the losses the table above lists apply: the wrapper has no field to lose, the
+item's own children stay nested inside it, and there is exactly one component to
+name the collection after.
+
+It is **opt-in, per step, on the plan** — a checkbox next to the content types
+it applies to, unticked by default, because fidelity-first stays the default
+even on a list that qualifies. Turning it on does not rename the collection: it
+still proposes the content type's name, and you rename it the same way you would
+either way.
+
 ### What the export does not say
 
 A content type's schema is in the export. **A component's is not** — it lives in
@@ -171,6 +186,19 @@ the configuration said, because silo does not apply a config schema's `default` 
 the manifest advertised `strapi` and the plugin read a missing key as "root", so
 an operator who never wrote the key got several hundred hashed Strapi filenames in
 the root of their library.
+
+`media_layout` decides how those uploads are arranged under it. `single`, the
+default, is the behaviour above: everything in `media_folder`. `by-collection`
+gives each collection of the run its own folder underneath, e.g.
+`strapi/countries`, and a file two or more collections reference lands in
+`strapi/shared` instead — decided **exactly**, from the rows the run writes
+after flattening, because one component uid can serve two content types and
+that is precisely the case `shared` exists for. The "Folders" select in the
+panel's uploads step chooses it for a run, and the choice is part of the plan
+`POST /imports` receives, so a re-render keeps it. Changing the layout between
+runs does not move files already in the library: the byte-for-byte lookup below
+looks in the folder the current layout names, so the next run uploads into the
+new folders and the earlier copies stay where they were.
 
 ### Why one file per request
 
@@ -285,6 +313,7 @@ claims     = [
   [plugins.config]
   media_base_url = "https://cms.example.com"
   media_folder   = "strapi"
+  media_layout   = "by-collection"
 ```
 
 ```sh
@@ -308,6 +337,7 @@ claims leaves a working importer that can only append and only link.
 | `collection_prefix` | prepended to every proposed name, e.g. `strapi_` |
 | `media_base_url` | the Strapi instance still serving `/uploads/…`, used for a file you did not supply. Empty leaves paths relative — a true statement about the source, where a guessed host would be a false one |
 | `media_folder` | where supplied uploads land in silo's media library, `strapi` by default, created on the first import. Empty means the root |
+| `media_layout` | `single` (default): every upload in `media_folder`. `by-collection`: one folder per collection under it, and `shared` for a file more than one collection uses |
 | `work_dir` | where the export and the supplied uploads are staged. Defaults under the system temp dir, deliberately **not** the data directory: D5 promises that is only your content |
 | `version` | `published` (default) or `draft` |
 

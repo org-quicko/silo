@@ -1,6 +1,8 @@
 import type { SiloContext } from 'silo:api'
 import os from 'os'
 import path from 'path'
+import type { MediaLayout } from '../silo/media-folders'
+import { MediaFolders } from '../silo/media-folders'
 import type { StrapiVersion } from '../strapi/strapi-versions'
 import { StrapiVersions } from '../strapi/strapi-versions'
 
@@ -27,6 +29,8 @@ export class PluginSettings {
   readonly mediaBaseUrl: string
   /** Where in silo's media library supplied uploads land. */
   readonly mediaFolder: string
+  /** How uploads are laid out under `mediaFolder` — see `MediaFolders`. */
+  readonly mediaLayout: MediaLayout
   /** Which document version the source is read as. */
   readonly version: StrapiVersion
   /** Where the staged `.db` and any supplied uploads are written. */
@@ -36,6 +40,7 @@ export class PluginSettings {
     this.prefix = PluginSettings.text(config.collection_prefix, '')
     this.mediaBaseUrl = PluginSettings.text(config.media_base_url, '')
     this.mediaFolder = PluginSettings.text(config.media_folder, PluginSettings.DefaultMediaFolder)
+    this.mediaLayout = MediaFolders.isLayout(config.media_layout) ? config.media_layout : 'single'
     this.version = StrapiVersions.isVersion(config.version) ? config.version : 'published'
     this.workDir = PluginSettings.text(config.work_dir, '').trim() || PluginSettings.tempDir()
   }

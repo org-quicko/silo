@@ -1,5 +1,8 @@
 import type { SiloScope } from 'silo:api'
+import { ImportSteps } from './import-steps'
 import { SiloNames } from '../silo/silo-names'
+import type { MediaLayout } from '../silo/media-folders'
+import { MediaFolders } from '../silo/media-folders'
 import type { StrapiInventory } from '../strapi/strapi-inventory'
 import type { StrapiVersion } from '../strapi/strapi-versions'
 import { StrapiVersions } from '../strapi/strapi-versions'
@@ -17,6 +20,10 @@ export interface ImportStep {
   /** Unticked steps stay on the plan and are not run — an operator narrowing an
    *  import should be able to see what they left out. */
   include: boolean
+  /** One entry per component item instead of one entry holding all of them.
+   *  Only ever `true` on a list `StrapiFlattenings` found eligible — see
+   *  `ImportSteps`. */
+  flatten: boolean
 }
 
 export interface ImportPlan {
@@ -30,6 +37,8 @@ export interface ImportPlan {
   mediaBaseUrl: string
   /** Where in silo's media library supplied uploads land. */
   mediaFolder: string
+  /** How uploads are laid out under `mediaFolder` — see `MediaFolders`. */
+  mediaLayout: MediaLayout
   steps: ImportStep[]
 }
 
@@ -58,10 +67,13 @@ export interface ImportPlan {
  * components were split away from the entries that own them. Fidelity first;
  * an operator who wants a component as its own collection can still get there
  * from an entry, and nobody can get the nesting back from a split.
+ *
+ * A single type that is nothing but a wrapper around one repeatable component
+ * is the one shape none of that applies to, and `flatten` on a step is how an
+ * operator opts into importing it one entry per item instead — see
+ * `StrapiFlattenings`.
  */
 export class ImportPlans {
-  static readonly Modes: readonly ImportMode[] = ['append', 'replace', 'skip']
-
   /**
    * What silo would do with this export if nobody edited anything.
    *
@@ -77,6 +89,7 @@ export class ImportPlans {
       prefix: string
       mediaBaseUrl: string
       mediaFolder: string
+      mediaLayout: MediaLayout
     },
   ): ImportPlan {
     const taken = new Set<string>()
@@ -88,6 +101,8 @@ export class ImportPlans {
       // available, and it is a thing an operator has to choose.
       mode: 'append' as ImportMode,
       include: list.count > 0,
+      // Opt-in: fidelity-first stays the default even on a list that qualifies.
+      flatten: false,
     }))
 
     return {
@@ -96,6 +111,7 @@ export class ImportPlans {
       version: inventory.version,
       mediaBaseUrl: defaults.mediaBaseUrl,
       mediaFolder: defaults.mediaFolder,
+      mediaLayout: defaults.mediaLayout,
       steps,
     }
   }
@@ -129,7 +145,7 @@ export class ImportPlans {
     const steps: ImportStep[] = []
     const seen = new Set<string>()
     for (const entry of ImportPlans.array(body.steps)) {
-      const step = ImportPlans.step(entry, inventory)
+      const step = ImportSteps.read(entry, inventory)
       if (!step.include) continue
       if (seen.has(step.collection)) {
         throw new Error(
@@ -149,6 +165,7 @@ export class ImportPlans {
       version,
       mediaBaseUrl: typeof body.mediaBaseUrl === 'string' ? body.mediaBaseUrl : '',
       mediaFolder: ImportPlans.folder(body.mediaFolder),
+      mediaLayout: ImportPlans.layout(body.mediaLayout),
       steps,
     }
   }
@@ -174,31 +191,6 @@ export class ImportPlans {
     }
   }
 
-  private static step(raw: unknown, inventory: StrapiInventory): ImportStep {
-    if (!raw || typeof raw !== 'object') throw new Error('every step must be an object')
-    const entry = raw as Record<string, unknown>
-
-    const list = inventory.lists.find((candidate) => candidate.id === String(entry.list))
-    if (!list) {
-      throw new Error(
-        `step "${String(entry.list)}" names no list in this source. Re-read the source: a ` +
-          `plan built against a different database cannot be applied to this one.`,
-      )
-    }
-
-    const mode = entry.mode === undefined ? 'append' : entry.mode
-    if (!(ImportPlans.Modes as readonly unknown[]).includes(mode)) {
-      throw new Error(`step "${list.id}" has "mode": ${JSON.stringify(entry.mode)}`)
-    }
-
-    return {
-      list: list.id,
-      collection: SiloNames.check(entry.collection, `step "${list.id}" collection`),
-      mode: mode as ImportMode,
-      include: entry.include !== false,
-    }
-  }
-
   /**
    * A media folder silo will accept, normalised.
    *
@@ -214,6 +206,15 @@ export class ImportPlans {
       throw new Error(`"mediaFolder" may not contain ".." — it names a folder in silo's library`)
     }
     return value
+  }
+
+  /** `single` when nobody said, else a refusal naming the field. */
+  private static layout(raw: unknown): MediaLayout {
+    if (raw === undefined) return 'single'
+    if (!MediaFolders.isLayout(raw)) {
+      throw new Error(`"mediaLayout" must be one of ${MediaFolders.Layouts.join(', ')}`)
+    }
+    return raw
   }
 
   private static array(raw: unknown): unknown[] {

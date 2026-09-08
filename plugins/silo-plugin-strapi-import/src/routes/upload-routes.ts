@@ -62,6 +62,7 @@ export class UploadRoutes {
               wantedBytes: wanted.reduce((sum, file) => sum + (file.bytes ?? 0), 0),
             },
             folder: runtime.settings.mediaFolder,
+            layout: runtime.settings.mediaLayout,
             baseUrl: runtime.settings.mediaBaseUrl,
           },
         }

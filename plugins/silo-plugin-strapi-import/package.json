@@ -122,6 +122,13 @@
           "description": "Where supplied uploads land in silo's media library, created on the first import if it is not there. Keeps a few hundred hashed Strapi filenames out of the library root. Empty means the root.",
           "default": "strapi"
         },
+        "media_layout": {
+          "type": "string",
+          "title": "Media folder layout",
+          "description": "single: every upload in the media folder. by-collection: a folder per collection under it, and shared for a file more than one collection uses.",
+          "enum": ["single", "by-collection"],
+          "default": "single"
+        },
         "work_dir": {
           "type": "string",
           "title": "Staging directory",

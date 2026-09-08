@@ -4,6 +4,26 @@
 > The *current* state is [CONTEXT.md](../../CONTEXT.md); this is how it got
 > there.
 
+- **The Strapi importer can flatten a wrapper single type into one entry per
+  item, and lay media out by collection (2026-09-08).** A single type whose
+  only field is one repeatable component contributes nothing of its own, so
+  none of the general lift's losses apply to it — the wrapper has no field to
+  lose, the item's own children stay nested, and there is one component to name
+  the collection after. `StrapiFlattenings.of` decides eligibility from the
+  shape (a single type, no columns, no media, no open field, one repeatable
+  child, one resolved component); a step opts in with `flatten: true`, checked
+  against it at `ImportPlans.read` (moved, with the rest of a step's own
+  validation, into a new `ImportSteps`); `StrapiRows.read` and
+  `StrapiSchema.forList` both take the flag. Separately, `media_layout` lays
+  every upload in one configured folder (`single`, unchanged) or gives each
+  collection of the run its own folder underneath, with a `shared` folder for a
+  file two or more collections reference — decided **exactly** by
+  `StrapiMediaOwners.read`, from the rows the run is about to write, rather
+  than approximated from a component uid that can itself be nested under two
+  content types. `MediaFolders` decides one file's folder from that ownership,
+  and `MediaLibrary` now declares each distinct folder once rather than the one
+  it used to hold.
+
 - **Content can reference an environment variable, and the API substitutes it
   (D57, 2026-09-07).** A string that has to differ between `staging` and `prod`
   and is otherwise identical everywhere — an API base URL, a support address, a
