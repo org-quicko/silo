@@ -27,7 +27,7 @@ function adoptLegacySort(sort: string): string {
  *   /servers/:sid/settings/{keys,keys/new,transfer,connection,appearance,media-storage,configuration}
  *   /servers/:sid/settings/plugins[/:name]
  *   /servers/:sid/projects/:project/settings/{general,environments}
- *   /servers/:sid/projects/:project/environments/:env/settings/{general,transfer}
+ *   /servers/:sid/projects/:project/environments/:env/settings/{general,variables,transfer}
  *
  * Every page therefore has exactly one canonical URL: server-level pages take
  * no scope prefix, because a key or a connection belongs to the instance and
@@ -202,7 +202,7 @@ export class Routes {
     env: string,
     section?: string,
   ): Route | null {
-    if (section === 'general' || section === 'transfer') {
+    if (section === 'general' || section === 'variables' || section === 'transfer') {
       return { view: 'env-settings', serverId, project, env, section }
     }
     return null

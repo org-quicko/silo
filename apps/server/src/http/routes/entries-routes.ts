@@ -52,8 +52,15 @@ export class EntriesRoutes {
       // Built once for the whole page: in store mode it resolves blob keys, and
       // doing that per entry would be a lookup storm for one answer (D46).
       const links = await service.media.links(RequestUtils.getBaseUrl(c), response.items);
+      // Built once for the page for the same reason `links` is, and skipped
+      // entirely when the page references nothing (D57).
+      const values = RequestUtils.wantsRawVariables(c)
+        ? undefined
+        : await service.variables.forPayload(scope, response.items);
       return c.json({
-        data: response.items.map((item) => EntryUtils.toApiResponse(item, collection.schema, links)),
+        data: response.items.map((item) =>
+          EntryUtils.toApiResponse(item, collection.schema, links, values)
+        ),
         total: response.total,
         limit: response.limit,
         offset: response.offset,
@@ -77,7 +84,10 @@ export class EntriesRoutes {
       const data = await c.req.json();
       const e = await service.entries.create(scope, name, data, RouteAuth.getWriteContext(c));
       const links = await service.media.links(RequestUtils.getBaseUrl(c), e);
-      return c.json(EntryUtils.toApiResponse(e, collection.schema, links), 201);
+      const values = RequestUtils.wantsRawVariables(c)
+        ? undefined
+        : await service.variables.forPayload(scope, e);
+      return c.json(EntryUtils.toApiResponse(e, collection.schema, links, values), 201);
     };
 
     app.post("/api/projects/:project/environments/:env/collections/:name", createHandler);
@@ -98,7 +108,10 @@ export class EntriesRoutes {
       );
       const e = await service.entries.get(scope, name, id);
       const links = await service.media.links(RequestUtils.getBaseUrl(c), e);
-      return c.json(EntryUtils.toApiResponse(e, collection.schema, links));
+      const values = RequestUtils.wantsRawVariables(c)
+        ? undefined
+        : await service.variables.forPayload(scope, e);
+      return c.json(EntryUtils.toApiResponse(e, collection.schema, links, values));
     };
 
     app.get("/api/projects/:project/environments/:env/collections/:name/:id", getHandler);
@@ -120,7 +133,10 @@ export class EntriesRoutes {
       const data = await c.req.json();
       const e = await service.entries.update(scope, name, id, data, rev, RouteAuth.getWriteContext(c));
       const links = await service.media.links(RequestUtils.getBaseUrl(c), e);
-      return c.json(EntryUtils.toApiResponse(e, collection.schema, links));
+      const values = RequestUtils.wantsRawVariables(c)
+        ? undefined
+        : await service.variables.forPayload(scope, e);
+      return c.json(EntryUtils.toApiResponse(e, collection.schema, links, values));
     };
 
     app.put("/api/projects/:project/environments/:env/collections/:name/:id", updateHandler);

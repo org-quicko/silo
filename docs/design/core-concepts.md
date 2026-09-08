@@ -192,8 +192,88 @@ caller-supplied id can ever start with `_`. The one reserved scope,
 `Scope.System` (`_system`/`_system`), is built through a private constructor
 that bypasses that validation.
 
-There are **seven** system collections, all living in `Scope.System`: **`_keys`** (§8); — since D23 — **`_media`** and **`_media_folders`** (§8.1); — since D38 — **`_audit`** (§8); — since D34 — **`_plugins`** (§13); — since D49 — **`_media_folder_moves`**, which holds a folder rename in flight and is empty in the ordinary case (§8.1); and — since D51 — **`_scope_renames`**, which holds a rename's claim cascade in flight and is likewise empty in the ordinary case (§8). Reusing the doc model here means adapters, the export engine, and the conformance suite cover system data with no extra code — the reserved scope is stored exactly like any other, with no special-cased path in any adapter. (D19 added `_projects`, to record scopes declared but not yet filled; D20 replaced it with first-class project/env storage and it no longer exists.)
+There are **eight** system collections, all living in `Scope.System`: **`_keys`** (§8); — since D23 — **`_media`** and **`_media_folders`** (§8.1); — since D38 — **`_audit`** (§8); — since D34 — **`_plugins`** (§13); — since D49 — **`_media_folder_moves`**, which holds a folder rename in flight and is empty in the ordinary case (§8.1); — since D51 — **`_scope_renames`**, which holds a rename's claim cascade in flight and is likewise empty in the ordinary case (§8); and — since D57 — **`_variables`**, one document per variable declaration (§5.6). Reusing the doc model here means adapters, the export engine, and the conformance suite cover system data with no extra code — the reserved scope is stored exactly like any other, with no special-cased path in any adapter. (D19 added `_projects`, to record scopes declared but not yet filled; D20 replaced it with first-class project/env storage and it no longer exists.)
 
 Since D51 they are **named once**, in `SystemCollections`, and seeded into both adapters. That is not tidiness: `entries.collection_id` is a foreign key, so a system collection needs a `collections` row before anything can be written into it, and a list assembled by hand at each seeding site is a list that will disagree with itself. Their ids are the reserved names rather than minted ULIDs, so `_keys` addresses identically on every instance and an archive naming it needs no translation — which is also why the create paths refuse a supplied `_`-prefixed id, and why nothing has to scan the reserved scope for collisions. `SystemCollections.isKnown` is deliberately **not** the same question as `EntryUtils.isSystemCollection`: the latter asks whether a name is `_`-prefixed and reserves the whole namespace, and remains the security boundary; an unknown `_`-prefixed name is still reserved and still refused, it just has no row.
 
-None of them has a *real* schema. Each row carries `{"x-silo-system": true}` — `x-silo-*` is reserved for silo (§5.2), which is the honest way to say the row exists for referential integrity — and nothing validates against it, because system writes reach `store.put` directly and never pass through `EntryService`. They still have to be reachable wherever content collections are enumerated (`Exporter`, and `Storage.ListEntryCollections` for the general case). `_keys` is a credential, so it stays behind `--with-keys`; `_media`, `_media_folders` and `_media_folder_moves` are ordinary data and are **always** exported, because an archive that carried media bytes but not their filenames and folders would restore a library with no organization in it — and, for the third, because an archive taken mid-rename holds the half-moved subtree either way, so carrying the marker is what lets the restored instance finish the move instead of keeping a split nothing has a record of. An empty project needs no collection of its own to survive a round trip: since D20 it exists as a stored project/env record, `listScopes()` reports it, and the archive carries it as a `projects/<p>/<e>/` directory — since D51 with its `.silo-project` and `.silo-env` markers, which is what carries the records' ids. A project holding **no environment at all** finally travels too: `listScopes()` answers pairs and could never name one, so `Exporter` now walks `listProjects()` as well.
+None of them has a *real* schema. Each row carries `{"x-silo-system": true}` — `x-silo-*` is reserved for silo (§5.2), which is the honest way to say the row exists for referential integrity — and nothing validates against it, because system writes reach `store.put` directly and never pass through `EntryService`. They still have to be reachable wherever content collections are enumerated (`Exporter`, and `Storage.ListEntryCollections` for the general case). `_keys` is a credential, so it stays behind `--with-keys`; `_media`, `_media_folders`, `_media_folder_moves` and — since D57 — `_variables` are ordinary data and are **always** exported, because an archive that carried media bytes but not their filenames and folders would restore a library with no organization in it — and, for the third, because an archive taken mid-rename holds the half-moved subtree either way, so carrying the marker is what lets the restored instance finish the move instead of keeping a split nothing has a record of. An empty project needs no collection of its own to survive a round trip: since D20 it exists as a stored project/env record, `listScopes()` reports it, and the archive carries it as a `projects/<p>/<e>/` directory — since D51 with its `.silo-project` and `.silo-env` markers, which is what carries the records' ids. A project holding **no environment at all** finally travels too: `listScopes()` answers pairs and could never name one, so `Exporter` now walks `listProjects()` as well.
+
+### 5.6 Variables (D57)
+
+A **variable** is a name declared once in a project, given a value in each
+environment, and substituted into `{{NAME}}` wherever an entry references it.
+It exists for the string that has to differ between `staging` and `prod` and is
+otherwise identical everywhere — an API base URL, a support address, a CDN host
+— which before D57 had to be written into every environment's entries and
+hunted down in all of them when it changed.
+
+**The name belongs to the project; the value belongs to the environment.** That
+split is the whole feature, and it is what the storage shape is chosen for.
+One `_variables` document per **declaration** holds
+`{project_id, name, description, values}`, where `values` maps an
+**`EnvironmentRecord` id** to that environment's value:
+
+- **Keyed by record id, never by name**, so D51's renames move nothing.
+  Renaming `prod` to `production` leaves every value exactly where it was; a
+  name-keyed map could only manage that by joining the claim cascade.
+- **Every environment's value in the declaration**, so resolving a scope is one
+  filtered read and **no join**. The alternative — a document per (variable,
+  environment) pair — also makes "declared but unset here" indistinguishable
+  from "never declared", and that distinction is what the response depends on.
+
+`values` holds **only the environments that have been given one**, and an
+absent key is not `""`. An empty string is a value an operator chose and
+substitutes as empty; an absent key means this environment has none, and the
+reference is **left standing** in the response. So is a name nothing declares.
+Blanking the text instead would silently delete content on the way out, and a
+template that survives is one an operator can see and fix — the same
+visible-beats-silent asymmetry `MediaRefs` takes about over-capture.
+
+**Name grammar** is `^[A-Za-z_][A-Za-z0-9_]{0,63}$` — deliberately *not* the
+scope/collection grammar, which is lowercase and allows `-`. Those ids become
+path segments, claim segments and directory names; a variable name is none of
+those, the convention every operator already has is `UPPER_SNAKE`, and allowing
+`-` would make the template grammar ambiguous next to ordinary prose. Case is
+preserved and significant. A **value** is a string and only a string, capped at
+4,096 characters: substitution is textual, so `{{PORT}}` inside a sentence and
+`{{PORT}}` as a whole field must not produce different types from one stored
+value.
+
+**`VariableTemplate` is the one parser** of `{{NAME}}`, shared by the server
+that substitutes and the admin that previews, for the reason `ClaimGrammar` is
+the one parser of a claim: a second would be a second answer to "what does this
+text reference?", and the failure would be an editor showing a value the API
+never fills in. Optional inner whitespace is trimmed; anything that is not a
+well-formed name (`{{ }}`, `{{a b}}`, `{{9x}}`) is ordinary text; and a
+substituted value is **never re-scanned**, so no value can expand into another
+and no pair can loop.
+
+**Resolution happens where media resolution already happens** —
+`EntryUtils.toApiResponse`, after `MediaResolver`, through a synchronous
+`VariableValues` built once per response, exactly as `MediaLinks` is. Running
+after media is deliberate: a resolved URL is silo's own output, not content an
+author typed. The walk is **not schema-driven**, unlike media's: a field is
+media because the schema says so, but a template is a template because somebody
+typed one, so gating substitution on a declared field kind would make the syntax
+work in the fields people remembered to mark and silently not in the rest.
+Object **keys** are never substituted, only values — a key is what a schema, a
+filter path and a search index all address, and letting an environment rename
+one would make the same entry a different shape per environment.
+
+It costs **nothing when nothing is referenced**: `VariableRefs.extract` walks
+the payload first, and a response holding no `{{` asks storage for no variables
+at all — the early-out `MediaLinkResolver` takes for a payload naming no asset.
+A response that *does* reference something pays one filtered read for the whole
+page, however many references it holds. Both walks are depth-bounded, because an
+untyped `{}` property accepts a document whose depth the caller chose.
+
+**Transfer.** `_variables` is in every archive (§5.4), because one carrying
+entries that say `{{API_URL}}` without the declaration behind it would restore
+content whose references have all quietly stopped resolving. A round trip
+preserves values because the archive carries each environment record's id
+(D51). A **scope-to-scope copy** does not carry variables: it copies collections
+and entries between two scopes that already exist, and the destination's
+environment has its own id and its own values, which is the behaviour a copy
+into a configured environment should have.
+
+What §8 adds is the API surface and the claims, and §9 the two admin surfaces.

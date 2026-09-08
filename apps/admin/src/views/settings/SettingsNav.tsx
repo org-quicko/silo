@@ -10,6 +10,7 @@ import {
   Palette,
   Server as ServerIcon,
   SlidersHorizontal,
+  Variable,
 } from 'lucide-react'
 import { useState } from 'react'
 import type { ScopeRef } from '../../api/types/scope-ref'
@@ -206,6 +207,12 @@ export function SettingsNav({
                       icon={<SlidersHorizontal size={15} />}
                       title="General"
                       active={envSection === 'general'}
+                    />
+                    <SettingsNavItem
+                      to={Routes.envSettings(serverId, scope.project, scope.env, 'variables')}
+                      icon={<Variable size={15} />}
+                      title="Variables"
+                      active={envSection === 'variables'}
                     />
                     <SettingsNavItem
                       to={Routes.envSettings(serverId, scope.project, scope.env, 'transfer')}

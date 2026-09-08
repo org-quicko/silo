@@ -45,6 +45,28 @@ export class StoreKeys {
     return `${StoreKeys.collection(serverId, scope, collection)}/pages/${JSON.stringify(query)}`
   }
 
+  /**
+   * Every variable declared in the project, as this environment values them
+   * (D57).
+   *
+   * The one key **not** nested under `scope`, and the exception is the point.
+   * The answer carries one environment's values, so it has to be keyed per
+   * environment; but declaring and undeclaring are project-wide, so a write has
+   * to reach every environment's cached copy at once. Rooting at the project
+   * with the environment as the leaf gives both — `variablesInProject` is the
+   * prefix that names them all, and it names nothing else, which invalidating
+   * from the scope key could not manage without dropping that scope's
+   * collections and entry pages too.
+   */
+  static variables(serverId: string, scope: ScopeRef): string {
+    return `${StoreKeys.variablesInProject(serverId, scope.project)}${scope.env}`
+  }
+
+  /** The prefix covering every environment's variables in one project. */
+  static variablesInProject(serverId: string, project: string): string {
+    return `${serverId}/variables/${project}/`
+  }
+
   /** Everything held about one collection, for invalidating after a write. */
   static collection(serverId: string, scope: ScopeRef, collection: string): string {
     return `${StoreKeys.scope(serverId, scope)}/collections/${collection}`

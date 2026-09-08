@@ -1,4 +1,5 @@
 import type { Context } from "hono";
+import { ValidationError } from "@silo/shared/validation-error";
 import { InjectedPrincipals } from "../auth/injected-principals";
 
 export class RequestUtils {
@@ -26,5 +27,28 @@ export class RequestUtils {
     const proto = c.req.header("x-forwarded-proto") || reqUrl.protocol.replace(":", "");
     const host = c.req.header("x-forwarded-host") || c.req.header("host") || reqUrl.host;
     return `${proto}://${host}`;
+  }
+
+  /**
+   * Whether this request wants `{{NAME}}` substituted (D57).
+   *
+   * `?variables=raw` asks for the stored text. Resolving is the **default**,
+   * because a template that only some callers see resolved is a feature nobody
+   * can rely on — an app reading the API should not have to opt in to getting a
+   * usable value. The one caller that wants the other side is an *editor*: a
+   * form has to round-trip the reference somebody typed, and saving a resolved
+   * value back would quietly replace the reference with a snapshot of it.
+   *
+   * An unrecognised value is refused rather than read as one of the two.
+   * Guessing would mean `?variables=false` silently resolved, which is the
+   * exact mistake this parameter exists to let a caller avoid.
+   */
+  static wantsRawVariables(c: Context): boolean {
+    const asked = c.req.query("variables");
+    if (asked === undefined || asked === "resolved") return false;
+    if (asked === "raw") return true;
+    throw new ValidationError(
+      `invalid variables ${JSON.stringify(asked)}: want "resolved" (the default) or "raw"`
+    );
   }
 }

@@ -5,6 +5,7 @@ import type { SiloService } from "../../core/services/silo-service";
 import type { KeyInfo } from "../../core/keys/key-info";
 import { EntryUtils } from "../../core/domain/entry-utils";
 import { Scope } from "../../core/domain/scope";
+import type { VariableValues } from "../../core/variables/variable-values";
 import { QueryUtils } from "../../core/query/query-utils";
 import { RouteAuth } from "../auth/route-auth";
 import { RequestUtils } from "./request-utils";
@@ -58,11 +59,24 @@ export class SearchRoutes {
       // a page of 50 results from one collection would otherwise fetch the
       // same schema 50 times.
       const schemas = new Map<string, any>();
+      // Variables are per **scope**, and a search page can span scopes — so
+      // this is keyed one level shallower than the schemas beside it, and a
+      // whole-instance search over ten environments reads ten sets rather than
+      // one per hit (D57). `raw` skips it altogether.
+      const raw = RequestUtils.wantsRawVariables(c);
+      const variables = new Map<string, VariableValues>();
       const data = [];
       for (const hit of response.items) {
         const cacheKey = `${hit.project}/${hit.env}/${hit.collection}`;
         if (!schemas.has(cacheKey)) {
           schemas.set(cacheKey, await SearchRoutes.schemaOf(service, hit.project, hit.env, hit.collection));
+        }
+        const scopeKey = `${hit.project}/${hit.env}`;
+        if (!raw && !variables.has(scopeKey)) {
+          variables.set(
+            scopeKey,
+            await service.variables.valuesFor(Scope.of(hit.project, hit.env))
+          );
         }
         data.push({
           project: hit.project,
@@ -70,7 +84,12 @@ export class SearchRoutes {
           collection: hit.collection,
           // The location sits on the hit; the entry stays exactly what the
           // API returns everywhere else (§5.1, and the exception D30 records).
-          entry: EntryUtils.toApiResponse(hit.entry, schemas.get(cacheKey), links),
+          entry: EntryUtils.toApiResponse(
+            hit.entry,
+            schemas.get(cacheKey),
+            links,
+            raw ? undefined : variables.get(scopeKey)
+          ),
           snippets: hit.snippets,
         });
       }

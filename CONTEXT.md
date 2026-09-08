@@ -17,7 +17,7 @@ can be cloned with one command.
 
 ## Where things stand
 
-*Last updated: 2026-09-07 (D56)*
+*Last updated: 2026-09-07 (D57)*
 
 Everything through M5 is built and shipping: collections and JSON Schema
 validation, entry CRUD with optimistic concurrency, the query AST and search
@@ -64,10 +64,50 @@ ledger rather than a stack of cards**: nine shared primitives in
 name-left/control-right rows, copy-on-click fact lists, server-rooted
 breadcrumbs, a header chip saying what the page's changes reach, inline title
 rename, and a quiet trailing *Destructive* section — with the per-section Saves
-of D46/D47 kept exactly as they were (D56).
+of D46/D47 kept exactly as they were (D56). Content can now reference an
+**environment variable**: a name declared once per project, valued per
+environment, and substituted into every `{{NAME}}` an entry holds on the way out
+(D57).
 
 **The most recent change landed on 2026-09-07; everything before it on
 2026-09-03 or earlier.**
+
+**Content can reference an environment variable, and the API substitutes it
+(2026-09-07).** The same string had to be written into every environment of a
+project and edited in every one of them when it changed. A **variable** is now
+declared once per project and given a value per environment, and every
+`{{NAME}}` in an entry is replaced on the way out. The shape is the decision:
+**one `_variables` document per declaration** — silo's eighth system collection,
+in `Scope.System` — holding `{project_id, name, description, values}`, where
+`values` is keyed by **environment record id**, so D51's renames move nothing,
+and where every environment's value lives inside the declaration, so resolving a
+scope is one filtered read and no join. An absent key is not `""`: an empty
+value is one an operator chose and substitutes as empty, while an unset one — and
+a name nothing declares — leaves the reference **standing** in the response,
+because blanking the text would silently delete content on the way out.
+Resolution sits where media resolution already sits, in
+`EntryUtils.toApiResponse` after `MediaResolver`, through a synchronous
+`VariableValues` built once per response the way `MediaLinks` is; and it costs
+**nothing when nothing is referenced**, because `VariableRefs.extract` walks the
+payload first. The walk is deliberately **not** schema-driven, unlike media's: a
+field is media because the schema says so, but a template is a template because
+the author typed one. `?variables=raw` answers the stored text and resolving is
+the default; the admin reads **every** entry raw, which is what stops a form
+saving a resolved value back over the reference somebody typed. There are **no
+new claims** — reading needs `entries:read` on any collection in the
+environment, setting a value needs scope-wide `entries:update`, and declaring or
+undeclaring asks at `{project}` / `*` / `*` for `create` and `delete` — and the
+paths follow that split rather than the page. `_variables` travels in the
+archive for the reason `_media` does; a scope-to-scope copy carries none. In the
+admin, **Settings → Variables** holds both reaches on one screen, and in the
+entry form a reference **is a chip in the field itself**, carrying the name and
+the value: hovering it opens a small popover with the value in full and a link
+to that page, and typing `{{` opens a completion list. A chip that wide cannot
+sit over the token it replaces, so the surface is a `contenteditable` whose
+chips are `contenteditable="false"` — atomic to the caret, to selection and to
+Backspace, so none of that is reimplemented — with `VariableDom` keeping the
+string the source of truth and the DOM a rendering of it. Both adapters already seed system collections
+idempotently at open, so an existing instance needs no migration.
 
 **`SqliteStore.close()` releases the database file now, and the tests no longer
 hide it when it does not (2026-09-03).** Closing the store left the data

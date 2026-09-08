@@ -21,7 +21,8 @@ export type SystemCollection =
   | "_media_folder_moves"
   | "_plugins"
   | "_audit"
-  | "_scope_renames";
+  | "_scope_renames"
+  | "_variables";
 
 export class SystemCollections {
   static readonly Keys = "_keys" as const;
@@ -31,6 +32,8 @@ export class SystemCollections {
   static readonly Plugins = "_plugins" as const;
   static readonly Audit = "_audit" as const;
   static readonly ScopeRenames = "_scope_renames" as const;
+  /** Variable declarations and their per-environment values (D57). */
+  static readonly Variables = "_variables" as const;
 
   /** What every system collection's row holds in place of a schema. */
   static readonly Schema: Readonly<Record<string, unknown>> = { "x-silo-system": true };
@@ -44,6 +47,7 @@ export class SystemCollections {
     SystemCollections.MediaFolders,
     SystemCollections.Plugins,
     SystemCollections.ScopeRenames,
+    SystemCollections.Variables,
   ];
 
   /**
@@ -60,10 +64,11 @@ export class SystemCollections {
     _media_folders: true,
     _plugins: true,
     _scope_renames: true,
+    _variables: true,
   };
 
   /**
-   * Whether this is one of silo's own seven.
+   * Whether this is one of silo's own eight.
    *
    * Deliberately **not** the same question as
    * `EntryUtils.isSystemCollection`, which asks whether a name is

@@ -23,7 +23,7 @@ export type ServerSettingsSection =
   | 'plugins'
   | 'plugin'
 export type ProjectSettingsSection = 'general' | 'environments'
-export type EnvSettingsSection = 'general' | 'transfer'
+export type EnvSettingsSection = 'general' | 'variables' | 'transfer'
 
 export type Route =
   | { view: 'servers' }

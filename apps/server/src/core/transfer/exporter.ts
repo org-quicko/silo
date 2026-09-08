@@ -17,6 +17,7 @@ import { MediaCatalog } from "../media/media-catalog";
 import { FormatVersion } from "./format-version";
 import { SiloVersion } from "../../version";
 import type { ExportOptions } from "./export-options";
+import { VariableRecords } from "../variables/variable-record";
 import type { ExportManifest } from "./export-manifest";
 
 export class Exporter {
@@ -39,7 +40,14 @@ export class Exporter {
         // way; carrying its marker too is what lets the destination converge
         // on the same final state the source will reach at its next start
         // (D49), instead of restoring a split no one has a record of.
-        name === MediaCatalog.MovesCollection
+        name === MediaCatalog.MovesCollection ||
+        // Variable declarations and their values are data too (D57), and for
+        // the same reason: an archive carrying entries that say `{{API_URL}}`
+        // without the declaration behind it restores content where every
+        // reference has quietly stopped resolving. They hold no credential —
+        // a value is already readable by anyone who can read an entry that
+        // references it.
+        name === VariableRecords.Collection
       ) {
         return false;
       }

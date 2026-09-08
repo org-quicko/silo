@@ -225,6 +225,114 @@ authentication back on.
 
 **Appearance** is client-only state — `ThemeManager` persists it to `localStorage`, never to a server, so the choice follows the browser rather than the instance. Three things compose: a **colour mode** (light/dark/system, the last resolved live against `prefers-color-scheme`), a **theme** (an accent paired with the sidebar tint it was designed alongside — `--sidebar`/`--sidebar-hover`, distinct from the main content's `--panel`/`--panel-2` so a theme can read as more than a hue swap), and a **font**. Dark mode's per-theme sidebar hex applies as-is; light mode instead washes the sidebar from whatever accent is active, because hand-tuning a light-mode pair for every theme would double the palette for no visual gain light mode doesn't already get by deriving it. Picking a custom accent hex keeps the last theme's sidebar and labels the bundle `Custom`, matching how picking a font or a mode leaves the other two alone. The theme gallery groups **Featured** (duotone hero bundles), **Single colour**, and **Vision assistive** (colour-blind-safe accent/sidebar pairs) — the grouping is presentation only, every entry is the same `ThemePreset` shape.
 
+### Variables (D57)
+
+`Settings → <project> → <environment> → Variables` is where a name is declared
+and this environment's value is set. The concept is §5.6 and the claims §8.5;
+what the page adds is that **both reaches sit on one screen on purpose**. The
+name belongs to the project and reads the same in every environment; the value
+belongs to this one and nothing else sees it. Splitting them across two pages
+would make declaring a name and giving it a value two errands in two places,
+which is not how anyone adds a variable — so the page keeps saying which is
+which instead, in the header of each card and in the confirm dialog.
+
+Every row shows the reference as it is actually typed (`{{API_URL}}`, not the
+bare name), whether this environment has a value, and how many of the project's
+environments do. A row with no value here says so, and says what that means:
+entries return the reference unchanged. The value box is a **draft** re-seeded
+from the server's value rather than a controlled mirror of it, so typing does
+not fight a background refresh and switching environment shows the new value
+instead of stranding the last one in the box. The two `can…` gates mirror the
+route guards claim for claim, the rule `media-force-availability.ts` already
+follows: an affordance that would answer `403` is not drawn.
+
+Removing a variable goes through `DangerConfirm`, and the copy is the reason it
+does: the reach is every environment in the project, and every `{{NAME}}`
+already written stays in the content as unresolved text.
+
+**The entry form is the other half, and there the reference *is* a chip.** Every
+plain-text string field is a `VariableAffordance`, which does three things, all
+of them **inside the field**:
+
+- **`{{NAME}}` renders as a chip carrying the name and the value**, in the
+  text's own flow, where the author typed it. Accent when this environment
+  resolves it, warn when the project declares it but this environment has no
+  value, and bad when nothing declares it — the two states where the API hands
+  the reference back unchanged, which are the two ways a `{{NAME}}` reaches
+  production still looking like one.
+- **Hovering a chip opens a small popover**: the value in full, what the API
+  does with it here, and a link to the Variables page.
+- **Typing `{{` opens a completion list** of declared names with their values.
+  Opened by what the author already typed, never by a keystroke of its own.
+
+**Why the control is a `contenteditable`.** Two cheaper shapes were built first
+and both failed on the same requirement. A readout beside the field is not "in
+the field". A **mirror** — a layer above a real `<input>` whose text is
+transparent — puts the chip exactly where the author typed it and reimplements
+nothing, but its correctness rests on the chip occupying *exactly* the token's
+width, because the invisible characters underneath still advance; a chip showing
+`API_URL` **and** `https://api.example.com` is several times wider than
+`{{API_URL}}`, so every character after it falls out of step. No styling gets
+around that, because the layer beneath is a real input and its metrics are the
+browser's. A chip wider than its token has to be a real element in a real flow.
+
+What that costs is stated rather than discovered: `type`, `maxlength`, native
+validation and autofill do not apply, which is why only **plain text** string
+fields are routed here — a date, a number or an enum keeps its native control,
+and none of them could carry a reference anyway. What it does not cost is the
+part that matters: each chip is a `contenteditable="false"` element, which
+browsers treat as one atomic character, so caret movement, shift-selection,
+double-click-to-select-a-word, drag-select and Backspace-deletes-the-whole-chip
+are all native.
+
+`VariableDom` is the boundary that keeps this honest. **The string is the source
+of truth and the DOM is a rendering of it**: a chip contributes `{{NAME}}` to
+the value no matter what it displays, `<br>` and block boundaries become
+newlines so the stored string does not depend on which one the browser chose,
+and a single-line field strips newlines the way an `<input>` cannot hold one.
+The surface is **uncontrolled between renders** — React writes the DOM only when
+the incoming value differs from what the field last emitted, because
+re-rendering on every keystroke is what makes a `contenteditable` lose the
+caret — and the one case that genuinely needs a mid-typing re-render, a
+reference just finished so it becomes a chip, records the caret in the string's
+own coordinates first and restores it after. Two smaller rules earn their place:
+a click on a chip places the caret at the nearer end, since a
+`contenteditable="false"` node is not somewhere a caret can go and a field that
+looks editable while swallowing keystrokes is worse than one that is plainly
+disabled; and paste is forced to plain text, or arbitrary markup would land
+beside the chips.
+
+The value is shown and never editable there. It belongs to the environment and
+to every other entry referencing it, so an editable box inside one field would
+offer an edit whose reach is nothing like the field it sits in. The link is the
+honest affordance, and it is a `Link` rather than a button so ⌘/ctrl or a middle
+click opens it in a new tab — checking a value should not cost a half-written
+entry.
+
+`variable-hints.ts` is the pure half — which state a reference is in, what the
+caret is part-way through typing, which names match it, and what a completion
+inserts — split out for the reason `media-delete-outcome.ts` and
+`PluginGrantPlan` are: those rules are worth testing without mounting a form.
+One detail there is load-bearing and was a real bug before it was written down:
+the keys the open menu owns (`ArrowUp`/`ArrowDown`/`Enter`/`Tab`/`Escape`) are
+handled on **keydown** and deliberately not re-read on the keyup that follows,
+because re-reading the caret then undoes what the press just did.
+
+**Every entry the admin reads is read `?variables=raw`** (§8). Not a preference:
+a form seeded with a resolved value saves that value back, replacing the
+reference with a snapshot of what it meant in one environment on one day. The
+rule is applied to the whole `EntriesApi` and to search rather than to the
+form's one call, so the table, the form and a save all show the same text — a
+list showing resolved values beside a form showing templates would read as two
+different entries.
+
+The list is a store resource (§9.1) rather than page state, because its second
+reader is **every entry form**: without one cache the field previews would be a
+request per form. Its cache key is the one key not nested under the scope —
+rooted at the project with the environment as the leaf — since the answer
+carries one environment's values but declaring and undeclaring are project-wide
+and have to reach every environment's cached copy at once.
+
 ## 9.1 Server state (D53)
 
 Every read used to be a `useState` and a `useEffect` inside the view that

@@ -1,0 +1,253 @@
+.wrap {
+  position: relative;
+  display: block;
+}
+
+/* ---- the editable surface ---- */
+
+/*
+  A `contenteditable`, not an input, because a chip has to be a real element in
+  a real flow to be wider than the `{{NAME}}` it stands for. The caller passes
+  the app's own control class, so it looks like every other field on the form;
+  what is added here is only what a `div` does not get for free.
+*/
+.editable {
+  min-height: 1em;
+  outline: none;
+  cursor: text;
+}
+
+/* A single line: never wraps, scrolls sideways like the input it replaces. */
+.editableLine {
+  overflow-x: auto;
+  overflow-y: hidden;
+  white-space: pre;
+}
+
+/* Long-form text wraps, and breaks a word too long for the line rather than
+   widening the field. */
+.editableWrap {
+  overflow-wrap: break-word;
+  white-space: pre-wrap;
+}
+
+/* A `div` has no placeholder, so it gets one. `.empty` rather than `:empty`,
+   because the field always holds a text node for the caret to sit in. */
+.empty::before {
+  content: attr(data-placeholder);
+  color: var(--text-3);
+  pointer-events: none;
+}
+
+/* ---- the chip one reference renders as ---- */
+
+/*
+  A rounded rect carrying **both** the name and the value, which is the whole
+  reason the surface below it is editable rather than mirrored: a chip this wide
+  cannot sit over the token it replaces.
+
+  `contenteditable="false"` on the element is what makes it atomic to the
+  browser — one character to the caret, to shift-selection and to Backspace —
+  so none of that had to be written by hand.
+*/
+.chip {
+  display: inline-flex;
+  max-width: 100%;
+  align-items: baseline;
+  gap: 7px;
+  padding: 3px 9px;
+  border-radius: 6px;
+  vertical-align: baseline;
+  cursor: default;
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+.chipName {
+  font-family: var(--font-mono);
+  font-size: 0.85em;
+  letter-spacing: 0.01em;
+  white-space: nowrap;
+}
+
+/*
+  Read-only, and read-only by construction: there is nothing here to type into.
+  The value belongs to the environment and to every other entry referencing it,
+  so an edit from inside one field would have a reach nothing about this chip
+  suggests. Long values are cut rather than allowed to stretch the line; the
+  popover carries them whole.
+*/
+.chipValue {
+  overflow: hidden;
+  max-width: 22ch;
+  font-family: var(--font-mono);
+  font-size: 0.82em;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.chipFaint {
+  color: var(--text-3);
+  font-style: italic;
+}
+
+/*
+  One class per state, and the set is **total** over `VariableHint['state']`:
+  the renderer looks the class up by state, so a missing one would put the
+  string "undefined" in the class list rather than fail.
+*/
+.resolved {
+  background: var(--accent-soft);
+  box-shadow: inset 0 0 0 1px color-mix(in oklab, var(--accent) 38%, transparent);
+}
+
+.resolved .chipName {
+  color: var(--accent);
+}
+
+.resolved .chipValue {
+  color: var(--text-2);
+}
+
+/* Declared, but this environment gives it no value: the API returns the
+   reference unchanged, so the chip says so rather than looking resolved. */
+.unset {
+  background: color-mix(in oklab, var(--warn) 14%, transparent);
+  box-shadow: inset 0 0 0 1px color-mix(in oklab, var(--warn) 42%, transparent);
+}
+
+.unset .chipName,
+.unset .chipValue {
+  color: var(--warn);
+}
+
+/* Nothing declares it — most often a typo. */
+.undeclared {
+  background: color-mix(in oklab, var(--bad) 13%, transparent);
+  box-shadow: inset 0 0 0 1px color-mix(in oklab, var(--bad) 42%, transparent);
+}
+
+.undeclared .chipName,
+.undeclared .chipValue {
+  color: var(--bad);
+}
+
+/* ---- the completion list, while a name is being typed ---- */
+
+.menu {
+  position: absolute;
+  z-index: 30;
+  top: 100%;
+  right: 0;
+  left: 0;
+  max-height: 208px;
+  margin-top: 3px;
+  overflow-y: auto;
+  padding: 4px;
+  border: 1px solid var(--line-2);
+  border-radius: var(--radius-sm);
+  background: var(--panel);
+  box-shadow: var(--shadow-panel);
+}
+
+.option {
+  display: flex;
+  width: 100%;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 6px 8px;
+  border: none;
+  border-radius: var(--radius-sm);
+  background: none;
+  color: var(--text);
+  cursor: pointer;
+  text-align: left;
+}
+
+.option:hover,
+.option.active {
+  background: var(--accent-soft);
+}
+
+.optionName {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.optionValue {
+  overflow: hidden;
+  color: var(--text-3);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.optionUnset {
+  color: var(--warn);
+  font-size: 11px;
+  white-space: nowrap;
+}
+
+/* ---- the small popover a chip opens on hover ---- */
+
+/*
+  Anchored under the chip it describes, at the coordinates the mirror measured.
+  It opens downward because the chip sits in the middle of the field the reader
+  is editing, and upward would cover the line above the one they are on.
+
+  It keeps itself open while the pointer crosses the gap into it, so the link is
+  reachable — that link is the only route from a field to the page where a wrong
+  value is fixed.
+*/
+.pop {
+  position: fixed;
+  z-index: 60;
+  display: flex;
+  max-width: 320px;
+  flex-direction: column;
+  gap: 4px;
+  width: max-content;
+  padding: 8px 10px;
+  border: 1px solid var(--line-2);
+  border-radius: var(--radius-sm);
+  background: var(--panel);
+  box-shadow: var(--shadow-panel);
+}
+
+.popHead {
+  color: var(--text-3);
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  letter-spacing: 0.02em;
+}
+
+.popValue {
+  overflow-wrap: anywhere;
+  color: var(--text);
+  font-family: var(--font-mono);
+  font-size: 12px;
+}
+
+.popNote {
+  color: var(--text-3);
+  font-size: 11px;
+  line-height: 1.5;
+}
+
+.manage {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin-top: 2px;
+  color: var(--accent);
+  font-size: 11px;
+  text-decoration: none;
+  white-space: nowrap;
+}
+
+.manage:hover {
+  text-decoration: underline;
+}

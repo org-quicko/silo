@@ -45,6 +45,9 @@ export class SearchApi {
       .set('sort', query.sort)
       .set('limit', query.limit)
       .set('offset', query.offset)
+      // Raw, like every other entry the admin reads (D57): a hit leads to the
+      // form, and the two must not disagree about what the entry says.
+      .set('variables', 'raw')
 
     return this.transport
       .request<{
