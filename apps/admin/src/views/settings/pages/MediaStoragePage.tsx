@@ -1,9 +1,14 @@
-import { AlertTriangle, Check, HardDrive, RefreshCw } from 'lucide-react'
+import { AlertTriangle, RefreshCw } from 'lucide-react'
 import { Claims } from '@silo/shared/claims'
 import { Button } from '../../../components/buttons/Button'
 import { Breadcrumb } from '../../../components/navigation/Breadcrumb'
 import { TopBar } from '../../shell/TopBar'
 import type { Server } from '../../servers/server'
+import { SettingsAlert } from '../parts/SettingsAlert'
+import { SettingsPageHead } from '../parts/SettingsPageHead'
+import { SettingsRow } from '../parts/SettingsRow'
+import { SettingsSection } from '../parts/SettingsSection'
+import ledger from '../parts/SettingsLedger.module.css'
 import settings from '../SettingsView.module.css'
 import { MediaStorageBucketFields } from './MediaStorageBucketFields'
 import { MediaLibraryCard } from './MediaLibraryCard'
@@ -51,26 +56,23 @@ export function MediaStoragePage({ server, claims }: { server: Server; claims: s
 
       <div className="content">
         <Breadcrumb crumbs={[{ label: server.name }, { label: 'Media Library' }]} />
-        <div className="page-head">
-          <div className="page-title-group">
-            <h2 className="page-title">Media Library</h2>
-            <span className="page-sub">
-              Choose where uploaded files are stored, and configure the provider that keeps them.
-            </span>
-          </div>
-          {canConfigure && (
-            <Button variant="secondary" onClick={form.reload} disabled={loading}>
-              <RefreshCw size={14} />
-              <span>Reload</span>
-            </Button>
-          )}
-        </div>
+
+        <SettingsPageHead
+          title="Media Library"
+          actions={
+            canConfigure && (
+              <Button variant="secondary" onClick={form.reload} disabled={loading}>
+                <RefreshCw size={14} />
+                <span>Reload</span>
+              </Button>
+            )
+          }
+        />
 
         {!loading && !canConfigure && (
-          <div className={styles.readOnly}>
-            This key cannot read or change media storage. It needs the{' '}
-            <code>{Claims.MediaConfigure}</code> claim.
-          </div>
+          <SettingsAlert tone="bad" title="Not readable with this key">
+            Reading or changing media storage needs the <code>{Claims.MediaConfigure}</code> claim.
+          </SettingsAlert>
         )}
 
         {form.error && (
@@ -83,64 +85,55 @@ export function MediaStoragePage({ server, claims }: { server: Server; claims: s
         {loading && <div className={styles.readOnly}>Loading…</div>}
 
         {view && (
-          <div className={settings.generalContent}>
-            <section className={settings.card}>
-              <div className={settings.cardHeader}>
-                <div className={settings.sectionTitle}>
-                  <HardDrive size={16} />
-                  <h2>Storage Provider</h2>
-                </div>
-                <p>
-                  Saved to {view.config_path || 'the config file'} and applied to this server
-                  immediately.
-                </p>
-              </div>
+          <>
+            {!view.writable && (
+              <SettingsAlert title="Read-only">
+                {view.read_only_reason ??
+                  'This server cannot write its config file, so these settings cannot be changed here.'}
+              </SettingsAlert>
+            )}
 
-              <form onSubmit={form.save} className={settings.form}>
-                <div className={settings.inputGrid}>
-                  <div className={settings.inputGroup}>
-                    <div className={styles.fieldHead}>
-                      <label htmlFor="media-driver">Provider</label>
-                      <MediaStorageNote view={view} field="driver" />
-                    </div>
-                    <select
-                      id="media-driver"
-                      className={styles.select}
-                      value={draft.driver}
+            <form onSubmit={form.save}>
+              <SettingsSection title="Storage">
+                <SettingsRow
+                  label="Provider"
+                  htmlFor="media-driver"
+                  help="Existing files are not moved. Switching provider leaves them where they are."
+                >
+                  <select
+                    id="media-driver"
+                    className={ledger.select}
+                    value={draft.driver}
+                    disabled={!editable}
+                    onChange={(event) => form.set('driver', event.target.value)}
+                  >
+                    {MediaStorageDraft.options(view).map((driver) => (
+                      <option key={driver} value={driver}>
+                        {driver}
+                      </option>
+                    ))}
+                  </select>
+                  <MediaStorageNote view={view} field="driver" />
+                </SettingsRow>
+
+                {shows.directory && (
+                  <SettingsRow
+                    label="Directory"
+                    htmlFor="media-path"
+                    help="Leave empty to follow the data directory."
+                  >
+                    <input
+                      id="media-path"
+                      className={`${ledger.field} ${ledger.fieldMono}`}
+                      type="text"
+                      value={draft.path}
                       disabled={!editable}
-                      onChange={(event) => form.set('driver', event.target.value)}
-                    >
-                      {MediaStorageDraft.options(view).map((driver) => (
-                        <option key={driver} value={driver}>
-                          {driver}
-                        </option>
-                      ))}
-                    </select>
-                    <span className={styles.help}>
-                      Existing files are not moved. Switching provider leaves them where they are.
-                    </span>
-                  </div>
-
-                  {shows.directory && (
-                    <div className={settings.inputGroup}>
-                      <div className={styles.fieldHead}>
-                        <label htmlFor="media-path">Directory</label>
-                        <MediaStorageNote view={view} field="path" />
-                      </div>
-                      <input
-                        id="media-path"
-                        type="text"
-                        value={draft.path}
-                        disabled={!editable}
-                        placeholder={view.in_force.path || './silo_data/media'}
-                        onChange={(event) => form.set('path', event.target.value)}
-                      />
-                      <span className={styles.help}>
-                        Leave empty to follow the data directory.
-                      </span>
-                    </div>
-                  )}
-                </div>
+                      placeholder={view.in_force.path || './silo_data/media'}
+                      onChange={(event) => form.set('path', event.target.value)}
+                    />
+                    <MediaStorageNote view={view} field="path" />
+                  </SettingsRow>
+                )}
 
                 {shows.bucket && (
                   <MediaStorageBucketFields
@@ -155,36 +148,23 @@ export function MediaStoragePage({ server, claims }: { server: Server; claims: s
                   />
                 )}
 
-                {!view.writable && (
-                  <div className={styles.notice}>
-                    <AlertTriangle size={14} />
-                    <span>
-                      {view.read_only_reason ??
-                        'This server cannot write its config file, so this form is read-only.'}
+                <div className={ledger.sectionActions}>
+                  {form.saved && (
+                    <span className={`${ledger.sectionNote} ${ledger.noteOk}`}>
+                      Saved. New uploads go to the provider above.
                     </span>
-                  </div>
-                )}
-
-                {form.saved && (
-                  <div className={settings.alertSuccess}>
-                    <Check size={15} />
-                    <span>Saved. New uploads go to the provider above.</span>
-                  </div>
-                )}
-
-                <div className={settings.formActions}>
+                  )}
                   <Button type="submit" variant="primary" disabled={!editable || !form.dirty}>
-                    <Check size={14} />
-                    <span>{form.saving ? 'Saving…' : 'Save Changes'}</span>
+                    {form.saving ? 'Saving…' : 'Save'}
                   </Button>
                 </div>
-              </form>
-            </section>
+              </SettingsSection>
+            </form>
 
             <MediaLibraryCard server={server} canConfigure={canConfigure} />
 
             <MediaStorageInForce view={view} />
-          </div>
+          </>
         )}
       </div>
     </>

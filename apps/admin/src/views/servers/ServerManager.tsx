@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { ArrowRight, Plus } from 'lucide-react'
+import { ArrowRight, Plus, X } from 'lucide-react'
 import { SiloMark } from '../../components/brand/SiloMark'
 import { Button } from '../../components/buttons/Button'
 import { AddServerDialog } from './AddServerDialog'
@@ -89,7 +89,7 @@ export function ServerManager({
               title="Close (Esc)"
               aria-label="Close"
             >
-              ×
+              <X size={16} />
             </button>
           )}
         </div>

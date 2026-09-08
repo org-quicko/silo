@@ -1,7 +1,7 @@
 import { Info } from 'lucide-react'
 import type { MediaStorageView } from '../../../api/types/media-storage'
 import { MediaStorageDraft } from './media-storage-draft'
-import styles from './MediaStoragePage.module.css'
+import styles from '../parts/SettingsLedger.module.css'
 
 /**
  * What a field is worth beside the box you type it in: nothing at all when the
@@ -16,7 +16,7 @@ export function MediaStorageNote({ view, field }: { view: MediaStorageView; fiel
   if (!inUse) return null
 
   return (
-    <span className={styles.note}>
+    <span className={styles.controlNote}>
       <Info size={12} />
       <span>
         In use: {inUse.value}

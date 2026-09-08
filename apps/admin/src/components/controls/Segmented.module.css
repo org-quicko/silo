@@ -51,3 +51,41 @@
   gap: 6px;
   padding: 5px 11px;
 }
+
+/* Full size, but an option is only as wide as its own label — for a control
+   holding one option much longer than the rest, where stretching every option
+   equally forces the long one to wrap. `align-self` keeps the whole control
+   from being stretched to its row's full width by a parent flex column;
+   `flex-end` because a row's control column reads right-aligned, the same
+   edge every other control in it sits against. */
+.fit {
+  align-self: flex-end;
+  width: fit-content;
+}
+
+.fit .option {
+  flex: none;
+  padding: 6px 14px;
+  white-space: nowrap;
+}
+
+/* A page's own tab strip: sized to its labels rather than stretched to the
+   page's full width, and the selected tab lifts off the row on its own
+   background rather than filling with the accent color, so three tabs read
+   as views of one page rather than as a toggle to set. */
+.tabs {
+  width: fit-content;
+}
+
+.tabs .option {
+  flex: none;
+  width: 120px;
+  padding: 6px 16px;
+  white-space: nowrap;
+}
+
+.tabs .option[aria-selected='true'] {
+  background: var(--bg);
+  color: var(--text);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
+}

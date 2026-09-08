@@ -1,26 +1,26 @@
 import React, { useState, useEffect } from 'react'
-import { RotateCcw, Check, Sparkles } from 'lucide-react'
+import { RotateCcw } from 'lucide-react'
 import { Button } from '../../../components/buttons/Button'
 import { Breadcrumb } from '../../../components/navigation/Breadcrumb'
 import { TopBar } from '../../shell/TopBar'
 import { ThemeManager, type ThemeSettings, type ThemePreset } from '../../../utils/theme-manager'
 import { ToastManager } from '../../../utils/toast-manager'
+import { SettingsPageHead } from '../parts/SettingsPageHead'
+import { SettingsRow } from '../parts/SettingsRow'
+import { SettingsSection } from '../parts/SettingsSection'
+import { FontFallback } from './font-fallback'
+import ledger from '../parts/SettingsLedger.module.css'
 import styles from './AppearancePage.module.css'
 
-function getCategoryFallback(category: string): string {
-  switch (category) {
-    case 'Serif':
-      return 'Georgia, "Times New Roman", serif'
-    case 'Monospace':
-      return '"JetBrains Mono", ui-monospace, Menlo, Monaco, Consolas, monospace'
-    case 'Display':
-      return 'system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif'
-    default:
-      return 'system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif'
-  }
-}
-
-export function AppearancePage() {
+/**
+ * Theme and typeface for the admin, stored in this browser.
+ *
+ * Nothing here reaches the server, so nothing here has a Save: every control
+ * applies on the spot and Reset at the bottom puts it all back. That is also
+ * why the page carries no scope chip — "this browser" is in the breadcrumb,
+ * and every row on the page has the same answer.
+ */
+export function AppearancePage({ serverName }: { serverName: string }) {
   const [settings, setSettings] = useState<ThemeSettings>(() => ThemeManager.getSettings())
   const [customFontInput, setCustomFontInput] = useState('')
   const [customHexInput, setCustomHexInput] = useState(settings.accent)
@@ -33,50 +33,51 @@ export function AppearancePage() {
     setCustomHexInput(settings.accent)
   }, [settings.accent])
 
-  const handleSelectFont = (fontName: string) => {
+  const applied = (what: string) => ToastManager.show(what)
+
+  const selectFont = (fontName: string) => {
     ThemeManager.setFont(fontName)
     setSettings((prev) => ({ ...prev, font: fontName }))
     setCustomFontInput('')
-    triggerSavedFeedback()
+    applied(`${fontName} applied`)
   }
 
-  const handleApplyCustomFont = (e: React.FormEvent) => {
-    e.preventDefault()
+  const applyCustomFont = (event: React.FormEvent) => {
+    event.preventDefault()
     const font = customFontInput.trim()
     if (!font) return
     ThemeManager.setFont(font)
     setSettings((prev) => ({ ...prev, font }))
-    triggerSavedFeedback()
+    applied(`${font} applied`)
   }
 
-  const handleSelectTheme = (theme: ThemePreset) => {
+  const selectTheme = (theme: ThemePreset) => {
     ThemeManager.setTheme(theme.name)
-    setSettings((prev) => ({ ...prev, theme: theme.name, accent: theme.accent, sidebar: theme.sidebar, sidebarHover: theme.sidebarHover }))
+    setSettings((prev) => ({
+      ...prev,
+      theme: theme.name,
+      accent: theme.accent,
+      sidebar: theme.sidebar,
+      sidebarHover: theme.sidebarHover,
+    }))
     setCustomHexInput(theme.accent)
-    triggerSavedFeedback()
+    applied(`${theme.name} applied`)
   }
 
-  const handleCustomHexChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const val = e.target.value
-    setCustomHexInput(val)
-    const formatted = ThemeManager.formatHex(val)
-    if (formatted) {
-      ThemeManager.setAccent(formatted)
-      setSettings((prev) => ({ ...prev, accent: formatted, theme: 'Custom' }))
-      triggerSavedFeedback()
-    }
+  const applyHex = (value: string) => {
+    const hex = ThemeManager.formatHex(value)
+    if (!hex) return
+    ThemeManager.setAccent(hex)
+    setSettings((prev) => ({ ...prev, accent: hex, theme: 'Custom' }))
+    applied('Accent applied')
   }
 
-  const handleResetDefaults = () => {
+  const reset = () => {
     const defaults = ThemeManager.reset()
     setSettings(defaults)
     setCustomFontInput('')
     setCustomHexInput(defaults.accent)
-    triggerSavedFeedback()
-  }
-
-  const triggerSavedFeedback = () => {
-    ToastManager.show('Theme applied')
+    applied('Appearance reset')
   }
 
   return (
@@ -84,161 +85,117 @@ export function AppearancePage() {
       <TopBar />
 
       <div className="content">
-        <Breadcrumb crumbs={[{ label: 'Application' }, { label: 'Appearance' }]} />
-        <div className="page-head">
-          <div className="page-title-group">
-            <h2 className="page-title">Appearance</h2>
-            <span className="page-sub">
-              Theme, typography and accent for the admin UI. Stored in this browser, so the choice applies
-              to every silo server you open here.
-            </span>
-          </div>
-        </div>
+        <Breadcrumb
+          crumbs={[{ label: serverName }, { label: 'This browser' }, { label: 'Appearance' }]}
+        />
+        <SettingsPageHead title="Appearance" />
 
-        <div className={styles.contentWrapper}>
-          {/* Themes Section */}
-          <section className={styles.sectionCard}>
-            <div className={styles.sectionHeader}>
-              <div className={styles.titleRow}>
-                <h2>Themes</h2>
-              </div>
+        <SettingsSection title="Theme">
+          <SettingsRow label="Presets" help="Choose a theme for Silo on this device." inline>
+            <div className={styles.swatches}>
+              {ThemeManager.THEME_PRESETS.map((theme) => (
+                <button
+                  key={theme.name}
+                  type="button"
+                  className={styles.swatch}
+                  style={{ background: theme.accent }}
+                  aria-pressed={settings.theme === theme.name}
+                  aria-label={theme.name}
+                  title={theme.name}
+                  onClick={() => selectTheme(theme)}
+                />
+              ))}
             </div>
+          </SettingsRow>
 
-            <div className={styles.themeGrid}>
-              {ThemeManager.THEME_PRESETS.map((theme) => {
-                const isActive = settings.theme === theme.name
+          <SettingsRow
+            label="Custom"
+            htmlFor="accent-hex"
+            help="Any hex — contrast is derived from it automatically."
+          >
+            <div className={styles.hexRow}>
+              <input
+                id="accent-hex"
+                className={`${ledger.field} ${ledger.fieldMono}`}
+                type="text"
+                value={customHexInput}
+                maxLength={7}
+                spellCheck={false}
+                placeholder="#7c86ff"
+                onChange={(event) => setCustomHexInput(event.target.value)}
+                onKeyDown={(event) => event.key === 'Enter' && applyHex(customHexInput)}
+              />
+              <Button
+                type="button"
+                variant="secondary"
+                disabled={!ThemeManager.formatHex(customHexInput)}
+                onClick={() => applyHex(customHexInput)}
+              >
+                Apply
+              </Button>
+            </div>
+          </SettingsRow>
+        </SettingsSection>
+
+        <SettingsSection title="Typeface">
+          <SettingsRow label="Fonts" stack>
+            <div className={styles.fonts}>
+              {ThemeManager.FONT_PRESETS.map((preset) => {
+                const active = settings.font.toLowerCase() === preset.name.toLowerCase()
                 return (
                   <button
-                    key={theme.name}
+                    key={preset.name}
                     type="button"
-                    role="radio"
-                    aria-checked={isActive}
-                    className={`${styles.themeCard} ${isActive ? styles.themeCardActive : ''}`}
-                    onClick={() => handleSelectTheme(theme)}
+                    className={`${styles.font} ${active ? styles.fontActive : ''}`}
+                    aria-pressed={active}
+                    onClick={() => selectFont(preset.name)}
                   >
-                    <span className={styles.orb} style={{ background: theme.accent }} />
-                    <span className={styles.themeName}>
-                      {theme.name}
-                      {theme.description && <small>{theme.description}</small>}
+                    <span
+                      className={styles.fontName}
+                      style={{ fontFamily: `'${preset.name}', ${FontFallback.of(preset.category)}` }}
+                    >
+                      {preset.name}
                     </span>
+                    <span className={styles.fontCategory}>{preset.category}</span>
                   </button>
                 )
               })}
             </div>
+          </SettingsRow>
 
-            {/* Custom Color Input & Color Picker */}
-            <div className={styles.colorPickerRow}>
-              <label className={styles.colorPickerWrapper} title="Open color picker">
-                <div className={styles.colorPreviewDisc} style={{ background: settings.accent }} />
-                <input
-                  type="color"
-                  className={styles.colorInputHidden}
-                  value={ThemeManager.formatHex(settings.accent) || '#7c86ff'}
-                  onChange={handleCustomHexChange}
-                />
-              </label>
-
+          <SettingsRow
+            label="Any other Google font"
+            htmlFor="custom-font"
+            help="Any family name from fonts.google.com."
+          >
+            <form className={styles.hexRow} onSubmit={applyCustomFont}>
               <input
+                id="custom-font"
+                className={ledger.field}
                 type="text"
-                className={styles.hexInput}
-                placeholder="#7c86ff"
-                value={customHexInput}
-                onChange={handleCustomHexChange}
-                maxLength={7}
-              />
-
-              <Button
-                type="button"
-                variant="secondary"
-                onClick={() => {
-                  const hex = ThemeManager.formatHex(customHexInput)
-                  if (hex) {
-                    ThemeManager.setAccent(hex)
-                    setSettings((prev) => ({ ...prev, accent: hex, theme: 'Custom' }))
-                    triggerSavedFeedback()
-                  }
-                }}
-              >
-                <Check size={14} />
-                <span>Apply Hex</span>
-              </Button>
-            </div>
-          </section>
-
-          {/* Typography / Google Fonts Section */}
-          <section className={styles.sectionCard}>
-            <div className={styles.sectionHeader}>
-              <div className={styles.titleRow}>
-                <h2>Fonts</h2>
-              </div>
-            </div>
-
-            <div className={styles.presetsContainer}>
-              <div className={styles.presetsHeaderRow}>
-                <span className={styles.presetsLabel}>Popular fonts:</span>
-              </div>
-              <div className={styles.fontGrid}>
-                {ThemeManager.FONT_PRESETS.map((preset) => {
-                  const isSelected = settings.font.toLowerCase() === preset.name.toLowerCase()
-                  const fontStyle = {
-                    fontFamily: `'${preset.name}', ${getCategoryFallback(preset.category)}`,
-                  }
-                  return (
-                    <button
-                      key={preset.name}
-                      type="button"
-                      className={`${styles.fontChip} ${isSelected ? styles.fontChipActive : ''}`}
-                      onClick={() => handleSelectFont(preset.name)}
-                    >
-                      <div className={styles.fontChipHeader}>
-                        <span className={styles.fontChipName} style={fontStyle}>
-                          {preset.name}
-                        </span>
-                        <div className={styles.fontChipMeta}>
-                          {isSelected ? (
-                            <Check size={13} className={styles.fontChipCheck} />
-                          ) : (
-                            <span className={styles.fontChipCat}>{preset.category}</span>
-                          )}
-                        </div>
-                      </div>
-                    </button>
-                  )
-                })}
-              </div>
-            </div>
-
-            {/* Custom Google Font input */}
-            <form onSubmit={handleApplyCustomFont} className={styles.customInputRow}>
-              <input
-                type="text"
-                className={styles.customInput}
-                placeholder="Type any Google Font (e.g. Outfit, Space Grotesk, Cinzel, Poppins)…"
+                placeholder="Libre Franklin"
                 value={customFontInput}
-                onChange={(e) => setCustomFontInput(e.target.value)}
+                onChange={(event) => setCustomFontInput(event.target.value)}
               />
-              <Button type="submit" variant="primary" disabled={!customFontInput.trim()}>
-                <Sparkles size={14} />
-                <span>Apply Font</span>
+              <Button type="submit" variant="secondary" disabled={!customFontInput.trim()}>
+                Apply
               </Button>
             </form>
-            <p className={styles.fontHelperText}>
-              You can use any font family available on <a href="https://fonts.google.com" target="_blank" rel="noopener noreferrer" style={{ color: 'var(--accent)', textDecoration: 'none' }}>fonts.google.com</a>.
-            </p>
-          </section>
+          </SettingsRow>
+        </SettingsSection>
 
-          {/* Reset to Defaults Card */}
-          <div className={styles.resetCard}>
-            <div className={styles.resetInfo}>
-              <h3>Reset Appearance</h3>
-              <p>Revert theme, typography and accent back to Silo default (Hanken Grotesk + Silo Indigo).</p>
-            </div>
-            <Button type="button" variant="secondary" onClick={handleResetDefaults}>
+        <SettingsSection title="Reset">
+          <SettingsRow
+            label="Back to Silo defaults"
+            help={`${ThemeManager.DEFAULT_FONT} and ${ThemeManager.DEFAULT_THEME}.`}
+            inline
+          >
+            <Button type="button" variant="secondary" onClick={reset}>
               <RotateCcw size={14} />
-              <span>Reset Defaults</span>
+              <span>Reset appearance</span>
             </Button>
-          </div>
-        </div>
+          </SettingsRow>
+        </SettingsSection>
       </div>
     </>
   )

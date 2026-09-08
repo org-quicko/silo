@@ -1,38 +1,9 @@
-/* Media Library settings. The card, form and alert styles come from
-   SettingsView.module.css; only what this page adds lives here. */
-
-.select {
-  padding: 8px 12px;
-  border: 1px solid var(--line);
-  border-radius: var(--radius-sm);
-  background: var(--ink-2);
-  color: var(--text);
-  font-size: 13px;
-  outline: none;
-}
-
-.select:focus {
-  border-color: var(--accent);
-}
+/* Media Library settings. Rows, fields and sections come from
+   parts/SettingsLedger.module.css; only what this page adds lives here. */
 
 .help {
   color: var(--text-3);
   font-size: 11.5px;
-}
-
-.note {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  color: var(--warn);
-  font-size: 11.5px;
-}
-
-.fieldHead {
-  display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: 10px;
 }
 
 /* A text button beside a label: clearing a secret, mostly. */
@@ -48,41 +19,6 @@
 .inlineAction:disabled {
   color: var(--text-3);
   cursor: default;
-}
-
-.toggleRow {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-}
-
-.toggleCopy {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-}
-
-.toggleCopy b {
-  color: var(--text);
-  font-size: 12.5px;
-  font-weight: 500;
-}
-
-.notice {
-  display: flex;
-  align-items: flex-start;
-  gap: 8px;
-  padding: 10px 14px;
-  border: 1px solid color-mix(in oklab, var(--warn) 30%, transparent);
-  border-radius: var(--radius-sm);
-  background: color-mix(in oklab, var(--warn) 8%, transparent);
-  color: var(--warn);
-  font-size: 12.5px;
-}
-
-.notice svg {
-  flex: none;
-  margin-top: 1px;
 }
 
 .readOnly {

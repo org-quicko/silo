@@ -1,14 +1,19 @@
 import React, { useState } from 'react'
 import { LoadingState } from '../../../components/feedback/LoadingState'
-import { AlertTriangle, ChevronRight, FolderGit2, Plus } from 'lucide-react'
+import { AlertTriangle, Folder, Plus } from 'lucide-react'
 import { Claims } from '@silo/shared/claims'
 import { Button } from '../../../components/buttons/Button'
 import { Breadcrumb } from '../../../components/navigation/Breadcrumb'
 import { api } from '../../../api/silo-api'
-import { Link } from '../../../router/Link'
 import { Routes } from '../../../router/routes'
 import { TopBar } from '../../shell/TopBar'
 import type { Server } from '../../servers/server'
+import { SettingsList } from '../parts/SettingsList'
+import { SettingsListRow } from '../parts/SettingsListRow'
+import { SettingsPageHead } from '../parts/SettingsPageHead'
+import { SettingsRow } from '../parts/SettingsRow'
+import { SettingsSection } from '../parts/SettingsSection'
+import ledger from '../parts/SettingsLedger.module.css'
 import styles from '../SettingsView.module.css'
 
 /**
@@ -67,24 +72,21 @@ export function ProjectsPage({
       <TopBar />
 
       <div className="content">
-        <Breadcrumb crumbs={[{ label: 'Projects' }]} />
-        <div className="page-head">
-          <div className="page-title-group">
-            <h2 className="page-title">Projects</h2>
-            <span className="page-sub">
-              Root containers on this instance. Each holds its own environments, which in turn hold the
-              collections and entries.
-            </span>
-          </div>
-          {canCreate && !isAdding && (
-            <div className="head-actions">
+        <Breadcrumb crumbs={[{ label: server.name }, { label: 'Projects' }]} />
+
+        <SettingsPageHead
+          title="Projects"
+          scope={{ kind: 'server' }}
+          actions={
+            canCreate &&
+            !isAdding && (
               <Button variant="primary" onClick={() => setIsAdding(true)}>
                 <Plus size={14} />
                 <span>New project</span>
               </Button>
-            </div>
-          )}
-        </div>
+            )
+          }
+        />
 
         {error && (
           <div className={styles.alertError}>
@@ -94,62 +96,56 @@ export function ProjectsPage({
         )}
 
         {isAdding && (
-          <form onSubmit={create} className={styles.createCard}>
-            <div className={styles.createHeader}>
-              <h3>New project</h3>
-              <p>The id is fixed once created — it appears in every API path and claim naming it.</p>
-            </div>
-            <div className={styles.createFormRow}>
-              <input
-                type="text"
-                placeholder="e.g. ecommerce-api"
-                value={draft}
-                onChange={(e) => setDraft(e.target.value)}
-                disabled={busy}
-                autoFocus
-                required
-              />
-              <div className={styles.createActions}>
-                <Button type="button" variant="secondary" onClick={() => setIsAdding(false)} disabled={busy}>
+          <form onSubmit={create}>
+            <SettingsSection title="New project">
+              <SettingsRow label="Name" htmlFor="new-project" help="Lowercase, [a-z0-9_-].">
+                <input
+                  id="new-project"
+                  className={`${ledger.field} ${ledger.fieldMono}`}
+                  type="text"
+                  placeholder="ecommerce-api"
+                  value={draft}
+                  onChange={(e) => setDraft(e.target.value)}
+                  disabled={busy}
+                  autoFocus
+                  required
+                />
+              </SettingsRow>
+              <div className={ledger.sectionActions}>
+                <Button
+                  type="button"
+                  variant="secondary"
+                  onClick={() => setIsAdding(false)}
+                  disabled={busy}
+                >
                   Cancel
                 </Button>
                 <Button type="submit" variant="primary" disabled={busy || !draft.trim()}>
                   {busy ? 'Creating…' : 'Create project'}
                 </Button>
               </div>
-            </div>
+            </SettingsSection>
           </form>
         )}
 
-        <div className={styles.listContainer}>
-          {loading ? (
-            <LoadingState message="Loading projects…" />
-          ) : projects.length === 0 ? (
-            <div className={styles.emptyBox}>
-              No projects on this server yet{canCreate ? ' — create one to get started.' : '.'}
-            </div>
-          ) : (
-            projects.map((project) => (
-              <Link
+        {loading ? (
+          <LoadingState message="Loading projects…" />
+        ) : (
+          <SettingsList
+            empty={`No projects on this server yet${canCreate ? ' — create one to get started.' : '.'}`}
+          >
+            {projects.map((project) => (
+              <SettingsListRow
                 key={project}
                 to={Routes.projectSettings(server.id, project, 'general')}
-                className={`${styles.itemRow} ${styles.itemRowLink}`}
                 title={`Configure ${project}`}
-              >
-                <div className={styles.itemMain}>
-                  <div className={styles.itemAvatar}>
-                    <FolderGit2 size={16} />
-                  </div>
-                  <div className={styles.itemInfo}>
-                    <span className={styles.itemName}>{project}</span>
-                    <span className={styles.itemMeta}>/api/projects/{project}</span>
-                  </div>
-                </div>
-                <ChevronRight size={16} className={styles.itemChevron} />
-              </Link>
-            ))
-          )}
-        </div>
+                icon={<Folder size={14} />}
+                name={project}
+                meta={`/api/projects/${project}`}
+              />
+            ))}
+          </SettingsList>
+        )}
       </div>
     </>
   )

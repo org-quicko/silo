@@ -1,4 +1,4 @@
-import { Globe, Layers, Boxes, Server } from 'lucide-react'
+import { Globe, Layers, Folder, Server } from 'lucide-react'
 import type { ReactNode } from 'react'
 import type { KeyReach } from './key-reach'
 import styles from './NewKey.module.css'
@@ -40,7 +40,7 @@ export function NewKeyReach({
 }) {
   const options: ReachOption[] = [
     { value: 'env', label: 'One environment', icon: <Layers size={14} />, blocked: blocked.env ?? '' },
-    { value: 'project', label: 'A whole project', icon: <Boxes size={14} />, blocked: blocked.project ?? '' },
+    { value: 'project', label: 'A whole project', icon: <Folder size={14} />, blocked: blocked.project ?? '' },
     { value: 'env-all-projects', label: 'One environment, every project', icon: <Globe size={14} />, blocked: blocked['env-all-projects'] ?? '' },
     { value: 'instance', label: 'The entire instance', icon: <Server size={14} />, blocked: blocked.instance ?? '' },
   ]

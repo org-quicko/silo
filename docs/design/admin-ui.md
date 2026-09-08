@@ -40,17 +40,17 @@ SERVER
   Media Library                                  where uploads are stored, where their URLs point, what may be uploaded (D45, D46)
   Configuration                                  the rest of silo.toml: logging, search, validation, auth (D47)
   Plugins                                        every plugin with a record; one page each (D40)
-  Connection                                     endpoint, live diagnostics, forget this server
+  Connection                                     endpoint, the live instance, forget this server
 PROJECTS
   Projects                                       every project on the instance, and creating one
     [ project switcher ▾ · New project ]
-    General                                      id, name (renameable — D51), environment count, delete behind a typed-name confirmation
+    General                                      name (renameable in place — D51), id and API path, environments, delete behind a typed-name confirmation
     Environments                                 this project's environments, and creating one
       [ environment switcher ▾ · New environment ]
       General                                    scope, id, name (renameable — D51), collections, open workspace, delete behind a typed-name confirmation
       Data Transfer                              copy from another environment (D22)
 APPLICATION
-  Appearance                                     colour mode, theme, fonts, accent
+  Appearance                                     theme, accent and typeface, stored in this browser (D56)
 ```
 
 | Group | URL |
@@ -64,15 +64,41 @@ APPLICATION
 Groups run outside-in — the server that hosts everything, the projects it holds,
 then this browser — and scope **nests** rather than forming peer groups: one
 project's pages hang off the project index, one environment's off that project's
-environment list. Both nested blocks start collapsed and open when the route
-enters them. Projects and Environments are indexes: a row opens that item's own
-page, and deleting lives only there, behind a typed-name confirmation, rather
-than as a button in a list.
+environment list. Projects is always expanded — it is the one group always
+worth seeing into. The environment block starts collapsed and opens when the
+reader acts on the Environments row: its chevron expands without navigating,
+and following the row itself both opens the environments view and reveals the
+block, since that is the one navigation actually *about* the environments. A
+route change alone never opens it — that used to undo a deliberate collapse the
+moment the route re-entered the scope, and arriving from a breadcrumb or a link
+elsewhere is not a request to see the block. Projects and Environments are
+indexes: a row opens that item's own page, and deleting lives only there,
+behind a typed-name confirmation, rather than as a button in a list.
 
-**Renaming (D51)** lives on those same General pages, in the Identity card,
-replacing the copy that used to say the id was fixed — a project, environment
-and collection each carry a stable ULID and a mutable name now, and the card
-shows both. All three use one control, `settings/rename/`, so they ask the same
+**Every settings page is built from one layout language (D56)**, in
+`views/settings/parts/`: `SettingsPageHead` (title, a `ScopeChip` saying what
+the page's changes reach — server / this browser / `project` / `project/env` —
+and the page's own actions), `SettingsSection` (a hairline and a label, never a
+card), `SettingsRow` (name and, only where it is earned, one line of why on the
+left; the control flush right), `FactList` (read-only ids and paths as
+copy-on-click mono rows), `SettingsList`/`SettingsListRow` (an index whose whole
+row is the link), `SettingsAlert` (a condition that holds for the page, not for
+one field) and `DestructiveSection`/`DestructiveRow`. Breadcrumbs are rooted at
+the server's own name. A section is a hairline rather than a bordered, filled,
+rounded box because border, fill and radius each say *separate object*, and
+spending all three on every group and every field inside it makes the reader
+re-enter a container for each setting instead of running down one column.
+Destructive actions are a quiet trailing section: the loudest thing on a
+settings page should not be Delete. **Saves stay per section**, exactly as D46
+and D47 chose them — a bucket that will not open must not hold up a correction
+to a log level — so there is no page-wide Save.
+
+**Renaming (D51)** lives on those same General pages, as an inline edit of the
+page title (`RenameableTitle`) — a project, environment and collection each
+carry a stable ULID and a mutable name now, and the Identity section below the
+title carries the id. It replaced a form whose resting state was broken: the
+field came pre-filled with the current name, so its Rename button sat disabled
+until you typed. All three use one control, `settings/rename/`, so they ask the same
 question the same way, and it is a **two-step** flow rather than a text field
 with a Save. The first request is a `?dry_run=true`, and what comes back is what
 earns the second step: a rename rewrites claim strings, and some claims name the

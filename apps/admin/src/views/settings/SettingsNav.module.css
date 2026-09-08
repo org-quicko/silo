@@ -44,29 +44,12 @@
 
 .navHeaderIcon {
   flex-shrink: 0;
-  color: var(--accent);
+  color: inherit;
   transition: transform 0.15s cubic-bezier(0.16, 1, 0.3, 1);
 }
 
 .backBtn:hover .navHeaderIcon {
   transform: translateX(-2px);
-}
-
-.backCopy {
-  display: flex;
-  min-width: 0;
-  flex-direction: column;
-  gap: 1px;
-}
-
-.backScope {
-  overflow: hidden;
-  color: var(--text-3);
-  font-family: var(--font-ui);
-  font-size: 10.5px;
-  font-weight: 400;
-  text-overflow: ellipsis;
-  white-space: nowrap;
 }
 
 .navTitle {
@@ -122,9 +105,8 @@
   padding: 0 10px 6px;
   color: var(--text-3);
   font-family: var(--font-ui);
-  font-size: 10px;
+  font-size: 11px;
   font-weight: 600;
-  text-transform: uppercase;
   letter-spacing: 0.7px;
 }
 
@@ -186,32 +168,19 @@
   flex-shrink: 0;
 }
 
-.navItemText {
-  display: flex;
-  min-width: 0;
-  flex: 1;
-  flex-direction: column;
-  gap: 1px;
-  font-family: var(--font-ui);
-}
-
 .navItemTitle {
+  overflow: hidden;
+  flex: 1;
+  min-width: 0;
   font-family: var(--font-ui);
   font-size: 12.5px;
   font-weight: 500;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .row.active .navItemTitle {
   font-weight: 600;
-}
-
-.navItemSubtitle {
-  overflow: hidden;
-  color: var(--text-3);
-  font-family: var(--font-ui);
-  font-size: 11px;
-  text-overflow: ellipsis;
-  white-space: nowrap;
 }
 
 .disclosure {
@@ -237,14 +206,6 @@
 
 .chevronOpen {
   transform: rotate(90deg);
-}
-
-/* Separates the three top-level groups. Symmetric margin, because an
-   asymmetric one left the following group's label sitting on the rule. */
-.navDivider {
-  height: 1px;
-  margin: 16px 4px;
-  background: var(--line);
 }
 
 /* Shown in place of a group's rows while its scope is still unknown. */

@@ -1,6 +1,7 @@
 import { useRef, useState, type ChangeEvent } from 'react'
 import { api } from '../../api/silo-api'
 import type { ImportResult } from '../../api/types/import-result'
+import { ArchiveName } from './archive-name'
 
 /** Whether an import empties a collection first, or writes over it. */
 export type ArchiveMode = 'merge' | 'replace'
@@ -42,7 +43,7 @@ export function useArchiveTransfer(
       const objectUrl = URL.createObjectURL(blob)
       const anchor = document.createElement('a')
       anchor.href = objectUrl
-      anchor.download = `silo-export-${new Date().toISOString().slice(0, 10)}.tar.gz`
+      anchor.download = ArchiveName.of()
       document.body.appendChild(anchor)
       anchor.click()
       anchor.remove()
@@ -118,6 +119,12 @@ export function useArchiveTransfer(
       runPreview(chosen)
       // Cleared so choosing the same file twice fires again.
       event.target.value = ''
+    },
+
+    /** The same thing a drop hands over — one file, previewed immediately. */
+    takeFile: (chosen: File) => {
+      setFile(chosen)
+      runPreview(chosen)
     },
 
     apply: async () => {

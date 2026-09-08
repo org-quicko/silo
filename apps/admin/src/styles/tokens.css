@@ -1,23 +1,37 @@
 :root {
-  --board: #090a0e;
-  --bg: #0d0f14;
-  --panel: #14171f;
-  --panel-2: #1c202a;
-  --line: #262b36;
-  --line-2: #333a48;
-  --text: #e9ebef;
-  --text-2: #a2a9b6;
-  --text-3: #8890a0;
+  --board: #08090d;
+  --bg: #0b0d12;
+  --panel: #12151c;
+  --panel-2: #181c25;
+  --panel-3: #1e2330;
+  --line: #232834;
+  --line-2: #2e3542;
+  --text: #e8eaef;
+  --text-2: #98a0af;
+  --text-3: #7f8695;
+  --text-4: #6a7180;
   --accent: #7c86ff;
-  --accent-ink: #0a0c18;
-  --accent-soft: rgba(124, 134, 255, 0.15);
-  --ok: #5ec98d;
-  --warn: #e7b567;
-  --bad: #e5686f;
+  --accent-ink: #0a0b10;
+  --accent-soft: color-mix(in srgb, var(--accent) 14%, transparent);
+  --accent-line: color-mix(in srgb, var(--accent) 34%, transparent);
+  --ok: #4fbf7f;
+  --warn: #e0a951;
+  --bad: #e2606a;
+  --ok-soft: color-mix(in srgb, var(--ok) 13%, transparent);
+  --warn-soft: color-mix(in srgb, var(--warn) 13%, transparent);
+  --bad-soft: color-mix(in srgb, var(--bad) 12%, transparent);
   --font-ui: 'Hanken Grotesk', system-ui, sans-serif;
   --font-mono: 'JetBrains Mono', ui-monospace, monospace;
-  --radius: 11px;
-  --radius-sm: 8px;
+
+  /* One radius scale rather than a lone value: chips, controls, containers and
+     overlays each sit at a fixed step. */
+  --r-1: 5px;
+  --r-2: 8px;
+  --r-3: 12px;
+  --r-4: 16px;
+  --radius: var(--r-3);
+  --radius-sm: var(--r-2);
+
   --ink-2: #0a0c11;
   --shadow-panel: 0 30px 70px -30px rgba(0, 0, 0, 0.7);
   --shadow-modal: 0 24px 60px -18px rgba(0, 0, 0, 0.75);

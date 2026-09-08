@@ -2,6 +2,11 @@
 
 .header { border-bottom: 1px solid var(--line); background: var(--panel); }
 
+/* Title Case, not the all-caps a table heading defaults to elsewhere. Entries'
+   headings are schema property names rather than fixed English labels, so
+   EntriesTableHead draws them through ColumnLabel first — capitalized and
+   spaced out from whatever convention the property was written in — rather
+   than carving this rule back out for that one table. */
 .header > span {
   display: flex;
   align-items: center;
@@ -9,9 +14,8 @@
   padding: 11px 16px;
   color: var(--text-3);
   font-family: var(--font-ui);
-  font-size: 10px;
-  letter-spacing: 0.11em;
-  text-transform: uppercase;
+  font-size: 11.5px;
+  font-weight: 600;
 }
 
 .sortable { cursor: pointer; }

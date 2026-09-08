@@ -1,5 +1,6 @@
 import type { ReactNode } from 'react'
 import { JsonPath } from '@silo/shared/json-path'
+import { ColumnLabel } from './column-label'
 import { ColumnResizer } from './ColumnResizer'
 import { ColumnWidths } from './column-widths'
 import table from '../../components/data/DataTable.module.css'
@@ -49,7 +50,7 @@ export function EntriesTableHead({
         {/* A button, not a span with a click: sorting is an action, and the only
             way to reach it used to be a mouse. */}
         <button type="button" className={styles.headSort} disabled={!primary} onClick={() => primary && onToggleSort(JsonPath.dataField(primary))}>
-          <span className={styles.headLabel}>{primary || 'ID'}</span>
+          <span className={styles.headLabel}>{primary ? ColumnLabel.of(primary) : 'ID'}</span>
           {primary && sortIcon(JsonPath.dataField(primary))}
         </button>
         {handle(ColumnWidths.PrimaryKey)}
@@ -61,7 +62,7 @@ export function EntriesTableHead({
             className={`${styles.headSort} ${numeric.has(column) ? styles.numericHead : ''}`}
             onClick={() => onToggleSort(JsonPath.dataField(column))}
           >
-            <span className={styles.headLabel}>{column}</span>
+            <span className={styles.headLabel}>{ColumnLabel.of(column)}</span>
             {sortIcon(JsonPath.dataField(column))}
           </button>
           {handle(column)}

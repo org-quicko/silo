@@ -1,14 +1,19 @@
 import React, { useState } from 'react'
 import { LoadingState } from '../../../components/feedback/LoadingState'
-import { AlertTriangle, ChevronRight, Layers, Plus } from 'lucide-react'
+import { AlertTriangle, Layers, Plus } from 'lucide-react'
 import { Claims } from '@silo/shared/claims'
 import { Button } from '../../../components/buttons/Button'
 import { Breadcrumb } from '../../../components/navigation/Breadcrumb'
 import { api } from '../../../api/silo-api'
-import { Link } from '../../../router/Link'
 import { Routes } from '../../../router/routes'
 import { TopBar } from '../../shell/TopBar'
 import type { Server } from '../../servers/server'
+import { SettingsList } from '../parts/SettingsList'
+import { SettingsListRow } from '../parts/SettingsListRow'
+import { SettingsPageHead } from '../parts/SettingsPageHead'
+import { SettingsRow } from '../parts/SettingsRow'
+import { SettingsSection } from '../parts/SettingsSection'
+import ledger from '../parts/SettingsLedger.module.css'
 import styles from '../SettingsView.module.css'
 
 /**
@@ -67,27 +72,26 @@ export function ProjectEnvironmentsPage({
       <div className="content">
         <Breadcrumb
           crumbs={[
+            { label: server.name },
+            { label: 'Projects', to: Routes.serverSettings(server.id, 'projects') },
             { label: project, to: Routes.projectSettings(server.id, project, 'general') },
             { label: 'Environments' },
           ]}
         />
-        <div className="page-head">
-          <div className="page-title-group">
-            <h2 className="page-title">Environments</h2>
-            <span className="page-sub">
-              Isolated copies of <b>{project}</b>'s collections and entries — typically prod, staging and
-              dev. Nothing is shared between them except the server itself.
-            </span>
-          </div>
-          {canCreate && !isAdding && (
-            <div className="head-actions">
+
+        <SettingsPageHead
+          title="Environments"
+          sub="Isolated copies of the collections and entries. Nothing is shared between them."
+          actions={
+            canCreate &&
+            !isAdding && (
               <Button variant="primary" onClick={() => setIsAdding(true)}>
                 <Plus size={14} />
                 <span>New environment</span>
               </Button>
-            </div>
-          )}
-        </div>
+            )
+          }
+        />
 
         {error && (
           <div className={styles.alertError}>
@@ -97,64 +101,60 @@ export function ProjectEnvironmentsPage({
         )}
 
         {isAdding && (
-          <form onSubmit={create} className={styles.createCard}>
-            <div className={styles.createHeader}>
-              <h3>New environment in {project}</h3>
-              <p>It starts empty — copy data into it from Environment → Data Transfer.</p>
-            </div>
-            <div className={styles.createFormRow}>
-              <input
-                type="text"
-                placeholder="e.g. staging"
-                value={draft}
-                onChange={(e) => setDraft(e.target.value)}
-                disabled={busy}
-                autoFocus
-                required
-              />
-              <div className={styles.createActions}>
-                <Button type="button" variant="secondary" onClick={() => setIsAdding(false)} disabled={busy}>
+          <form onSubmit={create}>
+            <SettingsSection title={`New environment in ${project}`}>
+              <SettingsRow
+                label="Name"
+                htmlFor="new-env"
+                help="It starts empty — copy data in from Data Transfer."
+              >
+                <input
+                  id="new-env"
+                  className={`${ledger.field} ${ledger.fieldMono}`}
+                  type="text"
+                  placeholder="staging"
+                  value={draft}
+                  onChange={(e) => setDraft(e.target.value)}
+                  disabled={busy}
+                  autoFocus
+                  required
+                />
+              </SettingsRow>
+              <div className={ledger.sectionActions}>
+                <Button
+                  type="button"
+                  variant="secondary"
+                  onClick={() => setIsAdding(false)}
+                  disabled={busy}
+                >
                   Cancel
                 </Button>
                 <Button type="submit" variant="primary" disabled={busy || !draft.trim()}>
                   {busy ? 'Creating…' : 'Create environment'}
                 </Button>
               </div>
-            </div>
+            </SettingsSection>
           </form>
         )}
 
-        <div className={styles.listContainer}>
-          {loading ? (
-            <LoadingState message="Loading environments…" />
-          ) : environments.length === 0 ? (
-            <div className={styles.emptyBox}>
-              No environments in {project} yet{canCreate ? ' — create one to start adding collections.' : '.'}
-            </div>
-          ) : (
-            environments.map((env) => (
-              <Link
+        {loading ? (
+          <LoadingState message="Loading environments…" />
+        ) : (
+          <SettingsList
+            empty={`No environments in ${project} yet${canCreate ? ' — create one to start adding collections.' : '.'}`}
+          >
+            {environments.map((env) => (
+              <SettingsListRow
                 key={env}
                 to={Routes.envSettings(server.id, project, env, 'general')}
-                className={`${styles.itemRow} ${styles.itemRowLink}`}
                 title={`Configure ${project}/${env}`}
-              >
-                <div className={styles.itemMain}>
-                  <div className={styles.itemAvatar}>
-                    <Layers size={16} />
-                  </div>
-                  <div className={styles.itemInfo}>
-                    <span className={styles.itemName}>{env}</span>
-                    <span className={styles.itemMeta}>
-                      {project}/{env}
-                    </span>
-                  </div>
-                </div>
-                <ChevronRight size={16} className={styles.itemChevron} />
-              </Link>
-            ))
-          )}
-        </div>
+                icon={<Layers size={14} />}
+                name={env}
+                meta={`${project}/${env}`}
+              />
+            ))}
+          </SettingsList>
+        )}
       </div>
     </>
   )

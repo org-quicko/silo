@@ -120,8 +120,6 @@
   border-radius: var(--radius-sm);
   background: var(--panel);
   color: var(--text-2);
-  font-size: 20px;
-  line-height: 1;
   cursor: pointer;
   transition: all 0.15s ease;
 }

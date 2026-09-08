@@ -1,14 +1,5 @@
 import { useState } from 'react'
-import {
-  Globe,
-  Trash2,
-  AlertTriangle,
-  Check,
-  Activity,
-  Shield,
-  Eye,
-  EyeOff,
-} from 'lucide-react'
+import { Activity, AlertTriangle, Eye, EyeOff, Trash2 } from 'lucide-react'
 import { Button } from '../../../components/buttons/Button'
 import { Modal } from '../../../components/modal/Modal'
 import { ModalActions } from '../../../components/modal/ModalActions'
@@ -20,7 +11,13 @@ import { Pill } from '../../../components/feedback/Pill'
 import { Breadcrumb } from '../../../components/navigation/Breadcrumb'
 import { TopBar } from '../../shell/TopBar'
 import type { Server } from '../../servers/server'
+import { DestructiveRow } from '../parts/DestructiveRow'
+import { DestructiveSection } from '../parts/DestructiveSection'
+import { SettingsPageHead } from '../parts/SettingsPageHead'
+import { SettingsRow } from '../parts/SettingsRow'
+import { SettingsSection } from '../parts/SettingsSection'
 import passwordStyles from '../../../components/controls/PasswordInput.module.css'
+import ledger from '../parts/SettingsLedger.module.css'
 import styles from '../SettingsView.module.css'
 import { useConnectionForm } from './use-connection-form'
 
@@ -34,6 +31,11 @@ interface ConnectionPageProps {
   onDeleteServer: () => void
 }
 
+/**
+ * How this browser reaches the instance, what the instance says back, and how
+ * to forget it. The endpoint and the key are local to this browser; the
+ * instance below them is what the server itself reports.
+ */
 export function ConnectionPage({
   server,
   claims: initialClaims,
@@ -56,21 +58,14 @@ export function ConnectionPage({
   const [showKey, setShowKey] = useState(false)
   const [isConfirmingDelete, setIsConfirmingDelete] = useState(false)
 
-
   return (
     <>
       <TopBar />
 
       <div className="content">
         <Breadcrumb crumbs={[{ label: server.name }, { label: 'Connection' }]} />
-        <div className="page-head">
-          <div className="page-title-group">
-            <h2 className="page-title">Connection</h2>
-            <span className="page-sub">
-              Configure server connection endpoints, check health diagnostics, and manage server storage.
-            </span>
-          </div>
-        </div>
+
+        <SettingsPageHead title="Connection" />
 
         {form.error && (
           <div className={styles.alertError}>
@@ -79,187 +74,136 @@ export function ConnectionPage({
           </div>
         )}
 
-        <div className={styles.generalContent}>
-          {/* Connection Details */}
-          <section className={styles.card}>
-            <div className={styles.cardHeader}>
-              <div className={styles.sectionTitle}>
-                <Globe size={16} />
-                <h2>Connection Details</h2>
-              </div>
-              <p>Configure connection endpoints and authentication credentials for this server.</p>
-            </div>
+        <form onSubmit={form.save}>
+          <SettingsSection title="Endpoint">
+            <SettingsRow label="Name" htmlFor="server-name">
+              <input
+                id="server-name"
+                className={ledger.field}
+                type="text"
+                value={form.name}
+                onChange={(event) => form.setName(event.target.value)}
+                placeholder="Production US-East"
+                required
+              />
+            </SettingsRow>
 
-            <form onSubmit={form.save} className={styles.form}>
-              <div className={styles.inputGrid}>
-                <div className={styles.inputGroup}>
-                  <label htmlFor="server-name">Server Name</label>
-                  <input
-                    id="server-name"
-                    type="text"
-                    value={form.name}
-                    onChange={(e) => form.setName(e.target.value)}
-                    placeholder="e.g. Production US-East"
-                    required
-                  />
-                </div>
+            <SettingsRow label="URL" htmlFor="server-url">
+              <input
+                id="server-url"
+                className={`${ledger.field} ${ledger.fieldMono}`}
+                type="text"
+                value={form.url}
+                onChange={(event) => form.setUrl(event.target.value)}
+                placeholder="http://localhost:8090"
+                required
+              />
+            </SettingsRow>
 
-                <div className={styles.inputGroup}>
-                  <label htmlFor="server-url">Server URL</label>
-                  <input
-                    id="server-url"
-                    type="text"
-                    value={form.url}
-                    onChange={(e) => form.setUrl(e.target.value)}
-                    placeholder="http://localhost:8090"
-                    required
-                  />
-                </div>
-              </div>
-
-              <div className={styles.inputGroup}>
-                <label htmlFor="server-key">API Key</label>
-                <div className={passwordStyles.wrapper}>
-                  <input
-                    id="server-key"
-                    type={showKey ? 'text' : 'password'}
-                    value={form.apiKey}
-                    onChange={(e) => form.setApiKey(e.target.value)}
-                    placeholder="silo_..."
-                    required
-                  />
-                  <button
-                    type="button"
-                    className={passwordStyles.toggle}
-                    onClick={() => setShowKey(!showKey)}
-                    title={showKey ? 'Hide key' : 'Show key'}
-                  >
-                    {showKey ? <EyeOff size={16} /> : <Eye size={16} />}
-                  </button>
-                </div>
-              </div>
-
-              {form.saved && (
-                <div className={styles.alertSuccess}>
-                  <Check size={15} />
-                  <span>Connection settings saved successfully.</span>
-                </div>
-              )}
-
-              <div className={styles.formActions}>
-                <Button
+            <SettingsRow
+              label="API key"
+              htmlFor="server-key"
+              help="Every request this browser makes is signed with it."
+            >
+              <div className={passwordStyles.wrapper}>
+                <input
+                  id="server-key"
+                  className={`${ledger.field} ${ledger.fieldMono}`}
+                  type={showKey ? 'text' : 'password'}
+                  value={form.apiKey}
+                  onChange={(event) => form.setApiKey(event.target.value)}
+                  placeholder="silo_…"
+                  required
+                />
+                <button
                   type="button"
-                  variant="secondary"
-                  onClick={form.test}
-                  disabled={form.testing || form.saving}
+                  className={passwordStyles.toggle}
+                  onClick={() => setShowKey(!showKey)}
+                  title={showKey ? 'Hide key' : 'Show key'}
                 >
-                  <Activity size={14} />
-                  <span>{form.testing ? 'Testing…' : 'Test Connection'}</span>
-                </Button>
-
-                <Button type="submit" variant="primary" disabled={form.saving || form.testing}>
-                  <Check size={14} />
-                  <span>{form.saving ? 'Saving…' : 'Save Changes'}</span>
-                </Button>
+                  {showKey ? <EyeOff size={16} /> : <Eye size={16} />}
+                </button>
               </div>
-            </form>
-          </section>
+            </SettingsRow>
 
-          {/* Diagnostics */}
-          <section className={styles.card}>
-            <div className={styles.cardHeader}>
-              <div className={styles.sectionTitle}>
-                <Activity size={16} />
-                <h2>Live Diagnostics</h2>
-              </div>
-              <p>Real-time information reported by this Silo server instance.</p>
-            </div>
-
-            <div className={styles.diagnosticsGrid}>
-              <div className={styles.diagCard}>
-                <span className={styles.diagLabel}>Server Status</span>
-                <div className={styles.statusRow}>
-                  {form.status === 'online' ? (
-                    <span className={styles.statusOnline}>
-                      <span className={styles.statusDot} />
-                      Connected {form.pingMs != null ? `(${form.pingMs}ms)` : ''}
-                    </span>
-                  ) : form.status === 'error' ? (
-                    <span className={styles.statusError}>
-                      <span className={styles.statusDot} />
-                      Unreachable
-                    </span>
-                  ) : (
-                    <span className={styles.statusChecking}>Checking…</span>
-                  )}
-                </div>
-                {form.statusMessage && <small className={styles.diagError}>{form.statusMessage}</small>}
-              </div>
-
-              <div className={styles.diagCard}>
-                <span className={styles.diagLabel}>Silo Version</span>
-                <span className={styles.diagValue}>{form.facts.version ? `v${form.facts.version}` : '—'}</span>
-              </div>
-
-              <div className={styles.diagCard}>
-                <span className={styles.diagLabel}>API Key</span>
-                <span className={styles.diagMono}>
-                  {form.facts.sessionLabel ? `${form.facts.sessionLabel} (${form.facts.keyPrefix})` : form.facts.keyPrefix || '—'}
-                </span>
-              </div>
-            </div>
-
-            {form.facts.claims.length > 0 && (
-              <div className={styles.claimsBlock}>
-                <div className={styles.claimsTitle}>
-                  <Shield size={14} />
-                  <span>Active Key Capabilities</span>
-                </div>
-                <div className={styles.claimsList}>
-                  {form.facts.claims.includes('*') ? (
-                    <Pill tone="accent">root · full access</Pill>
-                  ) : (
-                    form.facts.claims.map((claim: string) => (
-                      <Pill key={claim} tone="ok">
-                        {claim}
-                      </Pill>
-                    ))
-                  )}
-                </div>
-              </div>
-            )}
-          </section>
-
-          {/* Danger Zone */}
-          <section className={`${styles.card} ${styles.dangerCard}`}>
-            <div className={styles.cardHeader}>
-              <div className={styles.dangerTitle}>
-                <Trash2 size={16} className={styles.dangerIcon} />
-                <h2>Danger Zone</h2>
-              </div>
-              <p>Manage permanent actions for this server connection in your local environment.</p>
-            </div>
-
-            <div className={styles.dangerItem}>
-              <div className={styles.dangerItemInfo}>
-                <span className={styles.dangerItemTitle}>Delete Server Connection</span>
-                <p className={styles.dangerItemDesc}>
-                  Remove this server from your saved connections in this browser. Your databases, collections,
-                  and records hosted on the remote Silo instance remain completely untouched.
-                </p>
-              </div>
-
+            <div className={ledger.sectionActions}>
+              {form.saved && <span className={`${ledger.sectionNote} ${ledger.noteOk}`}>Saved</span>}
               <Button
                 type="button"
-                variant="danger"
-                onClick={() => setIsConfirmingDelete(true)}
+                variant="secondary"
+                onClick={form.test}
+                disabled={form.testing || form.saving}
               >
-                <Trash2 size={14} />
-                <span>Delete Server</span>
+                <Activity size={14} />
+                <span>{form.testing ? 'Testing…' : 'Test'}</span>
+              </Button>
+              <Button type="submit" variant="primary" disabled={form.saving || form.testing}>
+                {form.saving ? 'Saving…' : 'Save'}
               </Button>
             </div>
-          </section>
-        </div>
+          </SettingsSection>
+        </form>
+
+        <SettingsSection
+          title="Instance"
+          hint={form.facts.version ? `v${form.facts.version}` : undefined}
+        >
+          <SettingsRow label="Reachability" inline>
+            {form.status === 'online' ? (
+              <span className={`${ledger.status} ${ledger.statusOk}`}>
+                <span className={ledger.statusDot} />
+                Connected{form.pingMs != null ? ` · ${form.pingMs}ms` : ''}
+              </span>
+            ) : form.status === 'error' ? (
+              <span className={`${ledger.status} ${ledger.statusBad}`}>
+                <span className={ledger.statusDot} />
+                {form.statusMessage || 'Unreachable'}
+              </span>
+            ) : (
+              <span className={`${ledger.status} ${ledger.statusIdle}`}>Checking…</span>
+            )}
+          </SettingsRow>
+
+          <SettingsRow label="Key in use" inline>
+            <span className={ledger.status}>
+              {form.facts.sessionLabel
+                ? `${form.facts.sessionLabel} · ${form.facts.keyPrefix}`
+                : form.facts.keyPrefix || '—'}
+            </span>
+          </SettingsRow>
+
+          {form.facts.claims.length > 0 && (
+            <SettingsRow label="Grants" inline>
+              <div className={ledger.chips}>
+                {form.facts.claims.includes('*') ? (
+                  <Pill tone="accent">root · full access</Pill>
+                ) : (
+                  form.facts.claims.map((claim: string) => (
+                    <Pill key={claim} tone="ok">
+                      {claim}
+                    </Pill>
+                  ))
+                )}
+              </div>
+            </SettingsRow>
+          )}
+        </SettingsSection>
+
+        <DestructiveSection>
+          <DestructiveRow
+            title="Forget this server"
+            blast={
+              <>
+                Removes <strong>{server.name}</strong> from this browser's saved connections.
+                Everything hosted on the instance stays exactly as it is.
+              </>
+            }
+          >
+            <Button type="button" variant="danger" onClick={() => setIsConfirmingDelete(true)}>
+              Forget server
+            </Button>
+          </DestructiveRow>
+        </DestructiveSection>
       </div>
 
       {/*
@@ -276,8 +220,8 @@ export function ConnectionPage({
             <ModalCopy>
               <h3>Forget this server?</h3>
               <ModalBody>
-                <b>{server.name}</b> is removed from this browser's saved connections. Everything hosted
-                on the instance itself stays exactly as it is.
+                <b>{server.name}</b> is removed from this browser's saved connections. Everything
+                hosted on the instance itself stays exactly as it is.
               </ModalBody>
             </ModalCopy>
           </ModalHeader>

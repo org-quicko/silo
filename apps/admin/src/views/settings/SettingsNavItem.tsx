@@ -11,34 +11,40 @@ import styles from './SettingsNav.module.css'
  * same reasoning `Link` itself documents. A parent row's disclosure control is
  * a **sibling** of that link rather than a child: nesting a button inside an
  * anchor is invalid, and it must be possible to expand the children without
- * navigating to the parent.
+ * navigating to the parent — and, through `onOpen`, to navigate to the parent
+ * without having to then reach for the chevron.
  */
 export function SettingsNavItem({
   to,
   icon,
   title,
-  subtitle,
   active,
   expanded,
   onToggleExpanded,
+  onOpen,
 }: {
   to: string
   icon: ReactNode
   title: string
-  subtitle: string
   active: boolean
   /** Omit both to render a leaf row. */
   expanded?: boolean
   onToggleExpanded?: () => void
+  /** Fired when the row itself is followed, so a parent can reveal its
+   *  children on the way in. Not called for a modifier or middle click, which
+   *  open a new tab and leave this one's nav alone. */
+  onOpen?: () => void
 }) {
   return (
     <div className={`${styles.row} ${active ? styles.active : ''}`}>
-      <Link to={to} className={styles.navItem} aria-current={active ? 'page' : undefined}>
+      <Link
+        to={to}
+        className={styles.navItem}
+        aria-current={active ? 'page' : undefined}
+        onNavigate={onOpen}
+      >
         <span className={styles.navIcon}>{icon}</span>
-        <span className={styles.navItemText}>
-          <span className={styles.navItemTitle}>{title}</span>
-          <span className={styles.navItemSubtitle}>{subtitle}</span>
-        </span>
+        <span className={styles.navItemTitle}>{title}</span>
       </Link>
 
       {onToggleExpanded && (

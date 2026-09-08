@@ -1,0 +1,85 @@
+/* The import tab's front door. A dashed border rather than the solid one every
+   other bordered thing on the settings surface has: dashed reads as "something
+   goes here", which is exactly what this is. */
+
+.zone {
+  display: flex;
+  align-items: flex-start;
+  gap: 16px;
+  padding: 24px 22px;
+  border: 1px dashed var(--line-2);
+  border-radius: var(--r-3);
+  background: var(--panel);
+  transition: border-color 0.12s, background 0.12s;
+}
+
+/* Only while a file is actually over it — the promise the copy makes. */
+.over {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+}
+
+.icon {
+  display: grid;
+  width: 34px;
+  height: 34px;
+  flex: none;
+  border: 1px solid var(--line);
+  border-radius: var(--r-2);
+  background: var(--panel-2);
+  color: var(--text-4);
+  place-items: center;
+}
+
+.over .icon {
+  border-color: var(--accent-line);
+  color: var(--accent);
+}
+
+.body {
+  min-width: 0;
+  max-width: 46ch;
+}
+
+.body b {
+  display: block;
+  margin-bottom: 4px;
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.body p {
+  margin: 0 0 12px;
+  color: var(--text-3);
+  font-size: 12.5px;
+  line-height: 1.55;
+}
+
+.actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+/* The chosen archive's name, once there is one. */
+.file {
+  overflow: hidden;
+  color: var(--text-2);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  letter-spacing: -0.02em;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.hiddenInput {
+  display: none;
+}
+
+@media (max-width: 560px) {
+  .zone {
+    flex-direction: column;
+    padding: 20px 16px;
+  }
+}

@@ -1,3 +1,11 @@
+/* Matches the 30px a SettingsSection puts above itself — this page's card
+   has no such margin of its own, so without this its table sits right
+   under the page head's description instead of at the same settled
+   distance every other settings page holds. */
+.table {
+  margin-top: 30px;
+}
+
 .row { color: inherit; text-decoration: none; }
 
 .nameCell { display: flex; align-items: center; gap: 9px; }

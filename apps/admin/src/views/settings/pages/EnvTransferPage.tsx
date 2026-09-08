@@ -9,6 +9,7 @@ import type { ScopeRef } from '../../../api/types/scope-ref'
 import { useScopeCopy } from './use-scope-copy'
 import { TopBar } from '../../shell/TopBar'
 import type { Server } from '../../servers/server'
+import { SettingsPageHead } from '../parts/SettingsPageHead'
 import settings from '../SettingsView.module.css'
 import styles from './EnvTransferPage.module.css'
 
@@ -45,20 +46,17 @@ export function EnvTransferPage({
       <div className="content">
         <Breadcrumb
           crumbs={[
+            { label: server.name },
             { label: scope.project, to: Routes.projectSettings(server.id, scope.project, 'general') },
             { label: scope.env, to: Routes.envSettings(server.id, scope.project, scope.env, 'general') },
             { label: 'Data Transfer' },
           ]}
         />
-        <div className="page-head">
-          <div className="page-title-group">
-            <h2 className="page-title">Data Transfer</h2>
-            <span className="page-sub">
-              Copy collections, schemas and entries from another environment into{' '}
-              <b>{scope.project}/{scope.env}</b>. Preview first — nothing is written until you apply.
-            </span>
-          </div>
-        </div>
+        <SettingsPageHead
+          title="Data Transfer"
+          scope={{ kind: 'env', project: scope.project, env: scope.env }}
+          sub="Preview first — nothing is written until you apply."
+        />
 
         {copy.error && (
           <div className={settings.alertError}>

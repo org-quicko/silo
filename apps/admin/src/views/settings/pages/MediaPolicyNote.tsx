@@ -1,6 +1,6 @@
 import { Info } from 'lucide-react'
 import type { MediaPolicyView } from '../../../api/types/media-settings'
-import styles from './MediaStoragePage.module.css'
+import styles from '../parts/SettingsLedger.module.css'
 
 /**
  * What a library field is worth beside the box you type it in (D46).
@@ -26,7 +26,7 @@ export function MediaPolicyNote({
     : inForce || 'the address each request arrives on'
 
   return (
-    <span className={styles.note}>
+    <span className={styles.controlNote}>
       <Info size={12} />
       <span>
         In use: {value}

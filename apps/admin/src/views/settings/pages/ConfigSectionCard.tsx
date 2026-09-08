@@ -1,23 +1,24 @@
 import { useState, type FormEvent } from 'react'
-import { AlertTriangle, Check, RotateCw } from 'lucide-react'
+import { AlertTriangle, RotateCw } from 'lucide-react'
 import { Button } from '../../../components/buttons/Button'
 import type { ConfigSectionView } from '../../../api/types/settings'
+import { SettingsSection } from '../parts/SettingsSection'
+import ledger from '../parts/SettingsLedger.module.css'
 import settings from '../SettingsView.module.css'
 import { ConfigFieldInput } from './ConfigFieldInput'
 import { ConfigSectionDraft, type ConfigSectionFields } from './config-section-draft'
-import styles from './MediaStoragePage.module.css'
 
 /**
  * One `[table]` of `silo.toml`, with its own Save (D47).
  *
- * Per card rather than one Save for the page, following the two media cards: a
- * value `[search]` rejects must not stop a `[log]` level being corrected, and a
- * card that saved its neighbours' unsaved edits along with its own would be a
- * surprise nobody asked for.
+ * Per section rather than one Save for the page, following the two media
+ * cards: a value `[search]` rejects must not stop a `[log]` level being
+ * corrected, and a section that saved its neighbours' unsaved edits along with
+ * its own would be a surprise nobody asked for.
  *
- * The draft is local to the card for the same reason. It is reset from the view
- * on every save, so what the boxes hold after one is exactly what the file now
- * says rather than what was typed into it.
+ * The draft is local to the section for the same reason. It is reset from the
+ * view on every save, so what the boxes hold after one is exactly what the file
+ * now says rather than what was typed into it.
  */
 export function ConfigSectionCard({
   section,
@@ -60,15 +61,8 @@ export function ConfigSectionCard({
   }
 
   return (
-    <section className={settings.card}>
-      <div className={settings.cardHeader}>
-        <div className={settings.sectionTitle}>
-          <h2>{section.title}</h2>
-        </div>
-        <p>{section.summary}</p>
-      </div>
-
-      <form onSubmit={save} className={settings.form}>
+    <form onSubmit={save}>
+      <SettingsSection title={section.title}>
         {section.fields.map((field) => (
           <ConfigFieldInput
             key={field.key}
@@ -83,15 +77,6 @@ export function ConfigSectionCard({
           />
         ))}
 
-        {section.restart_pending.length > 0 && (
-          <div className={styles.notice}>
-            <RotateCw size={14} />
-            <span>
-              Saved, and waiting for a restart: {section.restart_pending.join(', ')}.
-            </span>
-          </div>
-        )}
-
         {error && (
           <div className={settings.alertError}>
             <AlertTriangle size={15} />
@@ -99,22 +84,25 @@ export function ConfigSectionCard({
           </div>
         )}
 
-        {saved && !error && (
-          <div className={settings.alertSuccess}>
-            <Check size={15} />
-            <span>Saved.</span>
-          </div>
-        )}
+        {(section.writable || section.restart_pending.length > 0) && (
+          <div className={ledger.sectionActions}>
+            {section.restart_pending.length > 0 ? (
+              <span className={`${ledger.sectionNote} ${ledger.noteWarn}`}>
+                <RotateCw size={12} /> Waiting for a restart:{' '}
+                {section.restart_pending.join(', ')}
+              </span>
+            ) : saved && !error ? (
+              <span className={`${ledger.sectionNote} ${ledger.noteOk}`}>Saved</span>
+            ) : null}
 
-        {section.writable && (
-          <div className={settings.formActions}>
-            <Button type="submit" variant="primary" disabled={!editable || !dirty}>
-              <Check size={14} />
-              <span>{saving ? 'Saving…' : 'Save Changes'}</span>
-            </Button>
+            {section.writable && (
+              <Button type="submit" variant="primary" disabled={!editable || !dirty}>
+                {saving ? 'Saving…' : 'Save'}
+              </Button>
+            )}
           </div>
         )}
-      </form>
-    </section>
+      </SettingsSection>
+    </form>
   )
 }

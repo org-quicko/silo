@@ -31,7 +31,9 @@
 }
 
 .triggerIcon {
+  display: flex;
   flex-shrink: 0;
+  align-items: center;
   color: var(--accent);
 }
 

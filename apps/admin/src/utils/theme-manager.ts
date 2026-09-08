@@ -34,17 +34,21 @@ export class ThemeManager {
   public static readonly DEFAULT_SIDEBAR = '#14171f'
   public static readonly DEFAULT_SIDEBAR_HOVER = '#1c202a'
 
+  /**
+   * The families offered as specimens on the Appearance page. Trimming this
+   * list never strips a font somebody is already using: `applyFont` fetches
+   * whatever family is stored through its own link, so a saved choice that is
+   * no longer a preset keeps working — it simply stops being one of the cards.
+   */
   public static readonly FONT_PRESETS: FontPreset[] = [
     { name: 'Hanken Grotesk', category: 'Sans-Serif' },
     { name: 'Inter', category: 'Sans-Serif' },
-    { name: 'Outfit', category: 'Sans-Serif' },
     { name: 'DM Sans', category: 'Sans-Serif' },
-    { name: 'Poppins', category: 'Sans-Serif' },
     { name: 'Space Grotesk', category: 'Sans-Serif' },
-    { name: 'Raleway', category: 'Sans-Serif' },
     { name: 'Nunito', category: 'Sans-Serif' },
     { name: 'Rubik', category: 'Sans-Serif' },
     { name: 'Lora', category: 'Serif' },
+    { name: 'Fira Code', category: 'Monospace' },
   ]
 
   // Curated to a spread of visually distinct hues rather than every shade —
