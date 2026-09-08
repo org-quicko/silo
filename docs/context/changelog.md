@@ -4,6 +4,29 @@
 > The *current* state is [CONTEXT.md](../../CONTEXT.md); this is how it got
 > there.
 
+- **The READMEs became landing pages, and their reference moved to
+  `docs/guide/` (2026-09-08).** The root README was 1,687 lines and was the
+  whole manual: the `silo.toml` reference, every CLI flag, the route table, the
+  claim catalog, the plugin author's guide and the archive format were inlined
+  in it, so the one document a newcomer opens first was also the one an
+  operator scrolled through to find a flag. Seven files under `docs/guide/`
+  now hold that material — `configuration.md`, `cli.md`, `http-api.md`,
+  `claims.md`, `plugins.md`, `transfer.md`, `deployment.md`, with a `README.md`
+  indexing them — and the root README is 313 lines carrying what silo is, how
+  to install it, the concepts, the features, plugins and deployment in outline,
+  and the links out. Nothing was dropped: the sections were moved whole, with
+  their in-page anchors rewritten as cross-file links. Three things the old
+  README never documented are now in the guide, having existed only in
+  `docs/design/`: the three rename routes (D51), `GET /api/media/extensions`
+  and `PATCH /api/media/{id}` (D55), and variables in full (D57) — the route
+  table, a note on `?variables=raw`, and the claims each variable operation
+  actually asks for. `apps/admin/README.md` was also stale in a way that
+  mattered, since it still spelled the pre-restructure `ui/` paths and knew
+  nothing of `store/` or `api/clients/`; it and both plugin READMEs are
+  rewritten to the same rule, each deferring to its `docs/design/` counterpart
+  for the rationale it used to restate. Prose in all four follows the house
+  style: no em dashes, short sentences, one idea each.
+
 - **The Strapi importer can flatten a wrapper single type into one entry per
   item, and lay media out by collection (2026-09-08).** A single type whose
   only field is one repeatable component contributes nothing of its own, so

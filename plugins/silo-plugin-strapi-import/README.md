@@ -1,31 +1,25 @@
 # silo-plugin-strapi-import
 
-Import a **Strapi 5** SQLite export into silo collections, from a screen inside
+Import a **Strapi 5** SQLite export into silo collections, from a panel inside
 the silo admin.
 
-Point it at the `.db` a `strapi transfer` produces, and it reads what is in
-there, proposes one silo collection per Strapi content type — single types
-included, components nested inside the entry — lets you rename and narrow that
-plan, and then writes it, with progress per collection.
+Point it at the `.db` that `strapi transfer` produces. It reads what is in
+there, proposes one silo collection per Strapi content type, lets you rename and
+narrow that plan, and then writes it with progress per collection. Single types
+are included, and a component is nested inside the entry that owns it.
 
-silo's first first-party plugin, and the reason three things exist in silo's
-plugin system that did not before (D41/§13.20): a route may be handed **bytes**,
-a package may contribute an admin **panel**, and a route's declared body cap
-joins the manifest digest an operator approves.
+Media comes across as media. Supply Strapi's `public/uploads` folder and the
+files land in silo's own media library, so an entry holds `silo://media/<id>`
+instead of a link back to the instance you are leaving.
 
-Media comes across as media: supply Strapi's `public/uploads` folder and the files
-land in silo's own media library, with entries holding `silo://media/<id>` rather
-than a link back to the instance you are migrating off.
-
-## What it does
+## How it works
 
 ```
    data.db  ──►  POST /source        the export, as bytes
    uploads/ ──►  GET  /files         which files it wants, and which arrived
                  POST /files?name=   one file's bytes, per file
-                 GET  /plan          one collection per content type, editable,
-                                     with the scopes it could be written into
-                 GET  /targets       those scopes on their own
+                 GET  /plan          one collection per content type, editable
+                 GET  /targets       the projects and environments it can write to
                  POST /imports       run it, in the background
                  GET  /imports/:id   progress
 ```
@@ -34,265 +28,93 @@ than a link back to the instance you are migrating off.
    and read. Nothing is written to silo yet.
 2. **Point it at `public/uploads`.** The export carries the file *catalog* and
    never the files, so the panel asks for the folder and sends the ones the
-   import actually references. Skip this and every media field keeps its Strapi
-   URL instead.
-3. **Plan.** One silo collection per Strapi content type, one entry per document,
-   with a JSON Schema derived from the source's own tables — nested, where the
-   source nests. Choose the project and environment, rename anything, untick what
-   you do not want, and choose per collection what happens if it already has
-   entries.
-4. **Import.** Runs off the request that started it — 367 entries do not fit in a
-   five-second dispatch budget — and the panel polls it.
+   import references. Skip this step and each media field keeps its Strapi URL.
+3. **Check the plan.** One silo collection per content type, one entry per
+   document, with a JSON Schema derived from the source's own tables. Choose the
+   project and environment, rename anything, untick what you do not want, and
+   choose per collection what happens if it already holds entries.
+4. **Import.** The run happens off the request that started it, because 367
+   entries do not fit in a five-second dispatch budget. The panel polls it.
 
-## Where an import goes
+**The plan decides where an import goes, and nothing else does.** The two
+selects at the top are filled from the projects and environments silo actually
+has, and there is no configured target to disagree with them.
 
-**The plan says, and nothing else does.** The two selects at the top of the plan
-are filled from the projects and environments silo actually has (`GET /targets`),
-and the plan opens on the first of them.
-
-There is no configured target, and that is a fix rather than an omission. When
-`[plugins.config]` also named a `project` and an `env`, they were two answers to
-one question: the panel rebuilt its selects on every re-render — after staging the
-uploads, on every poll of a running import — and put them back to the configured
-scope, so an operator who retargeted a plan and then sent their files watched the
-import go somewhere else without being told.
-
-## The mapping, and why
+## The mapping
 
 **One silo collection per Strapi content type, one entry per document, with the
-components nested inside it.** A single type is a collection holding one entry,
-which is what Strapi does with it — a table with a row in it — so the shape you
-edit in Strapi is the shape you get in silo.
+components nested inside it.** A single type becomes a collection that holds one
+entry, which is what Strapi does with it, so the shape you edit in Strapi is the
+shape you get in silo.
 
-A component becomes an object, a repeatable one an array of objects, and a
-dynamic zone an array whose items carry Strapi's own `__component`. All the way
-down: `validation.item` holding a list of `validation.issue`, each holding two
-media fields, arrives as exactly that.
+A component becomes an object, a repeatable component an array of objects, and a
+dynamic zone an array whose items carry Strapi's own `__component`. This holds
+all the way down.
 
-**This is the second answer to that question.** The first lifted every repeatable
-component into a collection of its own, reasoning that a single type wrapping one
-is "a table wearing a single type as a hat" and that one entry holding a
-251-element array is one `rev` for the whole table and unsearchable per row. Both
-of those are still true. They cost less than the flattening did, measured against
-a real 45-content-type export:
-
-| what the source had | what the flattening did |
-| :-- | :-- |
-| a component holding a component | a collection of the outer rows, with the inner ones nowhere — 988 `validation.issue` rows dropped without a word |
-| a component with no columns of its own | a collection with an empty schema and one blank entry per row |
-| one component used by two content types | two collections proposing the same name, and a plan that refuses itself |
-| a collection type with components | the components split away from the entries that own them |
-
-Fidelity first. An operator who wants a component as its own collection can get
-there from an entry; nobody can get the nesting back from a split.
-
-**The name is the content type's, carried whole.** `api::` is dropped and a
-segment that only repeats the one before it goes with it, so
-`api::article.article` proposes `article` and `api::blog.article` proposes
-`blog-article`. That is the name Strapi's own sidebar shows, which is the only
-name you can check a plan against. `collection_prefix` prepends to all of them.
-
-**Nothing of Strapi's identity is carried.** No `strapi_id`, no `document_id`.
-Silo mints its own id (D2) and nothing on either side resolves a Strapi one, so a
-column holding one is a field that looks like a key and is not. A re-import
-matches on content or it does not match at all, which is what the plan's
-`replace` is for.
-
-### Flattening a single type
-
-A single type whose only field is one repeatable component contributes nothing
-of its own — no columns, no other field, one component. Flattening it writes
-one entry per component item instead of one entry holding all of them, and none
-of the losses the table above lists apply: the wrapper has no field to lose, the
-item's own children stay nested inside it, and there is exactly one component to
-name the collection after.
-
-It is **opt-in, per step, on the plan** — a checkbox next to the content types
-it applies to, unticked by default, because fidelity-first stays the default
-even on a list that qualifies. Turning it on does not rename the collection: it
-still proposes the content type's name, and you rename it the same way you would
-either way.
-
-### What the export does not say
-
-A content type's schema is in the export. **A component's is not** — it lives in
-the project's `src/components/*.json`, which a database export does not carry —
-so a component's shape is read from its data: its table's columns are its
-scalars, its `_cmps` join table names its children, and `files_related_mph` names
-its files.
-
-That leaves one gap, and the content-manager's per-component configuration closes
-half of it. That record names every field of every component, so a field that was
-declared and never filled still reaches the imported collection — as a property
-with **no type**, because naming a field and knowing what goes in it are two
-different claims and the export only supports the first. `com-quicko-app-store.connection`
-imports with `oauth` typed and `credential` and `api` present and open.
-
-The half that stays open: a nested component's `repeatable` is inferred from
-whether any one row holds more than one child, the way a media field's `multiple`
-already was. A content type's own fields never need that — its schema says.
-
-### Enumerations
-
-Strapi stores an `enumeration` as a plain `varchar`, so the declaration is the
-only evidence it is one, and it becomes a JSON Schema `enum` — **after the rows
-are checked against it**. Strapi enforces an enumeration on write and never on
-the rows already stored, so a value removed from a content type stays in every
-row that already held it, and carrying the declaration blindly would produce a
-collection that refuses an entry this export demonstrably contains. A column the
-data disagrees with imports as the string it already was.
-
-`null` is a member of the emitted `enum`, not merely of the `type`: an unfilled
-enumeration column is `NULL`, and an `enum` without it would refuse those rows.
-Silo's schema editor reads the pair back as one nullable enum and writes both
-halves again, so switching the field to a plain string and back keeps it.
-
-This only reaches a **content type's** columns. A component's schema is not in
-the export at all, so an enumeration inside a component is unknowable from here
-and stays a string.
+- **The name is the content type's, carried whole.** `api::` is dropped, and so
+  is a segment that only repeats the one before it. `api::article.article`
+  proposes `article`, and `api::blog.article` proposes `blog-article`.
+  `collection_prefix` prepends to all of them.
+- **Nothing of Strapi's identity comes across.** No `strapi_id` and no
+  `document_id`. silo mints its own ids, and nothing on either side resolves a
+  Strapi one. A re-import matches on content, which is what the plan's `replace`
+  mode is for.
+- **An enumeration becomes a JSON Schema `enum`,** but only after the rows are
+  checked against the declaration. Strapi enforces an enumeration on write and
+  never on the rows already stored. A column the data disagrees with imports as
+  the string it already was.
+- **A single type that is only a wrapper can be flattened,** to one entry per
+  component item instead of one entry holding all of them. It is opt-in per step
+  on the plan, because fidelity stays the default.
+- **Relations are not imported.** A Strapi relation points at another content
+  type's `document_id`, and silo's `x-silo-ref` has no integrity enforcement
+  yet, so a faithful import would write ids that nothing resolves. Relations are
+  reported under the inventory's `skipped`.
 
 ## Media
 
-A media field becomes **silo's media type** — `x-silo-type: "media"` on a string
-(D23) — and never a copy of Strapi's media object. That is the difference between
-importing media and importing something media-shaped: with the keyword, the admin
-renders the picker and a thumbnail, `MediaRefs.extract` counts the reference so
-deleting the asset is guarded, and a read rewrites the value against whatever host
-answered. The earlier version of this plugin emitted
-`{ url, name, mime, width, height, size, alt }`, which validated and imported
-cleanly while every one of those behaviours passed it by.
+A media field becomes **silo's media type**, which is `x-silo-type: "media"` on
+a string, and never a copy of Strapi's media object. With that keyword the admin
+draws the picker and a thumbnail, silo counts the reference so a delete is
+guarded, and a read rewrites the value against whichever host answered.
 
-What fills the field depends on whether you supplied the bytes, and the schema is
-the same either way:
+The schema is the same whether or not you supplied the bytes:
 
 | you supplied | the entry holds |
 | :-- | :-- |
-| the file | `silo://media/<id>` — silo holds the bytes |
-| nothing | the absolute Strapi URL, which silo resolves by leaving alone |
+| the file | `silo://media/<id>`, and silo holds the bytes |
+| nothing | the absolute Strapi URL, which silo resolves by leaving it alone |
 | nothing, and no `media_base_url` | the relative `/uploads/…` path Strapi recorded |
 
-Same `string` either way, so **import now and send the files later** is a
-re-import and not a schema migration.
-
-### Where the files land
+So **import now and send the files later** is a re-import, not a schema
+migration.
 
 `media_folder` names a folder in silo's media library, `strapi` by default, and
-the first import **creates it** if it is not there. An asset naming a folder
-already implies one, so what the explicit record buys is a folder you can see in
-the library tree from the start, and one that outlives every file in it.
+the first import creates it. `media_layout` decides the arrangement under it:
+`single` puts every upload in that folder, and `by-collection` gives each
+collection of the run a folder of its own, with `shared` for a file that two or
+more collections reference.
 
-Set it to the empty string for the library root. It used to end up there whatever
-the configuration said, because silo does not apply a config schema's `default` —
-the manifest advertised `strapi` and the plugin read a missing key as "root", so
-an operator who never wrote the key got several hundred hashed Strapi filenames in
-the root of their library.
+Files are sent one per request, because the 64 MiB body ceiling is a cap on one
+request and a real uploads directory is larger than that. Per file it becomes a
+cap per file, and progress, retry and resume come with it: `GET /files` says
+what is still missing, so an interrupted run resumes by sending the rest.
 
-`media_layout` decides how those uploads are arranged under it. `single`, the
-default, is the behaviour above: everything in `media_folder`. `by-collection`
-gives each collection of the run its own folder underneath, e.g.
-`strapi/countries`, and a file two or more collections reference lands in
-`strapi/shared` instead — decided **exactly**, from the rows the run writes
-after flattening, because one component uid can serve two content types and
-that is precisely the case `shared` exists for. The "Folders" select in the
-panel's uploads step chooses it for a run, and the choice is part of the plan
-`POST /imports` receives, so a re-render keeps it. Changing the layout between
-runs does not move files already in the library: the byte-for-byte lookup below
-looks in the folder the current layout names, so the next run uploads into the
-new folders and the earlier copies stay where they were.
-
-### Why one file per request
-
-`GET /files` lists the uploads this import references — by filename, because
-Strapi hashes an upload's name (`Mastercard_0a2d4ecc1c.svg`) and writes it flat,
-so the basename of the `url` column and the name in your folder are the same
-string. The panel matches your folder against that list and sends only what is
-wanted, which is also what keeps the thumbnails and derivatives Strapi generated
-out of silo.
-
-The obvious alternative was a zip of `public/uploads` through the same bytes route
-the `.db` uses, and it fails on the number that decides it: the 64 MiB body
-ceiling is a cap on **one request**, and a real instance's uploads directory is
-routinely larger. Per file it caps at 64 MiB *per file* — the unit silo's media
-library stores things in — and progress, retry and resume come for free: `/files`
-says what is still missing, so an interrupted run resumes by sending the rest.
-
-### Re-importing does not duplicate
-
-A file is uploaded once per run however many rows point at it, and before
-uploading anything the plugin asks whether silo already holds those exact bytes —
-matched on silo's own **sha256**, not on the filename. Without that, `replace`
-would double the media library on every re-run and orphan the previous copies:
-`POST /api/media` mints a new id per request and deduplicates nothing.
-
-That lookup needs `media:read`; ungranted, the import still runs and still
-uploads, and duplicates on a re-run.
-
-### What does not come across
-
-Strapi's `alternative_text` has nowhere to go — a silo media asset records a
-filename, folder, size, content type, hash and tags, and no alt text. And Strapi's
-generated size variants (`thumbnail_`, `small_`, `medium_`, `large_`) are not
-imported: silo does not model derivatives, and the original is what the catalog
-row points at.
-
-## One thing it does not do
-
-**It does not import relations.** A Strapi relation is a row in a link table
-pointing at another content type's `document_id`, and silo's `x-silo-ref` has no
-integrity enforcement yet (§12.5) — so a faithful import would write ids nothing
-resolves. Relations are reported under the inventory's `skipped` and left out.
-
-## The traps it exists to avoid
-
-**Strapi 5 stores a separate copy of every component row per document version.**
-A 29-item list is 58 rows in `components_…`, half owned by the draft copy and
-half by the published one, with the media attached to both. Reading the component
-table directly imports every row twice — and it fails *silently*: no error, no
-duplicate id, just twice as much content.
-
-`StrapiVersions` names the entity ids of the version being imported, once, at the
-top — and every component row in the tree is reached *from* one of those ids
-through a join table. So the draft copies are not filtered out at each depth,
-they are never reached, and the trap is closed by shape rather than by a clause
-repeated everywhere and eventually fixed in only one place.
-
-**The second trap: a component's table is named from a *pluralised* form of its
-uid**, and the mapping lives in the project's `src/components/*.json` rather than
-in the export:
-
-| uid | table |
-| :-- | :-- |
-| `org-quicko.bank` | `components_org_quicko_banks` |
-| `org-quicko.payment-entity` | `components_org_quicko_payment_entiti**es**` |
-| `org-quicko.states` | `components_org_quicko_states**_s**` |
-
-A prefix match handles the first and third and fails the second; a singularising
-match handles the first two and fails the third. So `StrapiComponents` **searches
-and then proves**: candidates from four matchers in confidence order, and a
-candidate only wins if it contains the rows the join table points at. What cannot
-be proved is reported as unresolved rather than guessed — on the plan, beside the
-collection whose entries will be missing that field.
-
-**The third trap: a table is not always called what the schema calls it.** Strapi
-caps a database identifier at 55 characters and shortens anything longer to its
-first 50 plus a five-character digest, while the content-type schema keeps the
-long name:
-
-| `collectionName` | the table |
-| :-- | :-- |
-| `com_quicko_it_file_2026_incomes_bnp_settlements_templates` | `com_quicko_it_file_2026_incomes_bnp_settlements_te**ec0f2**` |
-
-Asking whether `collectionName` is a table therefore reports a content type as
-missing from an export that holds every one of its rows. `StrapiIdentifiers`
-answers both spellings. The digest is **shake256**, which is the whole reason it
-is a file rather than a `slice`: sha256, sha1, md5 and sha3-256 each produce five
-entirely plausible characters, and none of them produce Strapi's.
+A file is uploaded once per run however many rows point at it, and before it
+uploads anything the plugin asks whether silo already holds those exact bytes,
+matched on sha256. Strapi's `alternative_text` has nowhere to go, and Strapi's
+generated size variants are not imported.
 
 ## Install
 
 ```sh
-cp -r silo-plugin-strapi-import <data dir>/plugins/silo-plugin-strapi-import
+silo add ./plugins/silo-plugin-strapi-import
+silo plugin doctor
 ```
+
+Then open **Settings > Plugins > silo-plugin-strapi-import > Open panel**.
+
+To place the directory by hand, add this to your `silo.toml`:
 
 ```toml
 [[plugins]]
@@ -303,10 +125,10 @@ claims     = [
   "collections:*/*/*:create",
   "collections:*/*/*:schema:read",
   "collections:*/*/*:entries:create",
-  "collections:*/*/*:entries:read",     # optional — counts what is already there
-  "collections:*/*/*:entries:delete",   # optional — only for "empty it first"
-  "media:create",                       # optional — puts the uploads in the library
-  "media:read",                         # optional — so a re-import does not duplicate
+  "collections:*/*/*:entries:read",     # optional: counts what is already there
+  "collections:*/*/*:entries:delete",   # optional: only for "empty it first"
+  "media:create",                       # optional: puts the uploads in the library
+  "media:read",                         # optional: so a re-import does not duplicate
   "http:route",
 ]
 
@@ -316,74 +138,64 @@ claims     = [
   media_layout   = "by-collection"
 ```
 
-```sh
-silo plugin doctor
-```
-
-Then **Settings → Plugins → silo-plugin-strapi-import → Open panel**.
-
-Four claims are declared `optional`, and the manifest says what each buys.
-Without `entries:read` the plan cannot count what is already in a target
-collection; without `entries:delete` "empty it first" is refused while "add to it"
-still works; without `media:create` every media field keeps its Strapi URL, said
-once in the run's report rather than per file; without `media:read` an upload
-silo already holds is uploaded again. Narrowing the grant to the three required
-claims leaves a working importer that can only append and only link.
+Four claims are optional, and the manifest says what each one buys. Without
+`entries:read` the plan cannot count what is already in a target collection.
+Without `entries:delete`, "empty it first" is refused and "add to it" still
+works. Without `media:create` each media field keeps its Strapi URL. Without
+`media:read` an upload silo already holds is uploaded again. Narrow the grant to
+the three required claims and you keep a working importer that can only append
+and only link.
 
 ## Configuration
 
 | Key | |
 |-----|--|
-| `collection_prefix` | prepended to every proposed name, e.g. `strapi_` |
-| `media_base_url` | the Strapi instance still serving `/uploads/…`, used for a file you did not supply. Empty leaves paths relative — a true statement about the source, where a guessed host would be a false one |
-| `media_folder` | where supplied uploads land in silo's media library, `strapi` by default, created on the first import. Empty means the root |
-| `media_layout` | `single` (default): every upload in `media_folder`. `by-collection`: one folder per collection under it, and `shared` for a file more than one collection uses |
-| `work_dir` | where the export and the supplied uploads are staged. Defaults under the system temp dir, deliberately **not** the data directory: D5 promises that is only your content |
+| `collection_prefix` | Prepended to every proposed name, for example `strapi_` |
+| `media_base_url` | The Strapi instance still serving `/uploads/…`, used for a file you did not supply. Empty leaves the paths relative |
+| `media_folder` | Where supplied uploads land in silo's media library. `strapi` by default, created on the first import. Empty means the root |
+| `media_layout` | `single` (default): every upload in `media_folder`. `by-collection`: one folder per collection, plus `shared` |
+| `work_dir` | Where the export and the supplied uploads are staged. Defaults under the system temp directory, deliberately not the data directory |
 | `version` | `published` (default) or `draft` |
 
-Nothing here names a target project or environment: that is chosen on the plan,
-against the scopes silo actually has. Every default above is applied by
-`PluginSettings`, because silo validates `[plugins.config]` without filling a
-schema's `default` in.
+Nothing here names a target project or environment. That is chosen on the plan.
+Every default above is applied by the plugin, because silo validates
+`[plugins.config]` without filling in a schema's `default`.
 
 ## Development
 
-No build step and no runtime dependencies on silo — it reaches the host through
-the `silo:api` virtual module. It does use `bun:sqlite` and node's `fs`, which is
-why its `tsconfig.json` adds `types: ["bun"]`: that is editor support, not a
-dependency. A plugin runs inside silo's own Bun worker and holds its privileges
-(§13.4).
-
 ```sh
-bun test plugins/silo-plugin-strapi-import   # from the repo root
-bun x tsc --noEmit -p tsconfig.json
+bun test plugins/silo-plugin-strapi-import   # from the repository root
+bun x tsc --noEmit -p plugins/silo-plugin-strapi-import/tsconfig.json
 ```
 
-### Layout
-
-Five subjects, and a one-way dependency direction: `routes/` composes `worker/`,
-which owns the state the rest is reached through, and nothing below reaches back
-up.
+No build step, and no runtime dependency on silo: the plugin reaches the host
+through the `silo:api` virtual module. It does use `bun:sqlite` and node's `fs`,
+which is why its `tsconfig.json` adds `types: ["bun"]`. That is editor support,
+not a dependency.
 
 ```
 src/
-├─ index.ts          activate/deactivate, and the four route groups spread onto one object
-├─ routes/           one file per group of routes — source, uploads, plan, imports
+├─ index.ts          activate/deactivate, and the four route groups on one object
+├─ routes/           one file per group: source, uploads, plan, imports
+├─ import/           the plan, and the run
 ├─ worker/           the state one worker holds, and the configuration it read
-├─ strapi/           reading the export: the database, identifiers, versions, shapes, entries, media
-├─ staging/          where the .db and the supplied uploads live while a run needs them
+├─ strapi/           reading the export: database, identifiers, versions, shapes, entries, media
+├─ staging/          where the .db and the uploads live while a run needs them
 ├─ silo/             writing into silo: media, multipart, collection names, target scopes
-├─ panel/            the admin panel, one inlined HTML file (the manifest allows one)
+├─ panel/            the admin panel, one inlined HTML file
 └─ types/            silo-api.d.ts, verbatim from the host
 test/
-├─ support/          the synthetic Strapi database, a temp directory, a fake ctx
+├─ support/          a synthetic Strapi database, a temp directory, a fake ctx
 └─ *.test.ts         one file per subject
 ```
 
-The panel stays a single file with its CSS and script inlined, because
-`contributes.ui` names **one** HTML file: a directory would mean a static asset
-server inside the API, and every part of one is another way for plugin-authored
-bytes to be served from silo's own origin.
+`routes/` composes `worker/`, which owns the state the rest is reached through,
+and nothing below reaches back up. The panel stays one file because
+`contributes.ui` names one HTML file: a directory would mean a static asset
+server inside the API.
+
+The traps this plugin exists to avoid, and the reasoning behind each mapping
+choice, are in [docs/design/plugins.md](../../docs/design/plugins.md).
 
 ## Licence
 

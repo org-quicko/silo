@@ -19,7 +19,7 @@ silo/
 │     └─ test/                    one file per subject, with support/ holding the synthetic export
 ├─ tools/                     build, packaging, seeding and version tooling
 ├─ packaging/                 Homebrew formula template and RPM inputs
-└─ docs/                      context/ (what is) and design/ (why)
+└─ docs/                      context/ (what is), design/ (why), guide/ (how to use it)
 ```
 
 One Bun workspace, one install root, one `bun.lock`. The root `package.json`
@@ -130,3 +130,23 @@ not ask for. The measuring is silo's; the plugin only draws it:
 | `seed/` | A data seeder that speaks only the public HTTP API. `bun build tools/seed/main.ts --target=bun --outfile seed.js` makes it a single droppable file |
 | `set-version.ts` | Writes the version into every manifest. Commits and tags nothing |
 | `build-rpm.ts`, `render-formula.ts` | Packaging, driven by the release workflow |
+
+## `docs/`
+
+Three audiences, three directories, and nothing states the same fact twice.
+
+| Path | What it is |
+|------|------------|
+| `context/` | What exists *now*, for whoever is about to change it — this map, `architecture.md`, `code-design.md` and `changelog.md`. Indexed by `CONTEXT.md` |
+| `design/` | *Why* it is shaped this way, one file per spec section, governed by the D1–… decisions log. Indexed by `IMPLEMENTATION.md` |
+| `guide/` | *How to use* silo, for an operator: `configuration.md`, `cli.md`, `http-api.md`, `claims.md`, `plugins.md`, `transfer.md`, `deployment.md`, with a `README.md` indexing them |
+| `help/` | Long-form, informal walkthroughs. `silo-plugins.md` is the narrative counterpart to `guide/plugins.md` |
+
+`guide/` exists because the root `README.md` was carrying all of it and had
+reached 1,687 lines. A README is a landing page: what silo is, how to install
+it, the concepts, and where to read further. Reference material belongs in a
+document you can link to a section of, so the README links out to it instead of
+inlining it. The split is by *question asked*, which is what keeps the three
+directories from drifting into copies of each other: a route's shape is
+`guide/`, the reason it has that shape is `design/`, and where the handler lives
+is here.
