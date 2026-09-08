@@ -104,6 +104,11 @@
       skip it and every media field keeps its Strapi URL instead.
     </p>
 
+    <div class="row" style="margin: 10px 0 6px">
+      <label class="dim" style="width: 70px">Folders</label>
+      <select id="media-layout" style="max-width: 220px"></select>
+    </div>
+
     <div class="row" style="margin: 10px 0">
       <button id="pick-folder">Choose the uploads folder</button>
       <button id="pick-files">Choose files</button>
@@ -126,8 +131,8 @@
     <div class="step-head"><span class="num">3</span><h3>The plan</h3></div>
     <p class="dim" style="margin-top: 6px">
       One collection per Strapi content type, one entry per document, with components nested
-      inside it. Rename anything, untick what you do not
-      want, and choose what happens to a collection that already has entries.
+      inside it, or one entry per item where a single type allows it. Rename anything, untick
+      what you do not want, and choose what happens to a collection that already has entries.
     </p>
 
     <div class="row" style="margin: 10px 0">
@@ -365,7 +370,40 @@
     for (const id of ['pick-folder', 'pick-files', 'forget-files', 'run']) $(id).disabled = busy
   }
 
+  /**
+   * The folder layout select. **The plan owns the choice**, the way the
+   * project and environment selects do: this reads `state.plan.mediaLayout`
+   * rather than the settings default, so an operator who changes it before
+   * sending their files is not silently reverted on the next render.
+   */
+  function renderMediaLayout() {
+    const select = $('media-layout')
+    select.disabled = !state.plan
+    if (!state.plan) return
+    if (select.options.length === 0) {
+      for (const [value, title] of [
+        ['single', 'one folder'],
+        ['by-collection', 'one per collection'],
+      ]) {
+        const option = document.createElement('option')
+        option.value = value
+        option.textContent = title
+        select.appendChild(option)
+      }
+    }
+    select.value = state.plan.mediaLayout
+  }
+
+  $('media-layout').addEventListener('change', () => {
+    if (!state.plan) return
+    state.plan.mediaLayout = $('media-layout').value
+    // The sentence under the progress bar says where the files will land, so it
+    // has to follow the choice rather than wait for the next poll to redraw it.
+    renderFiles()
+  })
+
   function renderFiles() {
+    renderMediaLayout()
     const totals = state.files.totals
     const pill = $('files-pill')
     if (totals.wanted === 0) {
@@ -393,6 +431,7 @@
           : '<div class="dim">Every file this import needs is staged (' +
             bytes(totals.bytes) + '). They will land in silo’s media library' +
             (state.files.folder ? ' under <code>' + text(state.files.folder) + '</code>' : '') +
+            (state.plan.mediaLayout === 'by-collection' ? ', one folder per collection' : '') +
             '.</div>'
       return
     }
@@ -489,7 +528,8 @@
     for (const step of state.plan.steps) {
       const list = listOf(step.list)
       if (!list) continue
-      if (step.include) total += list.count
+      const entries = step.flatten ? list.flatten.count : list.count
+      if (step.include) total += entries
 
       const row = document.createElement('tr')
 
@@ -516,6 +556,21 @@
           ? '<ul class="notes">' + list.notes.map((note) => '<li>' + text(note) + '</li>').join('') + '</ul>'
           : '')
       row.appendChild(label)
+
+      if (list.flatten) {
+        const flattenLabel = document.createElement('label')
+        flattenLabel.className = 'dim'
+        flattenLabel.style.display = 'block'
+        flattenLabel.style.marginTop = '4px'
+        flattenLabel.innerHTML =
+          '<input type="checkbox"' + (step.flatten ? ' checked' : '') + '> Flatten: one entry per ' +
+          '<code>' + text(list.flatten.component) + '</code> item'
+        flattenLabel.querySelector('input').addEventListener('change', (event) => {
+          step.flatten = event.target.checked
+          renderSteps()
+        })
+        label.appendChild(flattenLabel)
+      }
 
       const name = document.createElement('td')
       const input = document.createElement('input')
@@ -548,7 +603,7 @@
 
       const count = document.createElement('td')
       count.className = 'cell-n'
-      count.textContent = String(list.count)
+      count.textContent = String(entries)
       row.appendChild(count)
 
       body.appendChild(row)
@@ -665,7 +720,8 @@
         'style="margin:6px 0 4px"><i style="width:' + share + '%"></i></div>' +
         '<div class="dim">' + step.written + ' of ' + step.total + ' written' +
         (step.failed > 0 ? ' · <span class="err">' + step.failed + ' refused</span>' : '') +
-        (step.detail ? ' · ' + text(step.detail) : '') + '</div>' +
+        (step.detail ? ' · ' + text(step.detail) : '') +
+        (step.flatten ? ' · flattened' : '') + '</div>' +
         (step.errors.length > 0
           ? '<ul class="notes">' +
             step.errors.map((error) => '<li>row ' + error.row + ': ' + text(error.message) + '</li>').join('') +

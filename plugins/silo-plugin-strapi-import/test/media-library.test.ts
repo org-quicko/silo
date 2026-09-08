@@ -1,5 +1,6 @@
 import { describe, test, expect } from 'bun:test'
 import { createHash } from 'crypto'
+import { MediaFolders } from '../src/silo/media-folders'
 import { MediaLibrary } from '../src/silo/media-library'
 import { FakeSilo } from './support/fake-silo'
 
@@ -38,7 +39,7 @@ describe('media becoming silo media', () => {
     const library = new MediaLibrary({
       ctx,
       uploads: FakeSilo.uploads(new Uint8Array([1, 2, 3])),
-      folder: 'strapi',
+      folders: new MediaFolders({ root: 'strapi', layout: 'single' }),
       baseUrl: 'https://cms.example.com',
     })
 
@@ -83,7 +84,7 @@ describe('media becoming silo media', () => {
     const library = new MediaLibrary({
       ctx,
       uploads: FakeSilo.uploads(new Uint8Array([1])),
-      folder: 'strapi',
+      folders: new MediaFolders({ root: 'strapi', layout: 'single' }),
       baseUrl: '',
     })
 
@@ -108,7 +109,7 @@ describe('media becoming silo media', () => {
     const library = new MediaLibrary({
       ctx,
       uploads: FakeSilo.uploads(new Uint8Array([1])),
-      folder: '',
+      folders: new MediaFolders({ root: '', layout: 'single' }),
       baseUrl: '',
     })
 
@@ -122,7 +123,7 @@ describe('media becoming silo media', () => {
     const library = new MediaLibrary({
       ctx,
       uploads: FakeSilo.uploads(null),
-      folder: '',
+      folders: new MediaFolders({ root: '', layout: 'single' }),
       baseUrl: 'https://cms.example.com/',
     })
 
@@ -171,7 +172,7 @@ describe('media becoming silo media', () => {
     const library = new MediaLibrary({
       ctx,
       uploads: FakeSilo.uploads(bytes),
-      folder: 'strapi',
+      folders: new MediaFolders({ root: 'strapi', layout: 'single' }),
       baseUrl: 'https://cms.example.com',
     })
 
@@ -196,7 +197,7 @@ describe('media becoming silo media', () => {
     const library = new MediaLibrary({
       ctx,
       uploads: FakeSilo.uploads(new Uint8Array([1])),
-      folder: '',
+      folders: new MediaFolders({ root: '', layout: 'single' }),
       baseUrl: '',
     })
 
@@ -226,7 +227,7 @@ describe('media becoming silo media', () => {
     const library = new MediaLibrary({
       ctx,
       uploads: FakeSilo.uploads(new Uint8Array([1])),
-      folder: '',
+      folders: new MediaFolders({ root: '', layout: 'single' }),
       baseUrl: 'https://cms.example.com',
     })
 
@@ -242,5 +243,101 @@ describe('media becoming silo media', () => {
     const result = library.result()
     expect(result.stopped).toMatch(/media:create/)
     expect(result).toMatchObject({ uploaded: 0, matched: 0, kept: 3 })
+  })
+
+  /**
+   * `by-collection` puts a file in the folder of the one collection that owns
+   * it, or in `shared` when more than one does — decided exactly, from
+   * `MediaFolders.assign`, and never from the filename or the component uid.
+   */
+  describe('the by-collection layout', () => {
+    /** The multipart `folder` part, decoded — `init.body` is the bytes
+     *  `MultipartBody.build` produced. */
+    const folderPart = (call: { init: any }) => {
+      const body = new TextDecoder().decode(call.init.body)
+      return /name="folder"\r\n\r\n([^\r]*)\r\n/.exec(body)?.[1] ?? null
+    }
+
+    test('a file owned by one collection uploads under its folder, declared once', async () => {
+      const { ctx, calls } = FakeSilo.context((_path, init) =>
+        init?.method === 'POST' ? FakeSilo.answer(201, { id: 'a1' }) : nothingLikeIt,
+      )
+      const folders = new MediaFolders({ root: 'strapi', layout: 'by-collection' })
+      folders.assign(
+        new Map([
+          ['a.svg', new Set(['countries'])],
+          ['b.svg', new Set(['countries'])],
+        ]),
+      )
+
+      const library = new MediaLibrary({
+        ctx,
+        uploads: FakeSilo.uploads(new Uint8Array([1])),
+        folders,
+        baseUrl: '',
+      })
+      for (const name of ['a.svg', 'b.svg']) {
+        await library.attach({}, slots({ ...file, name, url: `/uploads/${name}` }))
+      }
+
+      const uploads = calls.filter((call) => call.path === '/api/media')
+      expect(uploads.map(folderPart)).toEqual(['strapi/countries', 'strapi/countries'])
+
+      // Declared once for the first file, and not again for the second — the
+      // folder already exists by then.
+      const declared = calls.filter((call) => call.path === '/api/media/folders')
+      expect(declared).toHaveLength(1)
+      expect(JSON.parse(declared[0]!.init.body)).toEqual({ path: 'strapi/countries' })
+    })
+
+    test('a file owned by two collections goes to the shared folder', async () => {
+      const { ctx, calls } = FakeSilo.context((_path, init) =>
+        init?.method === 'POST' ? FakeSilo.answer(201, { id: 'a1' }) : nothingLikeIt,
+      )
+      const folders = new MediaFolders({ root: 'strapi', layout: 'by-collection' })
+      folders.assign(new Map([[file.name, new Set(['countries', 'template'])]]))
+
+      const library = new MediaLibrary({
+        ctx,
+        uploads: FakeSilo.uploads(new Uint8Array([1])),
+        folders,
+        baseUrl: '',
+      })
+      await library.attach({}, slots(file))
+
+      const upload = calls.find((call) => call.path === '/api/media')!
+      expect(folderPart(upload)).toBe('strapi/shared')
+    })
+
+    test('an empty configured folder gives a bare collection name and a bare shared', () => {
+      const folders = new MediaFolders({ root: '', layout: 'by-collection' })
+      folders.assign(
+        new Map([
+          ['a.svg', new Set(['countries'])],
+          ['b.svg', new Set(['countries', 'template'])],
+        ]),
+      )
+      expect(folders.folderFor({ ...file, name: 'a.svg' })).toBe('countries')
+      expect(folders.folderFor({ ...file, name: 'b.svg' })).toBe('shared')
+    })
+
+    test('the existing lookup filters on the URL-encoded owning folder', async () => {
+      const { ctx, calls } = FakeSilo.context((_path, init) =>
+        init?.method === 'POST' ? FakeSilo.answer(201, { id: 'a1' }) : nothingLikeIt,
+      )
+      const folders = new MediaFolders({ root: 'strapi', layout: 'by-collection' })
+      folders.assign(new Map([[file.name, new Set(['countries'])]]))
+
+      const library = new MediaLibrary({
+        ctx,
+        uploads: FakeSilo.uploads(new Uint8Array([1])),
+        folders,
+        baseUrl: '',
+      })
+      await library.attach({}, slots(file))
+
+      const lookup = calls.find((call) => call.init?.method !== 'POST')!
+      expect(lookup.path).toContain('folder=strapi%2Fcountries')
+    })
   })
 })

@@ -31,6 +31,7 @@ describe('proposing a plan', () => {
         prefix: '',
         mediaBaseUrl: '',
         mediaFolder: 'strapi',
+        mediaLayout: 'single',
         ...defaults,
       }),
     }
@@ -45,6 +46,14 @@ describe('proposing a plan', () => {
     // `append`, because a plan that defaults to deleting is a plan somebody runs
     // once without reading.
     expect(plan.steps[0]!.mode).toBe('append')
+  })
+
+  /** Flattening is opt-in even on a step that qualifies, and the media layout
+   *  proposed is whatever the configuration defaults to. */
+  test('flatten is off by default, and the media layout follows the defaults', () => {
+    const { plan } = propose({ mediaLayout: 'by-collection' })
+    expect(plan.steps.every((step) => step.flatten === false)).toBe(true)
+    expect(plan.mediaLayout).toBe('by-collection')
   })
 
   /** The scope is silo's answer, not a configured one: `[plugins.config]` names
@@ -121,6 +130,38 @@ describe('proposing a plan', () => {
       )
       // An operator who empties the field means the library root, and gets it.
       expect(ImportPlans.read({ ...plan, mediaFolder: '' }, inventory).mediaFolder).toBe('')
+    })
+
+    test('a media layout that is not one silo understands', () => {
+      const { inventory, plan } = propose()
+
+      expect(() => ImportPlans.read({ ...plan, mediaLayout: 'sideways' }, inventory)).toThrow(
+        /"mediaLayout" must be one of/
+      )
+      // Absent, not merely falsy: an operator who never chose gets the default.
+      const { mediaLayout: _dropped, ...withoutLayout } = plan as any
+      expect(ImportPlans.read(withoutLayout, inventory).mediaLayout).toBe('single')
+      const chosen = ImportPlans.read({ ...plan, mediaLayout: 'by-collection' }, inventory)
+      expect(chosen.mediaLayout).toBe('by-collection')
+    })
+
+    test('flatten only on the one list that qualifies, and only a boolean', () => {
+      const { inventory, plan } = propose()
+      // `plan.steps[0]` is the single type wrapping one repeatable component —
+      // see `strapi-flattening.test.ts` for why it qualifies.
+      const flattenable = plan.steps[0]!
+      const page = plan.steps.find((step) => step.list === StrapiDatabaseFixture.Page)!
+
+      const flattenedPlan = { ...plan, steps: [{ ...flattenable, flatten: true }] }
+      expect(ImportPlans.read(flattenedPlan, inventory).steps[0]!.flatten).toBe(true)
+
+      expect(() =>
+        ImportPlans.read({ ...plan, steps: [{ ...page, flatten: true }] }, inventory)
+      ).toThrow(/cannot be flattened/)
+
+      expect(() =>
+        ImportPlans.read({ ...plan, steps: [{ ...flattenable, flatten: 'yes' }] }, inventory)
+      ).toThrow(/"flatten"/)
     })
   })
 })

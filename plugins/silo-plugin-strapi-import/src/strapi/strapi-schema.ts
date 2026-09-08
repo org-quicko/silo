@@ -25,12 +25,21 @@ export class StrapiSchema {
    * nothing on either side resolves a Strapi one. A re-import matches on content
    * or it does not match at all, which is what the plan's `replace` is for.
    */
-  static forList(list: StrapiList): Record<string, unknown> {
+  static forList(list: StrapiList, flatten = false): Record<string, unknown> {
+    if (flatten && !list.flatten) {
+      throw new Error(`"${list.contentType}" cannot be flattened`)
+    }
+    const shape = flatten && list.flatten ? list.shape.children[0]!.shapes[0]! : list.shape
+    const description =
+      flatten && list.flatten
+        ? `Imported from Strapi ${list.contentType}, one entry per ${list.flatten.component} item.`
+        : `Imported from Strapi ${list.contentType}.`
+
     return {
       $schema: 'https://json-schema.org/draft/2020-12/schema',
       title: list.label,
-      description: `Imported from Strapi ${list.contentType}.`,
-      ...StrapiSchema.object(list.shape),
+      description,
+      ...StrapiSchema.object(shape),
     }
   }
 

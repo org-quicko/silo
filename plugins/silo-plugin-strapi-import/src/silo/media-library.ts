@@ -1,5 +1,6 @@
 import { createHash } from 'crypto'
 import type { SiloContext } from 'silo:api'
+import type { MediaFolders } from './media-folders'
 import { MultipartBody } from './multipart-body'
 import type { StrapiMediaFile } from '../strapi/strapi-media'
 import { StrapiMedia } from '../strapi/strapi-media'
@@ -64,7 +65,7 @@ export class MediaLibrary {
 
   private readonly ctx: SiloContext
   private readonly uploads: UploadStore
-  private readonly folder: string
+  private readonly folders: MediaFolders
   private readonly baseUrl: string
 
   /** Filename → the value written for it, `null` for a file with no bytes. */
@@ -72,9 +73,9 @@ export class MediaLibrary {
   /** Cleared by a 403 from the catalog listing, so an ungranted `media:read`
    *  costs one refused request rather than one per file. */
   private lookups = true
-  /** Whether the configured folder has been declared this run. One request, not
-   *  one per file — see `declareFolder`. */
-  private folderDeclared = false
+  /** Folders already declared this run — one request per folder, not one per
+   *  file — see `declareFolder`. */
+  private readonly declaredFolders = new Set<string>()
   private readonly outcome: MediaOutcome = {
     uploaded: 0,
     matched: 0,
@@ -89,15 +90,15 @@ export class MediaLibrary {
   constructor(options: {
     ctx: SiloContext
     uploads: UploadStore
-    /** Where in silo's media library the imports land, created once per run
-     *  before the first file goes in — see `declareFolder`. Empty is the root. */
-    folder: string
+    /** Where each file lands, decided per file under the configured layout —
+     *  see `MediaFolders`. */
+    folders: MediaFolders
     /** The Strapi instance still serving the uploads, for files not supplied. */
     baseUrl: string
   }) {
     this.ctx = options.ctx
     this.uploads = options.uploads
-    this.folder = options.folder
+    this.folders = options.folders
     this.baseUrl = options.baseUrl
   }
 
@@ -204,9 +205,10 @@ export class MediaLibrary {
   private async existing(file: StrapiMediaFile, bytes: Uint8Array): Promise<string | null> {
     if (!this.lookups) return null
 
+    const folder = this.folders.folderFor(file)
     const query =
       `/api/media?limit=50&q=${encodeURIComponent(file.name)}` +
-      (this.folder ? `&folder=${encodeURIComponent(this.folder)}` : '')
+      (folder ? `&folder=${encodeURIComponent(folder)}` : '')
 
     let response
     try {
@@ -230,28 +232,30 @@ export class MediaLibrary {
   }
 
   /**
-   * Make the configured folder exist before the first file goes into it.
+   * Make one folder exist before the first file that lands in it.
    *
    * An asset naming a folder already implies one (D20's existence rule), so this
    * is not what puts the uploads in the right place — `folder` on the upload
    * itself does that. What it adds is the **explicit** half: the folder shows up
    * in the library's tree straight away, it survives every file in it being
-   * deleted, and an operator who configured `media_folder` sees the folder they
-   * named rather than one that appears only once something lands.
+   * deleted, and an operator sees the folder they configured — or, under
+   * `by-collection`, one per collection and `shared` — rather than one that
+   * appears only once something lands.
    *
-   * Once per run, and never fatal. `POST /api/media/folders` takes the same
-   * `media:create` the upload does, so a refusal here is the refusal `upload`
-   * reports in full a moment later, and a plugin that stopped importing over a
-   * folder record would be refusing to do the job over the label on the drawer.
+   * Once per distinct folder, and never fatal. `POST /api/media/folders` takes
+   * the same `media:create` the upload does, so a refusal here is the refusal
+   * `upload` reports in full a moment later, and a plugin that stopped
+   * importing over a folder record would be refusing to do the job over the
+   * label on the drawer.
    */
-  private async declareFolder(): Promise<void> {
-    if (this.folderDeclared || this.folder.length === 0) return
-    this.folderDeclared = true
+  private async declareFolder(folder: string): Promise<void> {
+    if (folder.length === 0 || this.declaredFolders.has(folder)) return
+    this.declaredFolders.add(folder)
     try {
       await this.ctx.fetch('/api/media/folders', {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ path: this.folder }),
+        body: JSON.stringify({ path: folder }),
       })
     } catch {
       // The upload below carries the folder too, so the files still land in it.
@@ -260,7 +264,8 @@ export class MediaLibrary {
 
   /** One upload, or `null` with the reason recorded. */
   private async upload(file: StrapiMediaFile, bytes: Uint8Array): Promise<string | null> {
-    await this.declareFolder()
+    const folder = this.folders.folderFor(file)
+    await this.declareFolder(folder)
 
     const parts = [
       {
@@ -272,7 +277,7 @@ export class MediaLibrary {
         contentType: file.mime && file.mime.trim() ? file.mime : 'application/octet-stream',
         value: bytes,
       },
-      ...(this.folder ? [{ name: 'folder', value: this.folder }] : []),
+      ...(folder ? [{ name: 'folder', value: folder }] : []),
     ]
     const built = MultipartBody.build(parts)
 

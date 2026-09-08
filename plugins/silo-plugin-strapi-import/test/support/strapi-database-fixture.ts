@@ -171,7 +171,9 @@ export class StrapiDatabaseFixture {
                    (1, 1, 'org-quicko.image-block', 'blocks', 2)`)
   }
 
-  /** The content type Strapi could not give the table name its schema declares. */
+  /** The content type Strapi could not give the table name its schema declares.
+   *  Its one row shares file 1 with the payment entity's items — the case
+   *  `StrapiMediaOwners` exists for: one upload two content types both want. */
   private static writeLongType(db: Database): void {
     db.run(`CREATE TABLE "${StrapiDatabaseFixture.LongStored}" (
       id INTEGER PRIMARY KEY, document_id TEXT, template_name VARCHAR(255),
@@ -179,6 +181,11 @@ export class StrapiDatabaseFixture {
     db.run(
       `INSERT INTO "${StrapiDatabaseFixture.LongStored}" (id, document_id, template_name, published_at)
        VALUES (1, 'tpl1', 'Business and Profession', 1751022409249)`,
+    )
+    db.run(
+      `INSERT INTO files_related_mph (file_id, related_id, related_type, field, "order")
+       VALUES (1, 1, ?, 'template_icon', 1)`,
+      [StrapiDatabaseFixture.LongType],
     )
   }
 

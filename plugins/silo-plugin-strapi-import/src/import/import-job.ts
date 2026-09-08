@@ -1,9 +1,11 @@
 import type { SiloContext } from 'silo:api'
+import { MediaFolders } from '../silo/media-folders'
 import type { MediaOutcome } from '../silo/media-library'
 import { MediaLibrary } from '../silo/media-library'
 import type { ImportPlan, ImportStep } from './import-plan'
 import type { StrapiInventory, StrapiList } from '../strapi/strapi-inventory'
 import { StrapiInventory as Inventory } from '../strapi/strapi-inventory'
+import { StrapiMediaOwners } from '../strapi/strapi-media-owners'
 import { StrapiSchema } from '../strapi/strapi-schema'
 import { StrapiRows } from '../strapi/strapi-rows'
 import { StrapiDatabase } from '../strapi/strapi-database'
@@ -17,6 +19,9 @@ export interface ImportStepProgress {
   label: string
   collection: string
   mode: ImportStep['mode']
+  /** Whether this step is writing one entry per component item — carried onto
+   *  the progress so the panel can label the run without re-reading the plan. */
+  flatten: boolean
   total: number
   written: number
   failed: number
@@ -78,6 +83,7 @@ export class ImportJob {
   private readonly plan: ImportPlan
   private readonly sourcePath: string
   private readonly ctx: SiloContext
+  private readonly folders: MediaFolders
   private readonly media: MediaLibrary
   private readonly progress: ImportProgress
 
@@ -95,10 +101,14 @@ export class ImportJob {
     this.ctx = options.ctx
     // One library for the whole run, so a flag on 251 rows is one asset in silo's
     // media library rather than 251 identical blobs.
+    this.folders = new MediaFolders({
+      root: options.plan.mediaFolder,
+      layout: options.plan.mediaLayout,
+    })
     this.media = new MediaLibrary({
       ctx: options.ctx,
       uploads: options.uploads,
-      folder: options.plan.mediaFolder,
+      folders: this.folders,
       baseUrl: options.plan.mediaBaseUrl,
     })
     this.progress = {
@@ -116,7 +126,8 @@ export class ImportJob {
           label: list.label,
           collection: step.collection,
           mode: step.mode,
-          total: list.count,
+          flatten: step.flatten,
+          total: step.flatten ? list.flatten!.count : list.count,
           written: 0,
           failed: 0,
           state: 'waiting',
@@ -158,6 +169,18 @@ export class ImportJob {
 
     try {
       const inventory = Inventory.read(source, this.plan.version)
+
+      // Ownership has to be known before the first upload, and it is read from
+      // the rows every included step is about to write — see `StrapiMediaOwners`.
+      if (this.plan.mediaLayout === 'by-collection') {
+        const owned: { list: StrapiList; collection: string; flatten: boolean }[] = []
+        for (const step of this.plan.steps) {
+          const list = inventory.lists.find((candidate) => candidate.id === step.list)
+          if (list) owned.push({ list, collection: step.collection, flatten: step.flatten })
+        }
+        this.folders.assign(StrapiMediaOwners.read(source, owned, this.plan.version))
+      }
+
       for (const step of this.progress.steps) {
         const list = inventory.lists.find((candidate) => candidate.id === step.list)
         if (!list) {
@@ -191,7 +214,7 @@ export class ImportJob {
       const existing = await this.prepare(scope, step, list)
       if (existing === 'skip') return
 
-      const rows = StrapiRows.read(source, list, this.plan.version)
+      const rows = StrapiRows.read(source, list, this.plan.version, step.flatten)
       step.total = rows.length
 
       for (let at = 0; at < rows.length; at++) {
@@ -243,7 +266,7 @@ export class ImportJob {
     list: StrapiList,
   ): Promise<'write' | 'skip'> {
     if (!(await this.exists(scope, step.collection))) {
-      await this.create(scope, step.collection, StrapiSchema.forList(list))
+      await this.create(scope, step.collection, StrapiSchema.forList(list, step.flatten))
       step.detail = `created "${step.collection}"`
       return 'write'
     }

@@ -30,6 +30,7 @@ export class PlanRoutes {
               prefix: runtime.settings.prefix,
               mediaBaseUrl: runtime.settings.mediaBaseUrl,
               mediaFolder: runtime.settings.mediaFolder,
+              mediaLayout: runtime.settings.mediaLayout,
             }),
             targets,
           },

@@ -1,4 +1,6 @@
 import type { StrapiDatabase, StrapiStoredType } from './strapi-database'
+import type { StrapiFlattening } from './strapi-flattening'
+import { StrapiFlattenings } from './strapi-flattening'
 import { StrapiIdentifiers } from './strapi-identifiers'
 import type { StrapiChild, StrapiShape } from './strapi-shape'
 import { StrapiShapes } from './strapi-shape'
@@ -31,6 +33,10 @@ export interface StrapiList {
   mediaFields: number
   /** Anything about this list an operator should read before importing it. */
   notes: string[]
+  /** The flattening this list allows — one entry per component item instead of
+   *  one entry holding all of them — or `null` when it does not qualify. See
+   *  `StrapiFlattenings`. */
+  flatten: StrapiFlattening | null
 }
 
 export interface StrapiInventory {
@@ -93,6 +99,7 @@ export class StrapiInventory {
         count: entities.length,
         mediaFields: StrapiShapes.mediaFields(shape),
         notes: StrapiInventory.notesFor(source, stored, shape, entities.length, version),
+        flatten: StrapiFlattenings.of(source, stored, shape, version),
       })
     }
 

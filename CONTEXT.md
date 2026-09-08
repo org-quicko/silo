@@ -17,7 +17,7 @@ can be cloned with one command.
 
 ## Where things stand
 
-*Last updated: 2026-09-07 (D57)*
+*Last updated: 2026-09-08 (D57)*
 
 Everything through M5 is built and shipping: collections and JSON Schema
 validation, entry CRUD with optimistic concurrency, the query AST and search
@@ -69,8 +69,31 @@ of D46/D47 kept exactly as they were (D56). Content can now reference an
 environment, and substituted into every `{{NAME}}` an entry holds on the way out
 (D57).
 
-**The most recent change landed on 2026-09-07; everything before it on
-2026-09-03 or earlier.**
+**The most recent change landed on 2026-09-08; everything before it on
+2026-09-07 or earlier.**
+
+**The Strapi importer can flatten a wrapper single type into one entry per
+item, and lay media out by collection (2026-09-08).** A single type whose only
+field is one repeatable component contributes nothing of its own, and the
+motivating export has six of them — one imports today as one entry holding a
+251-element array. That is exactly the shape none of the general lift's losses
+apply to: the wrapper has no field to lose, the item's own children stay
+nested, and there is one component to name the collection after. Eligibility is
+decided from the shape alone by `StrapiFlattenings.of` (a single type, no
+columns, no media, no open field, one repeatable child, one resolved
+component), a step opts in with `flatten: true`, and `ImportPlans.read` refuses
+it on any list the shape does not allow. `StrapiRows.read` and
+`StrapiSchema.forList` both take the same flag, reading the component's own
+shape instead of the wrapper's. Media gained a second axis alongside it:
+`media_layout` keeps every upload in one configured folder (`single`,
+unchanged) or gives each collection of the run its own folder underneath, with
+a `shared` folder for a file two or more collections reference — decided
+**exactly**, by `StrapiMediaOwners.read` reading the rows the run is about to
+write rather than approximating from a component uid, since one component can
+be nested under two content types and that is precisely the case `shared`
+exists for. `MediaFolders` decides one file's folder from that ownership, and
+`MediaLibrary` now declares each distinct folder once rather than the one it
+used to hold.
 
 **Content can reference an environment variable, and the API substitutes it
 (2026-09-07).** The same string had to be written into every environment of a

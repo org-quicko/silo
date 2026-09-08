@@ -2221,6 +2221,34 @@ Nothing of Strapi's **identity** comes across either. The importer used to add a
 forced `document_id` in beside it. Silo mints its own id (D2) and nothing on either
 side resolves a Strapi one, so both were fields that looked like keys and were not.
 
+A later pass gave `media_folder` a second axis: a **layout**, `single` (every
+upload in it, unchanged) or `by-collection` (a folder per collection underneath
+it, and `shared` for a file more than one collection references). The reason it
+needed its own class rather than a filename rule is the same shape the README's
+own comparison already names — one component uid can be nested under two
+content types — so "which collection wants this file" is not answerable from
+the catalog alone.
+`StrapiMediaOwners.read` answers it by reading the rows the run is about to
+write, once, before the first upload; `MediaFolders` turns that ownership into a
+path. Approximating from a component uid was the cheaper shape and the wrong
+one: it would have filed every attachment of a component two content types share
+under `shared`, whether or not the second content type ever attaches that file.
+
+**Flattening a single type is the one case fidelity-first has an exception
+for, and it earns the exception by losing nothing the general lift lost.** A
+single type whose only field is one repeatable component contributes no column,
+no sibling field, and names no other content type — so importing it one entry
+per item, rather than one entry holding all of them, drops none of the four
+things the earlier flattening cost: there is no wrapper field to lose, the
+item's own children stay nested inside it, there is one component to name the
+collection after, and there is only one content type to fight over that name.
+`StrapiFlattenings.of` decides eligibility from the shape alone, and nothing
+short of that exact shape qualifies — a single type with even one column of its
+own, or a second child, is a case the general lift's losses still apply to. It
+is opt-in, per step, because a list that qualifies is still fidelity-first by
+default: an operator who wants the wrapper's one entry keeps it until they
+choose otherwise.
+
 ### What D41 does not do
 
 - **It does not stream a body.** Unchanged from §13.18 and unchanged by a bigger
