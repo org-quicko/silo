@@ -25,8 +25,8 @@ export class FsManifestStore {
 
   /**
    * Reads and validates the manifest **before** creating anything, so a
-   * refused pre-D18 directory is left exactly as found rather than gaining a
-   * stray `projects/` on the way to being rejected.
+   * refused directory is left exactly as found rather than gaining a stray
+   * `projects/` on the way to being rejected.
    */
   static async open(layout: FsLayout): Promise<FsManifestStore> {
     const raw = await FsManifestStore.readRaw(layout.manifestFile);
@@ -43,9 +43,9 @@ export class FsManifestStore {
       await FsFiles.writeAtomic(layout.manifestFile, JSON.stringify(manifest, null, 2));
     } else {
       manifest = JSON.parse(raw) as FsManifest;
-      // A pre-D18 data dir stamps format_version "1" (flat layout). Reading it
-      // as the new projects/<p>/<e>/… tree would silently find nothing instead
-      // of failing loudly, so refuse it up front.
+      // A directory stamped with any other version holds a layout this binary
+      // does not know. Reading one as the projects/<p>/<e>/… tree would
+      // silently find nothing instead of failing loudly, so refuse it up front.
       if (manifest.format_version !== FormatVersion) {
         throw new Error(
           `this data directory uses format_version "${manifest.format_version}"; export with the previous binary and re-import, or start from a fresh data dir`

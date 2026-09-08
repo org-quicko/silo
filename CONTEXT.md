@@ -72,6 +72,19 @@ environment, and substituted into every `{{NAME}}` an entry holds on the way out
 **The most recent change landed on 2026-09-08; everything before it on
 2026-09-07 or earlier.**
 
+**silo is 1.0, and `format_version` is back to `"1"` (2026-09-08).** The stamp
+starts again from one rather than carrying D18's `"2"` forward, so a 1.0
+instance and a 1.0 archive both read `"1"`. Nothing in either guard is
+version-specific: `FsManifestStore.open` and `SqliteMigrations.guardFormatVersion`
+compare against the `FormatVersion` constant and refuse anything else, so a
+directory stamped `"2"` is now refused exactly the way a `"999"` one always was.
+Two fs adapter tests had pinned the old literals and now fail correctly: the
+guard test's foreign stamp moved from `"1"` to `"999"`, because `"1"` is the
+current one, and the fresh-dir test asserts `FormatVersion` rather than a
+literal. Every doc that named `"2"` as the current stamp is corrected, and the
+pre-1.0 framing is gone from the spec: a bump is a major release now, not a
+cheap one.
+
 **The READMEs are landing pages, and the reference they carried is now
 `docs/guide/` (2026-09-08).** The root README had reached 1,687 lines and was
 the whole manual: the `silo.toml` reference, every CLI flag, the route table,
@@ -85,9 +98,14 @@ in outline, and where to read the rest. Nothing was dropped in the move. Three
 gaps the old README had are closed on the way through: the rename routes
 (D51), `GET /api/media/extensions` and `PATCH /api/media/{id}` (D55), and the
 whole of variables (D57) were undocumented outside `docs/design/`, and the
-route table, the variables note and the claims guide now carry them. The
+route table, the variables note and the claims guide now carry them. One error
+went with them: every copy said the key presets were `root`, `write` and
+`read`, and there are four, `manage` included, with `read` the CLI default. The
 admin-UI and both plugin READMEs are rewritten to the same rule, each pointing
-at its `docs/design/` counterpart for the rationale it used to restate.
+at its `docs/design/` counterpart for the rationale it used to restate. All
+eleven documents follow one prose rule: no em dashes, short sentences, one idea
+each, active voice. That is what the guide files were restyled to in the second
+pass, so a reader moving from the README into a guide does not change register.
 
 **The Strapi importer can flatten a wrapper single type into one entry per
 item, and lay media out by collection (2026-09-08).** A single type whose only
@@ -1135,7 +1153,7 @@ unchanged and the full suite passes throughout. See
 | [docs/context/repo-map.md](docs/context/repo-map.md) | Where everything lives |
 | [docs/context/code-design.md](docs/context/code-design.md) | How code here is expected to be shaped |
 | [docs/context/changelog.md](docs/context/changelog.md) | Every change that altered behaviour, architecture or layout, newest first |
-| [IMPLEMENTATION.md](IMPLEMENTATION.md) | The vision, the D1–D54 decisions log, and the index into `docs/design/` |
+| [IMPLEMENTATION.md](IMPLEMENTATION.md) | The vision, the decisions log, and the index into `docs/design/` |
 | [README.md](README.md) | What silo is, how to install it, and where to read further |
 | [docs/guide/](docs/guide/README.md) | How to run, configure and extend silo: configuration, CLI, HTTP API, claims, plugins, transfer, deployment |
 

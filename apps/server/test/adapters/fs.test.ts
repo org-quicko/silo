@@ -1,6 +1,7 @@
 import { describe, test, expect } from "bun:test";
 import { runStorageTestSuite } from "../conformance/storage-conformance";
 import { FsStore } from "../../src/adapters/storage/fs/fs-store";
+import { FormatVersion } from "../../src/core/transfer/format-version";
 import { Scope } from "../../src/core/domain/scope";
 import fs from "fs/promises";
 import path from "path";
@@ -23,18 +24,21 @@ runStorageTestSuite(
 );
 
 describe("FsStore data-dir format guard", () => {
-  test("refuses a pre-D18 dir (flat schemas/content, format_version 1) rather than reading it as empty", async () => {
+  test("refuses a dir stamped with an unknown format_version rather than reading it as empty", async () => {
     const dir = await fs.mkdtemp(path.join(os.tmpdir(), "silo-fs-guard-"));
     try {
+      // A flat schemas/content tree is what an older layout looked like. What
+      // the guard turns on is the stamp, not the shape, so the stamp is the
+      // part that has to be foreign.
       await fs.mkdir(path.join(dir, "schemas"), { recursive: true });
       await fs.mkdir(path.join(dir, "content", "posts"), { recursive: true });
       await fs.writeFile(
         path.join(dir, "manifest.json"),
-        JSON.stringify({ format_version: "1", instance_id: "x", last_seq: 0 }, null, 2),
+        JSON.stringify({ format_version: "999", instance_id: "x", last_seq: 0 }, null, 2),
         "utf8"
       );
 
-      await expect(FsStore.open(dir)).rejects.toThrow(/format_version "1"/);
+      await expect(FsStore.open(dir)).rejects.toThrow(/format_version "999"/);
 
       // The refused dir must be left exactly as found — no stray `projects/`
       // directory created on the way to rejecting it.
@@ -52,7 +56,7 @@ describe("FsStore data-dir format guard", () => {
       await store.close();
 
       const manifest = JSON.parse(await fs.readFile(path.join(dir, "manifest.json"), "utf8"));
-      expect(manifest.format_version).toBe("2");
+      expect(manifest.format_version).toBe(FormatVersion);
 
       const projectsStat = await fs.stat(path.join(dir, "projects"));
       expect(projectsStat.isDirectory()).toBe(true);

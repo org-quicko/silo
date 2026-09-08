@@ -3,11 +3,12 @@
 > Operator reference for `silo.toml`, the `SILO_*` variables, and running silo as a service. The design rationale is in [docs/design/configuration.md](../design/configuration.md).
 
 Configuration layers, highest priority first: **flags**, then `SILO_*`
-environment variables, then the TOML file, then defaults. Every key is optional.
+environment variables, then the TOML file, then the defaults. Every key is
+optional.
 
-`silo init` writes the file below — every setting at its default, with the
-alternatives and the s3 keys commented beside them. It touches no data
-directory, so it is safe to run before anything else.
+`silo init` writes the file below. Every setting sits at its default, with the
+alternatives and the s3 keys commented beside it. It touches no data directory,
+so it is safe to run before anything else.
 
 ```toml
 # silo.toml
@@ -56,11 +57,11 @@ level       = "info"          # "debug" | "info" | "warn" | "error" | "silent"
 format      = "text"          # "text" (human) | "json" (one object per line)
 requests    = true            # a line per HTTP request
 max_size_mb = 10              # rotate past this size; 0 never rotates
-max_files   = 5               # kept as silo.log.1 … silo.log.5
+max_files   = 5               # kept as silo.log.1 ... silo.log.5
 # file = "/var/log/silo.log"  # unset means the console
 
-# Plugins. An *ordered* array — the order is hook dispatch order. This says
-# *which* plugins load; what each may do is a grant in the store, and `claims`
+# Plugins. An *ordered* array: the order is hook dispatch order. This says
+# *which* plugins load. What each may do is a grant in the store, and `claims`
 # here is a second, declarative way to say it. Absent by default; `init` writes
 # none. See plugins.md.
 # [[plugins]]
@@ -84,75 +85,88 @@ max_files   = 5               # kept as silo.log.1 … silo.log.5
 | `SILO_LOG_LEVEL`, `SILO_LOG_FILE`, `SILO_LOG_FORMAT` | `[log]` |
 | `SILO_LOG_REQUESTS`, `SILO_LOG_MAX_SIZE_MB`, `SILO_LOG_MAX_FILES` | `[log]` |
 | `SILO_MEDIA_BASE_URL`, `SILO_MEDIA_BASE_URL_TARGET` | `[media]` |
-| `SILO_MEDIA_EXTENSIONS` | `[media]` (comma-separated) |
+| `SILO_MEDIA_EXTENSIONS` | `[media]`, comma-separated |
 
-Media storage is also configurable **from the admin**, under Settings → Media
-Library, behind the `media:configure` claim (D45). It edits this file: a save
-rewrites the `[blob_storage]` table in place, leaving the rest of the document
-and its comments alone, then applies the result to the running server without a
-restart. Nothing about the hierarchy changes, so the page shows what the file
-says *and* what is in force, and names the `SILO_*` variable wherever one is
-beating the file. Switching provider moves no files: uploads made before the
-switch stay where they were.
+## Media, from the admin
 
-The same page holds a second card for `[media]` (D46), saved separately: the
-**base URL** media links are rooted at, whether that name points at silo or at
-the bucket, and the **permitted file types**. Leave the base URL empty and every
-media URL is rooted at the address the request arrived on, which is what you
-want behind no proxy. Set it to a CDN and pick `store`, and media fields resolve
-to `<base>/<blob key>` with silo out of the read path entirely — the shape an
-email needs, since a mail client cannot authenticate. That requires a publicly
-readable bucket.
+Media storage is also configurable from the admin, under **Settings > Media
+Library**, behind the `media:configure` claim. It edits this same file. A save
+rewrites the `[blob_storage]` table in place, and leaves the rest of the
+document and its comments alone. silo then applies the result to the running
+server, with no restart.
 
-The allowlist is on the filename extension, checked before anything is written
-and on rename as well as upload, and only the last extension counts. `["*"]`
-accepts everything. **Upgrading an instance with no `[media]` table applies the
-default list**, so file types you were accepting before — `.docx`, `.zip` — need
-adding back. `svg` ships in the default: it can carry script and is served
-inline from silo's own origin, so drop it where uploaders are untrusted.
+Nothing about the layering changes. The page shows what the file says **and**
+what is in force, and it names the `SILO_*` variable wherever one beats the
+file. Switching provider moves no files: uploads made before the switch stay
+where they were.
 
-Media follows the data directory: with the `fs` blob driver, `--data <dir>`
+The same page holds a second card for `[media]`, saved separately. It carries
+the **base URL** media links are rooted at, whether that name points at silo or
+at the bucket, and the **permitted file types**.
+
+Leave the base URL empty and every media URL is rooted at the address the
+request arrived on. That is what you want behind no proxy. Set it to a CDN and
+pick `store`, and a media field resolves to `<base>/<blob key>`, with silo out
+of the read path. That is the shape an email needs, because a mail client cannot
+authenticate. It requires a publicly readable bucket.
+
+The allowlist works on the filename extension. silo checks it before it writes
+anything, on a rename as well as on an upload, and only the last extension
+counts. `["*"]` accepts everything. An instance with no `[media]` table gets the
+default list above, so add back any type you need that is not in it, such as
+`.docx` or `.zip`. Note that `svg` ships in the default: it can carry script,
+and silo serves it inline from its own origin, so drop it where your uploaders
+are untrusted.
+
+## Where files go
+
+Media follows the data directory. With the `fs` blob driver, `--data <dir>`
 stores uploads in `<dir>/media`, so one instance stays in one place. Naming the
-directory yourself — `[blob_storage] path`, `SILO_BLOB_PATH` or `--blob-path` —
-takes precedence and `--data` leaves it alone.
+directory yourself takes precedence, through `[blob_storage] path`,
+`SILO_BLOB_PATH` or `--blob-path`, and then `--data` leaves it alone.
 
-Invalid default project or environment ids fail at startup rather than creating
-a scope that no route can address.
+An invalid default project or environment id fails at startup, rather than
+creating a scope no route can address.
 
-**Where the log goes.** With no `[log] file`, silo logs to the console — always,
-whether or not a terminal is attached, so `silo serve > out.txt` and a container
-that expects a stream both work. Name a file and silo writes there instead, plus
-the console when stdout is a terminal, so a foreground server you are watching
-still shows itself. `file` is deliberately left unset by default: the console is
-what a supervisor wants, and a value here is indistinguishable from one you
-chose. Only `--detach` picks a path for you, `<data dir>/silo.log`.
+## Where the log goes
+
+With no `[log] file`, silo logs to the console. It does that whether or not a
+terminal is attached, so `silo serve > out.txt` and a container that expects a
+stream both work.
+
+Name a file and silo writes there instead, plus the console when stdout is a
+terminal. A foreground server you are watching therefore still shows itself.
+
+`file` is deliberately unset by default. The console is what a supervisor wants,
+and a value here is indistinguishable from one you chose. Only `--detach` picks
+a path for you, `<data dir>/silo.log`.
 
 Only the running server logs. Every other subcommand writes its output to
-stdout, because that output is data you might pipe somewhere — sending it to a
+stdout, because that output is data you might pipe somewhere. Sending it to a
 log file would take the answer away from you.
 
 ## Schema references
 
-A schema can reference other schemas with standard JSON Schema `$ref`:
+A schema can reference another schema with standard JSON Schema `$ref`.
 
 - `silo://collections/<name>` points at another collection in the same project
-  and environment. Always allowed, resolved locally, no network involved. The
-  schema builder offers these as **Reference** fields, and entry forms render
-  the referenced collection's fields inline.
-- `https://...` remote refs are **rejected by default**. Fetching schemas over
-  the network during validation makes writes non-deterministic, adds an
-  availability dependency, and lets anyone who can edit a schema make your
-  server fetch arbitrary URLs. Set `allow_remote_refs = true` to opt in; fetched
-  schemas are cached in memory until a schema changes.
+  and environment. It is always allowed, resolved locally, and involves no
+  network. The schema builder offers these as **Reference** fields, and an entry
+  form renders the referenced collection's fields inline.
+- `https://...` remote refs are **rejected by default**. Fetching a schema over
+  the network during validation makes a write non-deterministic, it adds an
+  availability dependency, and it lets anyone who can edit a schema make your
+  server fetch arbitrary URLs. Set `allow_remote_refs = true` to opt in. A
+  fetched schema is cached in memory until a schema changes.
 
-Saving a schema bundles its references into `$defs` while preserving the
-original reference URL, so the stored document is self-contained. Deleting a
-collection that another schema references fails with `409` unless forced.
+Saving a schema bundles its references into `$defs`, and preserves the original
+reference URL, so the stored document is self-contained. Deleting a collection
+that another schema references fails with `409` unless you force it.
 
 ## Running as a service
 
 `silo serve` runs in the foreground and logs to your terminal. That is the right
-shape under Docker, systemd, or any other supervisor — let it own the process,
+shape under Docker, systemd, or any other supervisor: let it own the process,
 its restarts, and its output stream. On bare metal or in development, `--detach`
 runs the same server in the background:
 
@@ -160,9 +174,9 @@ runs the same server in the background:
 silo serve --detach --data /srv/silo
 ```
 
-The log goes to `<data dir>/silo.log` unless `[log] file` names somewhere else,
-and the child's own stdout and stderr are redirected into it too — so a crash
-that never reaches the logger still leaves a trace.
+The log goes to `<data dir>/silo.log` unless `[log] file` names somewhere else.
+The child's own stdout and stderr are redirected into it too, so a crash that
+never reaches the logger still leaves a trace.
 
 ```sh
 silo status              # pid, address, driver, log path, uptime, health
@@ -171,9 +185,9 @@ silo stop                # SIGTERM, then SIGKILL after --timeout (default 10s)
 ```
 
 `silo serve --detach` does not report success until the child has recorded
-itself and answered `/api/health`. If it dies on the way up — a port already
-taken, an unreadable data directory — you get a non-zero exit and the end of its
-log, rather than a pid that quietly no longer exists.
+itself and answered `/api/health`. If the child dies on the way up, because a
+port is taken or the data directory is unreadable, you get a non-zero exit and
+the end of its log, rather than a pid that quietly no longer exists.
 
 `silo status` exits non-zero when nothing is running, so a shell can branch on
 it. It reports the process and the HTTP endpoint separately: a server that is
@@ -181,35 +195,34 @@ alive but not answering is a different problem from one that is gone.
 
 ### Running more than one instance
 
-Several silos on one machine are fine. Give each its own data directory and its
-own port:
+Several silos on one machine are fine. Give each one its own data directory and
+its own port:
 
 ```sh
 silo serve --detach --data /srv/silo-a --listen :8090
 silo serve --detach --data /srv/silo-b --listen :8091
 ```
 
-They share nothing — separate databases, media, keys, and `instance_id`. Manage
-each with `--data`, the same flag you started it with.
+They share nothing: separate databases, media, keys and `instance_id`. Manage
+each one with `--data`, the same flag you started it with.
 
 **What is not supported is two processes over one data directory.** silo refuses
 it, and the refusal is not caution:
 
 - The filesystem driver keeps `last_seq` in memory, so two processes hand out
-  the same `seq` values. `seq` is the instance-wide write cursor that
-  replication will be built on; duplicates in it are not repairable.
+  the same `seq` values. `seq` is the instance-wide write cursor, and duplicates
+  in it are not repairable.
 - Writes are serialised on a lock inside one process, which is what makes
-  `If-Match` optimistic concurrency sound. A second process makes lost updates
+  `If-Match` optimistic concurrency sound. A second process makes a lost update
   possible again.
 - Compiled schema validators are cached per process, so one server would not see
   the other's schema changes.
 
 A running server records itself in `<data dir>/silo.run.json`, and any `serve`
 that finds a live one refuses to start. A server that was killed leaves that
-record behind; silo checks whether the process still exists rather than trusting
-the file, so a crash never locks your data directory out of use.
+record behind, so silo checks whether the process still exists rather than
+trusting the file. A crash therefore never locks your data directory out of use.
 
 Scaling silo horizontally would mean moving `seq` allocation and write
-serialisation into the storage layer — a real design change, not a
-configuration flag. It is not on the roadmap.
-
+serialisation into the storage layer. That is a design change, not a
+configuration flag.
