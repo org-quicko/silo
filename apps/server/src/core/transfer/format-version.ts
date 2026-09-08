@@ -1,1 +1,1 @@
-export const FormatVersion = "2";
+export const FormatVersion = "1";
