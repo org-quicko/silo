@@ -3,21 +3,21 @@
 > The archive format, the on-disk layout, and every way data moves. The design rationale is in [docs/design/transfer.md](../design/transfer.md).
 
 ```sh
-bun run apps/server/src/main.ts export --dir ./backup               # on-disk tree
-bun run apps/server/src/main.ts export --out backup.tar.gz          # reproducible tarball
-bun run apps/server/src/main.ts import ./backup --mode merge        # newest updated_at wins
-bun run apps/server/src/main.ts import backup.tar.gz --mode replace # replace per collection
+silo export --dir ./backup               # an on-disk tree
+silo export --out backup.tar.gz          # a reproducible tarball
+silo import ./backup --mode merge        # newest updated_at wins
+silo import backup.tar.gz --mode replace # replace per collection
 ```
 
-An export contains every project and environment, including empty ones, plus
-schemas, entries, and media. API key hashes are excluded unless you pass
-`--with-keys`, so a content export handed to someone never ships credentials.
-Entries are ordered by collection and id, so an archive is byte-for-byte
-reproducible given identical data.
+An export holds every project and environment, empty ones included, plus the
+schemas, the entries and the media. API key hashes are left out unless you pass
+`--with-keys`, so a content export you hand to someone else ships no
+credentials. Entries are ordered by collection and by id, so an archive is
+byte-for-byte reproducible from identical data.
 
 ## On-disk layout
 
-The filesystem driver's layout **is** the export format, which is what makes an
+The filesystem driver's layout **is** the export format. That is what makes an
 fs-backed instance a live export:
 
 ```
@@ -34,33 +34,39 @@ fs-backed instance a live export:
   media/
 ```
 
-Each entry file is the full envelope, pretty-printed with a stable field order
-so diffs stay small. The same collection name in two environments never collides
-on disk or in an archive. SQLite stores the same model in `schemas` and
-`entries` tables keyed by `(project, env, collection)`.
+Each entry file holds the full envelope. silo pretty-prints it with a stable
+field order, so a diff stays small. The same collection name in two
+environments never collides, on disk or in an archive. SQLite keeps the same
+model in `collections` and `entries` tables, keyed by scope.
 
 ## Import modes
 
-- **merge** (default) matches on `(project, environment, collection, id)`.
-  Missing locally means insert; present on both sides means newest `updated_at`
-  wins, with higher `rev` and then the source `instance_id` as deterministic
-  tiebreakers. `--prefer local|remote` overrides this.
+- **merge**, the default, matches on `(project, environment, collection, id)`.
+  An entry missing locally is inserted. An entry present on both sides is
+  resolved by the newest `updated_at`, then by the higher `rev`, then by the
+  source `instance_id`. Those last two are deterministic tiebreakers.
+  `--prefer local|remote` overrides the whole rule.
 - **replace** deletes each collection the archive carries, in that scope only,
-  then loads it. Collections absent from the archive are untouched.
+  and then loads it. A collection the archive does not carry is left alone.
 
-Imported entries keep their id, revision, timestamps, and scope. `seq` is
-reassigned locally, and the importing instance keeps its own `instance_id`:
-cloning data does not clone identity. Validation is off by default, because the
-source instance already accepted this data, possibly under an older schema.
+An imported entry keeps its id, its revision, its timestamps and its scope.
+`seq` is reassigned locally, and the importing instance keeps its own
+`instance_id`, so cloning data does not clone identity. Validation is off by
+default, because the source instance already accepted this data, possibly under
+an older schema.
 
-Two limits worth knowing. **Deletions do not merge:** v1 has no tombstones, so
-only `replace` reflects a deletion made elsewhere. **Imports are not atomic:** a
-failure partway leaves earlier writes in place, so treat a failed import as
-unknown state and vet untrusted archives with `--dry-run` first.
+Two limits are worth knowing.
+
+**Deletions do not merge.** silo keeps no tombstones, so only `replace`
+reflects a deletion made somewhere else.
+
+**An import is not atomic.** A failure partway leaves the earlier writes in
+place. Treat a failed import as unknown state, and check an untrusted archive
+with `--dry-run` first.
 
 ## Cross-driver migration
 
-Export and import speak only the storage interface, so switching drivers is
+Export and import speak only the storage interface, so a driver switch is
 `export` on the old instance and `import --mode replace` on the new one. This
 doubles as the acceptance test for any new storage driver.
 
@@ -68,13 +74,13 @@ doubles as the acceptance test for any new storage driver.
 
 The admin UI's **Data transfer** view, and `POST /api/copy`, pull an export from
 another running silo and feed it to the same importer. Supply the source URL and
-a source key holding `transfer:export`, choose merge or replace, and preview with
-a dry run before applying. Source credentials are used for that one outbound
-request and are never stored by the destination.
+a source key holding `transfer:export`, choose merge or replace, and preview
+with a dry run before you apply it. The destination uses the source credentials
+for that one outbound request and never stores them.
 
-**Data only** preserves the destination's own keys. **Data plus API keys** copies
-key hashes as well, which additionally requires `keys:export` on the source and
-`keys:import` on the destination; in replace mode the copied keys replace the
+**Data only** keeps the destination's own keys. **Data plus API keys** copies the
+key hashes as well, which also needs `keys:export` on the source and
+`keys:import` on the destination. In replace mode the copied keys replace the
 destination's, so the source key becomes the destination credential.
 
 ```sh
@@ -92,24 +98,27 @@ curl -X POST http://new-silo:8090/api/copy \
 
 ## Copying between environments
 
-Moving data between two environments of one instance — promoting `dev` to
-`staging`, seeding a fresh environment from `prod` — does not need an archive.
-`POST /api/projects/{project}/envs/{env}/copy` is destination-driven like
-`/api/copy`: the route names the environment being written and the body names the
-source. It takes the same `mode`, `prefer`, `validate` and `dry_run` options an
-import does, and runs entirely inside the server.
+Moving data between two environments of one instance needs no archive. Promoting
+`dev` to `staging`, or seeding a fresh environment from `prod`, is one request.
+`POST /api/projects/{project}/envs/{env}/copy` is destination-driven, like
+`/api/copy`: the route names the environment being written, and the body names
+the source. It takes the same `mode`, `prefer`, `validate` and `dry_run` options
+an import takes, and it runs entirely inside the server.
 
 ```sh
-curl -X POST http://localhost:8090/api/projects/acme/envs/staging/copy   -H "Authorization: Bearer $SILO_KEY"   -H "Content-Type: application/json"   -d '{"from": {"project": "acme", "env": "prod"}, "mode": "merge", "dry_run": true}'
+curl -X POST http://localhost:8090/api/projects/acme/envs/staging/copy \
+  -H "Authorization: Bearer $SILO_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"from": {"project": "acme", "env": "prod"}, "mode": "merge", "dry_run": true}'
 ```
 
 ```json
 { "mode": "merge", "dry_run": true, "added": 12, "updated": 0, "deleted": 0, "skipped": 3 }
 ```
 
-Unlike the archive routes, this needs **no `transfer:*` claim** — it reaches
-nothing you could not already reach through the ordinary collection and entry
-routes, so it asks for exactly those permissions instead:
+Unlike the archive routes, this needs **no `transfer:*` claim**. It reaches
+nothing the ordinary collection and entry routes reach, so it asks for exactly
+those permissions instead:
 
 ```
 source        collections:<from-project>/<from-env>/*:schema:read
@@ -122,22 +131,19 @@ replace mode  collections:<project>/<env>/*:delete
               collections:<project>/<env>/*:entries:delete
 ```
 
-A key scoped to one project (`collections:acme/*/*:…`) can therefore move data
-between that project's environments and no others. Copying an environment onto
-itself is a `400`. Media is stored per instance rather than per environment, so
-it is shared already and none is copied.
+A key scoped to one project, as `collections:acme/*/*:…`, can therefore move
+data between that project's environments and no others. Copying an environment
+onto itself is a `400`. Media is stored per instance rather than per
+environment, so it is already shared and none is copied.
 
-The admin UI exposes this at **Settings → Environment → Data Transfer**, with the
-same preview-then-apply flow.
+The admin UI exposes this at **Settings > Environment > Data Transfer**, with
+the same preview-then-apply flow.
 
 ## Format version
 
-Every copy of your data, the SQLite `meta` table, an fs instance's
-`manifest.json`, and every export manifest, is stamped with a `format_version`
-(currently `"2"`, the project and environment scoped layout). silo refuses to
-open or import anything stamped with a version it does not understand, rather
-than corrupting or misreading it. The version is bumped for any breaking layout
-change, independently of the binary and API version. Pre-1.0 those bumps ship
-without migration tooling: re-export with the previous build and re-import, or
-start fresh.
+Every copy of your data carries a `format_version`: the SQLite `meta` table, an
+fs instance's `manifest.json`, and every export manifest. It is `"1"`.
 
+silo refuses to open or import data stamped with a version it does not know,
+rather than misreading or corrupting it. The version moves independently of the
+binary and of the API version, and only for a breaking change to the layout.

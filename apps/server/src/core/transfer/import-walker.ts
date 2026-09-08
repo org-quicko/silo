@@ -33,7 +33,7 @@ export interface WalkedArchive {
 
 /**
  * Directory-walking helpers for Importer.
- * Supports the scoped layout (format_version "2"):
+ * Supports the scoped layout, which is what `FormatVersion` stamps:
  * projects/{project}/{env}/schemas/{col}.schema.json,
  * projects/{project}/{env}/content/{col}/{id}.json — the scope and
  * collection name come from the path directly, which is the addressing

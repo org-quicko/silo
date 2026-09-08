@@ -2,36 +2,37 @@
 
 > Every subcommand, and every flag. The design rationale is in [docs/design/configuration.md](../design/configuration.md).
 
-Every subcommand operates directly on the data directory, with no running server
-required. This is also the lockout recovery path. `stop`, `status` and `logs`
-are the exception in the other direction: they read the run file and never open
-storage at all, so asking whether a server is running cannot create a data
-directory or disturb one another process already owns.
+Every subcommand works directly on the data directory. No server has to be
+running. This is also the way back from a lockout.
 
-An installed binary takes `silo <command>`. The list below is spelled in the
-from-source form, `bun run apps/server/src/main.ts <command>`, and the two are
+`stop`, `status` and `logs` are the exception, in the other direction. They read
+the run file and never open storage. Asking whether a server is running
+therefore cannot create a data directory, and it cannot disturb one that
+another process already owns.
+
+From source, replace `silo` with `bun run apps/server/src/main.ts`. The two are
 the same program.
 
 ```
-bun run apps/server/src/main.ts init [flags]                  write a silo.toml of default settings
-bun run apps/server/src/main.ts serve [flags]                 start the HTTP server
-bun run apps/server/src/main.ts stop [flags]                  stop a server started with --detach
-bun run apps/server/src/main.ts status [flags]                report whether a server is running
-bun run apps/server/src/main.ts logs [flags]                  show the server log
-bun run apps/server/src/main.ts keys create [flags]           mint an API key (secret shown once)
-bun run apps/server/src/main.ts keys list                     list keys (label, claims, prefix, created)
-bun run apps/server/src/main.ts keys revoke <id>              revoke a key
-bun run apps/server/src/main.ts export [flags]                export schemas, entries, and media
-bun run apps/server/src/main.ts import [flags] <dir|tarball>  import an export
-bun run apps/server/src/main.ts media reconcile               repair the media catalog against stored blobs
-bun run apps/server/src/main.ts search reindex [--check]      rebuild the search index, and verify it
-bun run apps/server/src/main.ts add <spec> [flags]            install a plugin and list it in silo.toml
-bun run apps/server/src/main.ts plugin list                   configured plugins and what they attach to
-bun run apps/server/src/main.ts plugin info <name>            one plugin's manifest, claims and config
-bun run apps/server/src/main.ts plugin grant <name>           approve what a plugin asked for
-bun run apps/server/src/main.ts plugin revoke <name>          withdraw the stored grant
-bun run apps/server/src/main.ts plugin doctor                 load every plugin, report failures, exit
-bun run apps/server/src/main.ts version                       print the version
+silo init [flags]                  write a silo.toml of default settings
+silo serve [flags]                 start the HTTP server
+silo stop [flags]                  stop a server started with --detach
+silo status [flags]                report whether a server is running
+silo logs [flags]                  show the server log
+silo keys create [flags]           mint an API key (the secret is shown once)
+silo keys list                     list keys (label, claims, prefix, created)
+silo keys revoke <id>              revoke a key
+silo export [flags]                export schemas, entries, and media
+silo import [flags] <dir|tarball>  import an export
+silo media reconcile               repair the media catalog against stored blobs
+silo search reindex [--check]      rebuild the search index, and verify it
+silo add <spec> [flags]            install a plugin and list it in silo.toml
+silo plugin list                   configured plugins, and what they attach to
+silo plugin info <name>            one plugin's manifest, claims and config
+silo plugin grant <name>           approve what a plugin asked for
+silo plugin revoke <name>          withdraw the stored grant
+silo plugin doctor                 load every plugin, report failures, exit
+silo version                       print the version
 ```
 
 | Flags | Applies to | Meaning |
@@ -51,8 +52,8 @@ bun run apps/server/src/main.ts version                       print the version
 | `-f`, `--follow` | `logs` | keep printing as the log grows |
 | `--label <s>` | `keys create` | human-readable label |
 | `--claims <a,b>` | `keys create` | explicit comma-separated claims |
-| `--preset <root\|write\|read>` | `keys create` | claim preset, ignored when `--claims` is given |
-| `--collections <a,b>` | `keys create` | collections the preset targets, empty means all |
+| `--preset <root\|manage\|write\|read>` | `keys create` | claim preset, default `read`, ignored when `--claims` is given |
+| `--collections <a,b>` | `keys create` | collections the `read`, `write` and `manage` presets target, empty means all |
 | `--project <id>`, `--env <id>` | `keys create` | scope the preset targets (default `*`, all) |
 | `--dir <path>`, `--out <path>` | `export` | write a directory tree, or a `.tar.gz` |
 | `--with-keys` | `export` | include API key hashes |
@@ -60,15 +61,14 @@ bun run apps/server/src/main.ts version                       print the version
 | `--validate` | `import` | validate entries against their schema |
 | `--dry-run` | `import` | report what would be written, write nothing |
 | `--prefer <local\|remote>` | `import` | override merge conflict resolution |
-| `--check` | `search reindex` | also report both index integrity checks, exiting non-zero on disagreement |
+| `--check` | `search reindex` | also report both index integrity checks, and exit non-zero on disagreement |
 | `--claims <a,b>` | `plugin grant`, `add` | approve exactly these instead of everything the manifest requests |
 | `--integrity <sri>` | `add` | check the downloaded bytes against a `sha512-...` digest |
 | `--ref <r>`, `--registry <url>` | `add` | git ref to check out; npm registry to fetch from |
-| `-y`, `--yes` | `add` | do not ask before granting (a non-interactive shell without it is a no) |
+| `-y`, `--yes` | `add` | do not ask before granting. A non-interactive shell without this is a no |
 | `--force` | `add` | replace an already-installed plugin of the same name |
-| `--no-register` | `add` | install the files, print the block, leave `silo.toml` alone |
+| `--no-register` | `add` | install the files, print the block, and leave `silo.toml` alone |
 
 A bare collection name in `--collections` grants the permission in **every**
-project and environment (`collections:*/*/<name>:...`). Write
+project and environment, as `collections:*/*/<name>:...`. Write
 `project/env/collection` to pin it to one scope.
-

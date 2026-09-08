@@ -4,6 +4,25 @@
 > The *current* state is [CONTEXT.md](../../CONTEXT.md); this is how it got
 > there.
 
+- **1.0, and `format_version` reset to `"1"` (2026-09-08).** The stamp starts
+  again from one rather than carrying D18's `"2"` forward, so a 1.0 instance and
+  a 1.0 archive both read `"1"`. No guard is version-specific:
+  `FsManifestStore.open` and `SqliteMigrations.guardFormatVersion` compare
+  against the `FormatVersion` constant and refuse anything else, so a directory
+  stamped `"2"` is refused exactly the way a `"999"` one always was, and the
+  change needed no adapter logic. Two fs adapter tests had pinned the old
+  literals and failed correctly on the constant change: the guard test's foreign
+  stamp moves from `"1"` to `"999"`, since `"1"` is now the current one, and the
+  fresh-dir test asserts `FormatVersion` instead of a literal. Alongside it the
+  docs stopped saying pre-1.0. `IMPLEMENTATION.md` D14 and
+  `docs/context/architecture.md` both named `"2"` as the current stamp;
+  `docs/design/storage.md` and `docs/design/transfer.md` both rested a live
+  policy on breaking changes being cheap before 1.0. Those now say what is true
+  from 1.0: a bump is a major release, and the stamp exists so an older layout
+  is refused rather than misread. Two source comments that named the old
+  literals went with them, including one in `FsManifestStore` that described
+  `"1"` as the *legacy* flat layout, which is the stamp it now writes.
+
 - **The READMEs became landing pages, and their reference moved to
   `docs/guide/` (2026-09-08).** The root README was 1,687 lines and was the
   whole manual: the `silo.toml` reference, every CLI flag, the route table, the
@@ -24,8 +43,13 @@
   mattered, since it still spelled the pre-restructure `ui/` paths and knew
   nothing of `store/` or `api/clients/`; it and both plugin READMEs are
   rewritten to the same rule, each deferring to its `docs/design/` counterpart
-  for the rationale it used to restate. Prose in all four follows the house
-  style: no em dashes, short sentences, one idea each.
+  for the rationale it used to restate. One error travelled in every copy and is
+  fixed: the key presets were documented as `root`, `write` and `read`, and
+  `ClaimPreset` has four, `manage` included, with `read` the CLI default. Prose
+  in all eleven documents follows the house style: no em dashes, short
+  sentences, one idea each, active voice. The seven guide files were moved
+  verbatim first and restyled in a second pass, so a reader moving from the
+  README into a guide does not change register halfway.
 
 - **The Strapi importer can flatten a wrapper single type into one entry per
   item, and lay media out by collection (2026-09-08).** A single type whose
