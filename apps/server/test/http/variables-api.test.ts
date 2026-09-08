@@ -8,6 +8,25 @@ import { SiloService } from "../../src/core/services/silo-service";
 import { Scope } from "../../src/core/domain/scope";
 import { SiloServer } from "../../src/http/server";
 import { Logger } from "../../src/logging/logger";
+import type { VariableView } from "../../src/core/variables/variable-view";
+
+/** An environment's variables as the list routes answer them. */
+interface VariableList {
+  items: VariableView[];
+}
+
+/** Only what these cases read back off an entry: its id and its own text. */
+interface Entry {
+  id: string;
+  body: string;
+  links?: string[];
+  meta?: Record<string, string>;
+}
+
+/** A page of entries, as far as these cases read it. */
+interface EntryPage {
+  data: Entry[];
+}
 
 /**
  * Variables end to end: declared per project, valued per environment,
@@ -35,6 +54,11 @@ describe("Variables API", () => {
       headers: body === undefined ? {} : { "Content-Type": "application/json" },
       body: body === undefined ? undefined : JSON.stringify(body),
     });
+  }
+
+  /** `Response.json()` answers `unknown`; every case here asserts on a shape. */
+  async function json<T>(response: Response | Promise<Response>): Promise<T> {
+    return (await (await response).json()) as T;
   }
 
   async function declare(name: string, value?: string, description = ""): Promise<Response> {
@@ -121,8 +145,8 @@ describe("Variables API", () => {
 
       await request("PUT", `${staging}/API_URL`, { value: "https://staging.example.com" });
 
-      const inStaging = await (await request("GET", staging)).json();
-      const inProd = await (await request("GET", `${envBase}/variables`)).json();
+      const inStaging = await json<VariableList>(request("GET", staging));
+      const inProd = await json<VariableList>(request("GET", `${envBase}/variables`));
       expect(inStaging.items[0].value).toBe("https://staging.example.com");
       expect(inProd.items[0].value).toBe("https://prod.example.com");
       expect(inProd.items[0].set_in).toBe(2);
@@ -134,7 +158,7 @@ describe("Variables API", () => {
       expect(cleared.status).toBe(200);
       expect(await cleared.json()).toMatchObject({ name: "API_URL", value: null, set_in: 0 });
 
-      const list = await (await request("GET", `${envBase}/variables`)).json();
+      const list = await json<VariableList>(request("GET", `${envBase}/variables`));
       expect(list.items).toHaveLength(1);
     });
 
@@ -145,9 +169,9 @@ describe("Variables API", () => {
       expect((await request("DELETE", `${base}/variables/API_URL`)).status).toBe(204);
 
       for (const env of [prod, "staging"]) {
-        const list = await (
-          await request("GET", `${base}/environments/${env}/variables`)
-        ).json();
+        const list = await json<VariableList>(
+          request("GET", `${base}/environments/${env}/variables`),
+        );
         expect(list.items).toEqual([]);
       }
     });
@@ -175,8 +199,8 @@ describe("Variables API", () => {
       await declare("ALPHA");
       await declare("MIKE");
 
-      const list = await (await request("GET", `${envBase}/variables`)).json();
-      expect(list.items.map((item: { name: string }) => item.name)).toEqual([
+      const list = await json<VariableList>(request("GET", `${envBase}/variables`));
+      expect(list.items.map((item) => item.name)).toEqual([
         "ALPHA",
         "MIKE",
         "ZULU",
@@ -187,7 +211,7 @@ describe("Variables API", () => {
       await declare("API_URL", "https://prod.example.com");
       const short = await request("GET", `${base}/envs/${prod}/variables`);
       expect(short.status).toBe(200);
-      expect((await short.json()).items[0].value).toBe("https://prod.example.com");
+      expect((await json<VariableList>(short)).items[0].value).toBe("https://prod.example.com");
     });
   });
 
@@ -200,18 +224,18 @@ describe("Variables API", () => {
     async function createEntry(data: Record<string, unknown>): Promise<string> {
       const response = await request("POST", `${envBase}/collections/pages`, data);
       expect(response.status).toBe(201);
-      return (await response.json()).id;
+      return (await json<Entry>(response)).id;
     }
 
     test("a read substitutes, and the stored text is untouched", async () => {
       const id = await createEntry({ title: "Docs", body: "Call {{API_URL}}/v1 today" });
 
-      const resolved = await (await request("GET", `${envBase}/collections/pages/${id}`)).json();
+      const resolved = await json<Entry>(request("GET", `${envBase}/collections/pages/${id}`));
       expect(resolved.body).toBe("Call https://prod.example.com/v1 today");
 
-      const raw = await (
-        await request("GET", `${envBase}/collections/pages/${id}?variables=raw`)
-      ).json();
+      const raw = await json<Entry>(
+        request("GET", `${envBase}/collections/pages/${id}?variables=raw`),
+      );
       expect(raw.body).toBe("Call {{API_URL}}/v1 today");
     });
 
@@ -219,8 +243,8 @@ describe("Variables API", () => {
       await createEntry({ title: "One", body: "{{API_URL}}/a" });
       await createEntry({ title: "Two", body: "{{API_URL}}/b" });
 
-      const page = await (await request("GET", `${envBase}/collections/pages`)).json();
-      expect(page.data.map((entry: { body: string }) => entry.body).sort()).toEqual([
+      const page = await json<EntryPage>(request("GET", `${envBase}/collections/pages`));
+      expect(page.data.map((entry) => entry.body).sort()).toEqual([
         "https://prod.example.com/a",
         "https://prod.example.com/b",
       ]);
@@ -231,12 +255,12 @@ describe("Variables API", () => {
         title: "Docs",
         body: "{{API_URL}}",
       });
-      expect((await response.json()).body).toBe("https://prod.example.com");
+      expect((await json<Entry>(response)).body).toBe("https://prod.example.com");
     });
 
     test("an undeclared name is left standing rather than blanked", async () => {
       const id = await createEntry({ title: "Docs", body: "{{API_URL}} and {{MISSING}}" });
-      const resolved = await (await request("GET", `${envBase}/collections/pages/${id}`)).json();
+      const resolved = await json<Entry>(request("GET", `${envBase}/collections/pages/${id}`));
       expect(resolved.body).toBe("https://prod.example.com and {{MISSING}}");
     });
 
@@ -247,11 +271,11 @@ describe("Variables API", () => {
       const created = await request("POST", `${stagingBase}/collections/pages`, {
         body: "{{API_URL}}",
       });
-      const id = (await created.json()).id;
+      const id = (await json<Entry>(created)).id;
 
-      const resolved = await (
-        await request("GET", `${stagingBase}/collections/pages/${id}`)
-      ).json();
+      const resolved = await json<Entry>(
+        request("GET", `${stagingBase}/collections/pages/${id}`),
+      );
       expect(resolved.body).toBe("{{API_URL}}");
     });
 
@@ -264,9 +288,9 @@ describe("Variables API", () => {
         links: ["{{API_URL}}/a", "plain"],
         meta: { home: "{{API_URL}}" },
       });
-      const id = (await created.json()).id;
+      const id = (await json<Entry>(created)).id;
 
-      const resolved = await (await request("GET", `${envBase}/collections/nested/${id}`)).json();
+      const resolved = await json<Entry>(request("GET", `${envBase}/collections/nested/${id}`));
       expect(resolved.links).toEqual(["https://prod.example.com/a", "plain"]);
       expect(resolved.meta).toEqual({ home: "https://prod.example.com" });
     });
@@ -275,14 +299,14 @@ describe("Variables API", () => {
       const id = await createEntry({ title: "Docs", body: "{{API_URL}}" });
       await request("PUT", `${envBase}/variables/API_URL`, { value: "https://new.example.com" });
 
-      const resolved = await (await request("GET", `${envBase}/collections/pages/${id}`)).json();
+      const resolved = await json<Entry>(request("GET", `${envBase}/collections/pages/${id}`));
       expect(resolved.body).toBe("https://new.example.com");
     });
 
     test("an empty value substitutes as empty rather than reading as unset", async () => {
       await declare("SUFFIX", "");
       const id = await createEntry({ title: "Docs", body: "path{{SUFFIX}}!" });
-      const resolved = await (await request("GET", `${envBase}/collections/pages/${id}`)).json();
+      const resolved = await json<Entry>(request("GET", `${envBase}/collections/pages/${id}`));
       expect(resolved.body).toBe("path!");
     });
 
@@ -302,7 +326,7 @@ describe("Variables API", () => {
         `${envBase}/collections/pages/search?q=Findable`,
       );
       expect(response.status).toBe(200);
-      const hits = await response.json();
+      const hits = await json<{ data: { entry: Entry }[] }>(response);
       expect(hits.data[0].entry.body).toBe("https://prod.example.com");
     });
   });
@@ -331,9 +355,7 @@ describe("Variables API", () => {
         });
         expect(imported.status).toBeLessThan(300);
 
-        const list = await (
-          await restoredApp.request(`${envBase}/variables`)
-        ).json();
+        const list = await json<VariableList>(restoredApp.request(`${envBase}/variables`));
         expect(list.items).toEqual([
           expect.objectContaining({ name: "API_URL", value: "https://prod.example.com" }),
         ]);
@@ -353,14 +375,14 @@ describe("Variables API", () => {
       });
 
       expect(
-        (await (await request("GET", `${envBase}/variables`)).json()).items[0].set_in,
+        (await json<VariableList>(request("GET", `${envBase}/variables`))).items[0].set_in,
       ).toBe(2);
 
       expect(
         (await request("DELETE", `${base}/environments/staging?force=true`)).status,
       ).toBe(204);
 
-      const list = await (await request("GET", `${envBase}/variables`)).json();
+      const list = await json<VariableList>(request("GET", `${envBase}/variables`));
       expect(list.items[0]).toMatchObject({ name: "API_URL", set_in: 1 });
     });
 
@@ -373,9 +395,9 @@ describe("Variables API", () => {
       await request("DELETE", `${base}/environments/staging?force=true`);
       await request("POST", `${base}/environments`, { id: "staging" });
 
-      const list = await (
-        await request("GET", `${base}/environments/staging/variables`)
-      ).json();
+      const list = await json<VariableList>(
+        request("GET", `${base}/environments/staging/variables`),
+      );
       expect(list.items[0]).toMatchObject({ name: "API_URL", value: null });
     });
 
@@ -393,9 +415,9 @@ describe("Variables API", () => {
       // old project declared may come back with it.
       await request("POST", "/api/projects", { id: "other" });
       await request("POST", `/api/projects/other/environments`, { id: "prod" });
-      const list = await (
-        await request("GET", "/api/projects/other/environments/prod/variables")
-      ).json();
+      const list = await json<VariableList>(
+        request("GET", "/api/projects/other/environments/prod/variables"),
+      );
       expect(list.items).toEqual([]);
     });
 
@@ -406,9 +428,9 @@ describe("Variables API", () => {
       });
       expect(renamed.status).toBe(200);
 
-      const list = await (
-        await request("GET", `${base}/environments/production/variables`)
-      ).json();
+      const list = await json<VariableList>(
+        request("GET", `${base}/environments/production/variables`),
+      );
       expect(list.items[0]).toMatchObject({
         name: "API_URL",
         value: "https://prod.example.com",
