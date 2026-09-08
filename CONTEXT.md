@@ -72,6 +72,23 @@ environment, and substituted into every `{{NAME}}` an entry holds on the way out
 **The most recent change landed on 2026-09-08; everything before it on
 2026-09-07 or earlier.**
 
+**The READMEs are landing pages, and the reference they carried is now
+`docs/guide/` (2026-09-08).** The root README had reached 1,687 lines and was
+the whole manual: the `silo.toml` reference, every CLI flag, the route table,
+the claim catalog, the plugin author's guide and the archive format were all
+inlined in it. Seven files under `docs/guide/` now hold that material
+(`configuration.md`, `cli.md`, `http-api.md`, `claims.md`, `plugins.md`,
+`transfer.md`, `deployment.md`, plus a `README.md` indexing them), and the root
+README is 313 lines answering only what a landing page is for: what silo is,
+how to install it, the concepts, the features, plugins in outline, deployment
+in outline, and where to read the rest. Nothing was dropped in the move. Three
+gaps the old README had are closed on the way through: the rename routes
+(D51), `GET /api/media/extensions` and `PATCH /api/media/{id}` (D55), and the
+whole of variables (D57) were undocumented outside `docs/design/`, and the
+route table, the variables note and the claims guide now carry them. The
+admin-UI and both plugin READMEs are rewritten to the same rule, each pointing
+at its `docs/design/` counterpart for the rationale it used to restate.
+
 **The Strapi importer can flatten a wrapper single type into one entry per
 item, and lay media out by collection (2026-09-08).** A single type whose only
 field is one repeatable component contributes nothing of its own, and the
@@ -1119,7 +1136,8 @@ unchanged and the full suite passes throughout. See
 | [docs/context/code-design.md](docs/context/code-design.md) | How code here is expected to be shaped |
 | [docs/context/changelog.md](docs/context/changelog.md) | Every change that altered behaviour, architecture or layout, newest first |
 | [IMPLEMENTATION.md](IMPLEMENTATION.md) | The vision, the D1–D54 decisions log, and the index into `docs/design/` |
-| [README.md](README.md) | How to run, configure and use silo |
+| [README.md](README.md) | What silo is, how to install it, and where to read further |
+| [docs/guide/](docs/guide/README.md) | How to run, configure and extend silo: configuration, CLI, HTTP API, claims, plugins, transfer, deployment |
 
 ## Working in this repo
 
