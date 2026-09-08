@@ -55,6 +55,10 @@
   a port if both answer the same questions the same way.
 - UI tests sit beside the source they cover, as `*.test.ts`.
 - White-box tests that reach into a private do so deliberately and say so.
+- `Response.json()` answers `unknown`. A test that reads fields off a body
+  names the shape it expects — the source's own interface where there is one,
+  or a local one carrying just the fields the cases read — rather than casting
+  to `any`. `variables-api.test.ts` and `search-api.test.ts` are the pattern.
 
 ## UI styling
 
