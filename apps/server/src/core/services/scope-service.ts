@@ -12,6 +12,7 @@ import { CollectionEvents } from "./support/collection-events";
 import { CollectionEraser } from "./support/collection-eraser";
 import type { ScopeRenameCascade } from "./support/scope-rename-cascade";
 import type { ServiceContext } from "./support/service-context";
+import type { VariableService } from "./variable-service";
 
 /** One collection a scope delete erased, carried out of the write lock so the
  *  hook can be dispatched after it is released. */
@@ -30,6 +31,11 @@ export class ScopeService {
   private readonly context: ServiceContext;
   private readonly collections: CollectionService;
   private readonly renames: ScopeRenameCascade;
+  /** Held so a scope delete can take its variables with it (D57). Deleting a
+   *  project or an environment is the one thing that can orphan a declaration
+   *  or a value, because both are keyed by a record id that is about to stop
+   *  existing. */
+  private readonly variables: VariableService;
 
   /** Derived from schema content, so it is dropped whenever schemas change. */
   private publicScopeCache: ReadonlyMap<string, ReadonlySet<string>> | null = null;
@@ -37,11 +43,13 @@ export class ScopeService {
   constructor(
     context: ServiceContext,
     collections: CollectionService,
-    renames: ScopeRenameCascade
+    renames: ScopeRenameCascade,
+    variables: VariableService
   ) {
     this.context = context;
     this.collections = collections;
     this.renames = renames;
+    this.variables = variables;
     context.schemaRegistry.onInvalidate(() => {
       this.publicScopeCache = null;
     });
@@ -165,6 +173,12 @@ export class ScopeService {
           });
         }
       }
+      // Before the record goes: every declaration is keyed by this project's
+      // id, so deleting the project first would leave documents nothing can
+      // ever address again (D57).
+      const record = await this.context.store.findProject(project);
+      if (record) await this.variables.forgetProject(record.id);
+
       this.context.schemaRegistry.invalidate();
       await this.context.store.deleteProject(project);
       return counts;
@@ -207,6 +221,14 @@ export class ScopeService {
           erased: await CollectionEraser.erase(this.context.store, scope, collection.name),
         });
       }
+      // This environment's values, dropped from declarations that survive it
+      // (D57). The declarations belong to the project, so they stay.
+      const record = await this.context.store.findEnvironment(project, env);
+      const projectRecord = await this.context.store.findProject(project);
+      if (record && projectRecord) {
+        await this.variables.forgetEnvironment(projectRecord.id, record.id);
+      }
+
       this.context.schemaRegistry.invalidate();
       await this.context.store.deleteEnvironment(project, env);
       return counts;

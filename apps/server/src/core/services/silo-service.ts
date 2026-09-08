@@ -21,6 +21,7 @@ import { SchemaRegistry } from "./support/schema-registry";
 import { ScopeRenameCascade } from "./support/scope-rename-cascade";
 import { ServiceContext } from "./support/service-context";
 import { TransferService } from "./transfer-service";
+import { VariableService } from "./variable-service";
 
 /** How to build a `SiloService`. Everything is optional; the defaults are what
  *  a plain source checkout runs with. */
@@ -66,6 +67,9 @@ export class SiloService {
   /** Renaming any of the three record kinds, and the claim cascade that
    *  follows (D51). */
   readonly renames: RenameService;
+  /** Variables: declared per project, valued per environment, substituted into
+   *  `{{NAME}}` on the way out (D57). */
+  readonly variables: VariableService;
 
   private readonly context: ServiceContext;
   private readonly renameCascade: ScopeRenameCascade;
@@ -88,7 +92,15 @@ export class SiloService {
 
     this.renameCascade = new ScopeRenameCascade(this.context);
     this.collections = new CollectionService(this.context);
-    this.scopes = new ScopeService(this.context, this.collections, this.renameCascade);
+    // Before `scopes`, which holds it: deleting a project or an environment
+    // has to take that scope's declarations and values with it (D57).
+    this.variables = new VariableService(this.context);
+    this.scopes = new ScopeService(
+      this.context,
+      this.collections,
+      this.renameCascade,
+      this.variables
+    );
     this.media = new MediaService(this.context);
     this.entries = new EntryService(this.context, this.media);
     this.search = new SearchService(this.context);

@@ -4,6 +4,93 @@
 > The *current* state is [CONTEXT.md](../../CONTEXT.md); this is how it got
 > there.
 
+- **Content can reference an environment variable, and the API substitutes it
+  (D57, 2026-09-07).** A string that has to differ between `staging` and `prod`
+  and is otherwise identical everywhere — an API base URL, a support address, a
+  CDN host — had to be written into every environment's entries and hunted down
+  in all of them when it changed. A **variable** is now declared once per
+  project and valued per environment, and every `{{NAME}}` in an entry is
+  replaced on the way out. The storage shape is the decision: **one
+  `_variables` document per declaration** (silo's eighth system collection, in
+  `Scope.System`) holding `{project_id, name, description, values}`, with
+  `values` keyed by **environment record id** — so D51's renames move nothing,
+  where a name-keyed map would have to join the claim cascade — and with every
+  environment's value inside the declaration, so resolving a scope is one
+  filtered read and **no join**. A document per (variable, environment) pair was
+  the alternative and makes "declared but unset here" indistinguishable from
+  "never declared", which is the distinction the response depends on: an absent
+  key leaves `{{NAME}}` **standing** in the response, as does a name nothing
+  declares, while `""` is a value an operator chose and substitutes as empty.
+  Blanking the text instead would silently delete content on the way out.
+  Resolution sits where media resolution already sits —
+  `EntryUtils.toApiResponse`, after `MediaResolver`, through a synchronous
+  `VariableValues` built once per response, `MediaLinks`' counterpart — and
+  costs **nothing when nothing is referenced**, since `VariableRefs.extract`
+  walks the payload first and a response with no `{{` asks storage for no
+  variables at all. The walk is deliberately **not** schema-driven, unlike
+  media's: a field is media because the schema says so, but a template is a
+  template because the author typed one, so gating it on a declared field kind
+  would make the syntax work in the fields people remembered to mark and
+  silently not in the rest. Object keys are never touched, only values.
+  **`?variables=raw` answers the stored text and resolving is the default**,
+  because a template only some callers see resolved is a feature nobody can rely
+  on; the admin asks for raw on every entry it reads, which is not a preference
+  but the thing that stops a form saving a resolved value back over the
+  reference somebody typed. **No new claims:** reading needs `entries:read` on
+  any collection in the environment (a value is already visible in every entry
+  referencing it, so guarding it would guard a secret that is not one), setting
+  a value needs scope-wide `entries:update` (it rewrites what every entry in the
+  environment answers), and declaring and undeclaring ask at `{project}` / `*` /
+  `*` for `create` and `delete` — what creating and deleting an environment
+  already ask for. Paths follow that split rather than the page: declarations
+  under the project, values under the environment, so one environment's settings
+  screen is not quietly the place every environment's value disappears from. An
+  initial value supplied at declaration time is held to both, and the check runs
+  before anything is written. Not audited, following `AuditAction`'s own rule
+  that the trail is authority changes and that entry writes stay out because
+  `rev` and `updated_at` already record them. A rename rewrites **no content**,
+  the deliberate opposite of D51's cascade: a claim naming a scope is authority,
+  a template in an entry is text somebody wrote, and repointing it at a value it
+  was never aimed at is the worse failure. `_variables` travels in the archive
+  for the reason `_media` does — one carrying entries that say `{{API_URL}}`
+  without the declaration behind it restores content whose references have all
+  stopped resolving — and a round trip keeps the values because the archive
+  carries each environment record's id; a scope-to-scope **copy** carries none,
+  since the destination environment has its own id and its own values. In the
+  admin the two reaches share one **Settings → Variables** page per environment,
+  and in the entry form the reference **is a chip in the field itself**,
+  carrying the name and the value, with a small popover on hover and a
+  completion list on `{{`. Two cheaper shapes were built first and both failed
+  the same requirement: a readout beside the field is not in the field, and a
+  **mirror** — a layer above a real `<input>` with transparent text — can only
+  work while the chip occupies exactly the token's width, since the invisible
+  characters underneath still advance, and a chip showing `API_URL` *and*
+  `https://api.example.com` is several times wider than `{{API_URL}}`. A chip
+  wider than its token has to be a real element in a real flow, so the surface
+  is a `contenteditable`; the cost is stated rather than discovered (`type`,
+  `maxlength`, native validation and autofill do not apply, so only plain-text
+  string fields are routed there), and what it does not cost is the part that
+  matters — each chip is `contenteditable="false"`, which browsers treat as one
+  atomic character, so caret movement, shift-selection, drag-select and
+  Backspace-deletes-the-whole-chip are all native. `VariableDom` is the
+  boundary: the string is the source of truth and the DOM a rendering of it, a
+  chip reads back as `{{NAME}}` whatever it displays, `<br>` and block
+  boundaries become newlines so the value does not depend on which one the
+  browser chose, a trailing "bogus br" is ignored, and a single-line field
+  strips newlines the way an `<input>` cannot hold one. The surface is
+  uncontrolled between renders — re-rendering on every keystroke is what makes a
+  `contenteditable` lose the caret — and the one case that needs a mid-typing
+  re-render, a reference just finished so it becomes a chip, records the caret
+  in the string's own coordinates and restores it after. A click on a chip
+  places the caret at the nearer end, since a `contenteditable="false"` node is
+  not somewhere a caret can go and a field that looks editable while swallowing
+  keystrokes is worse than one plainly disabled. The value is shown and never
+  editable there, because it belongs to the environment and to every other entry
+  referencing it. Deleting a project or an
+  environment takes its declarations or its values with it. Both adapters
+  already seed system collections idempotently at open, so an existing instance
+  needs **no migration and no format bump**.
+
 - **Appearance joins the settings ledger (D56, 2026-09-07).** The last page
   still built from its own cards is now sections and rows like every other:
   *Theme* (a row of accent swatches, and a hex field), *Typeface* (a grid of

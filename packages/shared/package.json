@@ -32,6 +32,8 @@
     "./search-fields": "./src/schema/search-fields.ts",
     "./silo-ref": "./src/schema/silo-ref.ts",
     "./validation-detail": "./src/errors/validation-detail.ts",
-    "./validation-error": "./src/errors/validation-error.ts"
+    "./validation-error": "./src/errors/validation-error.ts",
+    "./variable-name": "./src/variables/variable-name.ts",
+    "./variable-template": "./src/variables/variable-template.ts"
   }
 }

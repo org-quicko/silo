@@ -25,6 +25,7 @@ import { buildUiSchema } from '../../forms/build-ui-schema'
 import { FormSchema } from '../../forms/form-schema'
 import { MediaValue } from '../../forms/widgets/media-value'
 import { SiloRefs } from '../../schema/silo-refs'
+import { useVariables } from '../../store/use-variables'
 import { ToastManager } from '../../utils/toast-manager'
 import { TopBar } from '../shell/TopBar'
 import { SmartSearch } from '../search/SmartSearch'
@@ -94,6 +95,20 @@ export function EntryForm({
   )
   const uiSchema = useMemo(() => buildUiSchema(schema), [schema])
   const initial = useMemo(() => entry?.data ?? {}, [entry])
+
+  // Read from the store, so opening ten entries in a row costs one request
+  // (D57). The entry itself is fetched `variables=raw`, which is what makes the
+  // form edit the `{{NAME}}` somebody typed rather than a snapshot of what it
+  // resolved to; these are what the affordance shows *beside* that text.
+  const { variables } = useVariables(serverId, url, apiKey, scope)
+  const variableContext = useMemo(
+    () => ({
+      variables,
+      env: scope.env,
+      manageHref: Routes.envSettings(serverId, scope.project, scope.env, 'variables'),
+    }),
+    [variables, serverId, scope.project, scope.env],
+  )
 
   const [formData, setFormData] = useState<any>(initial)
   const [extraErrors, setExtraErrors] = useState<any>(undefined)
@@ -221,7 +236,7 @@ export function EntryForm({
               extraErrors={extraErrors}
               showErrorList="top"
               disabled={!canSave}
-              formContext={{ url, apiKey }}
+              formContext={{ url, apiKey, variables: variableContext }}
               onChange={(e: any) => {
                 const s = JSON.stringify(e.formData)
                 setFormData(e.formData)

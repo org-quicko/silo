@@ -21,6 +21,10 @@ Hono web framework on Bun. JSON everywhere. Admin UI served at `/`; API under `/
 | GET / PUT / DELETE | `/api/projects/{project}/envs/{env}/collections/{name}/schema` | schema fetch / update / delete (`?force=true` also requires `entries:delete` — D37). The `GET` **bundles on the way out** (D54): `PUT` already embeds every referenced collection's schema into `$defs` transitively, but only as of that save, so a target whose shape changed since was embedded as it was then. Re-resolving on read is what makes one schema a document a client can render on its own — and what makes fetching every schema in the scope unnecessary rather than merely wasteful |
 | GET / POST | `/api/projects/{project}/envs/{env}/collections/{name}` | list (query below) / create |
 | GET / PUT / DELETE | `/api/projects/{project}/envs/{env}/collections/{name}/{id}` | PUT is full replace |
+| GET / POST | `/api/projects/{project}/variables` | *(POST)* declare a name for the whole project, optionally valuing it in `?env=` in the same call (§5.6, D57) |
+| PATCH / DELETE | `/api/projects/{project}/variables/{name}` | rename a declaration or rewrite its description / undeclare it and every environment's value with it (D57) |
+| GET | `/api/projects/{project}/envs/{env}/variables` | every declaration in the project, with **this** environment's value: `{name, description, value, set_in, created_at, updated_at}` (D57) |
+| PUT / DELETE | `/api/projects/{project}/envs/{env}/variables/{name}` | set this environment's value (`{value}`) / clear it, leaving the name declared (D57) |
 | GET | `/api/projects/{project}/envs/{env}/collections/{name}/search` | search one collection (§5.5) |
 | GET | `/api/projects/{project}/envs/{env}/search` | search one scope |
 | GET | `/api/search` | search the instance |
@@ -56,6 +60,8 @@ Hono web framework on Bun. JSON everywhere. Admin UI served at `/`; API under `/
 | ALL | `/api/ext/{name}/*` | the routes a plugin declares (D36); see the note below |
 | GET | `/api/audit` | authority changes, newest first (`audit:read`); `?subject=` filters to one key id or plugin name |
 | GET | `/api/observability` | bounded process-lifetime API, latency, memory/CPU, and local-storage metrics (`observability:read`) |
+
+**`?variables=` (D57):** every route that answers an entry — the list, the single `GET`, the `POST`/`PUT` echoes, and search — substitutes `{{NAME}}` from the environment's variables by default. `?variables=raw` answers the **stored** text instead. Resolving is the default because a template only some callers see resolved is a feature nobody can rely on; `raw` exists for **editors**, and the admin uses it on every entry it reads (§9), because a form seeded with a resolved value saves that value back and replaces the reference with a snapshot of what it meant in one environment on one day. Any other value is a `400` rather than a guess: reading `?variables=false` as "resolved" would be exactly the mistake the parameter exists to let a caller avoid.
 
 **List query encoding:** `?filter=<url-encoded JSON Filter>&sort=-$.updated_at,$.data.title&limit=50&offset=0`. Since D29 both `filter` paths and `sort` keys are RFC 9535 JSONPath over the API response shape (§5.3); the pre-D29 `author.name` / `$id` spellings are rejected. Response: `{"data": [...], "total": n, "limit": ..., "offset": ...}`. The search routes (§5.5) take the same `filter`, `sort`, `limit` and `offset`, plus `q`.
 
@@ -784,3 +790,47 @@ change: the running server is repointed before it answers. Refusals are `400`
 cannot be opened with, no config file to write, or a config file the filesystem
 refused the write to), `403` without the claim.
 Changes are appended to the audit trail as `media.configure`.
+
+### 8.5 Variables: what each route asks for (D57)
+
+The concept is §5.6; this is the authorization, and its one design point is that
+there is **no new claim**. Every check below is an existing claim at an existing
+reach, chosen to match what the operation actually does. A new claim would have
+had to be granted to every key that already manages content before any of them
+could use the feature, and — worse — it would have implied that a variable's
+value is protected by something the entries referencing it are not.
+
+| Operation | Claim | Why that reach |
+|-----------|-------|----------------|
+| Read the list | `entries:read` on **any** collection in the environment | A value is substituted into every entry that references it, so a key that can read one entry can already see it. This is the honest floor, not a concession: requiring more would guard a secret that is not one |
+| Set or clear a value | `entries:update` at `{project}` / `{env}` / `*` | Changing one value rewrites what **every** entry in that environment answers, so it is exactly a scope-wide content edit and asks for scope-wide content authority — `RouteAuth.requireScopeWide`, the same rule a scope-to-scope copy already takes |
+| Declare | `create` at `{project}` / `*` / `*` | The name is added to every environment in the project. What creating an environment already asks for at that reach |
+| Undeclare | `delete` at `{project}` / `*` / `*` | Removes the name and every environment's value. What deleting an environment already asks for |
+| Rename | both of the above | A create at the new name and a delete at the old, the pair `RenamePermissions` states for the other three record kinds |
+| Rewrite a description | `create` at `{project}` / `*` / `*` | Metadata about the declaration, so it asks the declaration's authority rather than the value's |
+
+Two consequences worth stating, because both are places a first pass gets it
+wrong:
+
+- **An initial value supplied to `POST .../variables` is held to both.** Without
+  that, a project-wide `create` would be a way to write one environment's
+  content while holding none of that environment's authority. The value check
+  runs before anything is written, so a refusal leaves no half-made declaration.
+- **The paths follow the reach, not the page.** Declarations hang off
+  `/api/projects/{project}/variables` and values off the environment, even
+  though the admin draws both on one screen. Putting the project-wide delete
+  under an environment's path would make one environment's settings screen
+  quietly the place every environment's value disappears from.
+
+A read a key holds no `entries:read` for is a `403`, never an empty list: "you
+cannot see this" and "there are none" are different answers and an operator
+debugging an unresolved `{{NAME}}` needs to tell them apart.
+
+Refusals are `400` (a malformed name, a non-string value, a value past 4,096
+characters, an empty update), `403` without the claim, `404` for a name the
+project does not declare — a `PUT` never silently declares one — and `409` for a
+name already declared. None of it is audited: `AuditAction` is the trail of
+**authority** changes and says in its own words that entry writes stay out of it
+because `rev` and `updated_at` already record them. A variable's value is
+content, and every declaration carries its own `rev` and `updated_at` for the
+same reason an entry does.

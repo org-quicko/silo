@@ -23,6 +23,11 @@ describe('SearchApi', () => {
     } as unknown as HttpTransport
     const api = new SearchApi(fakeTransport)
     await api.run('http://localhost', 'secret', { kind: 'instance' }, { query: 'test' })
-    expect(requestedUrl).toBe('/api/search?q=test')
+    // `variables=raw` rides along on every entry the admin reads (D57): a hit
+    // leads to the form, and the two must not disagree about what the entry
+    // says. Pinned here rather than left to the exact-URL assertion above,
+    // because dropping it is a silent bug — the search would simply start
+    // showing resolved values the form does not.
+    expect(requestedUrl).toBe('/api/search?q=test&variables=raw')
   })
 })

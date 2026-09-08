@@ -17,6 +17,7 @@ import { AppearancePage } from './pages/AppearancePage'
 import { ConnectionPage } from './pages/ConnectionPage'
 import { EnvGeneralPage } from './pages/EnvGeneralPage'
 import { EnvTransferPage } from './pages/EnvTransferPage'
+import { EnvVariablesPage } from './pages/EnvVariablesPage'
 import { ConfigurationPage } from './pages/ConfigurationPage'
 import { MediaStoragePage } from './pages/MediaStoragePage'
 import { ProjectEnvironmentsPage } from './pages/ProjectEnvironmentsPage'
@@ -158,6 +159,16 @@ export function SettingsView({ server, route, onUpdateServer, onDeleteServer, on
               reloadEnvironments()
               router.navigate(Routes.projectSettings(serverId, route.project, 'environments'))
             }}
+          />
+        )}
+
+        {route.view === 'env-settings' && route.section === 'variables' && (
+          <EnvVariablesPage
+            key={`${route.project}/${route.env}`}
+            server={server}
+            scope={{ project: route.project, env: route.env }}
+            environments={environments}
+            claims={claims}
           />
         )}
 

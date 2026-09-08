@@ -2,6 +2,8 @@ import { ulid } from "ulidx";
 import { ValidationError } from "@silo/shared/validation-error";
 import { MediaResolver } from "../media/media-resolver";
 import type { MediaLinks } from "../media/media-links";
+import { VariableResolver } from "../variables/variable-resolver";
+import type { VariableValues } from "../variables/variable-values";
 import type { Entry } from "./entry";
 
 export const TimeLayout = "YYYY-MM-DDTHH:mm:ss.SSSZ";
@@ -56,7 +58,25 @@ export class EntryUtils {
     }
   }
 
-  static toApiResponse(e: Entry, schema?: any, links?: MediaLinks): Record<string, any> {
+  /**
+   * One entry as the API answers it.
+   *
+   * Stays **synchronous and pure**, which is why both resolvers are handed
+   * their answers rather than reaching for them: every route calls this inside
+   * a `map`, so `MediaLinks` and `VariableValues` are each built once for the
+   * whole response before the mapping starts.
+   *
+   * `values` omitted means no substitution, which is what every caller holding
+   * only a raw entry wants — the admin's editor asks for exactly that, since a
+   * form must edit the `{{NAME}}` somebody typed and not the value it stands
+   * for (D57).
+   */
+  static toApiResponse(
+    e: Entry,
+    schema?: any,
+    links?: MediaLinks,
+    values?: VariableValues
+  ): Record<string, any> {
     const createdAt =
       e.created_at instanceof Date
         ? e.created_at.toISOString()
@@ -82,6 +102,13 @@ export class EntryUtils {
 
     if (schema && links) {
       userFields = MediaResolver.resolveMediaFields(userFields, schema, links);
+    }
+
+    // After the media pass, never before it (D57): a resolved URL is not
+    // content an author typed, so it is not a place a template can live, and
+    // scanning it would be scanning silo's own output.
+    if (values) {
+      userFields = VariableResolver.resolve(userFields, values);
     }
 
     // `rev` is part of the response because `PUT`/`DELETE` require it back as

@@ -2,6 +2,7 @@ import type { SiloService } from "../../core/services/silo-service";
 import type { PluginSupervisor } from "../../plugins";
 import type { ConfigSupervisor, MediaPolicySupervisor, MediaStorageSupervisor } from "../../settings";
 import { ProjectsRoutes } from "./projects-routes";
+import { VariablesRoutes } from "./variables-routes";
 import { CollectionsRoutes } from "./collections-routes";
 import { EntriesRoutes } from "./entries-routes";
 import { KeysRoutes } from "./keys-routes";
@@ -60,6 +61,9 @@ export class RouteManager {
     MediaFolderRoutes.register(app, service);
     MediaRoutes.register(app, service);
 
+    // Before ProjectsRoutes, so `variables` is never read as an environment
+    // name and the project-level declaration paths are matched first (D57).
+    VariablesRoutes.register(app, service);
     ProjectsRoutes.register(app, service);
     CollectionsRoutes.register(app, service);
     SearchRoutes.register(app, service);

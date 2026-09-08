@@ -8,6 +8,7 @@ import { ProjectsApi } from './clients/projects-api'
 import { SearchApi } from './clients/search-api'
 import { SessionApi } from './clients/session-api'
 import { TransferApi } from './clients/transfer-api'
+import { VariablesApi } from './clients/variables-api'
 import { HttpTransport } from './transport/http-transport'
 import { SettingsApi } from './clients/settings-api'
 
@@ -33,6 +34,7 @@ export class SiloApi {
   readonly plugins = new PluginsApi(this.transport)
   readonly audit = new AuditApi(this.transport)
   readonly settings = new SettingsApi(this.transport)
+  readonly variables = new VariablesApi(this.transport)
 
   /** A stored key can be revoked out from under an open session; a 401 on any
    *  authenticated call routes the app back to the welcome gate. */
