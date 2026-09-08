@@ -16,7 +16,7 @@
     "set-version": "bun run tools/set-version.ts"
   },
   "devDependencies": {
-    "@types/bun": "^1.4.0",
+    "@types/bun": "^1.4.2",
     "@types/node": "^20.19.43",
     "@types/tar": "^6.1.13",
     "concurrently": "^10.0.5",
