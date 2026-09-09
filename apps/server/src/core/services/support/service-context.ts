@@ -41,7 +41,7 @@ export class ServiceContext {
    * `ConfigLoader` — absent any configuration at all, "accept everything" is
    * the only answer that does not invent a policy the caller never set.
    */
-  private media: MediaConfig = { base_url_target: "server", extensions: [MediaExtensions.Any] };
+  private media: MediaConfig = { extensions: [MediaExtensions.Any] };
 
   constructor(
     store: Storage,
@@ -63,6 +63,17 @@ export class ServiceContext {
    *  repointed while the process runs (D45) — see `useBlobStorage`. */
   get blobStorage(): BlobStorage {
     return this.blobs;
+  }
+
+  /**
+   * The URL root a reader outside silo fetches these bytes from, or `""` when
+   * the store has no public face and silo serves them itself (D58).
+   *
+   * Read through the same cell as `blobStorage`, so repointing the library at
+   * a bucket repoints every URL it hands out in the same assignment.
+   */
+  get storeRoot(): string {
+    return this.blobs.publicRoot?.() ?? "";
   }
 
   /**

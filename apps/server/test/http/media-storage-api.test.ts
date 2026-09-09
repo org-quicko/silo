@@ -56,8 +56,8 @@ describe("media storage API (D45)", () => {
   const auth = (key: string) => ({ Authorization: `Bearer ${key}` });
   const json = (key: string) => ({ ...auth(key), "Content-Type": "application/json" });
 
-  test("reading needs media:configure, which media:read is not", async () => {
-    const uploader = await mint([Claims.MediaRead, Claims.MediaCreate, Claims.MediaDelete]);
+  test("reading needs media:configure, which the upload claims are not", async () => {
+    const uploader = await mint([Claims.MediaCreate, Claims.MediaDelete]);
     const refused = await app.request("/api/media/storage", { headers: auth(uploader) });
     expect(refused.status).toBe(403);
     expect(((await refused.json()) as any).error.message).toContain("media:configure");
@@ -69,7 +69,7 @@ describe("media storage API (D45)", () => {
   });
 
   test("writing needs it too", async () => {
-    const uploader = await mint([Claims.MediaRead, Claims.MediaCreate]);
+    const uploader = await mint([Claims.MediaCreate]);
     const refused = await app.request("/api/media/storage", {
       method: "PUT",
       headers: json(uploader),

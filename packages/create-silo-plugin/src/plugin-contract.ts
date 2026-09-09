@@ -77,7 +77,7 @@ export class PluginContract {
     { claim: "collections:*/*/*:entries:create", summary: "create entries in any collection" },
     { claim: "collections:*/*/*:entries:update", summary: "update entries in any collection" },
     { claim: "collections:*/*/*:entries:delete", summary: "delete entries in any collection" },
-    { claim: "media:read", summary: "read the media catalog" },
+    { claim: "media:create", summary: "put files into the media library" },
   ];
 
   /**

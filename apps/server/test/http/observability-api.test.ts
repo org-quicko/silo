@@ -40,7 +40,7 @@ describe("the observability API", () => {
   const auth = (secret: string) => ({ Authorization: `Bearer ${secret}` });
 
   test("requires its own read-only claim", async () => {
-    const { secret } = await service.keys.create("media reader", [Claims.MediaRead]);
+    const { secret } = await service.keys.create("media reader", [Claims.MediaCreate]);
     const response = await app.request("/api/observability", { headers: auth(secret) });
     expect(response.status).toBe(403);
     expect(((await response.json()) as any).error.message).toContain("observability:read");

@@ -11,11 +11,12 @@ import type { SettingsOverride } from './media-storage'
 
 /** One configuration, as the server reports it. */
 export interface MediaPolicyFacts {
-  /** Unset means media URLs are rooted at the address each request arrived on. */
+  /**
+   * The host every media URL is rooted at. Unset means the bucket's own public
+   * URL on an object store, and the address each request arrived on where silo
+   * serves the bytes itself (D58).
+   */
   base_url?: string
-  /** `server`: `<base>/media/<id>`, streamed by silo. `store`: `<base>/<blob
-   *  key>`, served by the bucket or a CDN with silo out of the read path. */
-  base_url_target: 'server' | 'store'
   /** Lower case, no dots. `['*']` accepts anything. */
   extensions: string[]
 }
@@ -44,6 +45,5 @@ export interface MediaPolicyView {
  *  kept: nothing here is write-only, so the form always holds the real value. */
 export interface MediaPolicyInput {
   base_url?: string
-  base_url_target?: 'server' | 'store'
   extensions?: string[]
 }

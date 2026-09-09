@@ -16,7 +16,6 @@ export function useMediaPolicyForm(url: string, apiKey: string, canConfigure: bo
   const [view, setView] = useState<MediaPolicyView | null>(null)
   const [draft, setDraft] = useState<MediaPolicyFields>({
     base_url: '',
-    base_url_target: 'server',
     extensions: [],
   })
 

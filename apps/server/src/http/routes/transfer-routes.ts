@@ -9,11 +9,12 @@ export class TransferRoutes {
     app.get("/api/export", async (c: Context) => {
       RouteAuth.requireClaim(c, Claims.TransferExport);
       RouteAuth.requireInstanceWide(c, "export", Claims.TransferReadPermissions);
-      // D24: an archive carries the media library and its catalog, so the
-      // caller must independently hold the media permission the operation
-      // exercises — the same rule D21 applies to collections, on the one
-      // surface D21 deferred.
-      RouteAuth.requireClaim(c, Claims.MediaRead);
+      // D24 additionally required `media:read` here, on the rule that an
+      // archive carries the media library and the caller must independently
+      // hold what the operation exercises. D58 retired that claim: reading the
+      // library needs none, so there is nothing left to require. What the
+      // archive discloses about media is what `GET /api/media` already
+      // discloses to anyone who asks.
       const withKeys = c.req.query("with_keys") === "true";
       if (withKeys) RouteAuth.requireClaim(c, Claims.KeysExport);
       // Streamed rather than read into a Buffer: an archive carries the whole

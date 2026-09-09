@@ -7,4 +7,5 @@ export interface BlobStorageConfig {
   accessKeyId?: string;
   secretAccessKey?: string;
   forcePathStyle?: boolean;
+  publicRead?: boolean;
 }

@@ -187,7 +187,7 @@ export class MediaAssetService {
       return MediaCatalog.toView(
         await this.catalog.putAsset(id, asset),
         0,
-        MediaLinks.of(this.context.mediaConfig, "")
+        MediaLinks.of(this.context.mediaConfig, this.context.storeRoot, "")
       );
     });
   }

@@ -99,6 +99,11 @@ export class ProviderPorts {
     { name: "list", params: "prefix", note: "returns BlobItem[]" },
     { name: "exists", params: "key", note: "" },
     { name: "close", params: "", note: "optional on the port; kept here so teardown has a home" },
+    {
+      name: "publicRoot",
+      params: "",
+      note: "optional; the URL root a key is appended to for a reader outside silo, or null when silo serves the bytes",
+    },
   ];
 
   static for(port: ProviderPort): readonly PortMethod[] {

@@ -18,7 +18,6 @@ export class MediaPolicySettings {
    *  `ConfigLoader` is the other side of this table; a test pins them together. */
   static readonly Fields: readonly { field: keyof MediaPolicyInput; env: string }[] = [
     { field: "base_url", env: "SILO_MEDIA_BASE_URL" },
-    { field: "base_url_target", env: "SILO_MEDIA_BASE_URL_TARGET" },
     { field: "extensions", env: "SILO_MEDIA_EXTENSIONS" },
   ];
 
@@ -42,13 +41,6 @@ export class MediaPolicySettings {
         throw new ValidationError(`"base_url" must be a string`);
       }
       input.base_url = MediaPolicySettings.baseUrl(raw.base_url);
-    }
-
-    if (raw.base_url_target !== undefined && raw.base_url_target !== null) {
-      if (raw.base_url_target !== "server" && raw.base_url_target !== "store") {
-        throw new ValidationError(`"base_url_target" must be "server" or "store"`);
-      }
-      input.base_url_target = raw.base_url_target;
     }
 
     if (raw.extensions !== undefined && raw.extensions !== null) {
@@ -85,7 +77,6 @@ export class MediaPolicySettings {
         : file?.base_url
           ? { base_url: file.base_url }
           : {}),
-      base_url_target: input.base_url_target ?? file?.base_url_target ?? "server",
       extensions: input.extensions ?? file?.extensions ?? [],
     };
   }

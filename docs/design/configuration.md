@@ -100,7 +100,10 @@ reads back identical.
   edit made through the API. Nothing above the header or below the next one is
   touched.
 - **`[media]`** — replaced by `PUT /api/media/settings` (`MediaTable`, D46):
-  `base_url`, `base_url_target` and `extensions`. Its own table rather than more
+  `base_url` and `extensions`. It carried a `base_url_target` until D58 removed
+  it: what a media URL's path looks like follows the provider in
+  `[blob_storage]`, so a key here saying it again was a second answer that could
+  disagree with the first. Its own table rather than more
   keys in `[blob_storage]`, because none of it is a driver setting — an fs
   instance behind a CDN wants a base URL exactly as much as a bucket does — and
   its own route, because a bucket that will not open must not be able to hold up

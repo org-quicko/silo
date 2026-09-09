@@ -55,17 +55,17 @@ describe("audit trail (D38)", () => {
 
   describe("what it records", () => {
     test("minting through the API names the minter and the claims", async () => {
-      const child = await mintVia(rootKey, "child", [Claims.MediaRead]);
+      const child = await mintVia(rootKey, "child", [Claims.MediaCreate]);
 
       const { items } = await service.audit.list();
       const event = items.find((e) => e.action === "key.create" && e.subject === child.id)!;
       expect(event.actor).toEqual({ kind: "key", id: rootId, label: "root" });
-      expect(event.detail.claims).toEqual([Claims.MediaRead]);
+      expect(event.detail.claims).toEqual([Claims.MediaCreate]);
       expect(event.detail.parent_id).toBe(rootId);
     });
 
     test("the offline path is recorded as the CLI, not as a missing actor", async () => {
-      await service.keys.create("offline", [Claims.MediaRead], { actor: AuditUtils.cli() });
+      await service.keys.create("offline", [Claims.MediaCreate], { actor: AuditUtils.cli() });
 
       const { items } = await service.audit.list();
       expect(items[0].actor).toEqual({ kind: "cli" });
@@ -79,23 +79,23 @@ describe("audit trail (D38)", () => {
     });
 
     test("a grant records what was approved and what was left out", async () => {
-      await service.plugins.reconcile("acme", ["collections:*/*/*:entries:read", "media:read"], []);
-      await service.plugins.grant("acme", ["media:read"], { actor: AuditUtils.cli() });
+      await service.plugins.reconcile("acme", ["collections:*/*/*:entries:read", "media:create"], []);
+      await service.plugins.grant("acme", ["media:create"], { actor: AuditUtils.cli() });
 
       const { items } = await service.audit.list({ subject: "acme" });
       expect(items[0].action).toBe("plugin.grant");
-      expect(items[0].detail.granted).toEqual(["media:read"]);
+      expect(items[0].detail.granted).toEqual(["media:create"]);
       expect(items[0].detail.not_granted).toEqual(["collections:*/*/*:entries:read"]);
     });
 
     test("a revocation records what was taken away, since the record no longer says", async () => {
-      await service.plugins.reconcile("acme", ["media:read"], []);
-      await service.plugins.grant("acme", ["media:read"], { actor: AuditUtils.cli() });
+      await service.plugins.reconcile("acme", ["media:create"], []);
+      await service.plugins.grant("acme", ["media:create"], { actor: AuditUtils.cli() });
       await service.plugins.revoke("acme", { actor: AuditUtils.cli() });
 
       const { items } = await service.audit.list({ subject: "acme" });
       expect(items[0].action).toBe("plugin.revoke");
-      expect(items[0].detail.withdrawn).toEqual(["media:read"]);
+      expect(items[0].detail.withdrawn).toEqual(["media:create"]);
     });
 
     /**
@@ -104,20 +104,20 @@ describe("audit trail (D38)", () => {
      * so too. A trail that lies about a credential is worse than no trail.
      */
     test("every managed key that disappears says why", async () => {
-      await service.plugins.reconcile("acme", ["media:read"], []);
-      const first = await service.plugins.grant("acme", ["media:read"], {
+      await service.plugins.reconcile("acme", ["media:create"], []);
+      const first = await service.plugins.grant("acme", ["media:create"], {
         actor: AuditUtils.cli(),
       });
 
       // Re-granting rotates the key: the replaced one is recorded as removed.
-      await service.plugins.grant("acme", ["media:read"], { actor: AuditUtils.cli() });
+      await service.plugins.grant("acme", ["media:create"], { actor: AuditUtils.cli() });
       const replaced = (await service.audit.list({ subject: first.key_id! })).items;
       expect(replaced.map((e) => e.action)).toEqual(["key.revoke", "key.create"]);
       expect(replaced[0].detail.reason).toBe("replaced by a newly granted key");
 
       // And a refused grant takes back the key it minted on the way out.
       await expect(
-        service.plugins.grant("acme", ["media:read"], {
+        service.plugins.grant("acme", ["media:create"], {
           actor: AuditUtils.cli(),
           expectedRev: 99,
         })
@@ -139,14 +139,14 @@ describe("audit trail (D38)", () => {
 
     test("reconciling is deliberately not recorded", async () => {
       const before = (await service.audit.list()).total;
-      await service.plugins.reconcile("acme", ["media:read"], []);
-      await service.plugins.reconcile("acme", ["media:read"], []);
+      await service.plugins.reconcile("acme", ["media:create"], []);
+      await service.plugins.reconcile("acme", ["media:create"], []);
       // One line per plugin per start would bury the decisions the trail holds.
       expect((await service.audit.list()).total).toBe(before);
     });
 
     test("no secret and no hash reaches the trail", async () => {
-      const child = await mintVia(rootKey, "child", [Claims.MediaRead]);
+      const child = await mintVia(rootKey, "child", [Claims.MediaCreate]);
       const serialized = JSON.stringify((await service.audit.list()).items);
 
       expect(serialized).not.toContain(child.key);
@@ -156,8 +156,8 @@ describe("audit trail (D38)", () => {
 
   describe("reading it", () => {
     test("newest first, which is the only order a trail is read in", async () => {
-      await mintVia(rootKey, "first", [Claims.MediaRead]);
-      await mintVia(rootKey, "second", [Claims.MediaRead]);
+      await mintVia(rootKey, "first", [Claims.MediaCreate]);
+      await mintVia(rootKey, "second", [Claims.MediaCreate]);
 
       const res = await app.request("/api/audit", { headers: auth(rootKey) });
       const body = (await res.json()) as any;
@@ -166,8 +166,8 @@ describe("audit trail (D38)", () => {
     });
 
     test("filtering by subject answers the question anyone actually brings", async () => {
-      const child = await mintVia(rootKey, "child", [Claims.MediaRead]);
-      await mintVia(rootKey, "other", [Claims.MediaRead]);
+      const child = await mintVia(rootKey, "child", [Claims.MediaCreate]);
+      await mintVia(rootKey, "other", [Claims.MediaCreate]);
 
       const res = await app.request(`/api/audit?subject=${child.id}`, { headers: auth(rootKey) });
       const body = (await res.json()) as any;
@@ -199,9 +199,9 @@ describe("audit trail (D38)", () => {
    */
   describe("descendant keys (D37 F4)", () => {
     test("revoking a key revokes what it minted, transitively", async () => {
-      const parent = await mintVia(rootKey, "parent", [Claims.KeysCreate, Claims.MediaRead]);
-      const child = await mintVia(parent.key, "child", [Claims.KeysCreate, Claims.MediaRead]);
-      const grandchild = await mintVia(child.key, "grandchild", [Claims.MediaRead]);
+      const parent = await mintVia(rootKey, "parent", [Claims.KeysCreate, Claims.MediaCreate]);
+      const child = await mintVia(parent.key, "child", [Claims.KeysCreate, Claims.MediaCreate]);
+      const grandchild = await mintVia(child.key, "grandchild", [Claims.MediaCreate]);
 
       expect(child.parent_id).toBe(parent.id);
       expect(grandchild.parent_id).toBe(child.id);
@@ -220,9 +220,9 @@ describe("audit trail (D38)", () => {
     });
 
     test("a sibling branch is untouched", async () => {
-      const one = await mintVia(rootKey, "one", [Claims.KeysCreate, Claims.MediaRead]);
-      const two = await mintVia(rootKey, "two", [Claims.MediaRead]);
-      await mintVia(one.key, "one-child", [Claims.MediaRead]);
+      const one = await mintVia(rootKey, "one", [Claims.KeysCreate, Claims.MediaCreate]);
+      const two = await mintVia(rootKey, "two", [Claims.MediaCreate]);
+      await mintVia(one.key, "one-child", [Claims.MediaCreate]);
 
       await app.request(`/api/keys/${one.id}`, { method: "DELETE", headers: auth(rootKey) });
 
@@ -232,8 +232,8 @@ describe("audit trail (D38)", () => {
     });
 
     test("the cascade is in the trail, since the 204 cannot carry it", async () => {
-      const parent = await mintVia(rootKey, "parent", [Claims.KeysCreate, Claims.MediaRead]);
-      const child = await mintVia(parent.key, "child", [Claims.MediaRead]);
+      const parent = await mintVia(rootKey, "parent", [Claims.KeysCreate, Claims.MediaCreate]);
+      const child = await mintVia(parent.key, "child", [Claims.MediaCreate]);
 
       await app.request(`/api/keys/${parent.id}`, { method: "DELETE", headers: auth(rootKey) });
 
@@ -243,7 +243,7 @@ describe("audit trail (D38)", () => {
     });
 
     test("a key with no descendants revokes exactly itself", async () => {
-      const lone = await mintVia(rootKey, "lone", [Claims.MediaRead]);
+      const lone = await mintVia(rootKey, "lone", [Claims.MediaCreate]);
       const removed = await service.keys.revoke(lone.id);
       expect(removed).toEqual([lone.id]);
     });

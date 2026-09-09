@@ -254,7 +254,7 @@ describe("media folder rename (D49)", () => {
       logger: Logger.silent(),
     }).build();
     await service.media.createFolder("/a");
-    const key = (await service.keys.create("probe", [Claims.MediaRead])).secret;
+    const key = (await service.keys.create("probe", [Claims.MediaDelete])).secret;
 
     const response = await authedApp.request("/api/media/folders", {
       method: "PATCH",

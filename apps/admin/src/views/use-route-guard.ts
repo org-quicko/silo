@@ -67,8 +67,6 @@ function firstExisting(recent: readonly string[], collections: CollectionSummary
 
 /** Whether this key may not open the route at all. */
 function isBlocked(route: Route, claims: string[], scope: ScopeRef): boolean {
-  if (route.view === 'media') return !Claims.has(claims, Claims.MediaRead)
-
   if (route.view === 'schema' && route.collection === null) {
     return !Claims.hasAnyCollectionPermission(
       claims,

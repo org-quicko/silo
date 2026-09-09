@@ -45,11 +45,11 @@ describe("claim matching", () => {
     expect(() => Claims.normalize(["keys:*"])).toThrow(/invalid claim/);
     expect(() => Claims.normalize(["collections:posts:entries:*"])).toThrow(/invalid claim/);
     expect(() => Claims.normalize(["collections:acme/prod/posts:*"])).toThrow(/invalid claim/);
-    expect(Claims.normalize([Claims.MediaRead, Claims.KeysRead, Claims.MediaRead])).toEqual([
+    expect(Claims.normalize([Claims.MediaCreate, Claims.KeysRead, Claims.MediaCreate])).toEqual([
       Claims.KeysRead,
-      Claims.MediaRead,
+      Claims.MediaCreate,
     ]);
-    expect(Claims.normalize([Claims.MediaRead, Claims.Root])).toEqual([Claims.Root]);
+    expect(Claims.normalize([Claims.MediaCreate, Claims.Root])).toEqual([Claims.Root]);
   });
 
   test("delegation cannot exceed the caller (non-escalating delegation)", () => {
@@ -114,7 +114,8 @@ describe("claim matching", () => {
       Claims.CollectionSchemaRead,
       Claims.CollectionEntriesRead,
     ]);
-    expect(Claims.presetFixedClaims("read")).toEqual([Claims.MediaRead]);
+    // D58 retired `media:read`, and it was the only fixed claim `read` carried.
+    expect(Claims.presetFixedClaims("read")).toEqual([]);
     // Root is the whole catalog rather than a hand-written list, so it cannot
     // drift as claims are added.
     expect(Claims.presetCollectionPermissions("root")).toContain(Claims.CollectionAccessUpdate);
@@ -139,7 +140,7 @@ describe("claim matching", () => {
     const fixed = [
       Claims.KeysRead, Claims.KeysCreate, Claims.KeysRevoke, Claims.KeysExport, Claims.KeysImport,
       Claims.TransferExport, Claims.TransferImport, Claims.TransferCopy,
-      Claims.MediaRead, Claims.MediaCreate, Claims.MediaDelete,
+      Claims.MediaCreate, Claims.MediaDelete,
     ];
     for (const claim of fixed) expect(Claims.isValid(claim)).toBe(true);
     const permissions: CollectionPermission[] = [
@@ -163,7 +164,7 @@ describe("claim matching", () => {
 
   test("presets and collection capability discovery use the shared catalog", () => {
     const read = Claims.fromPreset("read", ["acme/prod/posts"]);
-    expect(read).toContain(Claims.MediaRead);
+    expect(read).not.toContain(Claims.MediaCreate);
     expect(read).toContain(Claims.collection("acme", "prod", "posts", Claims.CollectionSchemaRead));
     expect(read).not.toContain(Claims.collection("acme", "prod", "posts", Claims.CollectionEntriesCreate));
     expect(Claims.hasAnyCollectionPermission(
@@ -277,7 +278,7 @@ describe("access level", () => {
   });
 
   test("non-collection claims alone grant no scope access", () => {
-    const claims = [Claims.MediaRead, Claims.KeysRead, Claims.TransferExport];
+    const claims = [Claims.MediaCreate, Claims.KeysRead, Claims.TransferExport];
     expect(Claims.accessLevel(claims, "acme", "prod")).toBe("none");
   });
 });

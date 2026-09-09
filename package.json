@@ -15,6 +15,10 @@
     "seed": "bun run tools/seed/main.ts",
     "set-version": "bun run tools/set-version.ts"
   },
+  "overrides": {
+    "@codemirror/state": "6.7.2",
+    "@codemirror/view": "6.43.10"
+  },
   "devDependencies": {
     "@types/bun": "^1.4.2",
     "@types/node": "^20.19.43",

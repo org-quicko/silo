@@ -34,6 +34,9 @@ export function MediaStorageBucketFields({
   onSecret: (value: string) => void
   onClearSecret: (value: boolean) => void
 }) {
+  const keyFromEnv = MediaStorageDraft.suppliedElsewhere(view, 'access_key_id')
+  const secretFromEnv = MediaStorageDraft.suppliedElsewhere(view, 'secret_access_key')
+
   return (
     <>
       <SettingsRow label="Bucket" htmlFor="media-bucket">
@@ -65,7 +68,7 @@ export function MediaStorageBucketFields({
       <SettingsRow
         label="Endpoint"
         htmlFor="media-endpoint"
-        help="Only for S3 compatible providers. Leave empty for AWS."
+        help="Only for S3 compatible providers. Leave empty for AWS S3."
       >
         {/*
           Deliberately not an AWS endpoint. This box exists for the providers
@@ -84,16 +87,33 @@ export function MediaStorageBucketFields({
         <MediaStorageNote view={view} field="endpoint" />
       </SettingsRow>
 
+      {/*
+        A credential the environment supplies is shown filled and read-only,
+        the way a stored one is: an empty box beside a note saying a key is in
+        use reads as "not set", and a value typed into it could never take
+        effect while the variable outranks the file.
+      */}
       <SettingsRow label="Access key ID" htmlFor="media-access-key">
-        <input
-          id="media-access-key"
-          className={ledger.field}
-          type="text"
-          value={draft.access_key_id}
-          disabled={!editable}
-          placeholder="AKIA…"
-          onChange={(event) => onChange('access_key_id', event.target.value)}
-        />
+        {keyFromEnv ? (
+          <input
+            id="media-access-key"
+            className={ledger.field}
+            type="text"
+            value={view.in_force.access_key_id ?? ''}
+            readOnly
+            disabled
+          />
+        ) : (
+          <input
+            id="media-access-key"
+            className={ledger.field}
+            type="text"
+            value={draft.access_key_id}
+            disabled={!editable}
+            placeholder="AKIA…"
+            onChange={(event) => onChange('access_key_id', event.target.value)}
+          />
+        )}
         <MediaStorageNote view={view} field="access_key_id" />
       </SettingsRow>
 
@@ -109,15 +129,17 @@ export function MediaStorageBucketFields({
         label="Secret access key"
         htmlFor="media-secret"
         help={
-          clearSecret
-            ? 'Type a new key, or save with this empty to remove it.'
-            : view.file.secret_access_key_set
-              ? 'Stored in the config file. Clear it to enter a new one.'
-              : 'Stored in the config file. Prefer SILO_BLOB_S3_SECRET_ACCESS_KEY.'
+          secretFromEnv
+            ? 'Set in the environment, which the config file cannot override.'
+            : clearSecret
+              ? 'Type a new key, or save with this empty to remove it.'
+              : view.file.secret_access_key_set
+                ? 'Stored in the config file. Clear it to enter a new one.'
+                : 'Stored in the config file. Prefer SILO_BLOB_S3_SECRET_ACCESS_KEY.'
         }
       >
         <div className={passwordStyles.wrapper}>
-          {view.file.secret_access_key_set && !clearSecret ? (
+          {secretFromEnv || (view.file.secret_access_key_set && !clearSecret) ? (
             <input
               id="media-secret"
               type="text"
@@ -161,6 +183,27 @@ export function MediaStorageBucketFields({
           on={draft.force_path_style}
           disabled={!editable}
           onChange={(value) => onChange('force_path_style', value)}
+        />
+      </SettingsRow>
+
+      {/*
+        On by default: configuring a bucket is the decision to let it deliver.
+        The help says what turning it off does, since that is the choice being
+        offered here. What it deliberately does not say is that the toggle
+        grants anything, because it does not: the bucket policy is the guide's
+        subject, and a bucket with only Block Public Access switched off still
+        answers AccessDenied.
+      */}
+      <SettingsRow
+        label="Serve files from the bucket"
+        help="Media URLs point at the bucket. Turn off and silo serves the files instead."
+        inline
+      >
+        <MediaStorageNote view={view} field="public_read" />
+        <Toggle
+          on={draft.public_read}
+          disabled={!editable}
+          onChange={(value) => onChange('public_read', value)}
         />
       </SettingsRow>
     </>

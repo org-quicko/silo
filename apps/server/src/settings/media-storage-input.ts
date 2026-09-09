@@ -19,4 +19,5 @@ export interface MediaStorageInput {
   access_key_id?: string;
   secret_access_key?: string;
   force_path_style?: boolean;
+  public_read?: boolean;
 }

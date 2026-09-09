@@ -15,7 +15,7 @@ export function MediaPolicyNote({
   field,
 }: {
   view: MediaPolicyView
-  field: 'base_url' | 'base_url_target' | 'extensions'
+  field: 'base_url' | 'extensions'
 }) {
   const override = view.overrides.find((each) => each.field === field)
   if (!override) return null

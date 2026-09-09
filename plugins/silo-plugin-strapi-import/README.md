@@ -89,8 +89,10 @@ The schema is the same whether or not you supplied the bytes:
 So **import now and send the files later** is a re-import, not a schema
 migration.
 
-`media_folder` names a folder in silo's media library, `strapi` by default, and
-the first import creates it. `media_layout` decides the arrangement under it:
+`media_folder` names a folder in silo’s media library, and the first import
+creates it. It is **empty by default**, which is the library root: an import
+lands where the library already is unless you say otherwise. `media_layout`
+decides the arrangement under it:
 `single` puts every upload in that folder, and `by-collection` gives each
 collection of the run a folder of its own, with `shared` for a file that two or
 more collections reference.
@@ -99,6 +101,14 @@ Files are sent one per request, because the 64 MiB body ceiling is a cap on one
 request and a real uploads directory is larger than that. Per file it becomes a
 cap per file, and progress, retry and resume come with it: `GET /files` says
 what is still missing, so an interrupted run resumes by sending the rest.
+
+Several hundred requests back to back is a burst, and a proxy in front of silo
+may answer some of them 503 rather than pass them on. The panel retries a file
+up to five times with a widening pause, and widens the pause between files as
+well for as long as anything is coming back strained, closing it again over a
+run of clean sends. A folder that upsets nothing is never slowed. Whatever is
+left after that is named in the panel with the status it actually got, and
+choosing the folder again sends only what is still missing.
 
 A file is uploaded once per run however many rows point at it, and before it
 uploads anything the plugin asks whether silo already holds those exact bytes,
@@ -128,21 +138,21 @@ claims     = [
   "collections:*/*/*:entries:read",     # optional: counts what is already there
   "collections:*/*/*:entries:delete",   # optional: only for "empty it first"
   "media:create",                       # optional: puts the uploads in the library
-  "media:read",                         # optional: so a re-import does not duplicate
   "http:route",
 ]
 
   [plugins.config]
   media_base_url = "https://cms.example.com"
-  media_folder   = "strapi"
+  media_folder   = "strapi"        # empty, the default, is the library root
   media_layout   = "by-collection"
 ```
 
-Four claims are optional, and the manifest says what each one buys. Without
+Three claims are optional, and the manifest says what each one buys. Without
 `entries:read` the plan cannot count what is already in a target collection.
 Without `entries:delete`, "empty it first" is refused and "add to it" still
-works. Without `media:create` each media field keeps its Strapi URL. Without
-`media:read` an upload silo already holds is uploaded again. Narrow the grant to
+works. Without `media:create` each media field keeps its Strapi URL. Recognising an
+upload silo already holds, so a re-import does not duplicate it, needs no claim
+at all since silo D58 opened the media catalog to reads. Narrow the grant to
 the three required claims and you keep a working importer that can only append
 and only link.
 
@@ -152,7 +162,7 @@ and only link.
 |-----|--|
 | `collection_prefix` | Prepended to every proposed name, for example `strapi_` |
 | `media_base_url` | The Strapi instance still serving `/uploads/…`, used for a file you did not supply. Empty leaves the paths relative |
-| `media_folder` | Where supplied uploads land in silo's media library. `strapi` by default, created on the first import. Empty means the root |
+| `media_folder` | Where supplied uploads land in silo’s media library, created on the first import. Empty, the default, is the library root |
 | `media_layout` | `single` (default): every upload in `media_folder`. `by-collection`: one folder per collection, plus `shared` |
 | `work_dir` | Where the export and the supplied uploads are staged. Defaults under the system temp directory, deliberately not the data directory |
 | `version` | `published` (default) or `draft` |

@@ -56,6 +56,11 @@ export class UploadRoutes {
               wanted: files.length,
               staged: here,
               missing: files.length - here,
+              /** Everything in the staging directory, wanted or not. `staged`
+               *  counts only what this import will read; this counts what
+               *  `DELETE /files` would remove, which is what decides whether
+               *  the panel offers it at all. */
+              inStaging: staged.size,
               bytes: stagedBytes,
               /** What the wanted files weigh according to Strapi, so the panel
                *  can say how much is left to send before it sends any of it. */

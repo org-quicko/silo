@@ -222,7 +222,6 @@ export function EntriesView({
             url={url}
             apiKey={apiKey}
             scope={scope}
-            claims={claims}
             collections={collections}
           />
         }

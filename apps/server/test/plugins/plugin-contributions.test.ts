@@ -134,10 +134,10 @@ describe("what a package contributes (D36)", () => {
      */
     test("a permission with no reason is refused, naming the claim", () => {
       expect(() =>
-        withPermissions({ required: [{ claim: "media:read" }] })
-      ).toThrow(/permission "media:read" needs a "reason"/);
+        withPermissions({ required: [{ claim: "media:delete" }] })
+      ).toThrow(/permission "media:delete" needs a "reason"/);
       expect(() =>
-        withPermissions({ required: [{ claim: "media:read", reason: "   " }] })
+        withPermissions({ required: [{ claim: "media:delete", reason: "   " }] })
       ).toThrow(/needs a "reason"/);
     });
 
@@ -152,8 +152,8 @@ describe("what a package contributes (D36)", () => {
     test("the same claim required and optional is refused", () => {
       expect(() =>
         withPermissions({
-          required: [{ claim: "media:read", reason: "a" }],
-          optional: [{ claim: "media:read", reason: "b" }],
+          required: [{ claim: "media:delete", reason: "a" }],
+          optional: [{ claim: "media:delete", reason: "b" }],
         })
       ).toThrow(/declared both required and optional/);
     });
@@ -174,18 +174,18 @@ describe("what a package contributes (D36)", () => {
           hooks: ["entry.beforeWrite"],
           routes: [{ method: "GET", path: "/health" }],
         },
-        permissions: { optional: [{ claim: "media:read", reason: "for the digest" }] },
+        permissions: { optional: [{ claim: "media:delete", reason: "for the digest" }] },
       });
 
       const request = PluginGrantResolver.request(read);
       expect(request.claims).toContain("hooks:*/*/*:entry.beforeWrite");
       expect(request.claims).toContain("http:route");
-      expect(request.claims).toContain("media:read");
+      expect(request.claims).toContain("media:delete");
 
       // Derived claims are required, and not because the author said so: a hook
       // nothing delivers and a route that answers 403 both refuse the start.
       expect(request.required).toEqual(["hooks:*/*/*:entry.beforeWrite", "http:route"]);
-      expect(request.required).not.toContain("media:read");
+      expect(request.required).not.toContain("media:delete");
     });
 
     /**
@@ -202,7 +202,7 @@ describe("what a package contributes (D36)", () => {
       const read = manifest({
         contributes: { runtime: true },
         permissions: {
-          required: [{ claim: "media:read", reason: "To list the media." }],
+          required: [{ claim: "media:delete", reason: "To list the media." }],
           optional: [{ claim: "media:create", reason: "To upload thumbnails." }],
         },
       });
@@ -214,13 +214,13 @@ describe("what a package contributes (D36)", () => {
           manifest_digest: "", granted_by: null }
       );
 
-      expect(narrow.unmet).toEqual(["media:read"]);
-      expect(narrow.missing).toEqual(["media:read"]);
+      expect(narrow.unmet).toEqual(["media:delete"]);
+      expect(narrow.missing).toEqual(["media:delete"]);
 
       const full = PluginGrantResolver.resolve(
         { name: "acme", claims: [], timeout_ms: 5000, on_error: "fail", config: {} },
         read,
-        { name: "acme", requested: [], hooks: [], granted: ["media:read"], state: "granted",
+        { name: "acme", requested: [], hooks: [], granted: ["media:delete"], state: "granted",
           manifest_digest: "", granted_by: null }
       );
 
@@ -235,12 +235,12 @@ describe("what a package contributes (D36)", () => {
     test("every claim has a reason, derived ones included", () => {
       const read = manifest({
         contributes: { hooks: ["entry.afterWrite"], routes: [{ method: "GET", path: "/a" }] },
-        permissions: { required: [{ claim: "media:read", reason: "To list the media." }] },
+        permissions: { required: [{ claim: "media:delete", reason: "To list the media." }] },
       });
 
       const request = PluginGrantResolver.request(read);
       for (const claim of request.claims) expect(request.reasons[claim]).toBeTruthy();
-      expect(request.reasons["media:read"]).toBe("To list the media.");
+      expect(request.reasons["media:delete"]).toBe("To list the media.");
       expect(request.reasons["hooks:*/*/*:entry.afterWrite"]).toContain("entry.afterWrite");
       expect(request.reasons["http:route"]).toContain("/api/ext/acme/");
     });
@@ -439,13 +439,13 @@ describe("what a package contributes (D36)", () => {
     test("the record carries which claims are required", async () => {
       const record = await service.plugins.reconcile(
         "acme",
-        ["media:read", "media:create"],
+        ["media:delete", "media:create"],
         [],
-        ["media:read"]
+        ["media:delete"]
       );
 
-      expect(record.requested).toEqual(["media:read", "media:create"]);
-      expect(record.required).toEqual(["media:read"]);
+      expect(record.requested).toEqual(["media:delete", "media:create"]);
+      expect(record.required).toEqual(["media:delete"]);
     });
 
     /**
@@ -456,19 +456,19 @@ describe("what a package contributes (D36)", () => {
      * a package widen a default grant silently at the next start.
      */
     test("moving a claim from optional to required needs review", async () => {
-      await service.plugins.reconcile("acme", ["media:read", "media:create"], [], ["media:read"]);
-      await service.plugins.grant("acme", ["media:read"], { actor: { kind: "cli" } as any });
+      await service.plugins.reconcile("acme", ["media:delete", "media:create"], [], ["media:delete"]);
+      await service.plugins.grant("acme", ["media:delete"], { actor: { kind: "cli" } as any });
 
       const after = await service.plugins.reconcile(
         "acme",
-        ["media:read", "media:create"],
+        ["media:delete", "media:create"],
         [],
-        ["media:read", "media:create"]
+        ["media:delete", "media:create"]
       );
 
       expect(after.state).toBe("needs_review");
       // And it kept running on what it had: an upgrade never escalates.
-      expect(after.granted).toEqual(["media:read"]);
+      expect(after.granted).toEqual(["media:delete"]);
     });
 
     /** A record written before the split has no `required`, and the honest
@@ -476,8 +476,8 @@ describe("what a package contributes (D36)", () => {
      *  kind. Defaulting to nothing would make a default grant approve nothing and
      *  report success. */
     test("a record with no required reads as all-required", async () => {
-      const record = await service.plugins.reconcile("acme", ["media:read"], []);
-      expect(record.required).toEqual(["media:read"]);
+      const record = await service.plugins.reconcile("acme", ["media:delete"], []);
+      expect(record.required).toEqual(["media:delete"]);
     });
   });
 });

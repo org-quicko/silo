@@ -150,6 +150,9 @@ export class ConfigLoader {
             if (typeof parsed.blob_storage.secret_access_key === "string") {
               config.blob_storage.secretAccessKey = parsed.blob_storage.secret_access_key;
             }
+            if (typeof parsed.blob_storage.public_read === "boolean") {
+              config.blob_storage.publicRead = parsed.blob_storage.public_read;
+            }
             if (typeof parsed.blob_storage.force_path_style === "boolean") {
               config.blob_storage.forcePathStyle = parsed.blob_storage.force_path_style;
             }
@@ -235,12 +238,6 @@ export class ConfigLoader {
     if (process.env.SILO_MEDIA_BASE_URL) {
       config.media.base_url = process.env.SILO_MEDIA_BASE_URL;
     }
-    if (
-      process.env.SILO_MEDIA_BASE_URL_TARGET === "server" ||
-      process.env.SILO_MEDIA_BASE_URL_TARGET === "store"
-    ) {
-      config.media.base_url_target = process.env.SILO_MEDIA_BASE_URL_TARGET;
-    }
     if (process.env.SILO_MEDIA_EXTENSIONS) {
       // Comma-separated, because an environment variable has no lists in it and
       // every other multi-value silo reads from one is spelled this way.
@@ -268,6 +265,9 @@ export class ConfigLoader {
     }
     if (process.env.SILO_BLOB_S3_SECRET_ACCESS_KEY) {
       config.blob_storage.secretAccessKey = process.env.SILO_BLOB_S3_SECRET_ACCESS_KEY;
+    }
+    if (process.env.SILO_BLOB_S3_PUBLIC_READ) {
+      config.blob_storage.publicRead = process.env.SILO_BLOB_S3_PUBLIC_READ === "true";
     }
     if (process.env.SILO_BLOB_S3_FORCE_PATH_STYLE) {
       config.blob_storage.forcePathStyle = process.env.SILO_BLOB_S3_FORCE_PATH_STYLE === "true";

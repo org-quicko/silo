@@ -40,20 +40,18 @@ describe("MediaTable", () => {
   test("a write round-trips through the loader", async () => {
     await MediaTable.write(configPath, {
       base_url: "https://cms.example.com",
-      base_url_target: "store",
       extensions: ["jpg", "png"],
     });
 
     const loaded = await ConfigLoader.loadConfig(configPath, true);
     expect(loaded.media).toEqual({
       base_url: "https://cms.example.com",
-      base_url_target: "store",
       extensions: ["jpg", "png"],
     });
   });
 
   test("an unset base URL is left out, so the request's origin keeps deciding", async () => {
-    await MediaTable.write(configPath, { base_url_target: "server", extensions: ["png"] });
+    await MediaTable.write(configPath, { extensions: ["png"] });
     const text = await fs.readFile(configPath, "utf8");
     expect(text).not.toContain("base_url ");
     expect((TOML.parse(text) as any).media.base_url).toBeUndefined();
@@ -79,7 +77,7 @@ describe("MediaTable", () => {
       "utf8"
     );
 
-    await MediaTable.write(configPath, { base_url_target: "server", extensions: ["png"] });
+    await MediaTable.write(configPath, { extensions: ["png"] });
 
     const text = await fs.readFile(configPath, "utf8");
     expect(text).toContain("# my instance");
@@ -93,10 +91,7 @@ describe("MediaTable", () => {
   });
 
   test("writing to a file that is not there creates one and says so", async () => {
-    const created = await MediaTable.write(configPath, {
-      base_url_target: "server",
-      extensions: ["png"],
-    });
+    const created = await MediaTable.write(configPath, { extensions: ["png"] });
     expect(created).toBe(true);
     expect((await MediaTable.read(configPath))?.extensions).toEqual(["png"]);
   });
@@ -106,12 +101,12 @@ describe("MediaTable", () => {
     // for, and the way it goes wrong is one span running into the other.
     const { BlobStorageTable } = await import("../../src/config/blob-storage-table");
 
-    await MediaTable.write(configPath, { base_url_target: "store", extensions: ["png"] });
+    await MediaTable.write(configPath, { extensions: ["png"] });
     await BlobStorageTable.write(configPath, { driver: "s3", bucket: "b" });
-    await MediaTable.write(configPath, { base_url_target: "server", extensions: ["jpg"] });
+    await MediaTable.write(configPath, { extensions: ["jpg"] });
 
     const loaded = await ConfigLoader.loadConfig(configPath, true);
     expect(loaded.blob_storage.bucket).toBe("b");
-    expect(loaded.media).toEqual({ base_url_target: "server", extensions: ["jpg"] });
+    expect(loaded.media).toEqual({ extensions: ["jpg"] });
   });
 });

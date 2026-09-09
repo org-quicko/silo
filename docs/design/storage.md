@@ -351,7 +351,7 @@ the read/write pair `keys:*` and `plugins:*` have, because the read is not the
 harmless half here: it names the bucket, the endpoint and the access key id an
 instance authenticates with. It is carried by no preset but `root`, and it is on
 `PluginForbiddenClaims` — a plugin holding it would receive every future upload
-in the instance, including uploads made by keys it has no `media:read` over, and
+in the instance, including uploads made by keys that hold no media claim at all, and
 it would get there by writing the one file that decides what code runs. Changes
 are appended to the trail as `media.configure` (D38), carrying the driver and the
 bucket or path but never the secret.
@@ -365,35 +365,76 @@ second route (`GET`/`PUT /api/media/settings`, §8.3) with its own Save on the
 same page. An fs instance behind a CDN wants a base URL exactly as much as a
 bucket does, which is the test that says these are not driver settings.
 
-**`base_url` roots media URLs somewhere other than the request.** Unset, a media
-field resolves against the origin the request arrived on — the only origin known
-to be reachable by whoever asked, and the reason D35 returns `""` for a
-plugin-dispatched request rather than inventing one. Set, it is that value
-instead, which is what an instance behind a CDN or serving a custom CMS domain
-needs. It must be absolute http(s): a relative base would resolve against
-whatever origin the reader happened to have, which is what leaving it empty
-already does, and only one of the two says so.
+**The store decides the shape of a media URL and `base_url` decides its host**
+(D58). There is no setting for the first half, and there used to be:
+`base_url_target` named whether `base_url` fronted silo or the bucket, which was
+a second answer to a question `[blob_storage]` had already settled, and the two
+could disagree — an instance moved to a bucket kept answering `server`, so the
+media library listed a relative `/media/<id>` for the same asset the collections
+API answered a bucket URL for.
 
-**`base_url_target` decides the shape of the path under it,** and the choice is
-architectural rather than cosmetic:
+`BlobStorage` answers it instead, through an optional **`publicRoot()`**: the
+URL root a blob key is appended to, or `null` where the store has no public face.
+It is on the port because only the store knows how its own objects are addressed
+— `force_path_style` alone moves the bucket between the host and the path, and a
+driver a provider plugin contributed is not describable from outside it at all.
+`S3PublicUrl` derives it from the same options the client is built from, so the
+addressing silo hands out and the addressing silo writes to cannot drift.
 
-- **`server`** — `<base>/media/<id>`. silo stays in the read path, the bucket
-  stays private, and the asset is addressed by **catalog id**, so the URL
-  survives a rename and is derivable from the reference alone. That derivability
-  is what keeps `EntryUtils.toApiResponse` a pure synchronous function, which is
-  what makes resolving a page of entries free.
-- **`store`** — `<base>/<blob key>`. The bucket or a CDN over it serves the
-  bytes and silo is not consulted, which is the only shape that works for a
-  reader that cannot authenticate and will not follow silo's cache headers —
-  an email client, above all. It needs a publicly readable bucket, and it costs
-  a catalog lookup, because a blob key lives on the record rather than in the
-  reference. That lookup is done **once per response, before the entries are
-  mapped** (`MediaLinkResolver`), never inside the mapping; in `server` mode it
-  does no I/O at all. An asset whose key was not resolved falls back to silo's
-  own origin rather than to `base_url`, since the CDN has never heard of
-  `/media/<id>` and a link rooted there would 404 — D35's judgement again.
+**A configured bucket is a bucket meant to serve** (D59). Moving a media library
+off local disk and onto object storage *is* the decision to let the store
+deliver, so `publicRoot()` answers the derived root by default and no second
+question is asked about it. `[media] base_url` still swaps the host, and nothing
+else has to be set for an S3-backed instance to hand out S3 URLs.
 
-Neither reaches backwards: changing the base does not rewrite a URL already
+**`[blob_storage] public_read` is the way out, not the way in.** It exists
+because readability is the one thing here that is genuinely not derivable: it
+lives in a bucket policy, and silo's credentials say what silo may write rather
+than what the public may read. An operator whose bucket is deliberately private
+sets it `false` and gets `/media/<id>` with silo streaming the bytes, instead of
+being stuck with links that 403. Silo cannot detect that case, so it has to be
+told — but being told is the exception, and the default follows the configuration
+that was already made.
+
+Turning the key on grants nothing. A bucket needs a policy allowing anonymous
+`s3:GetObject`; one with only Block Public Access switched off still refuses
+every read, and the symptom is `AccessDenied` on a URL silo formed correctly.
+
+This is not `base_url_target` returning. That key restated where the bytes live,
+which `[blob_storage]` already said, so the two could disagree. `public_read`
+states something nothing else in silo knows, and it changes no address: it
+decides only whether the derived root is used or silo serves the bytes itself.
+
+`MediaLinks` then has one rule:
+
+- **The store has a public root** (a bucket) — `<base_url or that root>/<blob
+  key>`. The bucket or a CDN over it serves the bytes and silo is not consulted,
+  which is the only shape that works for a reader that cannot authenticate and
+  will not follow silo's cache headers: an email client, above all. It needs a
+  publicly readable bucket, and it costs a catalog lookup, because a blob key
+  lives on the record rather than in the reference. That lookup is done **once
+  per response, before the entries are mapped** (`MediaLinkResolver`), never
+  inside the mapping.
+- **It has none** (the fs driver) — `<base_url or the request's origin>/media/
+  <id>`. silo streams the bytes and the asset is addressed by **catalog id**, so
+  the URL survives a rename and is derivable from the reference alone. That
+  derivability is what keeps `EntryUtils.toApiResponse` a pure synchronous
+  function, which is what makes resolving a page of entries free.
+
+So `base_url` swaps the host and never the path. Unset, a media field resolves
+against the bucket, or against the origin the request arrived on — the only
+origin known to be reachable by whoever asked, and the reason D35 returns `""`
+for a plugin-dispatched request rather than inventing one. It must be absolute
+http(s): a relative base would resolve against whatever origin the reader
+happened to have, which is what leaving it empty already does, and only one of
+the two says so.
+
+A bucket-backed asset whose blob key was **not** resolved — past
+`MediaLinkResolver`'s lookup cap — falls back to silo's own origin rather than to
+`base_url`, since the CDN has never heard of `/media/<id>` and a link rooted
+there would 404. D35's judgement again.
+
+Nothing here reaches backwards: changing the base does not rewrite a URL already
 sitting in a sent email.
 
 **`extensions` is an allowlist, and it is checked on the extension.** Not on the

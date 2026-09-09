@@ -17,5 +17,6 @@ export interface MediaStorageFacts {
   endpoint?: string;
   access_key_id?: string;
   force_path_style?: boolean;
+  public_read?: boolean;
   secret_access_key_set: boolean;
 }

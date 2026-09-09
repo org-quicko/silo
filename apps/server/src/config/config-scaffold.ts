@@ -84,11 +84,15 @@ driver = ${s(config.blob_storage.driver)}           # "fs" (local directory) | "
 # access_key_id     = "..."          # prefer SILO_BLOB_S3_ACCESS_KEY_ID — this file is not a secret store
 # secret_access_key = "..."          # prefer SILO_BLOB_S3_SECRET_ACCESS_KEY
 # force_path_style  = false          # true for MinIO and other path-style endpoints
+# public_read       = true           # default. Media URLs name the bucket, so it needs a bucket
+#                                    # policy granting anonymous s3:GetObject. Set false for a private
+#                                    # bucket: silo then streams the bytes at /media/<id> instead.
 
 [media]
-# base_url        = "https://cdn.example.com"  # unset = the address each request arrived on
-# base_url_target = "server"   # "server": <base>/media/<id>, streamed by silo | "store": <base>/<blob key>, needs a public bucket
-extensions      = [${config.media.extensions.map((e) => s(e)).join(", ")}]
+# base_url   = "https://cdn.example.com"  # the host every media URL is rooted at
+# Unset: the bucket's own public URL when blob_storage.public_read is on, and
+# the address each request arrived on whenever silo serves the bytes itself.
+extensions = [${config.media.extensions.map((e) => s(e)).join(", ")}]
 # Uploads are refused unless the filename ends in one of these. ["*"] accepts anything.
 # svg can carry script and is served inline: drop it where uploaders are untrusted.
 

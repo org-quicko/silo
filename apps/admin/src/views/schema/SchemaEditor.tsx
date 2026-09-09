@@ -161,7 +161,6 @@ export function SchemaEditorView({
             url={url}
             apiKey={apiKey}
             scope={scope}
-            claims={claims}
             collections={collections}
           />
         }

@@ -74,14 +74,11 @@ export class ClaimPresets {
     Exclude<ClaimPreset, "root">,
     readonly FixedClaim[]
   > = {
-    read: [ClaimVocabulary.MediaRead],
-    write: [
-      ClaimVocabulary.MediaRead,
-      ClaimVocabulary.MediaCreate,
-      ClaimVocabulary.MediaDelete,
-    ],
+    // Nothing fixed at all since D58 retired `media:read`: reading the library
+    // needs no claim, so a read key is exactly its collection permissions.
+    read: [],
+    write: [ClaimVocabulary.MediaCreate, ClaimVocabulary.MediaDelete],
     manage: [
-      ClaimVocabulary.MediaRead,
       ClaimVocabulary.MediaCreate,
       ClaimVocabulary.MediaDelete,
       ClaimVocabulary.PluginsRead,

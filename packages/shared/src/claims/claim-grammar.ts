@@ -101,8 +101,16 @@ export class ClaimGrammar {
     return Object.hasOwn(ClaimVocabulary.Presets, value);
   }
 
-  /** Deduplicated and sorted, or a `ValidationError`. Root absorbs the rest —
-   *  a list that already grants everything says so and nothing more. */
+  /**
+   * Deduplicated and sorted, or a `ValidationError`. Root absorbs the rest —
+   * a list that already grants everything says so and nothing more.
+   *
+   * A **retired** claim is dropped rather than refused (D58). Credentials
+   * outlive releases: a key exported from an older instance still names
+   * `media:read`, and refusing the list would make the whole import fail over
+   * a string that now grants nothing anyway. Dropped and not kept, so the
+   * record afterwards says what the key can actually do.
+   */
   static normalize(value: unknown): Claim[] {
     if (!Array.isArray(value)) {
       throw new ValidationError("claims must be an array of strings");
@@ -110,6 +118,7 @@ export class ClaimGrammar {
 
     const claims = new Set<Claim>();
     for (const raw of value) {
+      if (typeof raw === "string" && Object.hasOwn(ClaimVocabulary.RetiredClaims, raw)) continue;
       if (typeof raw !== "string" || !ClaimGrammar.isValid(raw)) {
         throw new ValidationError(`unknown or invalid claim "${String(raw)}"`);
       }

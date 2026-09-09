@@ -192,7 +192,6 @@ export function EntryForm({
             url={url}
             apiKey={apiKey}
             scope={scope}
-            claims={claims}
             collections={collections}
           />
         }

@@ -8,7 +8,6 @@ export type FixedClaim =
   | "transfer:export"
   | "transfer:import"
   | "transfer:copy"
-  | "media:read"
   | "media:create"
   | "media:delete"
   | "media:configure"

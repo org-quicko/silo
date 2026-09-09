@@ -160,11 +160,14 @@ describe("MediaStorageSettings", () => {
     }
 
     try {
+      // The boolean-valued keys take "true" and read back as `true`; every
+      // other one round-trips its own string.
+      const booleans = new Set(["forcePathStyle", "publicRead"]);
       for (const { key, env } of MediaStorageSettings.Fields) {
-        const value = key === "forcePathStyle" ? "true" : `by-${env}`;
+        const value = booleans.has(key) ? "true" : `by-${env}`;
         process.env[env] = value;
         const config = await ConfigLoader.loadConfig(configPath, false);
-        expect(config.blob_storage[key]).toBe(key === "forcePathStyle" ? (true as any) : value);
+        expect(config.blob_storage[key]).toBe(booleans.has(key) ? (true as any) : value);
         delete process.env[env];
       }
     } finally {

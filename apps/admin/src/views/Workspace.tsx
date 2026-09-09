@@ -252,7 +252,6 @@ export function Workspace({
                   url={url}
                   apiKey={apiKey}
                   scope={scope}
-                  claims={claims}
                   collections={smartCollections}
                 />
               }

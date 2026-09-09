@@ -3,7 +3,6 @@ import type { MediaPolicyInput, MediaPolicyView } from '../../../api/types/media
 /** The editable half of the `[media]` table. */
 export interface MediaPolicyFields {
   base_url: string
-  base_url_target: 'server' | 'store'
   extensions: string[]
 }
 
@@ -26,7 +25,6 @@ export class MediaPolicyDraft {
   static of(view: MediaPolicyView): MediaPolicyFields {
     return {
       base_url: view.file.base_url ?? '',
-      base_url_target: view.file.base_url_target ?? view.in_force.base_url_target,
       extensions: view.file.extensions ?? view.in_force.extensions,
     }
   }
@@ -40,7 +38,6 @@ export class MediaPolicyDraft {
   static payload(draft: MediaPolicyFields): MediaPolicyInput {
     return {
       base_url: draft.base_url.trim(),
-      base_url_target: draft.base_url_target,
       extensions: draft.extensions,
     }
   }

@@ -83,7 +83,6 @@ export class MediaRoutes {
     });
 
     app.get("/api/media", async (c: Context) => {
-      RouteAuth.requireClaim(c, Claims.MediaRead);
       const q = c.req.query();
       const response = await service.media.list({
         text: q.q,
@@ -109,17 +108,14 @@ export class MediaRoutes {
     // Registered before /api/media/:id for the same reason "delete" and
     // "purge" are — it must never be read as an asset id.
     app.get("/api/media/extensions", async (c: Context) => {
-      RouteAuth.requireClaim(c, Claims.MediaRead);
       return c.json({ items: await service.media.listExtensions() });
     });
 
     app.get("/api/media/:id", async (c: Context) => {
-      RouteAuth.requireClaim(c, Claims.MediaRead);
       return c.json(await service.media.get(c.req.param("id") || ""));
     });
 
     app.get("/api/media/:id/usages", async (c: Context) => {
-      RouteAuth.requireClaim(c, Claims.MediaRead);
       const response = await service.media.usages(
         c.req.param("id") || "",
         {

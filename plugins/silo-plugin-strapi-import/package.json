@@ -89,10 +89,6 @@
           "reason": "To put Strapi's uploads into silo's media library, so an imported entry points at a file silo holds rather than at your old Strapi. Without this, media fields keep their Strapi URL."
         },
         {
-          "claim": "media:read",
-          "reason": "To recognise a file silo already holds, so re-importing does not upload every upload a second time and leave the first copy orphaned."
-        },
-        {
           "claim": "collections:*/*/*:entries:read",
           "reason": "To count what is already in a target collection, and to support re-importing over it."
         },
@@ -119,8 +115,8 @@
         "media_folder": {
           "type": "string",
           "title": "Media library folder",
-          "description": "Where supplied uploads land in silo's media library, created on the first import if it is not there. Keeps a few hundred hashed Strapi filenames out of the library root. Empty means the root.",
-          "default": "strapi"
+          "description": "Where supplied uploads land in silo's media library, created on the first import if it is not there. Empty, the default, is the library root. Name one to keep a few hundred hashed Strapi filenames out of it.",
+          "default": ""
         },
         "media_layout": {
           "type": "string",

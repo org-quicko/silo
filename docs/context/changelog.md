@@ -4,6 +4,146 @@
 > The *current* state is [CONTEXT.md](../../CONTEXT.md); this is how it got
 > there.
 
+- **A private bucket can decline the bucket URL it cannot serve (D59,
+  2026-09-09).** D58 moved the shape of a media URL onto the blob store, which
+  was right, but it treated the *derived address* as proof of a *granted read*.
+  Those are different facts and only the first is in the client's options: a
+  bucket policy is what allows an anonymous GET, and silo's credentials say what
+  silo may write. So a deliberately private bucket got links resolving to S3's
+  `AccessDenied` and no setting to refuse them.
+  **`[blob_storage] public_read = false`** is that setting, and it is the only
+  thing that keeps silo in the read path; it rides the same rails as
+  `force_path_style` end to end (`SILO_BLOB_S3_PUBLIC_READ`, the
+  `[blob_storage]` reader and writer, `MediaStorageSettings.Fields`, and a
+  **Serve files from the bucket** toggle on Settings → Media Library), and
+  `S3PublicUrl`'s four addressing forms are untouched.
+
+  **It defaults to on**, so a configured bucket is linked to exactly as D58
+  intended and an S3-backed instance needs nothing set to hand out S3 URLs. The
+  first cut of this defaulted it *off*, reasoning that a wrong `true` breaks
+  every link while a wrong `false` merely costs a hop through silo. That is
+  sound about failure modes and wrong about intent: it made a configured bucket
+  go on being proxied, which is what configuring it asked silo to stop doing,
+  and it silently reverted D58 for every existing S3 instance. The toggle grants
+  nothing either way, so the admin's help and the guide name the policy
+  (`s3:GetObject` to `*`) rather than implying otherwise — a bucket with only
+  Block Public Access switched off still refuses every read, which is the state
+  this was reported from. Setting `acl: "public-read"` on upload was considered
+  and refused: Bun exposes it, but a bucket with ACLs disabled (`Object
+  Ownership: bucket owner enforced`, the modern default) answers
+  `AccessControlListNotSupported`, trading broken reads for broken writes.
+
+- **The schema editor's Code tab no longer blanks the admin (2026-09-09).** Two
+  copies of `@codemirror/state` were reachable from one file: `SchemaEditor.tsx`
+  imports `@uiw/react-codemirror`, which resolved to 6.7.2, and
+  `@codemirror/lang-json`, which resolved through `@codemirror/language` to
+  6.7.1. CodeMirror checks extension identity across that boundary, so
+  `jsonLang()`'s facets were unrecognizable to the editor state that received
+  them and `EditorState.create` threw on mount — which is why only that one tab
+  died, and why it took the whole app with it. `node_modules` had also drifted
+  from `bun.lock` (two `@uiw/react-codemirror` variants, `@codemirror/view` at
+  both 6.43.9 and 6.43.10). Root `overrides` pin `@codemirror/state` and
+  `@codemirror/view`, and a clean reinstall leaves exactly one of each; the built
+  bundle now carries a single copy of the state module.
+
+  Behind it, **`ErrorBoundary`** wraps the app in `main.tsx`, because a render
+  error taking the whole screen white with no way back but a reload is a failure
+  mode worth not having again, whatever throws next. It shows the thrown message
+  and offers *Try again*, which remounts the subtree by changing its key, before
+  *Reload*, which always works.
+
+- **One media URL, derived from the store; `media:read` retired (D58,
+  2026-09-08).** A media URL was assembled from two settings that could
+  disagree, and they did. `[media] base_url_target` named whether `base_url`
+  stood in front of silo (`<base>/media/<id>`) or in front of the bucket
+  (`<base>/<blob key>`), which is a question `[blob_storage]` had already
+  settled — so an instance moved to a bucket kept answering `server`, and
+  `GET /api/media` listed a relative `/media/<id>` for the very asset
+  `GET .../entries` answered a bucket URL for. The media library previewed one
+  link and a consumer of the API followed another.
+
+  The setting is gone. `BlobStorage` grows an optional **`publicRoot()`** — the
+  URL root a blob key is appended to, or `null` where the store has no public
+  face — because how an object is addressed is knowledge only the store has:
+  `force_path_style` alone moves the bucket between the host and the path, and a
+  driver a provider plugin contributed is not describable from outside it at
+  all. `S3PublicUrl` (`adapters/blob/s3-public-url.ts`) derives it from the same
+  options `S3BlobStorage` builds its client from, so the addressing silo hands
+  out and the addressing silo writes to cannot drift; its own test pins all four
+  forms, plus an endpoint with no scheme (read as https, the way every
+  provider's documentation prints it) and one that names no host (no public
+  root, rather than falling through to the AWS form and publishing links at a
+  host the objects are not on). `ServiceContext.storeRoot` reads it through the
+  same cell `blobStorage` is swapped in, so repointing the library at a bucket
+  repoints every URL in the same assignment.
+
+  `MediaLinks` then answers one way, and `base_url` swaps only the host:
+  a store with a public root gives `<base_url or that root>/<blob key>`, one
+  without gives `<base_url or the request's origin>/media/<id>`. It is built
+  once per response and read everywhere a URL is produced —
+  `MediaLinkResolver` for entries, `MediaUsageCounter.withCounts` for the
+  library listing and asset detail, `MediaAssetService.save` for an upload's own
+  201 — so those three cannot differ any more. A bucket-backed asset whose blob
+  key is not to hand (past `MediaLinkResolver`'s lookup cap) still falls back to
+  silo's own origin and never to `base_url`, for D35's reason: the CDN has never
+  heard of `/media/<id>`. D35's other rule survives too, restated for the new
+  shape — with no bucket, no base and no origin, a reference is left alone
+  rather than rewritten into a host that resolves nowhere.
+
+  **`media:read` is retired rather than narrowed.** `GET /media/<id>` has served
+  bytes to anyone since D23, so a claim over the *catalog* was a lock on the
+  index of an open shelf: it gated listing, an asset's record, its usages, the
+  folder list and the extension menu, all of which describe files the same
+  caller can already fetch. All five now need nothing; `media:create`,
+  `media:delete` and `media:configure` are untouched. `transfer:export` loses
+  its `media:read` requirement with it — D24 asked for it on the rule that an
+  archive carries the library, and there is no longer a claim for it to ask
+  for; D24's write halves stand. The claim is out of `FixedClaim`,
+  `FixedClaims` and every preset, which leaves `read` carrying no fixed claim at
+  all, and out of the admin's key form, claim words, key roles, sidebar gate,
+  route guard and search bar — `SmartSearch` loses its `claims` prop with the
+  last use of it. `ClaimVocabulary.RetiredClaims` keeps the string *known* so
+  `ClaimGrammar.normalize` **drops** it instead of refusing the list: credentials
+  outlive releases, and a key exported from an older instance still names it.
+  Held on an existing key it grants nothing, which `ClaimAuthorizer` already
+  handled — it skips a held claim it cannot parse.
+
+  Also in the admin: the "What it points at" control is gone with the setting it
+  wrote, and the Base URL row's help line now follows the provider in force. A
+  bucket credential the *environment* supplies is shown filled and read-only,
+  the way a stored one is (`MediaStorageDraft.suppliedElsewhere`) — an empty
+  "Access key ID" beside a note saying one is in use read as *not set*, and a
+  value typed there could never take effect while the variable outranks the
+  file. The endpoint's help says "Leave empty for AWS S3", not "for AWS".
+
+- **The Strapi import plugin survives a proxy, and lands in the library root
+  (2026-09-08).** Four fixes around the panel's upload step. **Uploads retry.**
+  Several hundred files back to back is a burst, and a proxy in front of silo
+  answers some of them `503` rather than passing them on; every one of those was
+  a lost file. `sendOne` now retries a file five times with a widening pause,
+  and only for a failure worth repeating — a 400 silo wrote itself is final,
+  while 408, 429, any 5xx and a relay rejection that never left the browser are
+  not. **And the queue paces itself:** any strained attempt widens the gap
+  before the *next* file up to 500 ms, closing it again over a run of clean
+  sends, so the retries do not walk back into the limit that caused them. A
+  folder that upsets nothing is never slowed. **A refusal says what it was.**
+  `answer.json()` throws on an HTML body and a proxy refusing a request answers
+  HTML, so a 503 the request never reached silo with was reported as
+  `cw_1x1_89f37b78f7.svg: Unexpected token '<', "<html> <h"... is not valid
+  JSON` — the panel naming its own parser. `refusal()` reads the status first
+  and adds silo's message only when there is one. **"Remove staged files"
+  appears on the first file, not after the run.** The panel updated its copy of
+  the listing only from the reload at the end, so the button, the counter and
+  the bar sat still through a five-hundred-file upload and the button appeared
+  only on the next visit to the panel; `markStaged` moves each file across as it
+  lands, and `loadFiles` still corrects it against the server afterwards. The
+  button also follows a new `totals.inStaging` — everything in the staging
+  directory rather than only what this import wants — because that is what
+  `DELETE /files` removes. **`media_folder` defaults to empty**, the library
+  root, in the manifest and in `PluginSettings` together: it defaulted to
+  `strapi`, so clearing the box in the plugin's config form handed the default
+  straight back and the folder could not be emptied at all.
+
 - **1.0, and `format_version` reset to `"1"` (2026-09-08).** The stamp starts
   again from one rather than carrying D18's `"2"` forward, so a 1.0 instance and
   a 1.0 archive both read `"1"`. No guard is version-specific:
