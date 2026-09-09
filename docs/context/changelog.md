@@ -4,6 +4,41 @@
 > The *current* state is [CONTEXT.md](../../CONTEXT.md); this is how it got
 > there.
 
+- **`base_url` names silo, so it always takes silo's route (D60, 2026-09-09).**
+  D58 split a media URL into a host `[media] base_url` chose and a path shape
+  the blob store chose. That reads well and is wrong in the ordinary case: the
+  ordinary reason to set a base is to name *this instance*, behind a proxy or on
+  a custom domain, and on a bucket-backed instance the split produced
+  `<base_url>/<blob key>` — a well-formed URL for a path silo has no route for.
+  Reported as `https://api.silo.quicko.company/01M22SYER7YVA4EVKGXPJBPPBV.jpg`,
+  with every image in the media library broken.
+
+  `base_url` alone now decides, and there are two shapes. Set, it is
+  `<base_url>/media/<id>`, with whatever domain **and path** was given kept and
+  `/media/<id>` appended, so an instance published under a prefix names that
+  prefix. Unset with a bucket serving its own objects, it is
+  `<bucket root>/<blob key>` — silo out of the read path, the one shape that is
+  not `/media/<id>`. Unset otherwise, `<request origin>/media/<id>`. What this
+  gives up is a CDN in front of the *bucket*, which `base_url` could express and
+  no longer can; a CDN in front of *silo* still works, and a CDN over a bucket
+  that rewrites nothing can be pointed at the bucket directly. The validator's
+  doc comment claimed a base carrying a path was refused — it never was, since
+  `new URL` rejects only a relative base — so it now says what the code does and
+  what this relies on.
+
+  **The admin stops writing the same rule four times.** `MediaFileUrl` was the
+  only call site that checked whether `asset.url` was already absolute before
+  joining it to the server URL. `CellValue` and `MediaPickerDialog` joined
+  unconditionally, so `${server}${asset.url}` became
+  `http://localhost:8090https://api.example.com/media/…` the moment a base or a
+  bucket was configured, and `MediaValue.previewUrl` assembled its own
+  `<server>/media/<id>`. All four now go through `MediaFileUrl`: `of` for a
+  caller holding a catalog record, which uses the URL the server already
+  answered with, and `forId` for the entry form, which holds a stored
+  `silo://media/<id>` and no record — always silo's own route, since silo serves
+  `/media/<id>` whatever it advertises. It has its own tests now, including the
+  concatenation that was shipped.
+
 - **A private bucket can decline the bucket URL it cannot serve (D59,
   2026-09-09).** D58 moved the shape of a media URL onto the blob store, which
   was right, but it treated the *derived address* as proof of a *granted read*.

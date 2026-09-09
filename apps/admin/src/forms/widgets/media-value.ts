@@ -1,6 +1,7 @@
 import { MediaField } from '@silo/shared/media-field'
 import { MediaRef } from '@silo/shared/media-ref'
 import type { MediaAsset } from '../../api/types/media-asset'
+import { MediaFileUrl } from '../../views/media/media-file-url'
 
 /**
  * Reading a media field's stored value.
@@ -18,12 +19,21 @@ export class MediaValue {
     return value ? MediaRef.canonicalId(value) : null
   }
 
+  /**
+   * What to preview for a stored value.
+   *
+   * Through `MediaFileUrl` rather than assembled here, so the form agrees with
+   * the media library and the entries table about how a server URL is built
+   * (D60). A recognised reference resolves by id on the connected server; a
+   * pre-D23 relative path is rooted there; anything already absolute is left
+   * exactly as it is, including a bucket URL the field may hold.
+   */
   static previewUrl(value: string | undefined, baseUrl: string): string {
     if (!value) return ''
 
     const id = MediaValue.idOf(value)
-    if (id) return `${baseUrl}/media/${id}`
-    return value.startsWith('/') ? `${baseUrl}${value}` : value
+    if (id) return MediaFileUrl.forId(id, baseUrl)
+    return MediaFileUrl.join(value, baseUrl)
   }
 
   static looksLikeImage(value: string | undefined): boolean {

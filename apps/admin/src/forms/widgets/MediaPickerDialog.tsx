@@ -7,6 +7,7 @@ import { Modal } from '../../components/modal/Modal'
 import { ModalActions } from '../../components/modal/ModalActions'
 import { ModalHeader } from '../../components/modal/ModalHeader'
 import { ByteSize } from '../../utils/byte-size'
+import { MediaFileUrl } from '../../views/media/media-file-url'
 import styles from './MediaWidget.module.css'
 
 interface Props {
@@ -104,7 +105,7 @@ export function MediaPickerDialog({
               >
                 <div className={styles.cardPreview}>
                   {asset.content_type.startsWith('image/') ? (
-                    <img src={`${baseUrl}${asset.url}`} alt={asset.filename} loading="lazy" />
+                    <img src={MediaFileUrl.of(asset, baseUrl)} alt={asset.filename} loading="lazy" />
                   ) : (
                     <FileText size={32} />
                   )}

@@ -670,16 +670,24 @@ serves the bytes:
 
 | provider | a media field resolves to | who serves it |
 |---|---|---|
-| fs | `<base or the request's origin>/media/<id>` | silo, with its ETag and 304 handling |
-| a bucket (the default) | `<base or the bucket's own root>/<blob key>` | the bucket or a CDN over it, with silo out of the read path |
-| a bucket, `public_read = false` | `<base or the request's origin>/media/<id>` | silo, exactly as fs |
+| `base_url` set | `<base_url>/media/<id>` | silo, wherever that name reaches it |
+| unset, a bucket serving its own objects | `<bucket root>/<blob key>` | the bucket, with silo out of the read path |
+| unset, anything else | `<request origin>/media/<id>` | silo, with its ETag and 304 handling |
 
-The third row is opt-in, and only that way round (D59). Configuring a bucket is
-the decision to let it deliver, so nothing further is asked; but whether it
-*will* is a policy on the bucket rather than a fact in the credentials silo
-writes with, so an operator whose bucket is deliberately private has to be able
-to say so. Turning the key off is how, and it is the only thing that puts silo
-back in the read path.
+**`base_url` names silo and takes silo's route** (D60), whatever the store is.
+The base is set in order to name *this instance* — behind a proxy, on a custom
+domain, under a path prefix — so whatever domain and path it carries is kept and
+`/media/<id>` is appended. D58 had it swap only the host while the store still
+chose the path, which on a bucket produced `<base_url>/<blob key>`: a
+well-formed URL for a path silo has no route for. The cost is that a CDN in
+front of the *bucket* is no longer expressible here; one in front of *silo* is.
+
+The middle row is what a configured bucket does by default, and
+`[blob_storage] public_read = false` is the only thing that opts out of it
+(D59). Configuring a bucket is the decision to let it deliver, so nothing
+further is asked; but whether it *will* is a policy on the bucket rather than a
+fact in the credentials silo writes with, so an operator whose bucket is
+deliberately private has to be able to say so.
 
 There used to be a `base_url_target` here saying which of the two applied. It
 was a second answer to a question the provider had already settled, and the two

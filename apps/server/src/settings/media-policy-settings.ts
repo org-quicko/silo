@@ -121,13 +121,14 @@ export class MediaPolicySettings {
   }
 
   /**
-   * A base URL silo will stand behind: absolute, http or https, host only.
+   * A base URL silo will stand behind: absolute, http or https. A path is
+   * allowed and kept, since `/media/<id>` is appended to whatever is given
+   * (D60), so an instance published under a prefix names that prefix here.
    *
-   * A path is refused rather than accepted and joined, because the two shapes
-   * fail differently and only one of them fails visibly. `/uploads` would
-   * resolve against whatever origin the reader happened to have, which is the
-   * request's own — exactly what leaving the field empty already does, and it
-   * says so.
+   * What is refused is a *relative* base, which `new URL` rejects for us:
+   * `/uploads` would resolve against whatever origin the reader happened to
+   * have, which is the request's own — exactly what leaving the field empty
+   * already does, and the empty field says so.
    */
   private static baseUrl(value: string): string {
     const trimmed = value.trim().replace(/\/+$/, "");
