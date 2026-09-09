@@ -120,8 +120,7 @@ export class MediaPolicySupervisor {
     this.config = config;
 
     this.logger.info("media settings changed", {
-      base_url: config.media.base_url || "(request origin)",
-      target: config.media.base_url_target,
+      base_url: config.media.base_url || "(the store, or the request origin)",
       extensions: config.media.extensions.length,
       ...(created ? { created: configPath } : {}),
     });

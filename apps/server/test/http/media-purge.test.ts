@@ -210,7 +210,7 @@ describe("media purge (D49)", () => {
       authDisabled: false,
       logger: Logger.silent(),
     }).build();
-    const key = (await service.keys.create("probe", [Claims.MediaRead])).secret;
+    const key = (await service.keys.create("probe", [Claims.MediaCreate])).secret;
 
     const response = await authedApp.request("/api/media/purge", {
       method: "POST",

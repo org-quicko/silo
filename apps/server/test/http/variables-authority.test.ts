@@ -73,7 +73,7 @@ describe("variables route authority (D57)", () => {
     });
 
     test("a key with no read at all is refused rather than shown an empty list", async () => {
-      const key = await mint([Claims.MediaRead]);
+      const key = await mint([Claims.MediaCreate]);
       const response = await app.request(prodVars, { headers: auth(key) });
       expect(response.status).toBe(403);
     });

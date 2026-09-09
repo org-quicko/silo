@@ -161,7 +161,11 @@ export function MediaStoragePage({ server, claims }: { server: Server; claims: s
               </SettingsSection>
             </form>
 
-            <MediaLibraryCard server={server} canConfigure={canConfigure} />
+            <MediaLibraryCard
+              server={server}
+              bucketBacked={view.in_force.driver !== 'fs'}
+              canConfigure={canConfigure}
+            />
 
             <MediaStorageInForce view={view} />
           </>

@@ -34,7 +34,7 @@ describe('PluginGrantPlan.forbidden', () => {
 
   /** Deliberately grantable: they disclose the authority map, and disclosure is
    *  a decision an operator is allowed to weigh (D37). */
-  test.each(['keys:read', 'keys:export', 'media:read'])('%s is offerable', (claim) => {
+  test.each(['keys:read', 'keys:export', 'media:create'])('%s is offerable', (claim) => {
     expect(PluginGrantPlan.forbidden(claim)).toBe('')
   })
 })
@@ -70,18 +70,18 @@ describe('PluginGrantPlan.narrow', () => {
   })
 
   test('a fixed claim has no scope to narrow', () => {
-    expect(PluginGrantPlan.narrow('media:read', { project: 'blog', env: 'prod' })).toBe('media:read')
+    expect(PluginGrantPlan.narrow('media:create', { project: 'blog', env: 'prod' })).toBe('media:create')
   })
 })
 
 describe('PluginGrantPlan.claims', () => {
   test('what a narrowed selection would send is what the server would store', () => {
     expect(
-      PluginGrantPlan.claims(['collections:*/*/posts:entries:read', 'media:read'], {
+      PluginGrantPlan.claims(['collections:*/*/posts:entries:read', 'media:create'], {
         project: 'blog',
         env: 'prod',
       }),
-    ).toEqual(Claims.normalize(['collections:blog/prod/posts:entries:read', 'media:read']))
+    ).toEqual(Claims.normalize(['collections:blog/prod/posts:entries:read', 'media:create']))
   })
 
   test('nothing chosen is an empty grant, which is a legal thing to send', () => {
@@ -143,7 +143,7 @@ describe('PluginGrantPlan.rows', () => {
   /** An affordance the route will refuse is worse than no affordance, so the
    *  form asks the same question `RouteAuth` will. */
   test('a claim beyond the current key is not delegable', () => {
-    const rows = PluginGrantPlan.rows(plugin({ requested }), ['media:read'])
+    const rows = PluginGrantPlan.rows(plugin({ requested }), ['media:create'])
     expect(rows.every((row) => row.delegable)).toBe(false)
   })
 
@@ -157,10 +157,10 @@ describe('PluginGrantPlan.rows', () => {
 describe('PluginGrantPlan.heldRequested', () => {
   test('opens the form on exactly what the plugin already holds', () => {
     const view = plugin({
-      requested: ['media:read', 'keys:read'],
-      effective: ['media:read'],
+      requested: ['media:create', 'keys:read'],
+      effective: ['media:create'],
     })
-    expect(PluginGrantPlan.heldRequested(view)).toEqual(['media:read'])
+    expect(PluginGrantPlan.heldRequested(view)).toEqual(['media:create'])
   })
 
   test('a narrowed request is still ticked, so saving again does not withdraw it', () => {

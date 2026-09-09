@@ -6,13 +6,13 @@ import { PluginSettings } from '../src/worker/plugin-settings'
 /**
  * Reading `[plugins.config]`.
  *
- * **Silo does not apply a config schema's `default`.** The manifest advertises
- * `media_folder: "strapi"`, and an operator who never wrote the key gets
- * `undefined` — which read as "the library root" for as long as the fallback here
- * disagreed with the manifest, so every import landed hundreds of hashed Strapi
- * filenames in the root of a library whose owner had been told otherwise. That is
- * what these assertions are for: the default a plugin ships and the default it
- * runs with are the same value.
+ * **Silo does not apply a config schema's `default`.** An operator who never
+ * wrote a key gets `undefined`, so the fallback here is the only place a
+ * default takes effect — and it once disagreed with the manifest, which is how
+ * every import landed hundreds of hashed Strapi filenames somewhere the
+ * library's owner had been told they would not. That is what these assertions
+ * are for: the default a plugin ships and the default it runs with are the
+ * same value.
  */
 describe('reading the plugin configuration', () => {
   const settingsFor = (config: Record<string, unknown>) =>
@@ -20,17 +20,19 @@ describe('reading the plugin configuration', () => {
 
   test('an unconfigured plugin gets the defaults its manifest advertises', () => {
     const settings = settingsFor({})
-    expect(settings.mediaFolder).toBe('strapi')
+    expect(settings.mediaFolder).toBe('')
     expect(settings.version).toBe('published')
     expect(settings.prefix).toBe('')
     expect(settings.mediaBaseUrl).toBe('')
     expect(settings.workDir).toBe(path.join(os.tmpdir(), 'silo-strapi-import'))
   })
 
-  /** An operator who empties the field means the library root and gets it: a
-   *  default is what applies when nobody said, not what overrides them. */
-  test('an explicit empty folder is the library root, not the default', () => {
+  /** An operator who empties the field means the library root and gets it,
+   *  whether they clear the key or write `""` into it. The two arrive here as
+   *  `undefined` and `''`, and both have to mean the root. */
+  test('an empty folder is the library root, however it was emptied', () => {
     expect(settingsFor({ media_folder: '' }).mediaFolder).toBe('')
+    expect(settingsFor({ media_folder: null }).mediaFolder).toBe('')
     expect(settingsFor({ media_folder: 'imports/strapi' }).mediaFolder).toBe('imports/strapi')
   })
 

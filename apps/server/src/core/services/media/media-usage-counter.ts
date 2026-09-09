@@ -21,9 +21,12 @@ export class MediaUsageCounter {
       tokens.push(...MediaCatalog.tokens(entry.id, MediaCatalog.toAsset(entry).blob_key));
     }
     const counts = await this.context.store.countMediaUsages(tokens);
-    // No request origin: the media API answers with the configured public URL
-    // or with the relative path, never with a host it guessed (D46).
-    const links = MediaLinks.of(this.context.mediaConfig, "");
+    // No request origin: the media API answers with the bucket's URL or the
+    // configured one, and with a relative path where silo serves the bytes
+    // itself — never with a host it guessed (D46). The blob key is on every
+    // record here, so a bucket-backed library lists the same links the
+    // collections API hands out (D58).
+    const links = MediaLinks.of(this.context.mediaConfig, this.context.storeRoot, "");
 
     return entries.map((entry) => {
       const asset = MediaCatalog.toAsset(entry);

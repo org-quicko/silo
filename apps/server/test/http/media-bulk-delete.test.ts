@@ -224,7 +224,7 @@ describe("bulk media delete authorization (D48)", () => {
 
   test("a key without media:delete is refused", async () => {
     const asset = await service.media.save("free.png", new TextEncoder().encode("bytes"));
-    const key = await mint([Claims.MediaRead]);
+    const key = await mint([Claims.MediaCreate]);
 
     const response = await post({ ids: [asset.id] }, key);
     expect(response.status).toBe(403);

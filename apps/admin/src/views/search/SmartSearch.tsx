@@ -1,7 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { LoadingState } from '../../components/feedback/LoadingState'
 import { CornerDownLeft, Database, FileText, Image, Search, TriangleAlert } from 'lucide-react'
-import { Claims } from '@silo/shared/claims'
 import { api } from '../../api/silo-api'
 import type { MediaAsset } from '../../api/types/media-asset'
 import type { ScopeRef } from '../../api/types/scope-ref'
@@ -37,14 +36,12 @@ export function SmartSearch({
   url,
   apiKey,
   scope,
-  claims,
   collections,
 }: {
   serverId: string
   url: string
   apiKey: string
   scope: ScopeRef
-  claims: string[]
   /** Names and counts only. Schemas, which only field matching needs, are
    *  fetched here rather than handed down (D54). */
   collections: readonly { name: string; count: number | null }[]
@@ -74,8 +71,6 @@ export function SmartSearch({
   const inputRef = useRef<HTMLInputElement>(null)
   const listRef = useRef<HTMLDivElement>(null)
   const seq = useRef(0)
-
-  const canReadMedia = Claims.has(claims, Claims.MediaRead)
 
   const recentOrder = useMemo(
     () => CollectionVisits.recent(serverId, scope.project, scope.env),
@@ -174,7 +169,8 @@ export function SmartSearch({
     setLoading(true)
     Promise.all([
       api.search.run(url, apiKey, target, { query, limit: ENTRY_LIMIT }),
-      canReadMedia && !chip
+      // No claim check: reading the library needs none since D58.
+      !chip
         ? api.media.list(url, apiKey, { q: query, limit: MEDIA_LIMIT }).catch(() => ({ items: [] as MediaAsset[] }))
         : Promise.resolve({ items: [] as MediaAsset[] }),
     ])
@@ -196,7 +192,7 @@ export function SmartSearch({
         if (seq.current === ticket) setLoading(false)
       })
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [url, apiKey, query, chip, canReadMedia, scope.project, scope.env])
+  }, [url, apiKey, query, chip, scope.project, scope.env])
 
   const open = (item: PaletteItem) => {
     router.navigate(item.href)

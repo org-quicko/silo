@@ -38,6 +38,7 @@ export class MediaStorageSettings {
     { field: "access_key_id", key: "accessKeyId", env: "SILO_BLOB_S3_ACCESS_KEY_ID" },
     { field: "secret_access_key", key: "secretAccessKey", env: "SILO_BLOB_S3_SECRET_ACCESS_KEY" },
     { field: "force_path_style", key: "forcePathStyle", env: "SILO_BLOB_S3_FORCE_PATH_STYLE" },
+    { field: "public_read", key: "publicRead", env: "SILO_BLOB_S3_PUBLIC_READ" },
   ];
 
   /**
@@ -67,6 +68,12 @@ export class MediaStorageSettings {
       return value.trim();
     };
 
+    if (raw.public_read !== undefined && raw.public_read !== null) {
+      if (typeof raw.public_read !== "boolean") {
+        throw new ValidationError(`"public_read" must be a boolean`);
+      }
+    }
+
     if (raw.force_path_style !== undefined && raw.force_path_style !== null) {
       if (typeof raw.force_path_style !== "boolean") {
         throw new ValidationError(`"force_path_style" must be a boolean`);
@@ -85,6 +92,7 @@ export class MediaStorageSettings {
       endpoint: text(raw.endpoint, "endpoint"),
       access_key_id: text(raw.access_key_id, "access_key_id"),
       secret_access_key: text(raw.secret_access_key, "secret_access_key"),
+      ...(typeof raw.public_read === "boolean" ? { public_read: raw.public_read } : {}),
       ...(typeof raw.force_path_style === "boolean"
         ? { force_path_style: raw.force_path_style }
         : {}),
@@ -120,6 +128,7 @@ export class MediaStorageSettings {
           ? set(file?.secretAccessKey)
           : set(input.secret_access_key),
       ...(input.force_path_style !== undefined ? { forcePathStyle: input.force_path_style } : {}),
+      ...(input.public_read !== undefined ? { publicRead: input.public_read } : {}),
     };
   }
 
@@ -170,6 +179,7 @@ export class MediaStorageSettings {
       region: config?.region,
       endpoint: config?.endpoint,
       access_key_id: config?.accessKeyId,
+      ...(config && config.publicRead !== undefined ? { public_read: config.publicRead } : {}),
       ...(config && config.forcePathStyle !== undefined
         ? { force_path_style: config.forcePathStyle }
         : {}),

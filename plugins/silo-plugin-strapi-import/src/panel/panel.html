@@ -295,6 +295,119 @@
     state.files = await silo.json('/files')
   }
 
+  /** How many times one upload is attempted before it is given up on. */
+  const SEND_ATTEMPTS = 5
+
+  const pause = (ms) => new Promise((resolve) => setTimeout(resolve, ms))
+
+  /** Doubling from a fifth of a second, so five attempts span about three
+   *  seconds of waiting — longer than a rate limiter's window, shorter than an
+   *  operator's patience with a folder of five hundred files. */
+  const backoffMs = (attempt) => 200 * Math.pow(2, attempt)
+
+  /**
+   * Whether a failed send is worth repeating.
+   *
+   * A refusal silo itself wrote is final: the name is not a plain filename, or
+   * the body was empty, and sending it again produces the same 400. Everything
+   * else is the network, or something standing in front of silo — a rate
+   * limiter (429), a proxy that has briefly lost its upstream (502/503/504),
+   * or a request that never arrived at all, which arrives here with no status.
+   * Those are the failures a directory of several hundred files runs into, and
+   * they clear on their own.
+   */
+  function isTransient(status) {
+    return status === 0 || status === 408 || status === 429 || status >= 500
+  }
+
+  /**
+   * What a refusal says, for a response that may not be JSON at all.
+   *
+   * `answer.json()` throws on an HTML body, and a proxy refusing a request
+   * answers HTML — so a 503 that never reached silo was reported to the
+   * operator as `Unexpected token '<', "<html> <h"... is not valid JSON`,
+   * which names the panel's own parser and not one thing they can act on. The
+   * status is the fact worth showing; silo's own message is added when there
+   * is one to add.
+   */
+  function refusal(answer) {
+    try {
+      const body = answer.json()
+      const message = body && body.error && body.error.message
+      if (message) return message
+    } catch (caught) {
+      // Not JSON. The status below is the whole of what is known.
+    }
+    const body = answer.text().trim()
+    if (body.startsWith('<')) {
+      return 'HTTP ' + answer.status + ' from a proxy in front of silo, not from silo itself'
+    }
+    return 'HTTP ' + answer.status + (body ? ': ' + body.slice(0, 120) : '')
+  }
+
+  /**
+   * One upload, retried.
+   *
+   * Answers `{ reason, strained }` — `reason` empty when it landed, and
+   * `strained` set when any attempt hit something transient. The second is
+   * what `sendFiles` paces itself from: a retry that succeeds says the path to
+   * silo is under pressure just as loudly as one that fails.
+   */
+  async function sendOne(file) {
+    let bytes
+    try {
+      bytes = await file.arrayBuffer()
+    } catch (caught) {
+      return { reason: caught.message || String(caught), strained: false }
+    }
+
+    let reason = ''
+    let strained = false
+    for (let attempt = 0; attempt < SEND_ATTEMPTS; attempt++) {
+      if (attempt > 0) await pause(backoffMs(attempt - 1))
+      let answer
+      try {
+        answer = await silo.fetch('/files?name=' + encodeURIComponent(file.name), {
+          method: 'POST',
+          headers: { 'content-type': 'application/octet-stream' },
+          body: bytes,
+        })
+      } catch (caught) {
+        // A rejection here is the relay's, so the request never left the
+        // browser. Worth repeating for the same reason a 503 is.
+        reason = caught.message || String(caught)
+        strained = true
+        continue
+      }
+      if (answer.ok) return { reason: '', strained }
+      reason = refusal(answer)
+      if (!isTransient(answer.status)) return { reason, strained }
+      strained = true
+    }
+    return { reason, strained }
+  }
+
+  /**
+   * Move one file from missing to staged in the panel's own copy of the
+   * listing.
+   *
+   * So that the counter, the progress bar and the Remove button follow the
+   * upload rather than the reload at the end of it: they used to appear only
+   * once the whole folder had been sent, or on the next visit to the panel.
+   * `loadFiles` corrects all of it against the server afterwards.
+   */
+  function markStaged(file) {
+    const totals = state.files.totals
+    const listed = state.files.files.find((each) => each.name === file.name)
+    if (listed && !listed.staged) {
+      listed.staged = true
+      totals.staged++
+      totals.missing--
+    }
+    totals.inStaging++
+    totals.bytes += file.size
+  }
+
   /**
    * Send the files the import actually wants.
    *
@@ -305,7 +418,10 @@
    *
    * Sequential. A directory of a few hundred small files is seconds either way,
    * and one at a time is what makes the counter on screen true — a parallel
-   * uploader that reported 40 of 300 could not say which 40.
+   * uploader that reported 40 of 300 could not say which 40. Sequential is also
+   * what makes `sendOne`'s backoff worth anything: a run of files pausing in
+   * turn is a queue easing off whatever refused them, where a parallel one
+   * would retry into the same limit.
    */
   async function sendFiles(chosen) {
     alert_('')
@@ -335,26 +451,42 @@
     setBusy(true)
     let sent = 0
     let failed = 0
+    let firstFailure = ''
+
+    /**
+     * How long to wait before the *next* file, which is the half of this that
+     * stops the failures rather than surviving them.
+     *
+     * Several hundred small files back to back is a burst, and a burst is what
+     * a rate limiter in front of silo answers 503 to — the retries above would
+     * then walk into the same limit. So the queue widens its own spacing the
+     * moment anything comes back strained, and closes it again over a run of
+     * clean sends. A folder that is not upsetting anything is never slowed:
+     * this stays at zero.
+     */
+    let spacing = 0
     try {
       for (const file of queue) {
         $('files-note').textContent =
           'Sending ' + (sent + failed + 1) + ' of ' + queue.length + ' · ' + file.name
-        $('files-bar').firstElementChild.style.width =
-          Math.round(((sent + failed) / queue.length) * 100) + '%'
-        try {
-          const buffer = await file.arrayBuffer()
-          const answer = await silo.fetch('/files?name=' + encodeURIComponent(file.name), {
-            method: 'POST',
-            headers: { 'content-type': 'application/octet-stream' },
-            body: buffer,
-          })
-          if (!answer.ok) throw new Error((answer.json() || {}).error?.message || 'refused')
-          sent++
-        } catch (caught) {
+        if (spacing > 0) await pause(spacing)
+
+        const outcome = await sendOne(file)
+        spacing = outcome.strained
+          ? Math.min(500, spacing > 0 ? spacing * 2 : 100)
+          : Math.max(0, spacing - 10)
+
+        if (outcome.reason) {
           failed++
-          if (failed === 1) alert_(file.name + ': ' + (caught.message || String(caught)))
+          if (!firstFailure) firstFailure = file.name + ': ' + outcome.reason
+        } else {
+          sent++
+          markStaged(file)
         }
+        renderFiles()
       }
+      // The server's own count, which is what the import will actually read.
+      // Only ever a correction to what `markStaged` tracked along the way.
       await loadFiles()
     } finally {
       setBusy(false)
@@ -363,6 +495,13 @@
         sent + ' sent' +
         (failed > 0 ? ' · ' + failed + ' failed' : '') +
         (skipped > 0 ? ' · ' + skipped + ' not needed' : '')
+      if (failed > 0) {
+        alert_(
+          failed + ' of ' + queue.length + ' did not land, after ' + SEND_ATTEMPTS +
+            ' attempts each. ' + firstFailure + '. Choose the folder again to send what is ' +
+            'still missing; everything already staged is skipped.',
+        )
+      }
     }
   }
 
@@ -420,7 +559,10 @@
     const share = totals.wanted === 0 ? 0 : Math.round((totals.staged / totals.wanted) * 100)
     $('files-bar').className = 'bar' + (totals.missing === 0 && totals.wanted > 0 ? ' ok' : '')
     $('files-bar').firstElementChild.style.width = share + '%'
-    $('forget-files').className = totals.staged > 0 ? '' : 'hidden'
+    // Anything in the staging directory, not only what this import wants:
+    // the button removes the directory, so it is offered whenever there is
+    // something in it to remove.
+    $('forget-files').className = totals.inStaging > 0 ? '' : 'hidden'
 
     const missing = state.files.files.filter((file) => !file.staged)
     const host = $('files-missing')

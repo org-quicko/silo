@@ -21,8 +21,8 @@
           "reason": "Fixture: exercises \"keys:read\"."
         },
         {
-          "claim": "media:read",
-          "reason": "Fixture: exercises \"media:read\"."
+          "claim": "media:create",
+          "reason": "Fixture: exercises \"media:create\"."
         }
       ]
     },

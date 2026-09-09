@@ -29,7 +29,6 @@ export class ClaimVocabulary {
   static readonly TransferExport = "transfer:export";
   static readonly TransferImport = "transfer:import";
   static readonly TransferCopy = "transfer:copy";
-  static readonly MediaRead = "media:read";
   static readonly MediaCreate = "media:create";
   static readonly MediaDelete = "media:delete";
   /** Reading and changing how the media library is set up: where it keeps its
@@ -115,7 +114,6 @@ export class ClaimVocabulary {
     [ClaimVocabulary.TransferExport]: true,
     [ClaimVocabulary.TransferImport]: true,
     [ClaimVocabulary.TransferCopy]: true,
-    [ClaimVocabulary.MediaRead]: true,
     [ClaimVocabulary.MediaCreate]: true,
     [ClaimVocabulary.MediaDelete]: true,
     [ClaimVocabulary.MediaConfigure]: true,
@@ -173,6 +171,24 @@ export class ClaimVocabulary {
     ClaimVocabulary.KeysRevoke,
     ClaimVocabulary.KeysImport,
   ];
+
+  /**
+   * Claims silo used to know and no longer does (D58).
+   *
+   * `media:read` was retired when reading the library stopped needing one: the
+   * bytes were already public, so a claim over the catalog that named them was
+   * a lock on the index of an open shelf.
+   *
+   * They are kept here rather than deleted outright because credentials
+   * outlive releases. A key minted last year still carries the string, and an
+   * export taken from an older instance still names it — so `normalize` drops
+   * a retired claim where it would otherwise refuse the whole list, and every
+   * check treats it as granting nothing. What this is *not* is a second
+   * vocabulary: nothing here is grantable, and `isValid` says so.
+   */
+  static readonly RetiredClaims: Record<string, true> = {
+    "media:read": true,
+  };
 
   static readonly Presets: Record<ClaimPreset, true> = {
     read: true,

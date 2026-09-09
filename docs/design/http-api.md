@@ -29,18 +29,18 @@ Hono web framework on Bun. JSON everywhere. Admin UI served at `/`; API under `/
 | GET | `/api/projects/{project}/envs/{env}/search` | search one scope |
 | GET | `/api/search` | search the instance |
 | POST | `/api/search/reindex` | rebuild the index; export-level read claims |
-| GET | `/api/export` | streams tar.gz (`transfer:export` + `media:read`; `keys:export` when including keys) |
+| GET | `/api/export` | streams tar.gz (`transfer:export`; `keys:export` when including keys) |
 | POST | `/api/import?mode=` | streams in a tar.gz — a raw body, or a `multipart/form-data` `file` part (`transfer:import` + `media:create`, plus `media:delete` in replace mode; archives containing keys also require `keys:import`) |
 | POST | `/api/copy` | pulls and imports another silo (`{source_url, source_api_key, mode, with_keys, dry_run, validate, prefer}`; `transfer:copy`) |
 | GET / POST | `/api/keys` | list (`keys:read`) / create (`keys:create`); create returns the secret exactly once |
 | DELETE | `/api/keys/{id}` | revoke a key (`keys:revoke`, **and** the authority to have minted it — D37) |
-| GET / POST | `/api/media` | search (`media:read`) / upload (`media:create`) — see §8.1 |
+| GET / POST | `/api/media` | search (no claim — D58) / upload (`media:create`) — see §8.1 |
 | GET / PATCH / DELETE | `/api/media/{id}` | asset detail / rename·move·retag (`media:create`) / guarded delete, `?force=true` to delete over a live reference (`media:delete` plus `entries:update` at the scopes it reaches — D48, D49) — see §8.1 |
 | POST | `/api/media/delete` | bulk delete (`{ids, force}`, up to 100), always `200` with per-id outcomes (`media:delete`, force as above — D48, D49) — see §8.1 |
 | POST | `/api/media/purge` | empty the whole library (`{confirm: "purge", force?}`), always `200` with per-id outcomes plus a folder count (`media:delete`, force as above — D49) — see §8.1 |
-| GET | `/api/media/{id}/usages` | paginated referrers, claim-filtered (`media:read`) |
-| GET | `/api/media/extensions` | every distinct file extension in the library, for the admin's Type filter (`media:read` — D55) — see §8.1 |
-| GET / POST | `/api/media/folders` | list / create an empty folder (`media:read` / `media:create`) |
+| GET | `/api/media/{id}/usages` | paginated referrers, claim-filtered (no claim to read; the rows are still filtered by what the caller may see — D58) |
+| GET | `/api/media/extensions` | every distinct file extension in the library, for the admin’s Type filter (no claim — D55, D58) — see §8.1 |
+| GET / POST | `/api/media/folders` | list (no claim) / create an empty folder (`media:create`) |
 | PATCH | `/api/media/folders` | rename or move a folder (`{from, to, merge?}`), and every asset and descendant folder within — refuses on collision unless `merge: true` (`media:create`, D49) |
 | DELETE | `/api/media/folders` | delete a folder — empty only by default, or `?recursive=true` for everything inside it, `?force=true` as above (`media:delete`, D23/D49) |
 | POST | `/api/media/reconcile` | backfill and repair the catalog (`media:create` + `media:delete`) |
@@ -72,10 +72,11 @@ Hono web framework on Bun. JSON everywhere. Admin UI served at `/`; API under `/
 **Auth: claims-based API keys, Shlink-style.** No users or browser sessions: a presented key authenticates a request and its claims authorize individual operations. Claims are deny-by-default. Anonymous collection schema and entry reads remain public within their scope unless the schema sets `"x-silo-auth": true`. When a key is presented, its claims become the visibility boundary and even public collections require the corresponding read claim.
 
 - **Format & storage:** `silo_` + 32 random bytes base64url. Only the SHA-256 hash is stored, as an entry in the `_keys` system collection (§5.4) with label, validated `claims` array, display prefix (`silo_ab12…`), and the usual envelope. Lookup = hash the presented key, exact-match fetch. The plaintext secret exists only in the creation response.
-- **Claims:** root `*`; `collections:<project>/<env>/<name>:create|delete|schema:read|schema:update|access:update|entries:create|entries:read|entries:update|entries:delete`; `media:read|create|delete`; `keys:read|create|revoke|export|import`; `transfer:export|import|copy`; `plugins:read|configure|grant|enable`; `audit:read`; `observability:read`; and `http:route`. Each segment (`project`, `env`, `name`) independently supports `*` wildcards (e.g. `collections:acme/*/*:entries:read`, `collections:*/prod/*:...`). Action wildcards are invalid.
+- **Claims:** root `*`; `collections:<project>/<env>/<name>:create|delete|schema:read|schema:update|access:update|entries:create|entries:read|entries:update|entries:delete`; `media:create|delete`; `keys:read|create|revoke|export|import`; `transfer:export|import|copy`; `plugins:read|configure|grant|enable`; `audit:read`; `observability:read`; and `http:route`. Each segment (`project`, `env`, `name`) independently supports `*` wildcards (e.g. `collections:acme/*/*:entries:read`, `collections:*/prod/*:...`). Action wildcards are invalid.
+- **Retired claims:** `media:read` (D58). Reading the library needs no claim, so the string is no longer grantable and `POST /api/keys` will not mint one carrying it. It is not *rejected* either: `ClaimVocabulary.RetiredClaims` keeps it known, `Claims.normalize` **drops** it, and a key imported from an older instance loads with the rest of its claims intact. Held on an existing key it grants nothing.
 - **Non-escalating delegation:** `keys:create` permits minting a key only when every requested claim is already covered by the caller. A segment wildcard can delegate matching named segments; named segments cannot widen to wildcards.
 - **No legacy translation:** stored role/collection-allowlist key records are rejected rather than upgraded implicitly.
-- **Presets:** `read`, `write`, `manage`, `root` — a ladder, each including the one before it. `read` is `schema:read` + `entries:read`; `write` adds the three entry mutations; `manage` adds collection lifecycle (`create`, `schema:update`, `access:update`, `delete`); `root` is `*`. Non-root presets also carry media claims (`media:read`, plus create/delete from `write` up). A preset expands over one or more `project/env/collection` targets and is otherwise just a claim set — nothing is stored on a key but its claims.
+- **Presets:** `read`, `write`, `manage`, `root` — a ladder, each including the one before it. `read` is `schema:read` + `entries:read`; `write` adds the three entry mutations; `manage` adds collection lifecycle (`create`, `schema:update`, `access:update`, `delete`); `root` is `*`. `write` and `manage` also carry `media:create` and `media:delete`; `read` carries no fixed claim at all, since D58 retired the one it had. A preset expands over one or more `project/env/collection` targets and is otherwise just a claim set — nothing is stored on a key but its claims.
 - **Bootstrap:** on first boot with no keys, silo generates a root (`*`) key and prints it to stderr exactly once, boxed under the silo wordmark on a terminal and as flat ASCII when redirected. Locked out? `silo keys create --preset root` on the host works directly against the data dir.
 - **Revocation** = deleting the key entry, **and every key descended from it** (D38): `POST /api/keys` records `parent_id`, so a minted key cannot outlive the authority that vouched for it. Not a flag — the correct behaviour behind an argument nobody passes is the same as not having it. The response stays 204; `GET /api/audit` names what went. No expiry and no `last_used_at` in v1 (tracking last-use would turn every request into a storage write, which the fs adapter pays for dearly).
 - **Revocation is bounded the way minting is (D37):** `DELETE /api/keys/{id}` requires `keys:revoke` **and** that `canDelegate` accept the target key's claims — if you could not have minted a key this powerful, you may not destroy one. Without the bound, the narrowest key holding `keys:revoke` could revoke root and leave the instance with no administrative credential, which is unrecoverable without filesystem access. A key still revokes itself, since a claim list always covers itself. Managed plugin keys are refused separately, naming `silo plugin revoke` (D34).
@@ -150,7 +151,9 @@ Hono web framework on Bun. JSON everywhere. Admin UI served at `/`; API under `/
 ### 8.1 Media: catalog, folders, search, and reference integrity (D23)
 
 Media stays **instance-global** — one library for the whole server, not per
-project/env — and `media:read|create|delete` stay unscoped. Folders organize;
+project/env — and `media:create|delete` stay unscoped. Reading needs no claim at
+all since D58: the bytes have been public since this section was written, so a
+claim over the catalog was a lock on the index of an open shelf. Folders organize;
 they do not authorize.
 
 **Catalog.** Every asset is a `_media` document in `Scope.System`, id = a ULID:
@@ -186,7 +189,7 @@ membership on `tags`. No new op, so §5.3's "every op is forever" cost is zero,
 and paging plus `total` come from `Storage.list` unchanged. `?ext=` (D55)
 is the same shape — `contains` on `filename` with the leading dot, e.g.
 `.png` — for the admin's Type filter, whose menu comes from `GET
-/api/media/extensions` (`media:read`): every distinct extension
+/api/media/extensions`: every distinct extension
 `MediaExtensions.of` finds across the whole catalog, so the menu never
 names an extension nothing in the library actually has. `?modified_after=`/
 `?modified_before=` (D55) are `gte`/`lte` on `$.updated_at` — the **envelope**
@@ -646,8 +649,8 @@ one route would make correcting the first depend on the second still working.
 ```jsonc
 // GET /api/media/settings
 {
-  "file":     { "base_url": "https://cms.example.com", "base_url_target": "server" },
-  "in_force": { "base_url": "https://cms.example.com", "base_url_target": "server",
+  "file":     { "base_url": "https://cms.example.com" },
+  "in_force": { "base_url": "https://cms.example.com",
                 "extensions": ["jpg", "png", "pdf"] },
   "overrides": [],
   "default_extensions": ["jpg", "jpeg", "png", "…"],
@@ -661,30 +664,47 @@ one route would make correcting the first depend on the second still working.
 defaults as though the file had asked for them would be the same lie §8.2
 avoids for the fs media path.
 
-**`base_url_target` decides what the URL under `base_url` looks like**, and the
-two are not interchangeable:
+**`base_url` decides the host of a media URL and never its path** (D58). What the
+path looks like follows the provider in §8.2, because that is what decides who
+serves the bytes:
 
-| target | a media field resolves to | who serves it |
+| provider | a media field resolves to | who serves it |
 |---|---|---|
-| `server` (default) | `<base>/media/<id>` | silo, with its ETag and 304 handling |
-| `store` | `<base>/<blob key>` | the bucket or a CDN over it, with silo out of the read path |
+| fs | `<base or the request's origin>/media/<id>` | silo, with its ETag and 304 handling |
+| a bucket (the default) | `<base or the bucket's own root>/<blob key>` | the bucket or a CDN over it, with silo out of the read path |
+| a bucket, `public_read = false` | `<base or the request's origin>/media/<id>` | silo, exactly as fs |
 
-`store` is the shape an email client needs, since it cannot authenticate and
+The third row is opt-in, and only that way round (D59). Configuring a bucket is
+the decision to let it deliver, so nothing further is asked; but whether it
+*will* is a policy on the bucket rather than a fact in the credentials silo
+writes with, so an operator whose bucket is deliberately private has to be able
+to say so. Turning the key off is how, and it is the only thing that puts silo
+back in the read path.
+
+There used to be a `base_url_target` here saying which of the two applied. It
+was a second answer to a question the provider had already settled, and the two
+could disagree: an instance moved to a bucket kept answering `server`, so this
+route and `GET /api/media` reported a relative `/media/<id>` for the very asset
+`GET /api/collections/…/entries` answered a bucket URL for. The store is now
+asked instead (`BlobStorage.publicRoot`), so the disagreement cannot be
+expressed.
+
+The bucket shape is what an email client needs, since it cannot authenticate and
 will not follow silo's cache headers; it requires the bucket to be publicly
 readable. It also costs one catalog lookup per response — a blob key lives on
 the record, not in the reference — which is why the resolution happens once
 per response before entries are mapped rather than inside `toApiResponse`
 (§8.1's purity is what makes that mapping cheap).
 
-Since D48 the catalog is consulted in `server` mode too, for a different
+Since D48 the catalog is consulted on the fs driver too, for a different
 reason: not to find a blob key, but to tell a reference that still resolves
 from one that does not. An id past `MediaLinkResolver`'s lookup cap was never
 asked about and falls back to silo's own origin rather than to `base_url`,
 exactly as it always has: the CDN has never heard of `/media/<id>`, so a link
 rooted there would 404. An id that **was** asked about and the catalog no
 longer holds — most often a force-delete (§8.1, D48) — answers `null`
-instead, in both targets. Those are the only two outcomes a lookup miss can
-mean, and a client cannot tell one from the other unless the server does not
+instead, whatever the provider. Those are the only two outcomes a lookup miss
+can mean, and a client cannot tell one from the other unless the server does not
 paper over the difference with the same fallback for both.
 
 `PUT` takes the whole table. Unlike §8.2's secret, **an omitted field is
@@ -693,7 +713,6 @@ real value and a missing one can only mean it was removed.
 
 ```jsonc
 { "base_url": "https://cdn.example.com",   // "" clears it; must be absolute http(s)
-  "base_url_target": "store",
   "extensions": ["jpg", "png", "pdf"] }    // ["*"] accepts everything; [] is a 400
 ```
 

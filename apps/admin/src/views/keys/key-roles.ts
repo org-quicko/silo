@@ -36,7 +36,6 @@ export class KeyRoles {
   /** The media grants a preset carries — surfaced as editable toggles rather
    *  than arriving invisibly with the role. */
   static readonly MediaClaims: readonly Claim[] = [
-    Claims.MediaRead,
     Claims.MediaCreate,
     Claims.MediaDelete,
   ]

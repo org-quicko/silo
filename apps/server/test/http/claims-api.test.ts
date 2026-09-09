@@ -33,10 +33,11 @@ const instanceWideReplace = [
   Claims.collection("*", "*", "*", Claims.CollectionEntriesDelete),
 ];
 // D24: an archive carries the media library and its catalog, so transfer also
-// asks for the media permission it exercises — read to export, create to
-// import, and delete on top of that in `replace`, which clears every blob in
-// the instance before loading.
-const transferMediaRead = [Claims.MediaRead];
+// asks for the media permission it exercises — create to import, and delete on
+// top of that in `replace`, which clears every blob in the instance before
+// loading. Export asks for nothing since D58 retired `media:read`: what the
+// archive discloses about media, `GET /api/media` already discloses to anyone.
+const transferMediaRead: string[] = [];
 const transferMediaWrite = [Claims.MediaCreate];
 const transferMediaReplace = [Claims.MediaDelete];
 
@@ -412,15 +413,10 @@ describe("claims API authorization", () => {
     // `replace` wipe, every blob in the instance. These assertions are the
     // closing of that hole: each key holds everything the operation needs
     // except the media claim it exercises.
-    const { secret: exportNoMedia } = await service.keys.create("export sans media", [
-      Claims.TransferExport,
-      ...instanceWideRead,
-    ]);
-    expect(
-      (await app.request("/api/export", { headers: { Authorization: `Bearer ${exportNoMedia}` } }))
-        .status,
-    ).toBe(403);
-
+    //
+    // Export is the one half no longer covered, and deliberately: D58 retired
+    // `media:read`, so there is no media claim left for an export to be
+    // missing. The write halves below are the whole of D24 now.
     const archivePath = path.join(tempDir, "d24.tar.gz");
     await service.transfer.exportTarGz(archivePath, { withKeys: false });
     const archive = await fs.readFile(archivePath);

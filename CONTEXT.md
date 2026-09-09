@@ -17,7 +17,7 @@ can be cloned with one command.
 
 ## Where things stand
 
-*Last updated: 2026-09-08 (D57)*
+*Last updated: 2026-09-09 (D59)*
 
 Everything through M5 is built and shipping: collections and JSON Schema
 validation, entry CRUD with optimistic concurrency, the query AST and search
@@ -67,10 +67,21 @@ rename, and a quiet trailing *Destructive* section — with the per-section Save
 of D46/D47 kept exactly as they were (D56). Content can now reference an
 **environment variable**: a name declared once per project, valued per
 environment, and substituted into every `{{NAME}}` an entry holds on the way out
-(D57).
+(D57). A media URL is now derived from **one** fact rather than assembled from
+two that could disagree: the blob store says whether its objects are publicly
+addressable (`BlobStorage.publicRoot`), that decides the shape, and `[media]
+base_url` decides only the host — so `base_url_target` is gone, and the media
+library, the collections API and an upload's own response cannot answer
+different links for the same asset. `media:read` is retired with it: the bytes
+were already public, so a claim over the catalog was a lock on the index of an
+open shelf (D58). A bucket-backed instance therefore hands out **bucket URLs by
+default**, which is the point of configuring one. What D58 lacked was any way
+out for a bucket that is deliberately private, whose links then answered
+`AccessDenied` with no recourse: `[blob_storage] public_read = false` is that
+way out, and it is the only thing that keeps silo in the read path (D59).
 
-**The most recent change landed on 2026-09-08; everything before it on
-2026-09-07 or earlier.**
+**The most recent change landed on 2026-09-09; everything before it on
+2026-09-08 or earlier.**
 
 **silo is 1.0, and `format_version` is back to `"1"` (2026-09-08).** The stamp
 starts again from one rather than carrying D18's `"2"` forward, so a 1.0
@@ -678,13 +689,13 @@ their usage rows are not deleted, because those rows are derived state that
 `reconcile` re-derives from entries regardless, and no audit action was added,
 because entry writes are deliberately outside that trail already. What makes a
 force-delete safe to ship is that `MediaLinkResolver` now consults the catalog
-for **every** reference in a response, not only in `store` mode, so a media
+for **every** reference in a response, whatever the store is, so a media
 field whose reference the catalog no longer holds answers `null` instead of a
 URL that 404s — one point read per distinct reference, in a bounded loop
 capped at 200, never one filtered query over the whole catalog (the fs
 adapter has no index by design, §6.3, so a filtered query costs the entire
 catalog per response) — costing D46's `EntryUtils.toApiResponse` its zero-I/O
-case in `server` mode, though the function itself stays synchronous. The
+case on the fs driver, though the function itself stays synchronous. The
 reference itself is not rewritten, so a client that echoes the resulting
 `null` back into a PUT destroys it for real; the admin now omits a `null`
 media field from what it submits instead. The admin's
@@ -737,7 +748,8 @@ arrived on, so an instance behind a CDN — or one serving an email CMS, whose
 readers cannot authenticate and will not follow silo's cache headers — could not
 hand out a stable public link at all; and any file whatever could be uploaded,
 because nothing between the multipart parser and the blob store asked what it
-was. Both are now `[media]`: `base_url`, `base_url_target`, `extensions`, with
+was. Both are now `[media]`: `base_url`, `extensions` (and a `base_url_target`
+until D58 removed it), with
 `SILO_MEDIA_*` above them, edited on the same **Settings → Media Library** page
 behind the same `media:configure` claim through `GET`/`PUT /api/media/settings`
 and its own Save. **Two routes and two Saves, not one**, because they are two
@@ -747,16 +759,16 @@ still working. `MediaTable` joins `BlobStorageTable` over a shared
 `TomlTableEdit`, so both writers keep the one rule — edit as text, parse before
 writing, abandon unless the rest of the document reads back identical.
 
-**`base_url_target` is the decision, and it is architectural.** `server` keeps
-silo in the read path and addresses an asset by catalog id, which is exactly what
-lets `EntryUtils.toApiResponse` stay a pure synchronous function: the URL is
-derivable from the reference alone. `store` addresses the **blob key**, because
-that is what a bucket serves, and the key lives on the catalog record — so
-`MediaLinkResolver` resolves it once per response, before the entries are mapped,
-never inside the mapping, and does no I/O at all in the ordinary case. An asset
-whose key was not resolved falls back to **silo's own origin** rather than to the
-configured base: the CDN has never heard of `/media/<id>`, so a link rooted there
-would 404, which is D35's judgement about a base that resolves nowhere. The
+**Which shape a URL takes was the decision, and D58 moved it off a setting.**
+Where silo serves the bytes it addresses an asset by catalog id, which is exactly
+what lets `EntryUtils.toApiResponse` stay a pure synchronous function: the URL is
+derivable from the reference alone. Where a bucket serves them it addresses the
+**blob key**, because that is what a bucket serves, and the key lives on the
+catalog record — so `MediaLinkResolver` resolves it once per response, before the
+entries are mapped, never inside the mapping. An asset whose key was not resolved
+falls back to **silo's own origin** rather than to the configured base: the CDN
+has never heard of `/media/<id>`, so a link rooted there would 404, which is
+D35's judgement about a base that resolves nowhere. The
 allowlist is checked on the **extension** rather than the declared content type,
 since a multipart part carries whatever `Content-Type` the client chose and
 trusting it lets the caller decide whether the caller is allowed; only the last
@@ -767,7 +779,7 @@ allowlist** and will refuse types it accepted before. What is deliberately
 unchanged is D23: mirroring media folders into S3 was considered and refused,
 because S3 has no rename, so a move would become a copy-and-delete of the bytes
 and would break every URL already published for that file. Blob keys stay flat
-and folders stay catalog metadata, `store` mode included. See §6.5 in
+and folders stay catalog metadata, a bucket-served library included. See §6.5 in
 [docs/design/storage.md](docs/design/storage.md) and §8.3 in
 [docs/design/http-api.md](docs/design/http-api.md).
 

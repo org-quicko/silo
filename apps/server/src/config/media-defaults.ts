@@ -40,6 +40,6 @@ export class MediaDefaults {
   ];
 
   static config(): MediaConfig {
-    return { base_url_target: "server", extensions: [...MediaDefaults.Extensions] };
+    return { extensions: [...MediaDefaults.Extensions] };
   }
 }

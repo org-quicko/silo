@@ -20,8 +20,9 @@ import { StrapiVersions } from '../strapi/strapi-versions'
  * `SiloTargets`.
  */
 export class PluginSettings {
-  /** Keeps a few hundred hashed Strapi filenames out of the library root. */
-  static readonly DefaultMediaFolder = 'strapi'
+  /** The library root. An import lands where the operator's media library
+   *  already is, unless they name a folder — see the manifest's own note. */
+  static readonly DefaultMediaFolder = ''
 
   /** Prepended to every proposed collection name. */
   readonly prefix: string

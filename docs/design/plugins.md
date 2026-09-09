@@ -1732,7 +1732,7 @@ in order to do it**.
       { "claim": "collections:*/*/*:entries:read", "reason": "To read the entry it slugs." }
     ],
     "optional": [
-      { "claim": "media:read", "reason": "To count images in a post, when you allow it." }
+      { "claim": "media:create", "reason": "To store the thumbnail it renders, when you allow it." }
     ]
   }
 }
@@ -2207,10 +2207,13 @@ Two findings from running it:
   question this does not answer — the plugin's own re-runs are the case that
   needed fixing, and a plugin cannot decide that two operators uploading the same
   logo want one asset.
-- **`media:create` and `media:read` are optional, so refusal is an ordinary state
-  rather than an edge case.** A 403 is read as an *answer*: stop uploading, keep
-  the URLs, and say so **once** in the run's report. The alternative is one refused
-  request per file and an import that reports nothing an operator could act on.
+- **`media:create` is optional, so refusal is an ordinary state rather than an
+  edge case.** A 403 is read as an *answer*: stop uploading, keep the URLs, and
+  say so **once** in the run’s report. The alternative is one refused request per
+  file and an import that reports nothing an operator could act on. The lookup
+  that recognises a file silo already holds asks for nothing since D58 retired
+  `media:read`, so it now always runs; the same one-refusal-then-stop guard is
+  kept for anything else that could close the catalog off.
 
 And the thing that does not come across, stated rather than approximated: Strapi's
 `alternative_text` has nowhere to go, because a silo media asset records a

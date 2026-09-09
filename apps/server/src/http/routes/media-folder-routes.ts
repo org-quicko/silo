@@ -18,7 +18,6 @@ import { MediaInUseDetails } from "./media-in-use-details";
 export class MediaFolderRoutes {
   static register(app: any, service: SiloService) {
     app.get("/api/media/folders", async (c: Context) => {
-      RouteAuth.requireClaim(c, Claims.MediaRead);
       return c.json({ items: await service.media.listFolders() });
     });
 

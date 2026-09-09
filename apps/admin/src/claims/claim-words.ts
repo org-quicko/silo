@@ -70,7 +70,6 @@ export class ClaimWords {
    * list". Insertion order here is the order the lines come out.
    */
   static readonly fixed: Record<string, string> = {
-    [Claims.MediaRead]: 'list media',
     [Claims.MediaCreate]: 'upload media',
     [Claims.MediaDelete]: 'delete media',
     [Claims.MediaConfigure]: 'change how the media library is set up',

@@ -4,6 +4,7 @@ import os from "os";
 import path from "path";
 import { Hono } from "hono";
 import { Claims } from "@silo/shared/claims";
+import { S3BlobStorage } from "../../src/adapters/blob/s3-blob-storage";
 import { SqliteStore } from "../../src/adapters/storage/sqlite/sqlite-store";
 import { SiloService } from "../../src/core/services/silo-service";
 import { ConfigLoader } from "../../src/config/config-loader";
@@ -30,7 +31,7 @@ describe("media settings API (D46)", () => {
 
   const build = async (options: { withFile: boolean }) => {
     const config = ConfigLoader.defaultConfig();
-    config.media = { base_url_target: "server", extensions: ["png"] };
+    config.media = { extensions: ["png"] };
     service.useMediaConfig(config.media);
 
     return new SiloServer(service, {
@@ -72,8 +73,8 @@ describe("media settings API (D46)", () => {
     return app.request("/api/media", { method: "POST", headers: auth(key), body: form });
   };
 
-  test("reading needs media:configure, which media:read is not", async () => {
-    const uploader = await mint([Claims.MediaRead, Claims.MediaCreate]);
+  test("reading needs media:configure, which the upload claims are not", async () => {
+    const uploader = await mint([Claims.MediaCreate]);
     const refused = await app.request("/api/media/settings", { headers: auth(uploader) });
     expect(refused.status).toBe(403);
     expect(((await refused.json()) as any).error.message).toContain("media:configure");
@@ -132,7 +133,7 @@ describe("media settings API (D46)", () => {
     expect((await MediaTable.read(configPath))?.extensions).toEqual(["png", "pdf"]);
   });
 
-  test("a saved base URL is what the media API then hands out", async () => {
+  test("a saved base URL is what the media API then hands out, by catalog id on the fs driver", async () => {
     app = await build({ withFile: true });
     const created = await upload(rootKey, "hero.png");
     const id = ((await created.json()) as any).id;
@@ -147,7 +148,33 @@ describe("media settings API (D46)", () => {
     expect(((await asset.json()) as any).url).toBe(`https://cms.example.com/media/${id}`);
   });
 
-  test("in store mode the URL addresses the blob key, which is what a bucket serves", async () => {
+  test("on a bucket the library lists the blob key, with no base URL set", async () => {
+    // The D58 fix itself: the media library used to answer a relative
+    // `/media/<id>` for an asset the collections API answered a bucket URL for.
+    // Nothing here talks to S3 — only the addressing is under test.
+    app = await build({ withFile: true });
+    const created = await upload(rootKey, "hero.png");
+    const body = (await created.json()) as any;
+
+    const replaced = service.useBlobStorage(
+      new S3BlobStorage({
+        bucket: "silo-media",
+        region: "ap-south-1",
+        forcePathStyle: true,
+        publicRead: true,
+      })
+    );
+    try {
+      const asset = await app.request(`/api/media/${body.id}`, { headers: auth(rootKey) });
+      expect(((await asset.json()) as any).url).toBe(
+        `https://s3.ap-south-1.amazonaws.com/silo-media/${body.blob_key}`
+      );
+    } finally {
+      service.useBlobStorage(replaced);
+    }
+  });
+
+  test("a base URL over a bucket swaps the host and keeps the key", async () => {
     app = await build({ withFile: true });
     const created = await upload(rootKey, "hero.png");
     const body = (await created.json()) as any;
@@ -155,10 +182,85 @@ describe("media settings API (D46)", () => {
     await app.request("/api/media/settings", {
       method: "PUT",
       headers: json(rootKey),
-      body: JSON.stringify({ base_url: "https://cdn.example.com", base_url_target: "store" }),
+      body: JSON.stringify({ base_url: "https://cdn.example.com" }),
     });
 
-    const asset = await app.request(`/api/media/${body.id}`, { headers: auth(rootKey) });
-    expect(((await asset.json()) as any).url).toBe(`https://cdn.example.com/${body.blob_key}`);
+    const replaced = service.useBlobStorage(
+      new S3BlobStorage({ bucket: "silo-media", region: "ap-south-1", publicRead: true })
+    );
+    try {
+      const asset = await app.request(`/api/media/${body.id}`, { headers: auth(rootKey) });
+      expect(((await asset.json()) as any).url).toBe(`https://cdn.example.com/${body.blob_key}`);
+    } finally {
+      service.useBlobStorage(replaced);
+    }
+  });
+
+  /**
+   * The default a bucket gets without being asked (D59).
+   *
+   * Configuring one is the decision to let it deliver, so no `public_read` at
+   * all still answers the bucket. This is the case the whole feature is for and
+   * it is easy to lose: D59's first cut defaulted the other way and a bucket
+   * that had been configured went on being proxied by silo.
+   */
+  test("a configured bucket is linked to without being asked twice", async () => {
+    app = await build({ withFile: true });
+    const created = await upload(rootKey, "hero.png");
+    const body = (await created.json()) as any;
+
+    const replaced = service.useBlobStorage(
+      new S3BlobStorage({ bucket: "silo-media", region: "ap-south-1" })
+    );
+    try {
+      const asset = await app.request(`/api/media/${body.id}`, { headers: auth(rootKey) });
+      expect(((await asset.json()) as any).url).toBe(
+        `https://silo-media.s3.ap-south-1.amazonaws.com/${body.blob_key}`
+      );
+    } finally {
+      service.useBlobStorage(replaced);
+    }
+  });
+
+  /** The way out, for a bucket that is deliberately private: silo serves the
+   *  bytes and the URL is its own route again. */
+  test("public_read off puts silo back in the read path", async () => {
+    app = await build({ withFile: true });
+    const created = await upload(rootKey, "hero.png");
+    const body = (await created.json()) as any;
+
+    const replaced = service.useBlobStorage(
+      new S3BlobStorage({ bucket: "silo-media", region: "ap-south-1", publicRead: false })
+    );
+    try {
+      const asset = await app.request(`/api/media/${body.id}`, { headers: auth(rootKey) });
+      expect(((await asset.json()) as any).url).toBe(`/media/${body.id}`);
+    } finally {
+      service.useBlobStorage(replaced);
+    }
+  });
+
+  test("a base URL over a private bucket still names silo's own path", async () => {
+    // `base_url` swaps the host and never the path, so a CDN in front of silo
+    // keeps `/media/<id>` — the route that will actually answer.
+    app = await build({ withFile: true });
+    const created = await upload(rootKey, "hero.png");
+    const body = (await created.json()) as any;
+
+    await app.request("/api/media/settings", {
+      method: "PUT",
+      headers: json(rootKey),
+      body: JSON.stringify({ base_url: "https://cms.example.com" }),
+    });
+
+    const replaced = service.useBlobStorage(
+      new S3BlobStorage({ bucket: "silo-media", region: "ap-south-1", publicRead: false })
+    );
+    try {
+      const asset = await app.request(`/api/media/${body.id}`, { headers: auth(rootKey) });
+      expect(((await asset.json()) as any).url).toBe(`https://cms.example.com/media/${body.id}`);
+    } finally {
+      service.useBlobStorage(replaced);
+    }
   });
 });

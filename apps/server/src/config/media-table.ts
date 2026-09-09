@@ -30,9 +30,6 @@ export class MediaTable {
 
     return {
       ...(typeof table.base_url === "string" ? { base_url: table.base_url } : {}),
-      ...(table.base_url_target === "server" || table.base_url_target === "store"
-        ? { base_url_target: table.base_url_target }
-        : {}),
       ...(Array.isArray(table.extensions)
         ? { extensions: MediaTable.extensions(table.extensions) }
         : {}),
@@ -80,14 +77,9 @@ export class MediaTable {
   static render(config: Partial<MediaConfig>): string {
     const lines = TomlTableEdit.header(MediaTable.Table, MediaTable.ManagedNote);
 
-    if (config.base_url) lines.push(`base_url        = ${JSON.stringify(config.base_url)}`);
-    if (config.base_url_target) {
-      lines.push(`base_url_target = ${JSON.stringify(config.base_url_target)}`);
-    }
+    if (config.base_url) lines.push(`base_url   = ${JSON.stringify(config.base_url)}`);
     if (config.extensions) {
-      lines.push(
-        `extensions      = [${config.extensions.map((e) => JSON.stringify(e)).join(", ")}]`
-      );
+      lines.push(`extensions = [${config.extensions.map((e) => JSON.stringify(e)).join(", ")}]`);
     }
 
     return `${lines.join("\n")}\n`;
@@ -98,7 +90,6 @@ export class MediaTable {
   private static normalize(config: MediaConfig): Partial<MediaConfig> {
     return {
       ...(config.base_url ? { base_url: config.base_url } : {}),
-      base_url_target: config.base_url_target === "store" ? "store" : "server",
       extensions: MediaTable.extensions(config.extensions),
     };
   }

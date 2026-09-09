@@ -8,11 +8,14 @@ import './styles/feedback.css'
 import './styles/utilities.css'
 import { ThemeManager } from './utils/theme-manager'
 import App from './App.tsx'
+import { ErrorBoundary } from './components/feedback/ErrorBoundary'
 
 ThemeManager.init()
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
-    <App />
+    <ErrorBoundary>
+      <App />
+    </ErrorBoundary>
   </StrictMode>,
 )

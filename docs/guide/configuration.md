@@ -31,11 +31,11 @@ driver = "fs"                 # "fs" | "s3"
 # force_path_style = false
 
 [media]
-# base_url        = "https://cdn.example.com"  # unset means the address each request arrives on
-# base_url_target = "server"   # "server": <base>/media/<id>, streamed by silo
-                               # "store":  <base>/<blob key>, served by the bucket (must be public)
-extensions      = ["jpg", "jpeg", "png", "gif", "webp", "avif", "svg", "ico",
-                   "bmp", "mp4", "webm", "mov", "mp3", "wav", "ogg", "m4a", "pdf"]
+# base_url   = "https://cdn.example.com"  # the host every media URL is rooted at
+# Unset, media URLs point at the bucket when the provider above is a bucket, and
+# at the address each request arrives on when silo serves the bytes itself.
+extensions = ["jpg", "jpeg", "png", "gif", "webp", "avif", "svg", "ico",
+              "bmp", "mp4", "webm", "mov", "mp3", "wav", "ogg", "m4a", "pdf"]
 # Uploads are refused unless the filename ends in one of these. ["*"] accepts anything.
 
 [auth]
@@ -100,15 +100,53 @@ what is in force, and it names the `SILO_*` variable wherever one beats the
 file. Switching provider moves no files: uploads made before the switch stay
 where they were.
 
-The same page holds a second card for `[media]`, saved separately. It carries
-the **base URL** media links are rooted at, whether that name points at silo or
-at the bucket, and the **permitted file types**.
+The same page holds a second section for `[media]`, saved separately. It carries
+the **base URL** media links are rooted at, and the **permitted file types**.
 
-Leave the base URL empty and every media URL is rooted at the address the
-request arrived on. That is what you want behind no proxy. Set it to a CDN and
-pick `store`, and a media field resolves to `<base>/<blob key>`, with silo out
-of the read path. That is the shape an email needs, because a mail client cannot
-authenticate. It requires a publicly readable bucket.
+The base URL sets the host and never the path. What the path looks like follows
+who serves the file:
+
+| Provider | A media URL looks like |
+|---|---|
+| Local directory | `<base or your server's address>/media/<id>` |
+| Bucket | `<base or the bucket's own address>/<blob key>` |
+| Bucket, with **Serve files from the bucket** off | `<base or your server's address>/media/<id>` |
+
+Configure a bucket and media URLs name that bucket. Nothing else is needed:
+leave the base URL empty and each file is addressed at the bucket's own address,
+with silo out of the read path. That is the shape an email needs, because a mail
+client cannot authenticate. Set the base URL to a CDN in front of the bucket and
+the same object is served from your own host.
+
+On a local directory, silo serves every file itself. Leave the base URL empty
+and media URLs are rooted at the address the request arrived on. That is what
+you want behind no proxy; set it to name silo behind a proxy or a custom domain.
+
+Turn **Serve files from the bucket** off if your bucket is private. Silo then
+streams each file at `/media/<id>`, the same way it does for a local directory,
+using the credentials you configured. Nothing else changes and no URL breaks.
+
+Leaving it on is a statement that the bucket already allows anonymous reads. It
+does not make it so. Turning off Block Public Access is not enough on its own:
+without a policy, S3 answers `AccessDenied` for every file and each media URL
+breaks, which looks like silo forming a bad URL but is the bucket refusing a
+good one. The policy is:
+
+```json
+{
+  "Version": "2012-10-17",
+  "Statement": [{
+    "Sid": "PublicReadForSilo",
+    "Effect": "Allow",
+    "Principal": "*",
+    "Action": "s3:GetObject",
+    "Resource": "arn:aws:s3:::YOUR-BUCKET/*"
+  }]
+}
+```
+
+Apply that policy and the bucket URLs silo hands out start working. If you would
+rather not make a bucket public, turn the toggle off instead.
 
 The allowlist works on the filename extension. silo checks it before it writes
 anything, on a rename as well as on an upload, and only the last extension

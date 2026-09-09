@@ -507,7 +507,7 @@ describe("managed keys are not exportable", () => {
       const service = new SiloService(store, { mediaDir: path.join(tempDir, "media") });
       await service.scopes.initDefaults();
 
-      const { entry: ordinary } = await service.keys.create("mine", ["media:read"]);
+      const { entry: ordinary } = await service.keys.create("mine", ["media:create"]);
       await service.plugins.reconcile("acme", ["collections:*/*/*:entries:read"], []);
       const grant = await service.plugins.grant("acme", ["collections:*/*/*:entries:read"], { actor: AuditUtils.cli() });
 
@@ -543,9 +543,9 @@ describe("system collections stay out of archives", () => {
       const service = new SiloService(store, { mediaDir: path.join(tempDir, "media") });
       await service.scopes.initDefaults();
 
-      await service.keys.create("mine", ["media:read"], { actor: AuditUtils.cli() });
-      await service.plugins.reconcile("acme", ["media:read"], []);
-      await service.plugins.grant("acme", ["media:read"], { actor: AuditUtils.cli() });
+      await service.keys.create("mine", ["media:create"], { actor: AuditUtils.cli() });
+      await service.plugins.reconcile("acme", ["media:create"], []);
+      await service.plugins.grant("acme", ["media:create"], { actor: AuditUtils.cli() });
       expect((await service.audit.list()).total).toBeGreaterThan(0);
 
       const dest = path.join(tempDir, "out");

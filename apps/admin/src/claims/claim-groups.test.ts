@@ -68,7 +68,7 @@ describe('ClaimGroups.build', () => {
   })
 
   test('fixed claims group by subject in reading order', () => {
-    expect(lines(['media:delete', 'media:read'])).toEqual(['list media', 'delete media'])
+    expect(lines(['media:delete', 'media:create'])).toEqual(['upload media', 'delete media'])
   })
 
   /**

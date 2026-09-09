@@ -144,8 +144,6 @@ export function Sidebar({
     scope.project,
     scope.env,
   )
-  const showMedia = Claims.has(claims, Claims.MediaRead)
-
   return (
     <aside
       className={`${styles.sidebar} ${isResizing ? styles.resizing : ''}`}
@@ -270,15 +268,14 @@ export function Sidebar({
 
       <div className={styles.divider} />
       <div className={`${styles.list} ${styles.panelList}`}>
-        {showMedia && (
-          <Link
-            to={Routes.media(serverId, scope.project, scope.env)}
-            className={`${styles.item} ${activePanel === 'media' ? styles.active : ''}`}
-          >
-            <span className={styles.itemIcon}><Image size={15} /></span>
-            <span className={styles.itemName}>Media Library</span>
-          </Link>
-        )}
+        {/* Never hidden: reading the library needs no claim since D58. */}
+        <Link
+          to={Routes.media(serverId, scope.project, scope.env)}
+          className={`${styles.item} ${activePanel === 'media' ? styles.active : ''}`}
+        >
+          <span className={styles.itemIcon}><Image size={15} /></span>
+          <span className={styles.itemName}>Media Library</span>
+        </Link>
         <Link
           to={Routes.projectSettings(serverId, scope.project, 'general')}
           className={styles.item}

@@ -4,7 +4,7 @@ import { MediaPolicyDraft } from './media-policy-draft'
 
 const view = (patch: Partial<MediaPolicyView> = {}): MediaPolicyView => ({
   file: {},
-  in_force: { base_url_target: 'server', extensions: ['jpg', 'png'] },
+  in_force: { extensions: ['jpg', 'png'] },
   overrides: [],
   default_extensions: ['jpg', 'png', 'pdf'],
   config_path: '/srv/silo.toml',
@@ -23,7 +23,7 @@ const view = (patch: Partial<MediaPolicyView> = {}): MediaPolicyView => ({
  */
 describe('MediaPolicyDraft', () => {
   test('the base URL is seeded from the file, so an unset one stays unset', () => {
-    const draft = MediaPolicyDraft.of(view({ in_force: { base_url: 'https://from-env.example.com', base_url_target: 'server', extensions: ['png'] } }))
+    const draft = MediaPolicyDraft.of(view({ in_force: { base_url: 'https://from-env.example.com', extensions: ['png'] } }))
     expect(draft.base_url).toBe('')
   })
 
@@ -80,12 +80,10 @@ describe('MediaPolicyDraft', () => {
     expect(
       MediaPolicyDraft.payload({
         base_url: '  https://cms.example.com  ',
-        base_url_target: 'store',
         extensions: ['png'],
       })
     ).toEqual({
       base_url: 'https://cms.example.com',
-      base_url_target: 'store',
       extensions: ['png'],
     })
   })

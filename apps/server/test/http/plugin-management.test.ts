@@ -84,7 +84,7 @@ describe("plugin management API (D38)", () => {
       const reader = await mint([Claims.PluginsRead]);
       expect((await app.request("/api/plugins", { headers: auth(reader) })).status).toBe(200);
 
-      const stranger = await mint([Claims.MediaRead]);
+      const stranger = await mint([Claims.MediaCreate]);
       expect((await app.request("/api/plugins", { headers: auth(stranger) })).status).toBe(403);
       expect((await app.request("/api/plugins")).status).toBe(401);
     });
@@ -107,7 +107,7 @@ describe("plugin management API (D38)", () => {
       expect((await read()).rev).toBe(1);
 
       // A genuine change still moves it.
-      await service.plugins.reconcile("acme", [...requested, "media:read"], ["entry.afterWrite"]);
+      await service.plugins.reconcile("acme", [...requested, "media:delete"], ["entry.afterWrite"]);
       expect((await read()).rev).toBe(2);
     });
   });

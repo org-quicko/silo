@@ -23,7 +23,7 @@ collections:<project>/<env>/<name>:entries:read
 collections:<project>/<env>/<name>:entries:update
 collections:<project>/<env>/<name>:entries:delete
 hooks:<project>/<env>/<name>:<hook>
-media:read        media:create      media:delete      media:configure
+media:create      media:delete      media:configure
 keys:read         keys:create       keys:revoke
 keys:export       keys:import
 plugins:read      plugins:grant     plugins:enable     plugins:configure
@@ -45,7 +45,7 @@ of the six hook names, with no wildcard.
 how the library is **set up**: where it keeps its bytes, credentials included,
 where its URLs point, and which file types it accepts. It writes `silo.toml` to
 do that. Only the `root` preset carries it, no plugin may be granted it, and a
-key holding `media:read`, `media:create` and `media:delete` still cannot repoint
+key holding `media:create` and `media:delete` still cannot repoint
 the library. It is one claim rather than a read and write pair, because the read
 half is not the harmless half: it names the bucket, the endpoint and the access
 key id.
@@ -103,6 +103,15 @@ matching named segment. A named segment can never widen into a wildcard.
 their scope. Set `"x-silo-auth": true` in a schema to require a key for both.
 Once a key is presented it becomes the visibility boundary, so a scoped key sees
 only its own projects, environments and collections, public ones included.
+
+**Reading the media library needs no claim.** Listing it, reading one asset's
+record, its folders and its referrers are all open, the way `/media/<id>` has
+always served the bytes themselves. Uploading, renaming, moving and deleting
+still need `media:create` or `media:delete`. There used to be a `media:read`,
+and it was a lock on the index of a shelf anyone could already reach: a key held
+back from it learned nothing it could not learn by fetching a file. It is
+retired, so no new key can carry it, and a key that already does is not broken
+by it. If you need the library closed, put silo behind something that closes it.
 
 **Variables add no claim of their own.** Each check is an existing claim at the
 reach the operation actually has. Reading needs `entries:read` on any collection

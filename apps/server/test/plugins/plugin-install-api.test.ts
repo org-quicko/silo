@@ -379,7 +379,7 @@ describe("plugin install API (POST /api/plugins/install)", () => {
       headers: { ...auth(), "Content-Type": "application/json" },
       body: JSON.stringify({
         spec: path.join(Fixtures, "greeter"),
-        claims: ["http:route", "collections:*/*/*:entries:read", "media:read"],
+        claims: ["http:route", "collections:*/*/*:entries:read", "media:create"],
       }),
     });
 

@@ -5,7 +5,6 @@ import type { MediaConfig } from "../../src/config/media-config";
 import { MediaPolicySettings } from "../../src/settings";
 
 const inForce = (patch: Partial<MediaConfig> = {}): MediaConfig => ({
-  base_url_target: "server",
   extensions: ["jpg", "png"],
   ...patch,
 });
@@ -53,12 +52,6 @@ describe("MediaPolicySettings", () => {
       expect(MediaPolicySettings.parse({ base_url: "   " })).toEqual({ base_url: "" });
     });
 
-    test("an unknown target is refused rather than defaulted", () => {
-      expect(() => MediaPolicySettings.parse({ base_url_target: "bucket" })).toThrow(
-        /"server" or "store"/
-      );
-    });
-
     test("an empty allowlist is refused, since it accepts nothing", () => {
       expect(() => MediaPolicySettings.parse({ extensions: [] })).toThrow(/cannot be empty/);
       expect(() => MediaPolicySettings.parse({ extensions: ["", " "] })).toThrow(/\["\*"\]/);
@@ -69,12 +62,11 @@ describe("MediaPolicySettings", () => {
     test("the base is the file, so nothing is copied out of the environment into it", () => {
       const merged = MediaPolicySettings.merge(
         { base_url: "https://old.example.com", extensions: ["jpg"] },
-        { base_url_target: "store" }
+        { extensions: ["jpg", "png"] }
       );
       expect(merged).toEqual({
         base_url: "https://old.example.com",
-        base_url_target: "store",
-        extensions: ["jpg"],
+        extensions: ["jpg", "png"],
       });
     });
 

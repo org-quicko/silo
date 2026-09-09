@@ -9,8 +9,8 @@ import type { MediaCatalogStore } from "./media-catalog-store";
  * Builds the `MediaLinks` a response resolves its media fields through
  * (D46, D48).
  *
- * Every reference in the payload is looked up now, not only when
- * `base_url_target = "store"`: a force-deleted asset (D48) has to answer
+ * Every reference in the payload is looked up, whatever the store is: a
+ * force-deleted asset (D48) has to answer
  * `null` wherever its URL would have been rooted, and `MediaLinks` can only
  * tell "asked and absent" from "never asked" if the asking always happens.
  * What D46 bought by skipping the lookup in the ordinary case — zero I/O in
@@ -51,7 +51,7 @@ export class MediaLinkResolver {
   async forPayload(requestBase: string, payload: unknown): Promise<MediaLinks> {
     const config = this.context.mediaConfig;
     const { keys, asked } = await this.lookup(payload);
-    return MediaLinks.of(config, requestBase, keys, asked);
+    return MediaLinks.of(config, this.context.storeRoot, requestBase, keys, asked);
   }
 
   /**

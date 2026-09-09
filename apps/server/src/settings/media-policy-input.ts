@@ -8,8 +8,8 @@
  * current value and a missing field can only mean the operator removed it.
  */
 export interface MediaPolicyInput {
-  /** `""` clears it, putting media URLs back on the request's own origin. */
+  /** `""` clears it, putting media URLs back on the store's own public root,
+   *  or on the request's origin where silo serves the bytes. */
   base_url?: string;
-  base_url_target?: "server" | "store";
   extensions?: string[];
 }

@@ -58,6 +58,9 @@ export class BlobStorageTable {
       ...(typeof table.force_path_style === "boolean"
         ? { forcePathStyle: table.force_path_style }
         : {}),
+      ...(typeof table.public_read === "boolean"
+        ? { publicRead: table.public_read }
+        : {}),
     };
   }
 
@@ -94,6 +97,9 @@ export class BlobStorageTable {
     if (config.forcePathStyle !== undefined) {
       lines.push(`${"force_path_style".padEnd(17)} = ${config.forcePathStyle}`);
     }
+    if (config.publicRead !== undefined) {
+      lines.push(`${"public_read".padEnd(17)} = ${config.publicRead}`);
+    }
 
     return `${lines.join("\n")}\n`;
   }
@@ -116,6 +122,7 @@ export class BlobStorageTable {
       ...(set(config.accessKeyId) ? { accessKeyId: config.accessKeyId } : {}),
       ...(set(config.secretAccessKey) ? { secretAccessKey: config.secretAccessKey } : {}),
       ...(config.forcePathStyle !== undefined ? { forcePathStyle: config.forcePathStyle } : {}),
+      ...(config.publicRead !== undefined ? { publicRead: config.publicRead } : {}),
     };
   }
 }

@@ -1,6 +1,7 @@
 import { S3Client, type S3Options } from "bun";
 import type { BlobStorage, BlobItem, BlobPutOptions, BlobGetResult } from "../../core/ports/blob-storage";
 import { MimeUtils } from "../../core/media/mime-utils";
+import { S3PublicUrl } from "./s3-public-url";
 
 export interface S3BlobStorageOptions {
   bucket: string;
@@ -15,6 +16,17 @@ export interface S3BlobStorageOptions {
    * this on.
    */
   forcePathStyle?: boolean;
+  /**
+   * Whether the bucket serves anonymous `GetObject`. **Defaults to on**, since
+   * configuring a bucket is the decision to let it deliver.
+   *
+   * It is a setting rather than something silo works out because it is the one
+   * fact here that is not derivable: it lives in a bucket policy, not in the
+   * credentials silo writes with. Turned off, silo streams the bytes and every
+   * media URL is `/media/<id>` — the answer for a bucket that is deliberately
+   * private, and the only reason this is not simply assumed.
+   */
+  publicRead?: boolean;
   /** Pre-built client, for tests. Bypasses every option above. */
   s3Client?: S3Client;
 }
@@ -31,7 +43,13 @@ export interface S3BlobStorageOptions {
 export class S3BlobStorage implements BlobStorage {
   private client: S3Client;
 
+  /** Computed once from the same options the client is built from, so the two
+   *  cannot drift apart. `null` when there is nothing public to point at. */
+  private readonly root: string | null;
+
   constructor(options: S3BlobStorageOptions) {
+    this.root = S3PublicUrl.rootOf(options);
+
     if (options.s3Client) {
       this.client = options.s3Client;
       return;
@@ -59,6 +77,11 @@ export class S3BlobStorage implements BlobStorage {
     }
 
     this.client = new S3Client(config);
+  }
+
+  /** The bucket's own public URL root — see `S3PublicUrl` (D58). */
+  publicRoot(): string | null {
+    return this.root;
   }
 
   /** A 404 for the key asked about, as opposed to a 403 on the bucket or a

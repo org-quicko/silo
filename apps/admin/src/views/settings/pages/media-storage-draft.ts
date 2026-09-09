@@ -20,6 +20,7 @@ export interface MediaStorageFields {
   endpoint: string
   access_key_id: string
   force_path_style: boolean
+  public_read: boolean
 }
 
 /**
@@ -54,6 +55,7 @@ export class MediaStorageDraft {
       endpoint: facts.endpoint ?? '',
       access_key_id: facts.access_key_id ?? '',
       force_path_style: facts.force_path_style ?? false,
+      public_read: facts.public_read ?? true,
     }
   }
 
@@ -106,6 +108,23 @@ export class MediaStorageDraft {
   static options(view: MediaStorageView): string[] {
     const driver = view.file.driver
     return view.drivers.includes(driver) ? view.drivers : [...view.drivers, driver]
+  }
+
+  /**
+   * Whether a credential is in force from somewhere other than the file —
+   * an environment variable, or a flag.
+   *
+   * The box is then filled and read-only rather than empty, which is the
+   * whole of it: an empty "Access key ID" beside a note saying one is in use
+   * reads as *not set*, and typing into it would have been worse than useless
+   * because the variable outranks the file and the value would never take
+   * effect. Removing the variable is what opens the box again.
+   */
+  static suppliedElsewhere(view: MediaStorageView, field: 'access_key_id' | 'secret_access_key'): boolean {
+    if (!view.overrides.some((each) => each.field === field)) return false;
+    return field === 'secret_access_key'
+      ? !view.file.secret_access_key_set && view.in_force.secret_access_key_set
+      : !view.file.access_key_id && !!view.in_force.access_key_id
   }
 
   /**

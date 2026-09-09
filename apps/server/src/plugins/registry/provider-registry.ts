@@ -54,6 +54,7 @@ export class ProviderRegistry {
         accessKeyId: config.accessKeyId,
         secretAccessKey: config.secretAccessKey,
         forcePathStyle: config.forcePathStyle,
+        publicRead: config.publicRead,
       });
     });
 

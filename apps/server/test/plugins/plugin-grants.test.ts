@@ -263,7 +263,7 @@ describe("managed keys", () => {
   });
 
   test("an ordinary key still revokes", async () => {
-    const { entry } = await service.keys.create("mine", [Claims.MediaRead]);
+    const { entry } = await service.keys.create("mine", [Claims.MediaCreate]);
     await service.keys.revoke(entry.id);
     await expect(store.get(Scope.System, KeyUtils.KeysCollection, entry.id)).rejects.toThrow();
   });

@@ -450,7 +450,7 @@ describe("Projects API", () => {
     // A fixed claim says nothing about which projects its holder may see.
     // Counting it as instance-wide visibility handed the entire tenant list
     // to a key whose only power was reading the media library.
-    const media = await service.keys.create("media only", [Claims.MediaRead]);
+    const media = await service.keys.create("media only", [Claims.MediaCreate]);
     expect(await listFor(media.secret)).toEqual([]);
 
     const scoped = await service.keys.create("public-site only", [
