@@ -13,16 +13,24 @@ import type { MediaConfig } from "../../config/media-config";
  * drifted: the same asset was a bucket URL in one response and a relative path
  * in another.
  *
- * **One rule, and no setting to get it wrong** (D58). The store decides the
- * *shape* and `base_url` decides the *host*:
+ * **Two shapes, and `base_url` alone decides which** (D58, settled in D60):
  *
- * - The store is publicly addressable (a bucket): `<root>/<blob key>`, where
- *   the root is `base_url` when it is set and the bucket's own otherwise. Silo
- *   is out of the read path either way, so `base_url` here is a CDN over the
- *   same objects.
- * - It is not (the fs driver): `<root>/media/<id>`, where the root is
- *   `base_url` when it is set and the address the request arrived on
- *   otherwise. Silo streams the bytes, and `base_url` is a name in front of it.
+ * - **`base_url` is set**: `<base_url>/media/<id>`. The base names silo — a
+ *   proxy, a custom domain, a path prefix in front of it — so it takes silo's
+ *   own route, whatever the store is. Whatever domain and path an operator
+ *   gives, `/media/<id>` is appended to it.
+ * - **It is not, and the store is publicly addressable** (a bucket serving
+ *   anonymous reads): `<bucket root>/<blob key>`. Silo leaves the read path
+ *   entirely and the object is addressed the way S3 addresses it. This is the
+ *   only shape that is not `/media/<id>`.
+ * - **Neither**: `<request origin>/media/<id>`. Silo streams the bytes.
+ *
+ * D58 had `base_url` swap the *host* while the store kept deciding the *path*,
+ * so a base pointing at silo — the ordinary case, since that is what a custom
+ * domain is for — produced `<base>/<blob key>`: a well-formed URL for a path
+ * silo does not serve. Pinning the base to silo's route is what makes it always
+ * resolve, and the cost is that a CDN in front of the *bucket* is no longer
+ * expressible through `base_url`; a CDN in front of *silo* still is.
  *
  * A reference resolves to one of three states, not two. **Not asked** — the id
  * was never looked up (`fromRequest`, or an id past `MediaLinkResolver`'s cap)
@@ -136,21 +144,30 @@ export class MediaLinks {
    * everywhere the catalog is at hand — including the media library's own
    * listing, so what the admin shows is the link the API hands out.
    *
-   * A bucket-backed asset whose key is *not* known falls back to **silo's own
-   * origin**, never to `base_url`. The base names a CDN over the bucket that
-   * has never heard of `/media/<id>`, so rooting a path there would hand back
-   * a link that 404s; the origin is the one host known to serve it. Same
-   * judgement as D35's empty base: a URL that resolves nowhere is worse than a
-   * relative one.
+   * Exactly two shapes, and which one is used is decided by `base_url` alone
+   * (D60). Silo's route is `/media/<id>` and nothing else it serves is
+   * addressed by blob key, so pinning the base to that route is what makes a
+   * configured base always resolve.
    */
   forAsset(id: string, blobKey?: string): string {
-    if (this.store) {
-      if (blobKey) return `${this.base || this.store}/${blobKey.replace(/^\/+/, "")}`;
-      return this.origin ? `${this.origin}/media/${id}` : `/media/${id}`;
-    }
+    // `base_url` names **silo**, wherever it has been published — behind a
+    // proxy, on a custom domain, under a path prefix. So it always takes
+    // silo's own route, whatever the store is. Joining a blob key onto it
+    // instead is what produced `https://api.example.com/<ulid>.jpg`: a
+    // well-formed URL for a path silo does not serve.
+    if (this.base) return `${this.base}/media/${id}`;
 
-    const root = this.base || this.origin;
-    return root ? `${root}/media/${id}` : `/media/${id}`;
+    // No base, so the store speaks for itself: a bucket that serves its own
+    // objects is addressed directly and silo leaves the read path. This is the
+    // one shape that is not `/media/<id>`, and it is S3's own addressing
+    // rather than anything silo invented.
+    if (this.store && blobKey) return `${this.store}/${blobKey.replace(/^\/+/, "")}`;
+
+    // Either silo serves the bytes, or it is a bucket-backed asset whose key
+    // was never looked up (past `MediaLinkResolver`'s cap). Both are silo's
+    // route at the address the request arrived on — the one host known to
+    // answer it. D35's judgement: a relative URL beats one resolving nowhere.
+    return this.origin ? `${this.origin}/media/${id}` : `/media/${id}`;
   }
 
   private static trim(value: string): string {

@@ -174,7 +174,7 @@ describe("media settings API (D46)", () => {
     }
   });
 
-  test("a base URL over a bucket swaps the host and keeps the key", async () => {
+  test("a base URL over a bucket takes silo's route, not the blob key", async () => {
     app = await build({ withFile: true });
     const created = await upload(rootKey, "hero.png");
     const body = (await created.json()) as any;
@@ -190,7 +190,7 @@ describe("media settings API (D46)", () => {
     );
     try {
       const asset = await app.request(`/api/media/${body.id}`, { headers: auth(rootKey) });
-      expect(((await asset.json()) as any).url).toBe(`https://cdn.example.com/${body.blob_key}`);
+      expect(((await asset.json()) as any).url).toBe(`https://cdn.example.com/media/${body.id}`);
     } finally {
       service.useBlobStorage(replaced);
     }

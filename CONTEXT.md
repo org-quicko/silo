@@ -17,7 +17,7 @@ can be cloned with one command.
 
 ## Where things stand
 
-*Last updated: 2026-09-09 (D59)*
+*Last updated: 2026-09-09 (D60)*
 
 Everything through M5 is built and shipping: collections and JSON Schema
 validation, entry CRUD with optimistic concurrency, the query AST and search
@@ -67,14 +67,16 @@ rename, and a quiet trailing *Destructive* section — with the per-section Save
 of D46/D47 kept exactly as they were (D56). Content can now reference an
 **environment variable**: a name declared once per project, valued per
 environment, and substituted into every `{{NAME}}` an entry holds on the way out
-(D57). A media URL is now derived from **one** fact rather than assembled from
-two that could disagree: the blob store says whether its objects are publicly
-addressable (`BlobStorage.publicRoot`), that decides the shape, and `[media]
-base_url` decides only the host — so `base_url_target` is gone, and the media
-library, the collections API and an upload's own response cannot answer
-different links for the same asset. `media:read` is retired with it: the bytes
-were already public, so a claim over the catalog was a lock on the index of an
-open shelf (D58). A bucket-backed instance therefore hands out **bucket URLs by
+(D57). A media URL is now derived rather than assembled from two settings that
+could disagree, so `base_url_target` is gone and the media library, the
+collections API and an upload's own response cannot answer different links for
+the same asset (D58). **`[media] base_url` decides which of two shapes is
+used** (D60): set, it names silo and takes silo's route, `<base_url>/media/<id>`
+with whatever domain and path it carries kept; unset with a bucket serving its
+own objects, the URL is `<bucket root>/<blob key>` and silo leaves the read path;
+unset otherwise, it is the request's origin and silo's route. `media:read` is
+retired alongside D58: the bytes were already public, so a claim over the catalog
+was a lock on the index of an open shelf. A bucket-backed instance therefore hands out **bucket URLs by
 default**, which is the point of configuring one. What D58 lacked was any way
 out for a bucket that is deliberately private, whose links then answered
 `AccessDenied` with no recourse: `[blob_storage] public_read = false` is that

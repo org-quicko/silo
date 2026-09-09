@@ -365,8 +365,8 @@ second route (`GET`/`PUT /api/media/settings`, §8.3) with its own Save on the
 same page. An fs instance behind a CDN wants a base URL exactly as much as a
 bucket does, which is the test that says these are not driver settings.
 
-**The store decides the shape of a media URL and `base_url` decides its host**
-(D58). There is no setting for the first half, and there used to be:
+**The store decides the shape of a media URL where `base_url` does not** (D60).
+There is no setting for the shape a store chooses, and there used to be (D58):
 `base_url_target` named whether `base_url` fronted silo or the bucket, which was
 a second answer to a question `[blob_storage]` had already settled, and the two
 could disagree — an instance moved to a bucket kept answering `server`, so the
@@ -405,34 +405,43 @@ which `[blob_storage]` already said, so the two could disagree. `public_read`
 states something nothing else in silo knows, and it changes no address: it
 decides only whether the derived root is used or silo serves the bytes itself.
 
-`MediaLinks` then has one rule:
+`MediaLinks` then has one rule, and **`base_url` alone decides which branch of
+it applies** (D60):
 
-- **The store has a public root** (a bucket) — `<base_url or that root>/<blob
-  key>`. The bucket or a CDN over it serves the bytes and silo is not consulted,
+- **`base_url` is set** — `<base_url>/media/<id>`, whatever the store is. The
+  base is set in order to name *this instance*, so it takes this instance's own
+  route, and whatever domain and path it carries is kept with `/media/<id>`
+  appended. D58 had the store keep choosing the path here, which on a bucket
+  produced `<base_url>/<blob key>`: a well-formed URL for a path silo has no
+  route for.
+- **It is not, and the store has a public root** (a bucket) — `<that
+  root>/<blob key>`. The bucket serves the bytes and silo is not consulted,
   which is the only shape that works for a reader that cannot authenticate and
-  will not follow silo's cache headers: an email client, above all. It needs a
-  publicly readable bucket, and it costs a catalog lookup, because a blob key
-  lives on the record rather than in the reference. That lookup is done **once
-  per response, before the entries are mapped** (`MediaLinkResolver`), never
-  inside the mapping.
-- **It has none** (the fs driver) — `<base_url or the request's origin>/media/
-  <id>`. silo streams the bytes and the asset is addressed by **catalog id**, so
-  the URL survives a rename and is derivable from the reference alone. That
-  derivability is what keeps `EntryUtils.toApiResponse` a pure synchronous
-  function, which is what makes resolving a page of entries free.
+  will not follow silo's cache headers: an email client, above all. It costs a
+  catalog lookup, because a blob key lives on the record rather than in the
+  reference — done **once per response, before the entries are mapped**
+  (`MediaLinkResolver`), never inside the mapping.
+- **Neither** — `<request origin>/media/<id>`. silo streams the bytes and the
+  asset is addressed by **catalog id**, so the URL survives a rename and is
+  derivable from the reference alone. That derivability is what keeps
+  `EntryUtils.toApiResponse` a pure synchronous function, which is what makes
+  resolving a page of entries free.
 
-So `base_url` swaps the host and never the path. Unset, a media field resolves
-against the bucket, or against the origin the request arrived on — the only
-origin known to be reachable by whoever asked, and the reason D35 returns `""`
-for a plugin-dispatched request rather than inventing one. It must be absolute
-http(s): a relative base would resolve against whatever origin the reader
-happened to have, which is what leaving it empty already does, and only one of
-the two says so.
+The base must be absolute http(s). A *relative* one would resolve against
+whatever origin the reader happened to have, which is what leaving it empty
+already does, and only one of the two says so; a path is fine and is kept.
 
-A bucket-backed asset whose blob key was **not** resolved — past
-`MediaLinkResolver`'s lookup cap — falls back to silo's own origin rather than to
-`base_url`, since the CDN has never heard of `/media/<id>` and a link rooted
-there would 404. D35's judgement again.
+Unset, a media field resolves against the bucket, or against the origin the
+request arrived on — the only origin known to be reachable by whoever asked, and
+the reason D35 returns `""` for a plugin-dispatched request rather than
+inventing one. A bucket-backed asset whose blob key was **not** resolved, past
+`MediaLinkResolver`'s lookup cap, takes silo's route on that same origin: the
+one host known to answer it. D35's judgement again.
+
+The cost of pinning the base to silo's route is that a CDN in front of the
+*bucket* can no longer be named here. One in front of *silo* can, and is the
+case operators actually have; a CDN over a bucket that rewrites nothing can be
+pointed at the bucket's own root instead.
 
 Nothing here reaches backwards: changing the base does not rewrite a URL already
 sitting in a sent email.

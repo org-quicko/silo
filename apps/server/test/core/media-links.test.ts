@@ -54,27 +54,45 @@ describe("MediaLinks", () => {
     expect(links.urlFor(MediaRef.url(id))).toBe(`${bucket}/${id}.png`);
   });
 
-  test("a base URL over a bucket swaps the host and keeps the key", () => {
+  /**
+   * A base names silo, so it takes silo's route even over a bucket (D60).
+   *
+   * This is the reported bug: a base pointing at the instance's own host — the
+   * ordinary reason to set one — produced `<base>/<blob key>`, a well-formed
+   * URL for a path silo does not serve, and every image in the admin broke.
+   */
+  test("a base URL over a bucket takes silo's route, not the blob key", () => {
     const links = MediaLinks.of(
-      config({ base_url: "https://cdn.example.com" }),
+      config({ base_url: "https://api.example.com" }),
       bucket,
       origin,
       new Map([[id, `${id}.png`]])
     );
-    expect(links.urlFor(MediaRef.url(id))).toBe(`https://cdn.example.com/${id}.png`);
+    expect(links.urlFor(MediaRef.url(id))).toBe(`https://api.example.com/media/${id}`);
   });
 
-  test("a bucket-backed asset with no key falls back to silo, never to the CDN", () => {
-    // The CDN has never heard of /media/<id>. Rooting a path there would hand
-    // back a link that 404s, so the one host known to serve it wins — D35's
-    // judgement about a base that resolves nowhere.
-    const links = MediaLinks.of(config({ base_url: "https://cdn.example.com" }), bucket, origin);
-    expect(links.urlFor(MediaRef.url(id))).toBe(`${origin}/media/${id}`);
+  /** Whatever domain *and path* an operator gives, `/media/<id>` is appended:
+   *  an instance published under a prefix names the prefix here. */
+  test("a base URL with a path keeps the path and appends /media", () => {
+    const links = MediaLinks.of(
+      config({ base_url: "https://example.com/silo" }),
+      bucket,
+      origin,
+      new Map([[id, `${id}.png`]])
+    );
+    expect(links.urlFor(MediaRef.url(id))).toBe(`https://example.com/silo/media/${id}`);
   });
 
-  test("a pre-D23 reference needs no lookup on a bucket: it names the key", () => {
-    const links = MediaLinks.of(config({ base_url: "https://cdn.example.com" }), bucket, origin);
-    expect(links.urlFor("/media/aabb_old.png")).toBe("https://cdn.example.com/aabb_old.png");
+  test("a bucket-backed asset with no key still takes silo's route", () => {
+    const links = MediaLinks.of(config({ base_url: "https://api.example.com" }), bucket, origin);
+    expect(links.urlFor(MediaRef.url(id))).toBe(`https://api.example.com/media/${id}`);
+  });
+
+  test("a pre-D23 reference under a base is silo's route too", () => {
+    // Its key *is* the id on that route: `bytes()` falls back to a raw blob
+    // key, so this resolves without the catalog knowing the reference.
+    const links = MediaLinks.of(config({ base_url: "https://api.example.com" }), bucket, origin);
+    expect(links.urlFor("/media/aabb_old.png")).toBe("https://api.example.com/media/aabb_old.png");
   });
 
   test("the library's own listing gets the bucket URL, not a relative path", () => {

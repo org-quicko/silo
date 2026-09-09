@@ -103,24 +103,31 @@ where they were.
 The same page holds a second section for `[media]`, saved separately. It carries
 the **base URL** media links are rooted at, and the **permitted file types**.
 
-The base URL sets the host and never the path. What the path looks like follows
-who serves the file:
+The base URL is silo's own public address. Set it and every media URL is that
+address with `/media/<id>` on the end. Whatever you give is kept, a path
+included, so an instance published under a prefix names the prefix:
 
-| Provider | A media URL looks like |
+| Base URL | A media URL looks like |
 |---|---|
-| Local directory | `<base or your server's address>/media/<id>` |
-| Bucket | `<base or the bucket's own address>/<blob key>` |
-| Bucket, with **Serve files from the bucket** off | `<base or your server's address>/media/<id>` |
+| `https://api.example.com` | `https://api.example.com/media/<id>` |
+| `https://example.com/silo` | `https://example.com/silo/media/<id>` |
 
-Configure a bucket and media URLs name that bucket. Nothing else is needed:
-leave the base URL empty and each file is addressed at the bucket's own address,
-with silo out of the read path. That is the shape an email needs, because a mail
-client cannot authenticate. Set the base URL to a CDN in front of the bucket and
-the same object is served from your own host.
+Leave it empty and it depends on who serves the file:
 
-On a local directory, silo serves every file itself. Leave the base URL empty
-and media URLs are rooted at the address the request arrived on. That is what
-you want behind no proxy; set it to name silo behind a proxy or a custom domain.
+| Provider, no base URL | A media URL looks like |
+|---|---|
+| Local directory | `<your server's address>/media/<id>` |
+| Bucket | `<the bucket's own address>/<blob key>` |
+| Bucket, with **Serve files from the bucket** off | `<your server's address>/media/<id>` |
+
+So a bucket with no base URL addresses each file at the bucket, with silo out of
+the read path. That is the shape an email needs, because a mail client cannot
+authenticate.
+
+Set a base URL and silo serves the files instead, at that address. Use it to
+name silo behind a proxy, on a custom domain, or under a path prefix. It cannot
+name a CDN in front of the bucket: point such a CDN at the bucket itself, since
+it is the bucket's own paths the CDN mirrors.
 
 Turn **Serve files from the bucket** off if your bucket is private. Silo then
 streams each file at `/media/<id>`, the same way it does for a local directory,

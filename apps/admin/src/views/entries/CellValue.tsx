@@ -5,6 +5,7 @@ import { ValueTitle } from '../../utils/value-title'
 import { Formatters } from '../../utils/formatters'
 import type { MediaAsset } from '../../api/types/media-asset'
 import { CellFormat } from './cell-format'
+import { MediaFileUrl } from '../media/media-file-url'
 
 import styles from './CellValue.module.css'
 
@@ -135,7 +136,7 @@ function MediaCell({
   }
 
   const isImage = asset.content_type.startsWith('image/')
-  const fileUrl = `${baseUrl}${asset.url}`
+  const fileUrl = MediaFileUrl.of(asset, baseUrl)
   return (
     <span className={styles.media} title={asset.filename}>
       {isImage ? (
