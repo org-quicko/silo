@@ -31,13 +31,19 @@ export type RenameFolderOutcome = 'ok' | 'conflict' | 'error'
  * subfolders now render as their own tiles here rather than disappearing, so
  * a folder's *own* files are exactly what "inside it" should show.
  */
-export function useMediaLibrary(url: string, apiKey: string, initialQuery: string) {
+export function useMediaLibrary(
+  url: string,
+  apiKey: string,
+  initialQuery: string,
+  initialFolder = '',
+  onFolderChange?: (folder: string) => void,
+) {
   const [assets, setAssets] = useState<MediaAsset[]>([])
   const [total, setTotal] = useState(0)
   const [offset, setOffset] = useState(0)
   const [pageSize, setPageSizeState] = useState(MediaDefaultPageSize)
   const [folders, setFolders] = useState<string[]>([])
-  const [folder, setFolder] = useState('')
+  const [folder, setFolder] = useState(initialFolder)
   const [search, setSearch] = useState(initialQuery)
   const [query, setQuery] = useState(initialQuery)
   const [loading, setLoading] = useState(true)
@@ -113,6 +119,12 @@ export function useMediaLibrary(url: string, apiKey: string, initialQuery: strin
     return () => clearTimeout(timer)
   }, [search])
 
+  // Synchronize when the route folder changes (e.g. Back/Forward navigation).
+  useEffect(() => {
+    setFolder(initialFolder)
+    setOffset(0)
+  }, [initialFolder])
+
   const subfolders = MediaPath.children(folders, folder)
 
   // Counts for the subfolders on screen, fetched there rather than here:
@@ -122,6 +134,7 @@ export function useMediaLibrary(url: string, apiKey: string, initialQuery: strin
   const selectFolder = (next: string) => {
     setFolder(next)
     setOffset(0)
+    onFolderChange?.(next)
   }
 
   const setPageSize = (next: number) => {
@@ -303,6 +316,35 @@ export function useMediaLibrary(url: string, apiKey: string, initialQuery: strin
       } catch (failure: unknown) {
         setError(MediaLibraryError.message(failure, 'Purge failed'))
         return { deleted: [], failed: [], folders_deleted: 0 }
+      }
+    },
+
+    /** Move one or more assets and folders into targetFolder. */
+    moveItems: async (
+      assetsToMove: MediaAsset[],
+      folderPathsToMove: string[],
+      targetFolder: string,
+    ): Promise<boolean> => {
+      try {
+        for (const a of assetsToMove) {
+          if (a.folder !== targetFolder) {
+            await api.media.update(url, apiKey, a.id, { folder: targetFolder })
+          }
+        }
+        for (const fromPath of folderPathsToMove) {
+          const folderName = MediaPath.name(fromPath)
+          const toPath = targetFolder ? `${targetFolder}/${folderName}` : `/${folderName}`
+          if (fromPath !== toPath) {
+            await api.media.renameFolder(url, apiKey, fromPath, toPath, false)
+          }
+        }
+        selection.clearSelection()
+        reload()
+        return true
+      } catch (failure: unknown) {
+        setError(MediaLibraryError.message(failure, 'Could not move items'))
+        reload()
+        return false
       }
     },
   }

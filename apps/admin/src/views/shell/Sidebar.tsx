@@ -270,7 +270,7 @@ export function Sidebar({
       <div className={`${styles.list} ${styles.panelList}`}>
         {/* Never hidden: reading the library needs no claim since D58. */}
         <Link
-          to={Routes.media(serverId, scope.project, scope.env)}
+          to={Routes.media(serverId)}
           className={`${styles.item} ${activePanel === 'media' ? styles.active : ''}`}
         >
           <span className={styles.itemIcon}><Image size={15} /></span>

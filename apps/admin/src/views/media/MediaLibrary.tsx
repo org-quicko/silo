@@ -21,6 +21,7 @@ import { MediaSelectionBar } from './MediaSelectionBar'
 import { MediaTypeFilter } from './MediaTypeFilter'
 import { useMediaDeleteFlow, type DeleteSubject } from './use-media-delete-flow'
 import { useMediaLibrary } from './use-media-library'
+import { useMediaMoveFlow } from './use-media-move-flow'
 import { useMediaPurge } from './use-media-purge'
 import { useMediaRenameFolderFlow } from './use-media-rename-folder-flow'
 import { ToastManager } from '../../utils/toast-manager'
@@ -49,6 +50,10 @@ interface Props {
   claims: string[]
   /** A search carried in by the URL — the command palette links assets this way. */
   initialQuery?: string
+  /** Directory folder carried in by the URL path. */
+  initialFolder?: string
+  /** Fired when folder navigation changes so the router URL updates. */
+  onFolderChange?: (folder: string) => void
 }
 
 /**
@@ -68,18 +73,27 @@ export function MediaLibraryView({
   apiKey,
   claims,
   initialQuery = '',
+  initialFolder = '',
+  onFolderChange,
 }: Props) {
-  const library = useMediaLibrary(url, apiKey, initialQuery)
+  const library = useMediaLibrary(url, apiKey, initialQuery, initialFolder, onFolderChange)
   const deleteFlow = useMediaDeleteFlow(library.bulkDelete, library.deleteFolderRecursive, (subject) =>
     ToastManager.show(deletedMessage(subject)),
   )
   const purgeFlow = useMediaPurge(library.purge, () => ToastManager.show('Media library purged'))
   const renameFolderFlow = useMediaRenameFolderFlow(library.renameFolder, () => ToastManager.show('Folder renamed'))
+  const moveFlow = useMediaMoveFlow(library.moveItems, (subject, target) => {
+    const count = subject.assets.length + subject.folderPaths.length
+    const targetLabel = target === '' ? 'root' : `"${MediaPath.name(target)}"`
+    ToastManager.show(count === 1 ? `Moved 1 item to ${targetLabel}` : `Moved ${count} items to ${targetLabel}`)
+  })
+
   const [editing, setEditing] = useState<MediaAsset | null>(null)
   const [editingBusy, setEditingBusy] = useState(false)
   const [creatingFolder, setCreatingFolder] = useState(false)
   const [creatingFolderBusy, setCreatingFolderBusy] = useState(false)
   const [headMenuOpen, setHeadMenuOpen] = useState(false)
+  const [previewAsset, setPreviewAsset] = useState<MediaAsset | null>(null)
   const [view, setView] = useState<LibraryView>(
     () => (localStorage.getItem(VIEW_KEY) as LibraryView | null) || 'grid',
   )
@@ -119,6 +133,11 @@ export function MediaLibraryView({
     }
   }
 
+  const handleDropToFolder = (targetFolder: string, assets: MediaAsset[], folderPaths: string[]) => {
+    if (!canUpload) return
+    moveFlow.start({ assets, folderPaths }, targetFolder)
+  }
+
   const selectedAssets = library.assets.filter((asset) => library.selected.has(asset.id))
   const selectedFolderPaths = library.subfolders.filter((path) => library.selectedFolders.has(path))
   const selectedCount = selectedAssets.length + selectedFolderPaths.length
@@ -133,7 +152,6 @@ export function MediaLibraryView({
       onPageSizeChange={library.setPageSize}
     />
   )
-
 
   return (
     <>
@@ -232,7 +250,12 @@ export function MediaLibraryView({
           onDismiss={() => library.setDeleteIssues('')}
         />
 
-        <MediaPathTrail folder={library.folder} onSelectFolder={library.selectFolder} />
+        <MediaPathTrail
+          folder={library.folder}
+          canDrop={canUpload}
+          onSelectFolder={library.selectFolder}
+          onDropToFolder={handleDropToFolder}
+        />
 
         <div className={styles.toolbar}>
           <div className={styles.toolbarLeft}>
@@ -269,6 +292,8 @@ export function MediaLibraryView({
           listCols={listCols}
           onBrowse={browse}
           onEditAsset={setEditing}
+          onPreviewAsset={setPreviewAsset}
+          onDropToFolder={handleDropToFolder}
           pagination={view === 'list' ? pager : undefined}
         />
 
@@ -277,11 +302,17 @@ export function MediaLibraryView({
 
       <MediaDialogs
         claims={claims}
+        baseUrl={baseUrl}
+        assets={library.assets}
         editing={editing}
         editingBusy={editingBusy}
         deleteFlow={deleteFlow}
+        moveFlow={moveFlow}
         purgeFlow={purgeFlow}
         renameFolderFlow={renameFolderFlow}
+        previewAsset={previewAsset}
+        onClosePreview={() => setPreviewAsset(null)}
+        onNavigatePreview={setPreviewAsset}
         onRenameAsset={async (filename, folder) => {
           if (!editing) return
           setEditingBusy(true)

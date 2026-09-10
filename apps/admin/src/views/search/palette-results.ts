@@ -130,7 +130,7 @@ export class PaletteResults {
           // The library has no per-asset URL, so the link carries the search
           // that found it — landing on a library of everything would make the
           // reader hunt for what they had already found.
-          href: Routes.media(ctx.serverId, ctx.scope.project, ctx.scope.env, asset.filename),
+          href: Routes.media(ctx.serverId, asset.filename),
         })),
       })
     }

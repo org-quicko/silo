@@ -96,13 +96,16 @@ export class Routes {
   }
 
   /**
-   * `q` carries a search into the library. The catalog has no per-asset URL,
-   * so an asset found somewhere else (the command palette) is linked to by the
-   * search that found it rather than by a page of everything.
+   * `q` carries a search into the library; `folder` opens at that directory.
+   * Instance-global catalog, so it lives at `/servers/:sid/media[/:folder*]`.
    */
-  static media(serverId: string, project: string, env: string, q?: string): string {
-    const base = `${Routes.workspace(serverId, project, env)}/media`
-    return q ? `${base}?q=${encodeURIComponent(q)}` : base
+  static media(serverId: string, q?: string, folder?: string): string {
+    const base = `/servers/${encodeURIComponent(serverId)}/media`
+    const folderPath = folder
+      ? folder.split('/').filter(Boolean).map(encodeURIComponent).join('/')
+      : ''
+    const fullBase = folderPath ? `${base}/${folderPath}` : base
+    return q ? `${fullBase}?q=${encodeURIComponent(q)}` : fullBase
   }
 
   // ---- parsing ----
@@ -116,6 +119,14 @@ export class Routes {
     if (segs[0] !== 'servers' || segs.length < 3) return null
 
     const serverId = segs[1]
+    if (segs[2] === 'media') {
+      const folderSegs = segs.slice(3)
+      const folderFromPath = folderSegs.length > 0 ? '/' + folderSegs.join('/') : ''
+      const searchParams = new URLSearchParams(search)
+      const folder = folderFromPath || searchParams.get('folder') || ''
+      const q = searchParams.get('q') || ''
+      return { view: 'media', serverId, folder, q }
+    }
     if (segs[2] === 'settings') return Routes.parseServerSettings(serverId, segs)
     if (segs[2] !== 'projects' || segs.length < 4) return null
 
@@ -142,6 +153,15 @@ export class Routes {
     const segs = location.split('?')[0].split('/').filter(Boolean).map(decodeURIComponent)
     if (segs[0] !== 'servers' || segs.length < 3) return null
     const serverId = segs[1]
+
+    // Pre-instance-global media URLs: /servers/:id/projects/:project/environments/:env/media[/:folder*]
+    if (segs[2] === 'projects' && segs.length >= 7 && segs[4] === 'environments' && segs[6] === 'media') {
+      const folderSegs = segs.slice(7)
+      const folderPath = folderSegs.length > 0 ? '/' + folderSegs.map(encodeURIComponent).join('/') : ''
+      const base = `/servers/${encodeURIComponent(serverId)}/media${folderPath}`
+      const search = location.split('?')[1]
+      return search ? `${base}?${search}` : base
+    }
 
     // `/servers/:id/status` predates the settings tree entirely.
     if (segs[2] === 'status') return Routes.serverSettings(serverId, 'connection')
@@ -217,10 +237,6 @@ export class Routes {
   ): Route | null {
     if (rest.length === 0 || (rest.length === 1 && rest[0] === 'collections')) {
       return { view: 'collections', serverId, project, env }
-    }
-
-    if (rest.length === 1 && rest[0] === 'media') {
-      return { view: 'media', serverId, project, env, q: new URLSearchParams(search).get('q') || '' }
     }
 
     if (rest[0] === 'schema') {

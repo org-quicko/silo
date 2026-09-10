@@ -25,6 +25,8 @@ interface Props {
   listCols: string
   onBrowse: () => void
   onEditAsset: (asset: MediaAsset) => void
+  onPreviewAsset: (asset: MediaAsset) => void
+  onDropToFolder: (targetFolder: string, assets: MediaAsset[], folderPaths: string[]) => void
   /** List view only — rendered as the card's own last row (the grid has no
    *  enclosing card to sit inside, so `MediaLibraryView` renders it as its
    *  own block below the tiles there instead). */
@@ -34,12 +36,6 @@ interface Props {
 /**
  * What the current folder shows: the empty states, and the folders and files
  * in whichever of the two layouts is selected.
- *
- * One component for both layouts rather than a `MediaGrid` and a `MediaList`,
- * because they render the same facts from the same props and differ only in the
- * shape they put them in — two files would be two identical prop lists to keep
- * in step. `library` and the flows are passed whole for the reason
- * `MediaDialogs` takes them that way.
  */
 export function MediaContents({
   view,
@@ -52,13 +48,12 @@ export function MediaContents({
   listCols,
   onBrowse,
   onEditAsset,
+  onPreviewAsset,
+  onDropToFolder,
   pagination,
 }: Props) {
   const hasQuery = library.query.trim() !== ''
   const nothingHere = library.subfolders.length === 0 && library.assets.length === 0
-  // The empty state doubles as the upload invitation, so it only makes that
-  // offer when the folder is genuinely empty. A filter hiding real content gets
-  // told about the filter instead, never "drop a file here".
   const genuinelyEmpty = nothingHere && !hasQuery
 
   if (genuinelyEmpty) {
@@ -98,6 +93,58 @@ export function MediaContents({
   const renameFolder = (path: string) => () => renameFolderFlow.start(path)
   const deleteFolder = (path: string) => () => deleteFlow.startFolder(path)
 
+  const handleDragAsset = (asset: MediaAsset) => (e: React.DragEvent) => {
+    const isSelected = library.selected.has(asset.id)
+    const movingAssets = isSelected
+      ? library.assets.filter((a) => library.selected.has(a.id))
+      : [asset]
+    const movingFolders = isSelected
+      ? library.subfolders.filter((p) => library.selectedFolders.has(p))
+      : []
+
+    e.dataTransfer.setData(
+      'application/json',
+      JSON.stringify({
+        assets: movingAssets,
+        folderPaths: movingFolders,
+      }),
+    )
+    e.dataTransfer.effectAllowed = 'move'
+  }
+
+  const handleDragFolder = (folderPath: string) => (e: React.DragEvent) => {
+    const isSelected = library.selectedFolders.has(folderPath)
+    const movingFolders = isSelected
+      ? library.subfolders.filter((p) => library.selectedFolders.has(p))
+      : [folderPath]
+    const movingAssets = isSelected
+      ? library.assets.filter((a) => library.selected.has(a.id))
+      : []
+
+    e.dataTransfer.setData(
+      'application/json',
+      JSON.stringify({
+        assets: movingAssets,
+        folderPaths: movingFolders,
+      }),
+    )
+    e.dataTransfer.effectAllowed = 'move'
+  }
+
+  const handleFolderDrop = (targetFolder: string, e: React.DragEvent) => {
+    try {
+      const raw = e.dataTransfer.getData('application/json')
+      if (raw) {
+        const parsed = JSON.parse(raw)
+        if (parsed.assets || parsed.folderPaths) {
+          onDropToFolder(targetFolder, parsed.assets || [], parsed.folderPaths || [])
+        }
+      }
+    } catch {
+      // Ignore invalid drag format
+    }
+  }
+
   if (view === 'grid') {
     return (
       <>
@@ -114,6 +161,8 @@ export function MediaContents({
               onOpen={openFolder(path)}
               onRename={renameFolder(path)}
               onDelete={deleteFolder(path)}
+              onDragStart={handleDragFolder(path)}
+              onDropToFolder={handleFolderDrop}
             />
           ))}
           {library.assets.map((asset) => (
@@ -125,8 +174,10 @@ export function MediaContents({
               canDelete={canDelete}
               selected={library.selected.has(asset.id)}
               onToggleSelect={() => library.toggleSelected(asset.id)}
+              onPreview={onPreviewAsset}
               onEdit={() => onEditAsset(asset)}
               onDelete={() => deleteFlow.start([asset])}
+              onDragStart={handleDragAsset(asset)}
             />
           ))}
         </div>
@@ -181,6 +232,8 @@ export function MediaContents({
             onOpen={openFolder(path)}
             onRename={renameFolder(path)}
             onDelete={deleteFolder(path)}
+            onDragStart={handleDragFolder(path)}
+            onDropToFolder={handleFolderDrop}
           />
         ))}
         {library.assets.map((asset) => (
@@ -193,8 +246,10 @@ export function MediaContents({
             gridCols={listCols}
             selected={library.selected.has(asset.id)}
             onToggleSelect={() => library.toggleSelected(asset.id)}
+            onPreview={onPreviewAsset}
             onEdit={() => onEditAsset(asset)}
             onDelete={() => deleteFlow.start([asset])}
+            onDragStart={handleDragAsset(asset)}
           />
         ))}
         {pagination}

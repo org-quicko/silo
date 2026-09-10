@@ -1,8 +1,9 @@
 import { useEffect, useRef } from 'react'
-import { Link, Pencil, Trash2 } from 'lucide-react'
+import { Eye, Link, Pencil, Trash2 } from 'lucide-react'
 import styles from './MediaLibrary.module.css'
 
 interface Props {
+  onPreview?: () => void
   onCopyLink?: () => void
   canRename: boolean
   onRename: () => void
@@ -12,9 +13,9 @@ interface Props {
   onClose: () => void
 }
 
-/** The grid tile's "more" menu — Copy link (files only), Rename, Delete —
+/** The grid tile's "more" menu — Preview, Copy link (files only), Rename, Delete —
  *  replacing the persistent action row a hover-only tile has no room for. */
-export function MediaCardMenu({ onCopyLink, canRename, onRename, canDelete, deleteTitle, onDelete, onClose }: Props) {
+export function MediaCardMenu({ onPreview, onCopyLink, canRename, onRename, canDelete, deleteTitle, onDelete, onClose }: Props) {
   const ref = useRef<HTMLDivElement>(null)
   useEffect(() => {
     const onDoc = (e: MouseEvent) => {
@@ -26,6 +27,11 @@ export function MediaCardMenu({ onCopyLink, canRename, onRename, canDelete, dele
 
   return (
     <div ref={ref} className={styles.cardMenu} onClick={(e) => e.stopPropagation()}>
+      {onPreview && (
+        <button type="button" className={styles.cardMenuItem} onClick={onPreview}>
+          <Eye size={14} /> <span>Preview</span>
+        </button>
+      )}
       {onCopyLink && (
         <button type="button" className={styles.cardMenuItem} onClick={onCopyLink}>
           <Link size={14} /> <span>Copy link</span>
