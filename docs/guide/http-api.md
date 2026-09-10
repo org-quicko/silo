@@ -45,10 +45,13 @@ Present a key as `Authorization: Bearer <key>` or `X-Api-Key: <key>`.
 | `GET` / `POST` | `/api/media` | list / upload media |
 | `GET` | `/api/media/extensions` | the file extensions the library actually holds, for the Type filter |
 | `GET` | `/api/media/{id}` | one asset's catalog record |
+| `GET` | `/api/media/{id}/usages` | the entries that reference this asset. Answers `total`, `visible` and `visible_capped`, because a key may not read every referrer |
 | `PATCH` | `/api/media/{id}` | rename, move, or retag one asset (`{filename, folder, tags}`, `media:create`) |
 | `DELETE` | `/api/media/{id}` | delete a media asset. Refused while an entry still references it, unless `?force=true`, which also needs `entries:update` at the scopes it reaches |
 | `POST` | `/api/media/delete` | delete up to 100 assets at once (`{ids, force}`). Always `200`, with a `deleted`/`failed` body |
 | `POST` | `/api/media/purge` | empty the whole library (`{confirm: "purge", force?}`). Always `200`, with a `deleted`/`failed` body plus a folder count |
+| `GET` | `/api/media/folders` | the folders the library holds |
+| `POST` | `/api/media/folders` | create a folder (`{path}`, `media:create`) |
 | `PATCH` | `/api/media/folders` | rename or move a folder (`{from, to}`), and every asset and descendant folder within |
 | `DELETE` | `/api/media/folders` | delete a folder. Empty only by default, or everything inside it with `?recursive=true` (`?force=true` as above) |
 | `GET` / `PUT` | `/api/media/storage` | read / change where the library keeps its bytes (`media:configure`) |
@@ -182,3 +185,10 @@ details carry JSON Pointer paths from the validator.
 Two failures have codes of their own, because they are neither a refusal nor a
 bug and a caller can act on them: `media_delete_stalled` (500) and
 `plugin_start_failed` (500). Each carries a `remedy` in `details`.
+
+A refused media delete has a code of its own too. `media_in_use` (409) says the
+asset is still referenced, and its `details` is an object rather than a
+validation list: `usage_count` is the true number of referring entries,
+`visible_count` is how many of them the calling key may read,
+`visible_capped` says the sample was cut short, and `referrers` enumerates up
+to 20 of them.

@@ -1,0 +1,9 @@
+{
+  // Test files import `bun:test`, which the published surface must not
+  // assume (D15, D23) — so the ambient `bun` types are added only here.
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "types": ["bun"]
+  },
+  "include": ["src/**/*", "test/**/*"]
+}

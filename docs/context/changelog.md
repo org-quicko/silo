@@ -4,6 +4,60 @@
 > The *current* state is [CONTEXT.md](../../CONTEXT.md); this is how it got
 > there.
 
+- **A published TypeScript client, and a resolved read that cannot be saved
+  (D61, 2026-09-10).** `packages/silo-client`, published as `silo-client`: a
+  typed, object-oriented client for the data half of the API, zero runtime
+  dependencies, one bundled artifact per module condition. The path is the
+  object graph and every handle is a value object, so
+  `silo.project("acme").environment("prod").collection<Post>("posts")` makes no
+  request. No default scope: a client that guesses `default/prod` reads the
+  wrong environment silently.
+
+  The decision the rest is arranged around is that **a resolved read is not
+  editable**. Resolving `{{NAME}}` is the default on the way out (D57) and must
+  stay so, which makes the default read the wrong thing to write back, so
+  `get` answers a `ResolvedEntry` with **no `save()`** and `edit` reads raw and
+  answers an `Entry` that has one, with `collection.editable` holding that
+  whole read surface for a tool editing more than one entry at a time. Writes
+  always send `?variables=raw`, so a create echoes what was sent rather than a
+  snapshot of what it meant today. There is no client-wide mode: the first cut
+  threaded the choice as a type parameter from `Silo` down into
+  `CollectionHandle<Fields, Mode>`, which made it the most prominent thing in
+  the API in exchange for one construction-time setting, and a runtime option
+  without the parameter would have `get()` claim a `ResolvedEntry` while
+  holding raw data.
+  An entry owns its revision, `save()` adopts the one it gets back, and a
+  second overlapping save on one instance is refused locally.
+
+  Pagination navigates by **the window the server answered**. This corrected a
+  belief the plan had asserted and never checked:
+  `QueryUtils.normalizeQuery` clamps a `limit` over 500 and replaces a
+  nonpositive one with 50, silently, so paging by a requested 900 would have
+  stepped over 400 entries a page. `entry.fields` was the other one: it
+  prevents collisions with the client's members, not the wire's, because the
+  server deletes user fields named `id`, `rev`, `seq`, `created_at` and
+  `updated_at` before answering and no client can reconstruct them.
+
+  **Three documentation gaps closed on the way through.**
+  `docs/guide/http-api.md` was missing `GET /api/media/folders`,
+  `POST /api/media/folders` and `GET /api/media/{id}/usages` from its route
+  table, and `media_in_use` from its error list. That is why `RouteInventory`
+  is checked against the server's own route registrations rather than against
+  the guide: a drift guard reading a document that can be incomplete is false
+  confidence.
+
+  **Two broken artifacts that every unit test passed.**
+  `"sideEffects": false` made `bun build` tree-shake a re-export-only entry
+  point to nothing, emitting a 0.9 KB bundle that exported names it never
+  defined and failed on `import()`; the field is now deliberately absent, since
+  bun offers no way to ignore the annotation while bundling. And extensionless
+  relative imports, fine under `bundler` resolution, emitted declarations that
+  `node16` consumers reject outright, so every relative import in `src/` now
+  carries a `.js` extension and `tools/emit-cts-types.ts` mirrors the whole
+  declaration tree to `.d.cts` rather than copying the entry alone. Both
+  conditions are now verified by typechecking a real `.mts` and `.cts` consumer
+  against the packed layout with `skipLibCheck` off.
+
 - **`base_url` names silo, so it always takes silo's route (D60, 2026-09-09).**
   D58 split a media URL into a host `[media] base_url` chose and a path shape
   the blob store chose. That reads well and is wrong in the ordinary case: the
