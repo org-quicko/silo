@@ -1,0 +1,58 @@
+{
+  "name": "silo-client",
+  "version": "1.0.0",
+  "description": "A typed, object-oriented client for silo's HTTP API",
+  "keywords": [
+    "silo",
+    "cms",
+    "headless-cms",
+    "client",
+    "api"
+  ],
+  "homepage": "https://github.com/org-quicko/silo#silo-client",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/org-quicko/silo.git",
+    "directory": "packages/silo-client"
+  },
+  "license": "AGPL-3.0-or-later",
+  "type": "module",
+  "exports": {
+    ".": {
+      "import": {
+        "types": "./dist/index.d.ts",
+        "default": "./dist/index.js"
+      },
+      "require": {
+        "types": "./dist/index.d.cts",
+        "default": "./dist/index.cjs"
+      }
+    }
+  },
+  "main": "./dist/index.cjs",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "engines": {
+    "node": ">=18"
+  },
+  "scripts": {
+    "build": "bun run build:esm && bun run build:cjs && bun run build:types",
+    "build:esm": "bun build src/index.ts --format=esm --outfile dist/index.js",
+    "build:cjs": "bun build src/index.ts --format=cjs --outfile dist/index.cjs",
+    "build:types": "tsc -p tsconfig.build.json && bun run tools/emit-cts-types.ts",
+    "test": "bun test",
+    "test:packaged": "bun run tools/packaged-tests.ts",
+    "typecheck": "tsc --noEmit -p tsconfig.json && tsc --noEmit -p tsconfig.test.json",
+    "prepublishOnly": "bun run build"
+  },
+  "devDependencies": {
+    "@arethetypeswrong/cli": "^0.18.0",
+    "@silo/shared": "workspace:*",
+    "publint": "^0.3.0",
+    "typescript": "^7.0.2"
+  }
+}

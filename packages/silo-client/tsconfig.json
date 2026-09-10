@@ -1,0 +1,23 @@
+{
+  // Standalone, and deliberately not extending the repo root's config. This
+  // package publishes on its own, so it typechecks on its own: `bun install`
+  // in this directory and `bun run typecheck` is the whole loop, with no
+  // knowledge of the silo tree above it (see create-silo-plugin/tsconfig.json).
+  "compilerOptions": {
+    "lib": ["ESNext", "DOM"],
+    "module": "ESNext",
+    "target": "ES2022",
+    "moduleResolution": "bundler",
+    "moduleDetection": "force",
+    "strict": true,
+    "skipLibCheck": true,
+    "forceConsistentCasingInFileNames": true,
+    // tsc is here to typecheck; dist/ is emitted by tsconfig.build.json.
+    "noEmit": true
+    // No `types` entry, deliberately: this package assumes nothing ambient
+    // from Node or Bun, so the published surface stays true to "runs anywhere
+    // `fetch` does" (D15). `tsconfig.test.json` adds `bun` for the test tree
+    // only.
+  },
+  "include": ["src/**/*"]
+}

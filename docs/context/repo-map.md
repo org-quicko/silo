@@ -12,7 +12,8 @@ silo/
 │  └─ admin/                  @silo/admin  — the React admin UI
 ├─ packages/
 │  ├─ shared/                 @silo/shared — runtime-neutral logic both sides need
-│  └─ create-silo-plugin/     the published plugin scaffolder
+│  ├─ create-silo-plugin/     the published plugin scaffolder
+│  └─ silo-client/            silo-client — the published TypeScript API client (D61)
 ├─ plugins/                   first-party plugins, one workspace package each
 │  └─ silo-plugin-strapi-import/  a Strapi 5 SQLite import — entries and media — with its own admin panel (D41)
 │     ├─ src/                     index.ts, then routes/ worker/ strapi/ staging/ silo/ panel/ types/
@@ -83,6 +84,8 @@ script.
 |------|------------|
 | `packages/shared/src/claims/` | The claim protocol: `Claims` is the facade over `ClaimVocabulary`, `ClaimGrammar`, `ClaimPresets`, `ClaimAuthorizer` and `ClaimSummary`. Both the server and the UI evaluate claims through it and nothing else. `claim-rewrite.ts` (D51) is what a rename does to a claim, and is pure so the one rule it turns on is testable without a store: a **literal** segment is a reference to an entity and is rewritten; a **wildcard** segment is a pattern over names and never is. `rename-permissions.ts` joins the four existing `*Permissions` classes, stating what a rename exercises so the admin can gate its controls on exactly what the routes enforce |
 | `packages/shared/src/` (rest) | `errors/`, `hooks/`, `json/`, `keys/`, `media/`, `query/`, `schema/`. `json/` holds `MergePatch` (RFC 7396), which lives here because the server *applies* a config patch and the admin UI has to *produce* one — two implementations either side of one endpoint agree until a nested key is deleted. `hooks/` holds the `HookName` vocabulary, which moved here when hook delivery became a claim (D34) — the grammar validates it and the UI renders it, so neither side may own a second copy; D36 added the collection-level `collection.afterDelete` to it. Something belongs here when both sides need it *or* when shared itself must produce it; anything importing `bun:*`, node builtins, `hono` or React does not |
+| `silo-client/src/` | The TypeScript API client, published on its own as `silo-client` (D61/§14). Flat under `packages/` because `workspaces` globs `packages/*` and a nested package would not be a member. Zero runtime dependencies and no import from `apps/` or `packages/shared`: the wire types are declared here, and `@silo/shared` is a dev-only dependency behind a drift test on the filter vocabulary. One subdirectory per subject, mirroring the API: `transport/` (the one place a request is made, plus `ApiPath` and `RouteInventory`), `pagination/`, `errors/`, `scope/`, `collections/`, `entries/`, `query/`, `search/`, `variables/`, `media/`. Every relative import carries a `.js` extension so the emitted declarations resolve under `node16` |
+| `silo-client/test/` | Mirrors `src/`, driven by a recording stub fetch so no test needs a server. `contract/` holds the two drift guards, both skipping when the tree above is absent: `RouteInventory` against the server's own route registrations, and the filter vocabulary against `@silo/shared`. `tools/packaged-tests.ts` is the layer above, consuming the packed tarball from Node ESM, Node CommonJS and Bun |
 | `create-silo-plugin/src/` | The plugin scaffolder, published on its own. Nothing here may import from `apps/` or `packages/shared`, and nothing may use a `Bun.*` global — it runs under Node, and the facts it needs from silo are copied and drift-tested rather than imported. `render/` holds one class per generated file, and `plugin-routes.ts` holds the `--routes` grammar and the body ceiling it refuses against (D41) |
 
 ## `plugins/`

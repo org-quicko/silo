@@ -17,7 +17,7 @@ can be cloned with one command.
 
 ## Where things stand
 
-*Last updated: 2026-09-09 (D60)*
+*Last updated: 2026-09-10 (D61)*
 
 Everything through M5 is built and shipping: collections and JSON Schema
 validation, entry CRUD with optimistic concurrency, the query AST and search
@@ -82,8 +82,52 @@ out for a bucket that is deliberately private, whose links then answered
 `AccessDenied` with no recourse: `[blob_storage] public_read = false` is that
 way out, and it is the only thing that keeps silo in the read path (D59).
 
-**The most recent change landed on 2026-09-09; everything before it on
-2026-09-08 or earlier.**
+There is now a **published TypeScript client** for the data half of the API,
+`packages/silo-client` (D61).
+
+**The most recent change landed on 2026-09-10; everything before it on
+2026-09-09 or earlier.**
+
+**silo has a TypeScript client, and it is a package rather than a copy of the
+admin's (2026-09-10).** `packages/silo-client`, published as `silo-client`,
+with zero runtime dependencies and one bundled artifact per module condition.
+The path is the object graph: `silo.project("acme").environment("prod")
+.collection<Post>("posts")`, where every handle is a value object that makes no
+request. There is no default scope, because a client that guesses `default/prod`
+reads the wrong environment silently. The decision the rest is arranged around
+is that **a resolved read is not editable**: resolving `{{NAME}}` is the default
+on the way out (D57) and must stay so, which makes the default read the wrong
+thing to write back, so `get` answers a `ResolvedEntry` with no `save()` at all
+and `edit` reads raw and answers an `Entry` that has one, with
+`collection.editable` holding that whole read surface for a tool editing a page
+of entries at a time. Writes always send `?variables=raw`, so a create echoes
+what was sent. There is deliberately **no client-wide mode**: threading the
+choice as a type parameter through four classes made it the most prominent
+thing in the API to buy one construction-time setting, and a runtime option
+without the parameter would have `get()` claim a `ResolvedEntry` while holding
+raw data. An entry owns its revision
+and `save()` adopts the one it gets back, so a caller never writes a number
+down. Pagination navigates by **the window the server answered**, since
+`QueryUtils.normalizeQuery` clamps a `limit` over 500 and replaces a
+nonpositive one with 50, both silently, so paging by a requested 900 would step
+over 400 entries. Filters are built and a typed collection types them
+(`posts.filter.field("stauts")` does not compile), and only known metadata is
+renamed on the way in, never a customer's `product_code` or a schema's property
+names. Errors are one class per code, and `NetworkError`, `TimeoutError`,
+`RequestAbortedError` and `InvalidResponseError` deliberately are not
+`SiloError`, because nothing answered. Out of scope: keys, claims, plugins,
+transfer, settings, audit, observability, and any generic escape hatch, so
+`RouteInventory` can list every route the client reaches and every route it
+leaves out, checked in a test against the server's own registrations rather than
+against the guide. **The guide was the reason for that**: its route table was
+missing `GET` and `POST /api/media/folders` and `GET /api/media/{id}/usages`,
+and its error list was missing `media_in_use`, all four corrected here. The
+package's own verification found two artifacts that every unit test had passed:
+`"sideEffects": false` made `bun build` tree-shake a re-export-only entry point
+to a bundle that exported names it never defined, and extensionless relative
+imports emitted declarations that `node16` consumers reject, so the field is
+gone and every import in `src/` now carries a `.js` extension. The admin UI
+keeps its own `src/api/` for now.
 
 **silo is 1.0, and `format_version` is back to `"1"` (2026-09-08).** The stamp
 starts again from one rather than carrying D18's `"2"` forward, so a 1.0

@@ -4,13 +4,17 @@
   "description": "A minimal, self-hostable headless CMS in TypeScript on Bun and Hono",
   "private": true,
   "type": "module",
-  "workspaces": ["apps/*", "packages/*", "plugins/*"],
+  "workspaces": [
+    "apps/*",
+    "packages/*",
+    "plugins/*"
+  ],
   "scripts": {
     "start": "bun run --cwd apps/server start",
     "dev": "concurrently -n server,admin -c blue,magenta --kill-others \"bun run start --data ./silo_data\" \"bun run --cwd apps/admin dev\"",
     "test": "bun test",
     "lint": "bun run --cwd apps/admin lint",
-    "typecheck": "tsc -b && tsc -b apps/admin",
+    "typecheck": "tsc -b && tsc -b apps/admin && bun run --cwd packages/silo-client typecheck",
     "build": "bun run tools/build/main.ts",
     "seed": "bun run tools/seed/main.ts",
     "set-version": "bun run tools/set-version.ts"

@@ -1,0 +1,17 @@
+{
+  // Declaration emit only. `bun build` produces the JS in dist/; this is the
+  // one place `noEmit` is turned off, and it emits nothing but `.d.ts` files
+  // (§7 of the plan: `index.d.ts` and, via tools/emit-cts-types.ts, its
+  // `index.d.cts` twin for the CJS export condition).
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "noEmit": false,
+    "declaration": true,
+    "emitDeclarationOnly": true,
+    "outDir": "dist",
+    // Required once `outDir` is set: without it tsc refuses to guess the
+    // output layout (TS5011).
+    "rootDir": "src"
+  },
+  "include": ["src/**/*"]
+}
