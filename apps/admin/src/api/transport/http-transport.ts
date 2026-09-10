@@ -1,3 +1,4 @@
+import { Silo } from 'silo-client'
 import { ApiError } from '../api-error'
 import type { ValidationDetail } from '@silo/shared/validation-detail'
 
@@ -16,6 +17,21 @@ export class HttpTransport {
    *  authenticated call routes the app back to the welcome gate. */
   setUnauthorizedHandler(handler: (() => void) | null): void {
     this.unauthorizedHandler = handler
+  }
+
+  /** Constructs a typed Silo client instance wired with the shared 401 handler. */
+  silo(url: string, key?: string): Silo {
+    return new Silo({
+      url: HttpTransport.baseUrl(url),
+      key: key || undefined,
+      fetch: async (input, init) => {
+        const response = await fetch(input, init)
+        if (response.status === 401) {
+          this.unauthorizedHandler?.()
+        }
+        return response
+      },
+    })
   }
 
   /** Trailing slash removed, so a caller's `http://host/` and `http://host`

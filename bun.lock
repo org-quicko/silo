@@ -26,6 +26,7 @@
         "lucide-react": "^1.42.0",
         "react": "^19.2.8",
         "react-dom": "^19.2.8",
+        "silo-client": "workspace:*",
       },
       "devDependencies": {
         "@types/bun": "^1.4.2",

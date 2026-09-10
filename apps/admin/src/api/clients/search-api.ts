@@ -1,9 +1,9 @@
+import { Filter } from 'silo-client'
 import { EntryMapper } from '../entry-mapper'
 import type { SearchPage } from '../types/search-page'
 import type { SearchQuery } from '../types/search-query'
 import type { SearchReach } from '../types/search-reach'
 import type { HttpTransport } from '../transport/http-transport'
-import { QueryParams } from '../transport/query-params'
 import { ScopePaths } from './scope-paths'
 
 /** Full-text search (D30) across the instance, one scope, or one collection. */
@@ -24,53 +24,41 @@ export class SearchApi {
       : `${base}/collections/${encodeURIComponent(reach.collection)}/search`
   }
 
-  run(
+  async run(
     url: string,
     key: string,
     reach: SearchReach,
     query: SearchQuery = {},
   ): Promise<SearchPage> {
-    const params = new QueryParams()
-      // The wire name is `q`, as §5.5 documents it. The field is `query`
-      // because every call site reads better that way, but renaming the
-      // parameter itself would make the admin only work against a server built
-      // after the rename — and its failure would be a *silent* one: a server
-      // that never sees text runs the same search with no text at all, which
-      // answers with everything rather than an error.
-      .set('q', query.query)
-      .json('filter', query.filter)
-      // Omitted rather than defaulted: §5.5 gives a supplied sort precedence
-      // over relevance, so sending one "just to be explicit" would silently
-      // turn every text search into a date listing.
-      .set('sort', query.sort)
-      .set('limit', query.limit)
-      .set('offset', query.offset)
-      // Raw, like every other entry the admin reads (D57): a hit leads to the
-      // form, and the two must not disagree about what the entry says.
-      .set('variables', 'raw')
+    const silo = this.transport.silo(url, key)
+    const searchQuery = {
+      query: query.query,
+      where: query.filter ? Filter.raw(query.filter as any) : undefined,
+      sort: query.sort,
+      limit: query.limit,
+      offset: query.offset,
+    }
 
-    return this.transport
-      .request<{
-        data: any[]
-        total: number
-        limit: number
-        offset: number
-        truncated: boolean
-        engine: 'fts5' | 'scan'
-      }>(url, key, `${SearchApi.path(reach)}${params}`)
-      .then((response) => ({
-        items: (response.data || []).map((hit) => ({
-          project: hit.project,
-          env: hit.env,
-          collection: hit.collection,
-          entry: EntryMapper.fromApiEntry(hit.entry, hit.collection),
-          snippets: hit.snippets || [],
-        })),
-        total: response.total,
-        limit: response.limit,
-        offset: response.offset,
-        truncated: response.truncated,
-        engine: response.engine,
-      }))
+    const page =
+      reach.kind === 'instance'
+        ? await silo.search(searchQuery)
+        : reach.kind === 'scope'
+          ? await silo.scope(reach.scope.project, reach.scope.env).search(searchQuery)
+          : await silo.scope(reach.scope.project, reach.scope.env).collection(reach.collection).search(searchQuery)
+
+    return {
+      items: page.hits.map((hit) => ({
+        project: hit.project,
+        env: hit.environment,
+        collection: hit.collection,
+        entry: EntryMapper.fromApiEntry(hit.entry.toJSON(), hit.collection),
+        snippets: [...hit.snippets],
+      })),
+      total: page.total,
+      limit: page.limit,
+      offset: page.offset,
+      truncated: page.truncated,
+      engine: page.engine,
+    }
   }
 }

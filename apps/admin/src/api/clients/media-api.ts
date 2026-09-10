@@ -1,3 +1,4 @@
+import type { MediaAsset as SiloMediaAsset, MediaAssetRecord } from 'silo-client'
 import type { MediaAsset } from '../types/media-asset'
 import type { MediaBulkDeleteResult } from '../types/media-bulk-delete'
 import type { MediaFolderDeleteResult } from '../types/media-folder-delete'
@@ -6,7 +7,6 @@ import type { MediaPolicyInput, MediaPolicyView } from '../types/media-settings'
 import type { MediaStorageInput, MediaStorageView } from '../types/media-storage'
 import type { MediaUsage } from '../types/media-usage'
 import type { HttpTransport } from '../transport/http-transport'
-import { QueryParams } from '../transport/query-params'
 
 /** One page of the media library. */
 export interface MediaPage {
@@ -30,102 +30,132 @@ export class MediaApi {
   }
 
   list(url: string, key: string, query: MediaQuery = {}): Promise<MediaPage> {
-    const params = new QueryParams()
-      .set('q', query.q)
-      // `folder=""` is the library root, not "no folder filter".
-      .setEvenIfEmpty('folder', query.folder)
-      .set('recursive', query.recursive ? 'true' : undefined)
-      .set('type', query.type)
-      .set('ext', query.ext)
-      .set('tag', query.tag)
-      .set('modified_after', query.modifiedAfter)
-      .set('modified_before', query.modifiedBefore)
-      .set('limit', query.limit)
-      .set('offset', query.offset)
-      .set('sort', query.sort)
-
-    return this.transport.request<MediaPage>(url, key, `/api/media${params}`)
+    const silo = this.transport.silo(url, key)
+    return silo.media
+      .list({
+        text: query.q,
+        folder: query.folder,
+        recursive: query.recursive,
+        type: query.type,
+        extension: query.ext,
+        tag: query.tag,
+        modifiedAfter: query.modifiedAfter,
+        modifiedBefore: query.modifiedBefore,
+        limit: query.limit,
+        offset: query.offset,
+        sort: query.sort,
+      })
+      .then((page) => ({
+        items: page.files.map((asset) => MediaApi.toMediaAsset(asset)),
+        total: page.total,
+        limit: page.limit,
+        offset: page.offset,
+      }))
   }
 
   upload(url: string, key: string, file: File, folder?: string): Promise<MediaAsset> {
-    const form = new FormData()
-    form.append('file', file)
-    if (folder) form.append('folder', folder)
-    return this.transport.request<MediaAsset>(url, key, '/api/media', {
-      method: 'POST',
-      body: form,
-    })
+    return this.transport
+      .silo(url, key)
+      .media.upload(file, { folder })
+      .then((asset) => MediaApi.toMediaAsset(asset))
   }
 
   get(url: string, key: string, id: string): Promise<MediaAsset> {
-    return this.transport.request<MediaAsset>(url, key, MediaApi.assetPath(id))
+    return this.transport
+      .silo(url, key)
+      .media.get(id)
+      .then((asset) => MediaApi.toMediaAsset(asset))
   }
 
   /** Rename, move, or retag. Touches no blob and no entry. */
-  update(
+  async update(
     url: string,
     key: string,
     id: string,
     patch: { filename?: string; folder?: string; tags?: string[] },
   ): Promise<MediaAsset> {
-    return this.transport.request<MediaAsset>(url, key, MediaApi.assetPath(id), {
-      method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(patch),
-    })
+    let asset = await this.transport.silo(url, key).media.get(id)
+    if (patch.filename && patch.filename !== asset.filename) {
+      asset = await asset.rename(patch.filename)
+    }
+    if (patch.folder !== undefined && patch.folder !== asset.folder) {
+      asset = await asset.moveTo(patch.folder)
+    }
+    if (patch.tags !== undefined) {
+      asset = await asset.setTags(patch.tags)
+    }
+    return MediaApi.toMediaAsset(asset)
   }
 
   /** Rejects with a 409 `media_in_use` while any entry still references it,
    *  unless `force` is set (D48), which deletes over a live reference. */
-  delete(url: string, key: string, id: string, force = false): Promise<void> {
-    const path = force ? `${MediaApi.assetPath(id)}?force=true` : MediaApi.assetPath(id)
-    return this.transport.request<void>(url, key, path, { method: 'DELETE' })
+  async delete(url: string, key: string, id: string, force = false): Promise<void> {
+    const asset = await this.transport.silo(url, key).media.get(id)
+    return asset.delete({ force })
   }
 
   /** One request, one id per outcome, always `200` (D48). A single-file
    *  delete and a multi-select delete are both this, with one id. */
   deleteMany(url: string, key: string, ids: string[], force = false): Promise<MediaBulkDeleteResult> {
-    return this.transport.request<MediaBulkDeleteResult>(url, key, '/api/media/delete', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ ids, force }),
-    })
+    return this.transport
+      .silo(url, key)
+      .media.deleteMany(ids, { force })
+      .then((report) => ({
+        deleted: [...report.deleted],
+        failed: report.failed.map((f) => ({
+          id: f.id,
+          code: f.code as 'media_in_use' | 'not_found' | 'media_delete_stalled' | 'invalid_id',
+          message: f.message,
+          usage_count: f.usageCount,
+          visible_count: f.visibleCount,
+          visible_capped: f.visibleCapped,
+          referrers: f.referrers?.map((r) => ({
+            media_id: r.mediaId,
+            project: r.project,
+            env: r.environment,
+            collection: r.collection,
+            entry_id: r.entryId,
+          })),
+        })),
+      }))
   }
 
-  usages(
+  async usages(
     url: string,
     key: string,
     id: string,
     limit = 50,
     offset = 0,
   ): Promise<{ items: MediaUsage[]; total: number; visible: number; visible_capped: boolean }> {
-    return this.transport.request(
-      url,
-      key,
-      `${MediaApi.assetPath(id)}/usages?limit=${limit}&offset=${offset}`,
-    )
+    const asset = await this.transport.silo(url, key).media.get(id)
+    const page = await asset.usages({ limit, offset })
+    return {
+      items: page.usages.map((r) => ({
+        media_id: r.mediaId,
+        project: r.project,
+        env: r.environment,
+        collection: r.collection,
+        entry_id: r.entryId,
+      })),
+      total: page.total,
+      visible: page.visible,
+      visible_capped: page.visibleCapped,
+    }
   }
 
   listFolders(url: string, key: string): Promise<string[]> {
-    return this.transport
-      .request<{ items: string[] }>(url, key, '/api/media/folders')
-      .then((response) => response.items)
+    return this.transport.silo(url, key).media.folders.list()
   }
 
   /** Every distinct file extension in the library — the Type filter's menu
    *  (D55), built from what is actually there rather than a fixed list. */
   listExtensions(url: string, key: string): Promise<string[]> {
-    return this.transport
-      .request<{ items: string[] }>(url, key, '/api/media/extensions')
-      .then((response) => response.items)
+    return this.transport.silo(url, key).media.extensions()
   }
 
-  createFolder(url: string, key: string, path: string): Promise<{ path: string }> {
-    return this.transport.request<{ path: string }>(url, key, '/api/media/folders', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ path }),
-    })
+  async createFolder(url: string, key: string, path: string): Promise<{ path: string }> {
+    const createdPath = await this.transport.silo(url, key).media.folders.create(path)
+    return { path: createdPath }
   }
 
   /** Rename or move a folder, its descendant folders, and every asset within.
@@ -139,21 +169,12 @@ export class MediaApi {
     to: string,
     merge = false,
   ): Promise<{ from: string; to: string }> {
-    return this.transport.request<{ from: string; to: string }>(url, key, '/api/media/folders', {
-      method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ from, to, merge }),
-    })
+    return this.transport.silo(url, key).media.folders.rename(from, to, { merge })
   }
 
   /** Empty-folder delete: refuses while anything is inside. */
   deleteFolder(url: string, key: string, path: string): Promise<void> {
-    return this.transport.request<void>(
-      url,
-      key,
-      `/api/media/folders?path=${encodeURIComponent(path)}`,
-      { method: 'DELETE' },
-    )
+    return this.transport.silo(url, key).media.folders.delete(path)
   }
 
   /** Recursive folder delete (D49): every asset inside goes through the same
@@ -208,10 +229,25 @@ export class MediaApi {
     })
   }
 
+  static toMediaAsset(asset: SiloMediaAsset | MediaAssetRecord): MediaAsset {
+    const rec = typeof (asset as any).toJSON === 'function' ? (asset as SiloMediaAsset).toJSON() : (asset as MediaAssetRecord)
+    return {
+      id: rec.id,
+      filename: rec.filename,
+      folder: rec.folder,
+      blob_key: rec.blobKey,
+      size: rec.sizeInBytes,
+      content_type: rec.contentType,
+      hash: rec.hash,
+      state: rec.state,
+      tags: [...rec.tags],
+      url: rec.url,
+      created_at: rec.createdAt instanceof Date ? rec.createdAt.toISOString() : String(rec.createdAt),
+      updated_at: rec.updatedAt instanceof Date ? rec.updatedAt.toISOString() : String(rec.updatedAt),
+      usage_count: rec.usageCount,
+    }
+  }
+
   private static readonly StoragePath = '/api/media/storage'
   private static readonly SettingsPath = '/api/media/settings'
-
-  private static assetPath(id: string): string {
-    return `/api/media/${encodeURIComponent(id)}`
-  }
 }

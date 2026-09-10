@@ -60,7 +60,7 @@ export function VariableRow({
         {variable.description && <span className={styles.description}>{variable.description}</span>}
         <span className={styles.note}>
           {/* Counted across the project, because the name is the project's. */}
-          Set in {variable.set_in} of {environments}{' '}
+          Set in {variable.setIn} of {environments}{' '}
           {environments === 1 ? 'environment' : 'environments'}
         </span>
       </div>

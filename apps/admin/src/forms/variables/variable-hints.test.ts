@@ -1,16 +1,16 @@
 import { describe, expect, test } from 'bun:test'
-import type { Variable } from '../../api/types/variable'
+import { Variable } from '../../api/types/variable'
 import { VariableHints } from './variable-hints'
 
 function variable(name: string, value: string | null): Variable {
-  return {
+  return Variable.fromWire({
     name,
     description: '',
     value,
     set_in: value === null ? 0 : 1,
     created_at: '2026-09-07T00:00:00.000Z',
     updated_at: '2026-09-07T00:00:00.000Z',
-  }
+  })
 }
 
 const declared = [variable('API_URL', 'https://prod.example.com'), variable('DRAFT', null)]

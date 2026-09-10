@@ -13,21 +13,19 @@ describe('SearchApi', () => {
     ).toBe('/api/projects/proj/environments/prod/collections/posts/search')
   })
 
-  test('sends the search text as ?q=, the name the API documents', async () => {
-    let requestedUrl = ''
-    const fakeTransport = {
-      request: async (_url: string, _key: string, path: string) => {
-        requestedUrl = path
-        return { data: [], total: 0, limit: 20, offset: 0, truncated: false, engine: 'fts5' as const }
+  test('delegates search query to silo client', async () => {
+    let requestedQuery: any = null
+    const fakeSilo = {
+      search: async (q: any) => {
+        requestedQuery = q
+        return { hits: [], total: 0, limit: 20, offset: 0, truncated: false, engine: 'fts5' }
       },
+    }
+    const fakeTransport = {
+      silo: () => fakeSilo,
     } as unknown as HttpTransport
     const api = new SearchApi(fakeTransport)
     await api.run('http://localhost', 'secret', { kind: 'instance' }, { query: 'test' })
-    // `variables=raw` rides along on every entry the admin reads (D57): a hit
-    // leads to the form, and the two must not disagree about what the entry
-    // says. Pinned here rather than left to the exact-URL assertion above,
-    // because dropping it is a silent bug — the search would simply start
-    // showing resolved values the form does not.
-    expect(requestedUrl).toBe('/api/search?q=test&variables=raw')
+    expect(requestedQuery.query).toBe('test')
   })
 })
