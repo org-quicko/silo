@@ -25,8 +25,8 @@ interface Props {
  * an operator can find out.
  */
 export function RenameConfirmDialog({ noun, preview, busy, onConfirm, onCancel }: Props) {
-  const rewritten = preview.rewritten_claims
-  const affected = preview.pattern_affected_claims
+  const rewritten = preview.rewrittenClaims ?? (preview as any).rewritten_claims ?? []
+  const affected = preview.patternAffectedClaims ?? (preview as any).pattern_affected_claims ?? []
 
   return (
     <Modal onClose={busy ? () => {} : onCancel}>

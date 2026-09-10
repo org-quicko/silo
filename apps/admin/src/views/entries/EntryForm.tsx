@@ -7,7 +7,7 @@ import { Trash2 } from 'lucide-react'
 import { Claims } from '@silo/shared/claims'
 import type { ValidationDetail } from '@silo/shared/validation-detail'
 import { api } from '../../api/silo-api'
-import { ApiError } from '../../api/api-error'
+import { ApiError, ValidationFailedError } from '../../api/api-error'
 import { Formatters } from '../../utils/formatters'
 import type { Collection } from '../../api/types/collection'
 import type { Entry } from '../../api/types/entry'
@@ -160,7 +160,7 @@ export function EntryForm({
       ToastManager.show(entry ? 'Entry updated' : 'Entry created')
       onSaved()
     } catch (caught: any) {
-      if (caught instanceof ApiError && caught.details && caught.details.length) {
+      if ((caught instanceof ValidationFailedError || caught instanceof ApiError) && caught.details && caught.details.length) {
         setExtraErrors(toExtraErrors(caught.details))
         setFormError('')
       } else {

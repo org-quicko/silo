@@ -1,6 +1,5 @@
 import type { RenameResult, ScopeRecord } from '../types/scope-record'
-import { HttpTransport } from '../transport/http-transport'
-import { ScopePaths } from './scope-paths'
+import type { HttpTransport } from '../transport/http-transport'
 
 /** Projects and environments — the two containers a collection is addressed by. */
 export class ProjectsApi {
@@ -11,17 +10,11 @@ export class ProjectsApi {
   }
 
   list(url: string, key: string): Promise<ScopeRecord[]> {
-    return this.transport
-      .request<{ items: ScopeRecord[] }>(url, key, '/api/projects')
-      .then((response) => response.items)
+    return this.transport.silo(url, key).projects.list()
   }
 
   create(url: string, key: string, project: string): Promise<ScopeRecord> {
-    return this.transport.request<ScopeRecord>(url, key, '/api/projects', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ id: project }),
-    })
+    return this.transport.silo(url, key).projects.create(project)
   }
 
   /**
@@ -37,31 +30,15 @@ export class ProjectsApi {
     expectedId: string,
     dryRun = false,
   ): Promise<RenameResult> {
-    return this.transport.request<RenameResult>(
-      url,
-      key,
-      `${ScopePaths.project(project)}${ProjectsApi.renameQuery(expectedId, dryRun)}`,
-      {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name }),
-      },
-    )
+    return this.transport.silo(url, key).project(project).rename(name, { expectedId, dryRun })
   }
 
   delete(url: string, key: string, project: string, force = true): Promise<void> {
-    return this.transport.request<void>(
-      url,
-      key,
-      `${ScopePaths.project(project)}?force=${force}`,
-      { method: 'DELETE' },
-    )
+    return this.transport.silo(url, key).project(project).delete({ force })
   }
 
   listEnvironments(url: string, key: string, project: string): Promise<ScopeRecord[]> {
-    return this.transport
-      .request<{ items: ScopeRecord[] }>(url, key, ScopePaths.environments(project))
-      .then((response) => response.items)
+    return this.transport.silo(url, key).project(project).environments.list()
   }
 
   createEnvironment(
@@ -70,11 +47,7 @@ export class ProjectsApi {
     project: string,
     env: string,
   ): Promise<ScopeRecord> {
-    return this.transport.request(url, key, ScopePaths.environments(project), {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ id: env }),
-    })
+    return this.transport.silo(url, key).project(project).environments.create(env)
   }
 
   renameEnvironment(
@@ -86,16 +59,7 @@ export class ProjectsApi {
     expectedId: string,
     dryRun = false,
   ): Promise<RenameResult> {
-    return this.transport.request<RenameResult>(
-      url,
-      key,
-      `${ScopePaths.environment(project, env)}${ProjectsApi.renameQuery(expectedId, dryRun)}`,
-      {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name }),
-      },
-    )
+    return this.transport.silo(url, key).scope(project, env).rename(name, { expectedId, dryRun })
   }
 
   deleteEnvironment(
@@ -105,17 +69,6 @@ export class ProjectsApi {
     env: string,
     force = true,
   ): Promise<void> {
-    return this.transport.request<void>(
-      url,
-      key,
-      `${ScopePaths.environment(project, env)}?force=${force}`,
-      { method: 'DELETE' },
-    )
-  }
-
-  private static renameQuery(expectedId: string, dryRun: boolean): string {
-    const query = new URLSearchParams({ expected_id: expectedId })
-    if (dryRun) query.set('dry_run', 'true')
-    return `?${query.toString()}`
+    return this.transport.silo(url, key).scope(project, env).delete({ force })
   }
 }

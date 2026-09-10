@@ -1,3 +1,4 @@
+import type { Silo } from 'silo-client'
 import { AuditApi } from './clients/audit-api'
 import { CollectionsApi } from './clients/collections-api'
 import { EntriesApi } from './clients/entries-api'
@@ -35,6 +36,11 @@ export class SiloApi {
   readonly audit = new AuditApi(this.transport)
   readonly settings = new SettingsApi(this.transport)
   readonly variables = new VariablesApi(this.transport)
+
+  /** Creates a typed silo-client instance pointed at the given server. */
+  silo(url: string, key?: string): Silo {
+    return this.transport.silo(url, key)
+  }
 
   /** A stored key can be revoked out from under an open session; a 401 on any
    *  authenticated call routes the app back to the welcome gate. */

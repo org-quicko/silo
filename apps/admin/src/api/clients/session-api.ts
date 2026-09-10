@@ -11,9 +11,7 @@ export class SessionApi {
 
   /** Unauthenticated: the one call that answers before a key exists. */
   async health(url: string): Promise<{ status: string; version: string }> {
-    const response = await this.transport.fetchRaw(url, '/api/health')
-    if (!response.ok) throw await HttpTransport.parseError(response)
-    return response.json()
+    return this.transport.silo(url).health()
   }
 
   /** A 401 is an answer here, not an error — this is how a key is checked. */

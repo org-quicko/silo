@@ -1,10 +1,25 @@
-import type { ValidationDetail } from '@silo/shared/validation-detail'
+import { SiloError, type ValidationDetail } from 'silo-client'
 
-export class ApiError extends Error {
-  status: number
-  code: string
+export {
+  SiloError,
+  ValidationFailedError,
+  UnauthorizedError,
+  ForbiddenError,
+  NotFoundError,
+  ConflictError,
+  MediaInUseError,
+  MediaDeleteStalledError,
+  InternalError,
+  NetworkError,
+  TimeoutError,
+  RequestAbortedError,
+  InvalidResponseError,
+} from 'silo-client'
+export type { ValidationDetail, ErrorCode } from 'silo-client'
+
+export class ApiError extends SiloError {
   /** Field-level validation failures, when the error carries a list of them. */
-  details?: ValidationDetail[]
+  declare details?: ValidationDetail[]
   /**
    * A structured error payload that is not a validation list — a refused
    * media delete carries its usage count and referrers here (D23). Kept
@@ -12,6 +27,7 @@ export class ApiError extends Error {
    * site.
    */
   info?: Record<string, unknown>
+
   constructor(
     status: number,
     code: string,
@@ -19,10 +35,10 @@ export class ApiError extends Error {
     details?: ValidationDetail[],
     info?: Record<string, unknown>,
   ) {
-    super(message)
-    this.status = status
-    this.code = code
+    super(status, code, message, '', '')
+    this.name = 'ApiError'
     this.details = details
     this.info = info
+    Object.setPrototypeOf(this, ApiError.prototype)
   }
 }

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react'
-import { ApiError } from '../../api/api-error'
+import { ApiError, ConflictError } from '../../api/api-error'
 import { api } from '../../api/silo-api'
 import type { MediaAsset } from '../../api/types/media-asset'
 import type { MediaBulkDeleteResult } from '../../api/types/media-bulk-delete'
@@ -237,7 +237,7 @@ export function useMediaLibrary(url: string, apiKey: string, initialQuery: strin
         else if (folder.startsWith(result.from + '/')) selectFolder(result.to + folder.slice(result.from.length))
         return 'ok'
       } catch (failure: unknown) {
-        if (!merge && failure instanceof ApiError && failure.status === 409) return 'conflict'
+        if (!merge && (failure instanceof ConflictError || (failure instanceof ApiError && failure.status === 409))) return 'conflict'
         setError(MediaLibraryError.message(failure, 'Could not rename the folder'))
         return 'error'
       }
