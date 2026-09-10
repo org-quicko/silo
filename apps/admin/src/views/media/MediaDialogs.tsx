@@ -3,21 +3,30 @@ import { AssetInUseDialog } from './AssetInUseDialog'
 import { DeleteAssetDialog } from './DeleteAssetDialog'
 import { MediaForceAvailability } from './media-force-availability'
 import { MergeFolderDialog } from './MergeFolderDialog'
+import { MoveMediaDialog } from './MoveMediaDialog'
+import { MediaPreviewDialog } from './MediaPreviewDialog'
 import { NewFolderDialog } from './NewFolderDialog'
 import { PurgeLibraryDialog } from './PurgeLibraryDialog'
 import { RenameAssetDialog } from './RenameAssetDialog'
 import { RenameFolderDialog } from './RenameFolderDialog'
 import type { useMediaDeleteFlow } from './use-media-delete-flow'
+import type { useMediaMoveFlow } from './use-media-move-flow'
 import type { useMediaPurge } from './use-media-purge'
 import type { useMediaRenameFolderFlow } from './use-media-rename-folder-flow'
 
 interface Props {
   claims: string[]
+  baseUrl: string
+  assets: MediaAsset[]
   editing: MediaAsset | null
   editingBusy: boolean
   deleteFlow: ReturnType<typeof useMediaDeleteFlow>
+  moveFlow: ReturnType<typeof useMediaMoveFlow>
   purgeFlow: ReturnType<typeof useMediaPurge>
   renameFolderFlow: ReturnType<typeof useMediaRenameFolderFlow>
+  previewAsset: MediaAsset | null
+  onClosePreview: () => void
+  onNavigatePreview: (asset: MediaAsset) => void
   onRenameAsset: (filename: string, folder: string) => void
   onCloseRenameAsset: () => void
   creatingFolder: boolean
@@ -38,11 +47,17 @@ interface Props {
  */
 export function MediaDialogs({
   claims,
+  baseUrl,
+  assets,
   editing,
   editingBusy,
   deleteFlow,
+  moveFlow,
   purgeFlow,
   renameFolderFlow,
+  previewAsset,
+  onClosePreview,
+  onNavigatePreview,
   onRenameAsset,
   onCloseRenameAsset,
   creatingFolder,
@@ -53,6 +68,26 @@ export function MediaDialogs({
 }: Props) {
   return (
     <>
+      {previewAsset && (
+        <MediaPreviewDialog
+          asset={previewAsset}
+          assets={assets}
+          baseUrl={baseUrl}
+          onClose={onClosePreview}
+          onNavigate={onNavigatePreview}
+        />
+      )}
+
+      {moveFlow.subject && moveFlow.targetFolder !== null && (
+        <MoveMediaDialog
+          subject={moveFlow.subject}
+          targetFolder={moveFlow.targetFolder}
+          busy={moveFlow.busy}
+          onConfirm={moveFlow.confirm}
+          onClose={moveFlow.cancel}
+        />
+      )}
+
       {editing && (
         <RenameAssetDialog
           asset={editing}

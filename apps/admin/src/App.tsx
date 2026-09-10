@@ -101,7 +101,7 @@ export default function App() {
     />
   ) : (
     <Workspace
-      key={`${server.id}:${route.project}/${route.env}`}
+      key={`${server.id}:${'project' in route ? `${route.project}/${route.env}` : 'media'}`}
       server={server}
       servers={servers}
       route={route}

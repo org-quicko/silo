@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { Check, FileText, Image as ImageIcon, Link, MoreHorizontal } from 'lucide-react'
+import { Check, Eye, FileText, Image as ImageIcon, Link, MoreHorizontal } from 'lucide-react'
 import type { MediaAsset } from '../../api/types/media-asset'
 import { Checkbox } from '../../components/controls/Checkbox'
 import { ToastManager } from '../../utils/toast-manager'
@@ -17,21 +17,32 @@ interface Props {
   canDelete: boolean
   selected: boolean
   onToggleSelect: () => void
+  onPreview: (asset: MediaAsset) => void
   onEdit: () => void
   onDelete: () => void
+  onDragStart?: (e: React.DragEvent) => void
 }
 
-/** One asset in the grid: a header row naming it, a preview, and — revealed
+/** One asset in the grid: a header row naming it, a preview thumbnail, and — revealed
  *  on hover so the tile stays quiet at rest — a select checkbox, a copy-link
- *  shortcut, and a "more" menu for rename/delete. */
-export function MediaCard({ asset, baseUrl, canEdit, canDelete, selected, onToggleSelect, onEdit, onDelete }: Props) {
+ *  shortcut, a preview shortcut, and a "more" menu for rename/delete. */
+export function MediaCard({
+  asset,
+  baseUrl,
+  canEdit,
+  canDelete,
+  selected,
+  onToggleSelect,
+  onPreview,
+  onEdit,
+  onDelete,
+  onDragStart,
+}: Props) {
   const [menuOpen, setMenuOpen] = useState(false)
   const [justCopied, setJustCopied] = useState(false)
   const fileUrl = MediaFileUrl.of(asset, baseUrl)
   const used = asset.usage_count || 0
   const isImage = asset.content_type.startsWith('image/')
-
-  const select = canDelete ? onToggleSelect : undefined
 
   const copyLink = () => {
     navigator.clipboard.writeText(fileUrl)
@@ -40,16 +51,22 @@ export function MediaCard({ asset, baseUrl, canEdit, canDelete, selected, onTogg
     ToastManager.show('Link copied')
   }
 
+  const handleCardClick = () => {
+    onPreview(asset)
+  }
+
   return (
     <div
       className={`${styles.assetCard} ${selected ? styles.cardSelected : ''} ${menuOpen ? styles.cardMenuOpen : ''}`}
       role="button"
       tabIndex={0}
+      draggable={canEdit}
       aria-label={selected ? `${asset.filename}, selected` : asset.filename}
-      onClick={select}
+      onClick={handleCardClick}
       onKeyDown={(e) => {
-        if (select && e.key === 'Enter') select()
+        if (e.key === 'Enter') handleCardClick()
       }}
+      onDragStart={onDragStart}
     >
       <div className={styles.cardHead}>
         <span className={styles.cardHeadIcon}>{isImage ? <ImageIcon size={16} /> : <FileText size={16} />}</span>
@@ -85,6 +102,17 @@ export function MediaCard({ asset, baseUrl, canEdit, canDelete, selected, onTogg
           <button
             type="button"
             className={styles.quickActionButton}
+            title="Preview file"
+            onClick={(e) => {
+              e.stopPropagation()
+              onPreview(asset)
+            }}
+          >
+            <Eye size={12.5} />
+          </button>
+          <button
+            type="button"
+            className={styles.quickActionButton}
             title="Copy the public URL"
             onClick={(e) => {
               e.stopPropagation()
@@ -98,6 +126,10 @@ export function MediaCard({ asset, baseUrl, canEdit, canDelete, selected, onTogg
 
       {menuOpen && (
         <MediaCardMenu
+          onPreview={() => {
+            setMenuOpen(false)
+            onPreview(asset)
+          }}
           onCopyLink={() => {
             setMenuOpen(false)
             copyLink()

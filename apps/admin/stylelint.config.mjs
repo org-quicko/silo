@@ -10,7 +10,7 @@ export default {
     'keyframe-block-no-duplicate-selectors': true,
     'no-duplicate-at-import-rules': true,
     'no-duplicate-selectors': true,
-    'property-no-unknown': true,
+    'property-no-unknown': [true, { ignoreProperties: ['composes'] }],
     'selector-pseudo-class-no-unknown': [true, { ignorePseudoClasses: ['global'] }],
     'selector-pseudo-element-no-unknown': true,
     'unit-no-unknown': true,

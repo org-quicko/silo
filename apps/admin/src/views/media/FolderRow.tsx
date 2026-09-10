@@ -1,3 +1,4 @@
+import { useState } from 'react'
 import { Folder, Pencil, Trash2 } from 'lucide-react'
 import { Button } from '../../components/buttons/Button'
 import { Checkbox } from '../../components/controls/Checkbox'
@@ -21,14 +22,12 @@ interface Props {
   onOpen: () => void
   onRename: () => void
   onDelete: () => void
+  onDragStart?: (e: React.DragEvent) => void
+  onDropToFolder?: (targetFolder: string, e: React.DragEvent) => void
 }
 
 /**
- * `FolderTile`'s row form for list view.
- *
- * A clickable name cell plus a separate actions cell, not a `<button>`
- * wrapping the whole row: rename and delete are buttons of their own now
- * (D49), and nesting a button inside a button is invalid HTML.
+ * `FolderTile`'s row form for list view with drag-and-drop support.
  */
 export function FolderRow({
   path,
@@ -42,10 +41,49 @@ export function FolderRow({
   onOpen,
   onRename,
   onDelete,
+  onDragStart,
+  onDropToFolder,
 }: Props) {
   const name = MediaPath.name(path)
+  const [dragOver, setDragOver] = useState(false)
+
+  const handleDragOver = (e: React.DragEvent) => {
+    if (!canEdit) return
+    e.preventDefault()
+    e.dataTransfer.dropEffect = 'move'
+  }
+
+  const handleDragEnter = (e: React.DragEvent) => {
+    if (!canEdit) return
+    e.preventDefault()
+    setDragOver(true)
+  }
+
+  const handleDragLeave = (e: React.DragEvent) => {
+    if (!canEdit) return
+    if (!e.currentTarget.contains(e.relatedTarget as Node)) {
+      setDragOver(false)
+    }
+  }
+
+  const handleDrop = (e: React.DragEvent) => {
+    if (!canEdit) return
+    e.preventDefault()
+    setDragOver(false)
+    onDropToFolder?.(path, e)
+  }
+
   return (
-    <div className={`${table.row} ${styles.fileRow}`} style={{ ['--cols' as any]: gridCols }}>
+    <div
+      className={`${table.row} ${styles.fileRow} ${dragOver ? styles.dropTargetActive : ''}`}
+      style={{ ['--cols' as any]: gridCols }}
+      draggable={canEdit}
+      onDragStart={onDragStart}
+      onDragOver={handleDragOver}
+      onDragEnter={handleDragEnter}
+      onDragLeave={handleDragLeave}
+      onDrop={handleDrop}
+    >
       {showCheckbox && (
         <div className={`${table.cell} ${styles.checkboxCell}`}>
           <Checkbox checked={selected} onChange={onToggleSelect} aria-label={`Select ${name}`} />

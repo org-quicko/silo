@@ -47,7 +47,7 @@ export type Route =
   | { view: 'entries'; serverId: string; project: string; env: string; collection: string; query: ListQuery }
   | { view: 'entry'; serverId: string; project: string; env: string; collection: string; entryId: string | null }
   | { view: 'schema'; serverId: string; project: string; env: string; collection: string | null }
-  | { view: 'media'; serverId: string; project: string; env: string; q: string }
+  | { view: 'media'; serverId: string; folder: string; q: string }
 
 /** Any settings route, at whichever scope. */
 export type SettingsRoute = Extract<

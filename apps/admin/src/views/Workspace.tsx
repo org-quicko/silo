@@ -47,7 +47,9 @@ export function Workspace({
   onAddServer,
 }: Props) {
   const { id: serverId, url, apiKey } = server
-  const scope: ScopeRef = { project: route.project, env: route.env }
+  const scope: ScopeRef = 'project' in route
+    ? { project: route.project, env: route.env }
+    : (ScopeMemory.get(serverId) ?? { project: 'default', env: 'production' })
 
   const [showServerBrowser, setShowServerBrowser] = useState(false)
 
@@ -58,8 +60,10 @@ export function Workspace({
   // The settings shell's PROJECT/ENVIRONMENT groups need a scope even on its
   // unscoped pages (keys, connection); this is where one is known for certain.
   useEffect(() => {
-    ScopeMemory.set(serverId, scope)
-  }, [serverId, scope.project, scope.env])
+    if ('project' in route) {
+      ScopeMemory.set(serverId, { project: route.project, env: route.env })
+    }
+  }, [serverId, 'project' in route ? route.project : null, 'env' in route ? route.env : null])
 
   const session = useWorkspaceSession(serverId, url, apiKey, scope, onDisconnect)
   const { ready, sessionInfo, claims, version, collections } = session
@@ -148,6 +152,10 @@ export function Workspace({
             apiKey={apiKey}
             claims={claims}
             initialQuery={route.q}
+            initialFolder={route.folder}
+            onFolderChange={(folder) => {
+              router.navigate(Routes.media(serverId, undefined, folder))
+            }}
           />
         )}
 

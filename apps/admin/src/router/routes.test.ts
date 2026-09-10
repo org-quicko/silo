@@ -44,7 +44,8 @@ describe('Routes.parse', () => {
     ['/servers/s1/projects/acme/environments/prod/collections/posts/schema', 'schema'],
     ['/servers/s1/projects/acme/environments/prod/collections/posts/entries/abc', 'entry'],
     ['/servers/s1/projects/acme/environments/prod/schema/new', 'schema'],
-    ['/servers/s1/projects/acme/environments/prod/media', 'media'],
+    ['/servers/s1/media', 'media'],
+    ['/servers/s1/media/heroes/2026', 'media'],
   ])('still reads the workspace route %s', (path, expected) => {
     expect(shape(Routes.parse(path))).toBe(expected)
   })
@@ -148,13 +149,44 @@ describe('Routes builders', () => {
     [Routes.projectSettings('s1', 'acme', 'environments'), 'project-settings:environments'],
     [Routes.envSettings('s1', 'acme', 'prod', 'general'), 'env-settings:general'],
     [Routes.envSettings('s1', 'acme', 'prod', 'transfer'), 'env-settings:transfer'],
+    [Routes.media('s1'), 'media'],
+    [Routes.media('s1', 'findme'), 'media'],
+    [Routes.media('s1', undefined, '/heroes/2026'), 'media'],
+    [Routes.media('s1', 'findme', '/heroes/2026'), 'media'],
   ])('%s round-trips through parse', (url, expected) => {
     expect(shape(Routes.parse(url))).toBe(expected)
+  })
+
+  test('media URLs parse folder and query correctly', () => {
+    expect(Routes.parse('/servers/s1/media')).toEqual({
+      view: 'media',
+      serverId: 's1',
+      folder: '',
+      q: '',
+    })
+    expect(Routes.parse('/servers/s1/media/heroes/2026?q=searchterm')).toEqual({
+      view: 'media',
+      serverId: 's1',
+      folder: '/heroes/2026',
+      q: 'searchterm',
+    })
+    expect(Routes.parse('/servers/s1/media?folder=%2Fheroes%2F2026&q=searchterm')).toEqual({
+      view: 'media',
+      serverId: 's1',
+      folder: '/heroes/2026',
+      q: 'searchterm',
+    })
   })
 
   test('server-level settings carry no scope prefix, so each has one canonical URL', () => {
     expect(Routes.serverSettings('s1', 'keys')).toBe('/servers/s1/settings/keys')
     expect(Routes.serverSettings('s1', 'keys')).not.toContain('projects')
+  })
+
+  test('media library carries no project/env prefix', () => {
+    expect(Routes.media('s1')).toBe('/servers/s1/media')
+    expect(Routes.media('s1', undefined, '/heroes/2026')).toBe('/servers/s1/media/heroes/2026')
+    expect(Routes.media('s1')).not.toContain('projects')
   })
 
   test('a plugin page carries the name it is about', () => {
@@ -189,6 +221,9 @@ describe('Routes.legacy', () => {
     ['/servers/s1/settings/environments', '/servers/s1/projects/acme/settings/environments'],
     ['/servers/s1/settings/envs', '/servers/s1/projects/acme/settings/environments'],
     ['/servers/s1/settings', '/servers/s1/settings/projects'],
+    ['/servers/s1/projects/acme/environments/prod/media', '/servers/s1/media'],
+    ['/servers/s1/projects/acme/environments/prod/media/heroes/2026', '/servers/s1/media/heroes/2026'],
+    ['/servers/s1/projects/acme/environments/prod/media?q=findme', '/servers/s1/media?q=findme'],
   ])('rewrites %s', (from, to) => {
     expect(Routes.legacy(from, remembered)).toBe(to)
   })

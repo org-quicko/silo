@@ -409,25 +409,24 @@
   min-width: 0;
   align-items: center;
   gap: 3px;
-  overflow: hidden;
   font-size: 15px;
   font-weight: 600;
 }
 
 .pathSegment {
   display: flex;
+  min-width: 0;
   align-items: center;
   gap: 3px;
-  overflow: hidden;
 }
 
 .pathSep { flex: none; color: var(--text-3); }
 
 .pathCrumb {
   overflow: hidden;
-  padding: 2px 5px;
-  border: 0;
-  border-radius: 5px;
+  padding: 3px 7px;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
   background: none;
   color: var(--text-3);
   cursor: pointer;
@@ -435,6 +434,7 @@
   font-weight: 600;
   text-overflow: ellipsis;
   white-space: nowrap;
+  transition: background 0.12s, color 0.12s, border-color 0.12s;
 }
 
 .pathCrumb:hover {
@@ -444,7 +444,8 @@
 
 .pathCurrent {
   overflow: hidden;
-  padding: 2px 5px;
+  padding: 3px 7px;
+  border: 1px solid transparent;
   color: var(--text);
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -678,4 +679,641 @@
   background: var(--panel-2);
   color: var(--text-3);
   font-size: 12.5px;
+}
+
+/* ---- Drag and Drop Drop Targets ---- */
+
+.dropTargetActive {
+  border-color: var(--accent) !important;
+  background: color-mix(in oklab, var(--accent) 15%, var(--panel)) !important;
+  box-shadow: 0 0 0 2px var(--accent) !important;
+}
+
+.crumbDropTarget {
+  border-color: var(--accent) !important;
+  background: var(--accent-soft) !important;
+  color: var(--accent) !important;
+  box-shadow: none !important;
+}
+
+.moveItemList {
+  display: flex;
+  max-height: 240px;
+  flex-direction: column;
+  gap: 6px;
+  overflow-y: auto;
+  margin: 14px 22px 0;
+  padding: 8px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: var(--panel-2);
+}
+
+.moveItemRow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 6px;
+  border-radius: 4px;
+}
+
+.moveItemName {
+  flex: 1;
+  overflow: hidden;
+  color: var(--text);
+  font-size: 12.5px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.moveItemType {
+  color: var(--text-3);
+  font-family: var(--font-ui);
+  font-size: 11px;
+}
+
+.moveItemFolderIcon {
+  flex: none;
+  color: var(--accent);
+}
+
+.moveItemFileIcon {
+  flex: none;
+  color: var(--text-2);
+}
+
+/* ---- Rich Native Media Preview Dialog ---- */
+
+.previewBackdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  background: rgba(4, 5, 8, 0.85);
+  backdrop-filter: blur(6px);
+}
+
+.previewContainer {
+  display: flex;
+  width: 1000px;
+  max-width: 100%;
+  height: 85vh;
+  max-height: 860px;
+  flex-direction: column;
+  overflow: hidden;
+  border: 1px solid var(--line-2);
+  border-radius: 14px;
+  background: var(--panel);
+  box-shadow: 0 24px 64px rgba(0, 0, 0, 0.5);
+}
+
+.previewHeader {
+  display: flex;
+  flex: none;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 12px 18px;
+  border-bottom: 1px solid var(--line);
+  background: var(--panel-2);
+}
+
+.previewTitleGroup {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 14px;
+}
+
+.previewNavGroup {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 4px;
+  border: 1px solid var(--line-2);
+  border-radius: var(--radius-sm);
+  background: var(--panel);
+}
+
+.previewNavButton {
+  display: flex;
+  width: 26px;
+  height: 26px;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--text-2);
+  cursor: pointer;
+}
+
+.previewNavButton:hover:not(:disabled) {
+  background: var(--panel-2);
+  color: var(--text);
+}
+
+.previewNavButton:disabled {
+  color: var(--text-3);
+  cursor: not-allowed;
+  opacity: 0.4;
+}
+
+.previewIndex {
+  padding: 0 6px;
+  color: var(--text-3);
+  font-family: var(--font-ui);
+  font-size: 11.5px;
+}
+
+.previewTitles {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.previewFilename {
+  margin: 0;
+  overflow: hidden;
+  color: var(--text);
+  font-size: 14.5px;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.previewMetaBadges {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+
+.previewBadge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 1px 6px;
+  border-radius: 4px;
+  background: color-mix(in oklab, var(--line-2) 60%, transparent);
+  color: var(--text-3);
+  font-family: var(--font-ui);
+  font-size: 11px;
+}
+
+.previewActions {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 8px;
+}
+
+.previewActionButton {
+  display: inline-flex;
+  height: 30px;
+  align-items: center;
+  gap: 6px;
+  padding: 0 10px;
+  border: 1px solid var(--line-2);
+  border-radius: var(--radius-sm);
+  background: var(--panel);
+  color: var(--text-2);
+  cursor: pointer;
+  font-family: var(--font-ui);
+  font-size: 12px;
+  text-decoration: none;
+}
+
+.previewActionButton:hover {
+  border-color: var(--accent);
+  background: var(--panel-2);
+  color: var(--text);
+}
+
+.previewCloseButton {
+  display: flex;
+  width: 30px;
+  height: 30px;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: 1px solid var(--line-2);
+  border-radius: var(--radius-sm);
+  background: var(--panel);
+  color: var(--text-2);
+  cursor: pointer;
+}
+
+.previewCloseButton:hover {
+  border-color: var(--bad);
+  background: var(--panel-2);
+  color: var(--bad);
+}
+
+.previewContent {
+  position: relative;
+  display: flex;
+  flex: 1;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  background: #090a0f;
+  background-image: radial-gradient(rgba(255, 255, 255, 0.04) 1px, transparent 0);
+  background-size: 16px 16px;
+}
+
+.imageViewerWrapper {
+  position: relative;
+  display: flex;
+  width: 100%;
+  height: 100%;
+  align-items: center;
+  justify-content: center;
+  overflow: auto;
+  padding: 24px;
+}
+
+.imageViewerCanvas {
+  display: flex;
+  max-width: 100%;
+  max-height: 100%;
+  align-items: center;
+  justify-content: center;
+  transition: transform 0.15s ease-out;
+}
+
+.imageViewerCanvas img {
+  max-width: 100%;
+  max-height: calc(85vh - 160px);
+  border-radius: 4px;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
+  object-fit: contain;
+}
+
+.imageZoomBar {
+  position: absolute;
+  bottom: 16px;
+  left: 50%;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 8px;
+  border: 1px solid var(--line-2);
+  border-radius: 20px;
+  background: rgba(16, 17, 24, 0.85);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.3);
+  color: var(--text-2);
+  font-size: 11.5px;
+  transform: translateX(-50%);
+  backdrop-filter: blur(4px);
+}
+
+.imageZoomBar button {
+  display: flex;
+  width: 22px;
+  height: 22px;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: none;
+  color: inherit;
+  cursor: pointer;
+}
+
+.imageZoomBar button:hover {
+  background: var(--panel-2);
+  color: var(--text);
+}
+
+.videoViewerWrapper {
+  display: flex;
+  width: 100%;
+  height: 100%;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+}
+
+.nativeVideo {
+  max-width: 100%;
+  max-height: calc(85vh - 150px);
+  border-radius: 8px;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
+  outline: none;
+}
+
+.audioViewerWrapper {
+  display: flex;
+  width: 100%;
+  height: 100%;
+  align-items: center;
+  justify-content: center;
+  padding: 30px;
+}
+
+.audioCard {
+  display: flex;
+  width: 440px;
+  max-width: 100%;
+  flex-direction: column;
+  align-items: center;
+  gap: 16px;
+  padding: 32px 24px;
+  border: 1px solid var(--line-2);
+  border-radius: 12px;
+  background: var(--panel);
+  box-shadow: var(--shadow-modal);
+  text-align: center;
+}
+
+.audioIconWrap {
+  display: flex;
+  width: 80px;
+  height: 80px;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+
+.audioCardInfo h4 {
+  margin: 0 0 4px;
+  overflow: hidden;
+  color: var(--text);
+  font-size: 15px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.audioCardInfo span {
+  color: var(--text-3);
+  font-size: 12px;
+}
+
+.nativeAudio {
+  width: 100%;
+  margin-top: 8px;
+  outline: none;
+}
+
+.pdfViewerWrapper {
+  width: 100%;
+  height: 100%;
+}
+
+.nativePdfIframe {
+  width: 100%;
+  height: 100%;
+  border: 0;
+}
+
+.textViewerWrapper {
+  display: flex;
+  width: 100%;
+  height: 100%;
+  flex-direction: column;
+  background: #0d0e15;
+}
+
+.textViewerToolbar {
+  display: flex;
+  flex: none;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 16px;
+  border-bottom: 1px solid var(--line);
+  background: var(--panel-2);
+}
+
+.textLineCount {
+  color: var(--text-3);
+  font-family: var(--font-ui);
+  font-size: 12px;
+}
+
+.textViewerActions {
+  display: flex;
+  gap: 6px;
+}
+
+.textToolbarButton {
+  display: inline-flex;
+  height: 26px;
+  align-items: center;
+  gap: 5px;
+  padding: 0 8px;
+  border: 1px solid var(--line-2);
+  border-radius: var(--radius-sm);
+  background: var(--panel);
+  color: var(--text-2);
+  cursor: pointer;
+  font-family: var(--font-ui);
+  font-size: 11.5px;
+}
+
+.textToolbarButton:hover:not(:disabled) {
+  background: var(--panel-2);
+  color: var(--text);
+}
+
+.textToolbarActive {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.textLoading,
+.textError {
+  padding: 30px;
+  color: var(--text-3);
+  font-size: 13px;
+  text-align: center;
+}
+
+.textError {
+  color: var(--bad);
+}
+
+.codeContainer {
+  display: flex;
+  flex: 1;
+  overflow: auto;
+  font-family: var(--font-mono, monospace);
+  font-size: 12.5px;
+  line-height: 1.6;
+}
+
+.codeGutter {
+  display: flex;
+  flex: none;
+  flex-direction: column;
+  padding: 12px 10px;
+  border-right: 1px solid var(--line);
+  background: rgba(0, 0, 0, 0.2);
+  color: var(--text-3);
+  text-align: right;
+  user-select: none;
+}
+
+.codeBody {
+  flex: 1;
+  margin: 0;
+  padding: 12px 16px;
+  overflow-x: auto;
+  color: var(--text-2);
+}
+
+.codeBody code {
+  font-family: inherit;
+  white-space: pre;
+}
+
+.codeWrap .codeBody code {
+  white-space: pre-wrap;
+  word-break: break-all;
+}
+
+.otherViewerWrapper {
+  display: flex;
+  width: 100%;
+  height: 100%;
+  align-items: center;
+  justify-content: center;
+  padding: 30px;
+}
+
+.otherCard {
+  display: flex;
+  width: 420px;
+  max-width: 100%;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  padding: 36px 24px;
+  border: 1px solid var(--line-2);
+  border-radius: 12px;
+  background: var(--panel);
+  box-shadow: var(--shadow-modal);
+  text-align: center;
+}
+
+.otherIconWrap {
+  display: flex;
+  width: 80px;
+  height: 80px;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  background: var(--panel-2);
+  color: var(--text-3);
+}
+
+.otherCard h3 {
+  margin: 0;
+  overflow: hidden;
+  color: var(--text);
+  font-size: 16px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.otherCard p {
+  margin: 0;
+  color: var(--text-3);
+  font-size: 12.5px;
+  line-height: 1.5;
+}
+
+.otherActions {
+  display: flex;
+  gap: 10px;
+  margin-top: 8px;
+}
+
+.otherDownloadButton,
+.otherOpenButton {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 14px;
+  border-radius: var(--radius-sm);
+  font-size: 12.5px;
+  font-weight: 500;
+  text-decoration: none;
+}
+
+.otherDownloadButton {
+  background: var(--accent);
+  color: var(--accent-ink);
+}
+
+.otherDownloadButton:hover {
+  background: var(--accent-hover, var(--accent));
+}
+
+.otherOpenButton {
+  border: 1px solid var(--line-2);
+  background: var(--panel-2);
+  color: var(--text);
+}
+
+.previewFooter {
+  display: flex;
+  flex: none;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 16px;
+  padding: 10px 18px;
+  border-top: 1px solid var(--line);
+  background: var(--panel-2);
+}
+
+.previewFooterItem {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--text-3);
+  font-size: 11.5px;
+}
+
+.previewFooterLabel {
+  font-weight: 600;
+  text-transform: uppercase;
+}
+
+.previewFooterValue {
+  color: var(--text-2);
+  font-family: var(--font-ui);
+}
+
+.previewFooterIcon {
+  color: var(--text-3);
+}
+
+@media (max-width: 720px) {
+  .previewBackdrop {
+    padding: 10px;
+  }
+
+  .previewContainer {
+    height: 94vh;
+  }
+
+  .previewHeader {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 10px;
+  }
+
+  .previewActions {
+    justify-content: flex-end;
+  }
 }

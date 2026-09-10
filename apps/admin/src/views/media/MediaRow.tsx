@@ -1,4 +1,4 @@
-import { FileText, Link, Pencil, Trash2 } from 'lucide-react'
+import { Eye, FileText, Link, Pencil, Trash2 } from 'lucide-react'
 import type { MediaAsset } from '../../api/types/media-asset'
 import { Button } from '../../components/buttons/Button'
 import { Checkbox } from '../../components/controls/Checkbox'
@@ -18,12 +18,14 @@ interface Props {
   gridCols: string
   selected: boolean
   onToggleSelect: () => void
+  onPreview: (asset: MediaAsset) => void
   onEdit: () => void
   onDelete: () => void
+  onDragStart?: (e: React.DragEvent) => void
 }
 
 /** `MediaCard`'s row form for list view — same facts, same hover-revealed
- *  actions, laid out across the shared `DataTable` grid instead of a tile. */
+ *  actions, with native media preview and drag-and-drop support. */
 export function MediaRow({
   asset,
   baseUrl,
@@ -32,33 +34,53 @@ export function MediaRow({
   gridCols,
   selected,
   onToggleSelect,
+  onPreview,
   onEdit,
   onDelete,
+  onDragStart,
 }: Props) {
   const fileUrl = MediaFileUrl.of(asset, baseUrl)
   const used = asset.usage_count || 0
   const isImage = asset.content_type.startsWith('image/')
 
   return (
-    <div className={`${table.row} ${styles.fileRow}`} style={{ ['--cols' as any]: gridCols }}>
+    <div
+      className={`${table.row} ${styles.fileRow}`}
+      style={{ ['--cols' as any]: gridCols }}
+      draggable={canEdit}
+      onDragStart={onDragStart}
+    >
       {canDelete && (
         <div className={`${table.cell} ${styles.checkboxCell}`}>
           <Checkbox checked={selected} onChange={onToggleSelect} aria-label={`Select ${asset.filename}`} />
         </div>
       )}
-      <div className={`${table.cell} ${styles.rowName}`}>
+      <button
+        type="button"
+        className={`${table.cell} ${table.clickable} ${styles.rowName} ${styles.rowNameButton}`}
+        onClick={() => onPreview(asset)}
+      >
         <span className={styles.rowIcon}>
           {isImage ? <img src={fileUrl} alt="" loading="lazy" /> : <FileText size={15} />}
         </span>
         <span className={table.title} title={asset.filename}>
           {asset.filename}
         </span>
-      </div>
+      </button>
       <div className={table.cell}>{ByteSize.format(asset.size)}</div>
       <div className={table.cell} title={new Date(asset.updated_at).toLocaleString()}>
         {Formatters.relativeTime(asset.updated_at)}
       </div>
       <div className={`${table.cell} ${table.actions} ${styles.rowActions}`}>
+        <Button
+          variant="secondary"
+          size="sm"
+          className={styles.iconAction}
+          title="Preview file"
+          onClick={() => onPreview(asset)}
+        >
+          <Eye size={14} />
+        </Button>
         <Button
           variant="secondary"
           size="sm"

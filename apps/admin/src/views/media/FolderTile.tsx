@@ -18,6 +18,8 @@ interface Props {
   onOpen: () => void
   onRename: () => void
   onDelete: () => void
+  onDragStart?: (e: React.DragEvent) => void
+  onDropToFolder?: (targetFolder: string, e: React.DragEvent) => void
 }
 
 /** One folder in the grid — a header row and a big folder glyph stand in for
@@ -34,21 +36,56 @@ export function FolderTile({
   onOpen,
   onRename,
   onDelete,
+  onDragStart,
+  onDropToFolder,
 }: Props) {
   const name = MediaPath.name(path)
   const [menuOpen, setMenuOpen] = useState(false)
+  const [dragOver, setDragOver] = useState(false)
   const count = itemCount === undefined ? '…' : `${itemCount} item${itemCount === 1 ? '' : 's'}`
+
+  const handleDragOver = (e: React.DragEvent) => {
+    if (!canEdit) return
+    e.preventDefault()
+    e.dataTransfer.dropEffect = 'move'
+  }
+
+  const handleDragEnter = (e: React.DragEvent) => {
+    if (!canEdit) return
+    e.preventDefault()
+    setDragOver(true)
+  }
+
+  const handleDragLeave = (e: React.DragEvent) => {
+    if (!canEdit) return
+    if (!e.currentTarget.contains(e.relatedTarget as Node)) {
+      setDragOver(false)
+    }
+  }
+
+  const handleDrop = (e: React.DragEvent) => {
+    if (!canEdit) return
+    e.preventDefault()
+    setDragOver(false)
+    onDropToFolder?.(path, e)
+  }
 
   return (
     <div
-      className={`${styles.assetCard} ${selected ? styles.cardSelected : ''} ${menuOpen ? styles.cardMenuOpen : ''}`}
+      className={`${styles.assetCard} ${selected ? styles.cardSelected : ''} ${menuOpen ? styles.cardMenuOpen : ''} ${dragOver ? styles.dropTargetActive : ''}`}
       role="button"
       tabIndex={0}
+      draggable={canEdit}
       aria-label={`Open folder ${name}, ${count}`}
       onClick={onOpen}
       onKeyDown={(e) => {
         if (e.key === 'Enter') onOpen()
       }}
+      onDragStart={onDragStart}
+      onDragOver={handleDragOver}
+      onDragEnter={handleDragEnter}
+      onDragLeave={handleDragLeave}
+      onDrop={handleDrop}
     >
       <div className={styles.cardHead}>
         <span className={styles.cardHeadIcon}>
