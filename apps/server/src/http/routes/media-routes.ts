@@ -47,8 +47,15 @@ export class MediaRoutes {
       return c.json(batch, 200);
     });
 
+    // Purge asks for both halves (D65), the way reconcile does. `media:delete`
+    // because purge is a delete, and `media:purge` on top because both the
+    // `write` and the `manage` preset carry the first — so on its own it
+    // would mean every integration key that manages its own uploads could
+    // empty the whole instance's library in one request. `media:purge` is
+    // carried by no preset but `root`.
     app.post("/api/media/purge", async (c: Context) => {
       RouteAuth.requireClaim(c, Claims.MediaDelete);
+      RouteAuth.requireClaim(c, Claims.MediaPurge);
       const body = await c.req.json();
       // A typed confirmation is the cheapest insurance against a stray or
       // replayed request emptying a library: there is no undo.

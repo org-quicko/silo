@@ -193,13 +193,16 @@ describe("media purge (D49)", () => {
     const used = await service.media.save("used.png", new TextEncoder().encode("b"));
     await service.entries.create(Scope.Default, "posts", { cover: MediaRef.url(used.id) });
 
-    const key = (await service.keys.create("probe", [Claims.MediaDelete])).secret;
+    // Both purge claims, so what this refuses is the force check and not the
+    // D65 gate the test below covers.
+    const key = (await service.keys.create("probe", [Claims.MediaDelete, Claims.MediaPurge])).secret;
     const response = await authedApp.request("/api/media/purge", {
       method: "POST",
       headers: { "Content-Type": "application/json", Authorization: `Bearer ${key}` },
       body: JSON.stringify({ confirm: "purge", force: true }),
     });
     expect(response.status).toBe(403);
+    expect(((await response.json()) as any).error.message).toContain("purge with force");
     expect((await service.media.get(used.id)).state).toBe("active");
   });
 
@@ -218,5 +221,41 @@ describe("media purge (D49)", () => {
       body: JSON.stringify({ confirm: "purge" }),
     });
     expect(response.status).toBe(403);
+  });
+
+  /** D65: `media:delete` is carried by the `write` and `manage` presets, so on
+   *  its own it would put emptying the whole instance's library behind the
+   *  claim an ordinary upload integration already holds. */
+  test("requires media:purge on top of media:delete, and nothing is deleted without it", async () => {
+    await service.keys.bootstrap();
+    const authedApp = new SiloServer(service, {
+      version: "test",
+      authDisabled: false,
+      logger: Logger.silent(),
+    }).build();
+    await service.media.save("a.png", new TextEncoder().encode("a"));
+
+    const purgeWith = (key: string) =>
+      authedApp.request("/api/media/purge", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${key}` },
+        body: JSON.stringify({ confirm: "purge" }),
+      });
+
+    // Everything a `write` preset mints, which is the case that motivated D65.
+    const writer = (await service.keys.create("writer", Claims.fromPreset("write"))).secret;
+    const refused = await purgeWith(writer);
+    expect(refused.status).toBe(403);
+    expect(((await refused.json()) as any).error.message).toContain(Claims.MediaPurge);
+    expect(await service.media.list()).toMatchObject({ total: 1 });
+
+    // And the claim on its own is not a second way in: purge is still a delete.
+    const purgerOnly = (await service.keys.create("purger", [Claims.MediaPurge])).secret;
+    expect((await purgeWith(purgerOnly)).status).toBe(403);
+    expect(await service.media.list()).toMatchObject({ total: 1 });
+
+    const both = (await service.keys.create("both", [Claims.MediaDelete, Claims.MediaPurge])).secret;
+    expect((await purgeWith(both)).status).toBe(200);
+    expect(await service.media.list()).toMatchObject({ total: 0 });
   });
 });

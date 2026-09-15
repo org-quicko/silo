@@ -4,6 +4,41 @@
 > The *current* state is [CONTEXT.md](../../CONTEXT.md); this is how it got
 > there.
 
+- **Emptying the media library needs a claim of its own (2026-09-15).** D65.
+  `POST /api/media/purge` now asks for `media:purge` in addition to
+  `media:delete`. D49 shipped purge behind `media:delete` alone, reasoning by
+  analogy with the bulk delete it was built on top of, and the analogy does not
+  hold at the claim level: `ClaimPresets.Fixed` hands `media:delete` to both the
+  `write` and the `manage` preset, so the one request that ends every asset in
+  the instance was behind the claim an ordinary upload integration is minted
+  with. Purge is not a larger bulk delete — it takes no id list, has no undo,
+  and reaches files the caller never uploaded. `media:purge` joins
+  `FixedClaim`, `ClaimVocabulary.FixedClaims` and `ClaimWords.fixed`, and is
+  carried by **no preset but `root`**: the fourth claim to take that shape after
+  `media:configure` (D45), `settings:configure` (D47) and the
+  `plugins:grant`/`plugins:enable` pair (D34), and the first of them that is not
+  about writing `silo.toml`. A named claim rather than a hard-coded
+  `Claims.Root` check on the route, because root-only-by-preset and
+  root-only-by-construction are different promises — an operator can still
+  delegate purge to one key instead of minting a second root credential, and the
+  claim reference, the key editor's capability toggles and the audit trail all
+  describe it with no second vocabulary. **Both claims, not one**, on
+  `POST /api/media/reconcile`'s shape: purge *is* a delete, so `media:purge`
+  alone purges nothing and cannot become a side door around `media:delete`;
+  `media:delete` is checked first, so a key holding neither is told about the
+  claim it more likely meant to have. The admin mirrors it exactly —
+  `MediaLibraryView`'s `canPurge` is `canDelete && Claims.has(claims,
+  Claims.MediaPurge)`, so the head menu's "Purge library" item is hidden from a
+  key the route would refuse, which is the rule the admin already states for
+  every delete button; the key editor gains a Purge toggle in its Media group,
+  flagged for a second look like Delete and Configure storage are. `media:purge`
+  is deliberately **not** added to `PluginForbiddenClaims`: a plugin holding
+  `media:delete` can already end every asset one request at a time, so purge
+  hands it convenience rather than reach, and that list is reserved for grants
+  that do not mean what they say. The `media-purge.test.ts` case that proved the
+  D49 force check now mints both claims, so what it refuses is still the force
+  check and not this new gate.
+
 - **A claim's scope segment can be a name prefix (2026-09-15).** D64.
   `collections:acme*/prod/*:entries:read` reaches every project whose name
   begins `acme`, including ones created later, so "this team owns the `acme-`

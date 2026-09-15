@@ -38,7 +38,7 @@ Hono web framework on Bun. JSON everywhere. Admin UI served at `/`; API under `/
 | GET / POST | `/api/media` | search (no claim — D58) / upload (`media:create`) — see §8.1 |
 | GET / PATCH / DELETE | `/api/media/{id}` | asset detail / rename·move·retag (`media:create`) / guarded delete, `?force=true` to delete over a live reference (`media:delete` plus `entries:update` at the scopes it reaches — D48, D49) — see §8.1 |
 | POST | `/api/media/delete` | bulk delete (`{ids, force}`, up to 100), always `200` with per-id outcomes (`media:delete`, force as above — D48, D49) — see §8.1 |
-| POST | `/api/media/purge` | empty the whole library (`{confirm: "purge", force?}`), always `200` with per-id outcomes plus a folder count (`media:delete`, force as above — D49) — see §8.1 |
+| POST | `/api/media/purge` | empty the whole library (`{confirm: "purge", force?}`), always `200` with per-id outcomes plus a folder count (`media:delete` **and** `media:purge` — D49, D65; force as above) — see §8.1 |
 | GET | `/api/media/{id}/usages` | paginated referrers, claim-filtered (no claim to read; the rows are still filtered by what the caller may see — D58) |
 | GET | `/api/media/extensions` | every distinct file extension in the library, for the admin’s Type filter (no claim — D55, D58) — see §8.1 |
 | GET / POST | `/api/media/folders` | list (no claim) / create an empty folder (`media:create`) |
@@ -505,8 +505,14 @@ back `media_in_use` means the folder is not actually empty, so the count is
 under what still names them.
 
 **`POST /api/media/purge`** empties the whole library (D49): `{"confirm":
-"purge", "force": false}`, behind `media:delete`. The literal confirmation
-word is required — a missing or wrong value is a `ValidationError` — as the
+"purge", "force": false}`, behind `media:delete` **and `media:purge`** (D65).
+Both halves, the way `POST /api/media/reconcile` asks for both of the ones it
+exercises: purge is a delete, and `media:delete` alone cannot be what gates
+it, because the `write` and `manage` presets both carry that claim — so every
+integration key that manages its own uploads could otherwise end every asset
+in the instance in one request. `media:purge` is carried by no preset but
+`root`, so an operator delegates it deliberately or not at all. The literal
+confirmation word is required — a missing or wrong value is a `ValidationError` — as the
 cheapest insurance against a stray or replayed request emptying a library
 with no undo. Every catalog asset is deleted through the same saga
 (`MediaDeletionService.delete`) and the same `MediaDeleteBatch` outcome loop,
