@@ -1,6 +1,6 @@
 import { ChevronDown, Search } from 'lucide-react'
 import { useState } from 'react'
-import styles from './NewKey.module.css'
+import styles from './KeyForm.module.css'
 
 interface Props {
   scopeLabel: string

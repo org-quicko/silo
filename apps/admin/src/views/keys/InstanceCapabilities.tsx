@@ -1,8 +1,8 @@
 import { AlertTriangle } from 'lucide-react'
 import { Claims } from '@silo/shared/claims'
 import type { Claim } from '@silo/shared/claim'
-import { NewKeyPlan } from './new-key-plan'
-import styles from './NewKey.module.css'
+import { KeyPlan } from './key-plan'
+import styles from './KeyForm.module.css'
 
 interface Capability {
   claim: Claim
@@ -20,7 +20,7 @@ interface CapabilityGroup {
 const GROUPS: CapabilityGroup[] = [
   {
     title: 'Media',
-    note: 'Media is instance-global — these are not scoped by the reach above.',
+    note: 'Media is instance-global. No scope narrows it.',
     capabilities: [
       { claim: Claims.MediaCreate, label: 'Upload', help: 'Upload new media files.' },
       { claim: Claims.MediaDelete, label: 'Delete', help: 'Delete media files.', warn: true },
@@ -53,7 +53,7 @@ const GROUPS: CapabilityGroup[] = [
   },
   {
     title: 'Plugins',
-    note: 'A plugin runs code, so approving one hands it an authority set — and a key can only approve what it holds itself.',
+    note: 'A plugin runs code, so approving one hands it an authority set. A key can only approve what it holds itself.',
     capabilities: [
       { claim: Claims.PluginsRead, label: 'List', help: 'List plugins, what each requested, and what was granted.' },
       { claim: Claims.PluginsConfigure, label: 'Configure', help: 'Change plugin settings.' },
@@ -76,10 +76,10 @@ const GROUPS: CapabilityGroup[] = [
  * The transfer group is the reason this panel does more than toggle strings:
  * a `transfer:*` claim on its own authorizes nothing, so the panel shows and
  * adds the instance-wide collection permissions the route will also demand
- * (`NewKeyPlan.transferRequirements`), and refuses the toggle outright when
+ * (`KeyPlan.transferRequirements`), and refuses the toggle outright when
  * the minting key cannot delegate them.
  */
-export function NewKeyCapabilities({
+export function InstanceCapabilities({
   capabilities,
   transferReplace,
   ownClaims,
@@ -100,14 +100,14 @@ export function NewKeyCapabilities({
   /** A transfer toggle is only offered when its implied instance-wide grant is delegatable too. */
   const blockedReason = (claim: Claim): string => {
     if (!Claims.has(ownClaims, claim)) return 'The current key does not hold this claim.'
-    const implied = NewKeyPlan.transferRequirements([claim], transferReplace)
+    const implied = KeyPlan.transferRequirements([claim], transferReplace)
     if (implied.length > 0 && !Claims.canDelegate(ownClaims, implied)) {
       return 'The current key cannot delegate the instance-wide collection permissions this claim requires.'
     }
     return ''
   }
 
-  const required = NewKeyPlan.transferRequirements(capabilities, transferReplace)
+  const required = KeyPlan.transferRequirements(capabilities, transferReplace)
 
   return (
     <div className={styles.capabilities}>

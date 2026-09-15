@@ -2,7 +2,7 @@ import { Button } from '../../components/buttons/Button'
 import { Pill } from '../../components/feedback/Pill'
 import { Breadcrumb } from '../../components/navigation/Breadcrumb'
 import { useEffect, useState } from 'react'
-import { KeyRound, Plus, Trash2 } from 'lucide-react'
+import { KeyRound, Pencil, Plus, Trash2 } from 'lucide-react'
 import { Claims } from '@silo/shared/claims'
 import { KeyFormat } from '@silo/shared/key-format'
 import { api } from '../../api/silo-api'
@@ -36,12 +36,14 @@ export function KeysView({
   apiKey,
   claims,
   onCreate,
+  onEdit,
 }: {
   serverName: string
   url: string
   apiKey: string
   claims: string[]
   onCreate: () => void
+  onEdit: (id: string) => void
 }) {
   const [keys, setKeys] = useState<KeyView[]>([])
   const [loading, setLoading] = useState(true)
@@ -63,7 +65,22 @@ export function KeysView({
    */
   const revocable = (key: KeyView) =>
     canRevoke && !key.owner && Claims.canDelegate(claims, Claims.normalize(key.claims))
-  const gridCols = '1.25fr 0.8fr 2fr 0.8fr 90px'
+  /**
+   * Whether Edit is offered for one row.
+   *
+   * The same two bounds `PATCH /api/keys/:id` applies (D63): minting authority,
+   * plus the ability to have minted a key this powerful. Mirrored here for the
+   * reason Revoke is — an affordance the route will refuse is worse than no
+   * affordance. A managed plugin key is excluded outright: its claims are its
+   * plugin's grant, so the route points at `silo plugin grant` instead.
+   */
+  const editable = (key: KeyView) =>
+    canCreate && !key.owner && Claims.canDelegate(claims, Claims.normalize(key.claims))
+  const gridCols = '1.25fr 0.8fr 2fr 0.8fr 150px'
+
+  /** A key whose record has moved since it was minted (D63). Worth saying,
+   *  because the secret in circulation is unchanged and its claims are not. */
+  const edited = (key: KeyView) => key.updated_at > key.created_at
 
   const load = () => {
     setLoading(true)
@@ -121,11 +138,20 @@ export function KeysView({
                 </div>
                 <div className={`${table.cell} ${styles.prefix}`}>{key.prefix}</div>
                 <div className={table.cell}>{KeyClaimSummary.render(key.claims)}</div>
-                <div className={`${table.cell} ${styles.date}`}>{Formatters.shortDate(key.created_at)}</div>
+                <div className={`${table.cell} ${styles.date}`} title={edited(key) ? `Edited ${Formatters.shortDate(key.updated_at)}` : undefined}>
+                  {Formatters.shortDate(key.created_at)}
+                  {edited(key) && <span className={styles.edited}>edited</span>}
+                </div>
                 <div className={`${table.cell} ${styles.actions}`}>
-                  {isCurrent ? <span className={styles.current}>current</span> : revocable(key) ? (
+                  {isCurrent && <span className={styles.current}>current</span>}
+                  {editable(key) && (
+                    <Button variant="secondary" size="sm" onClick={() => onEdit(key.id)}>
+                      <Pencil size={13} /> Edit
+                    </Button>
+                  )}
+                  {!isCurrent && revocable(key) && (
                     <Button variant="dangerGhost" size="sm" onClick={() => setToRevoke(key)}>Revoke</Button>
-                  ) : null}
+                  )}
                 </div>
               </div>
             )

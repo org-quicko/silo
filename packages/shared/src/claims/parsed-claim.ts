@@ -1,3 +1,4 @@
+import { ClaimSegment } from "./claim-segment";
 import type { HookName } from "../hooks/hook-name";
 import type { CollectionPermission } from "./collection-permission";
 import type { FixedClaim } from "./fixed-claim";
@@ -88,19 +89,21 @@ export class ParsedClaim {
   matchesScope(project: string, env: string): boolean {
     if (this.kind === "root") return true;
     if (this.kind === "collection" || this.kind === "hook") {
-      const matchProj = this.project === "*" || this.project === project;
-      const matchEnv = this.env === "*" || this.env === env;
-      return matchProj && matchEnv;
+      return (
+        ClaimSegment.matches(this.project!, project) && ClaimSegment.matches(this.env!, env)
+      );
     }
     return false;
   }
 
-  /** The three scope segments, with `*` on the held side matching anything.
-   *  Shared by the two scoped kinds so they cannot drift apart. */
+  /** The three scope segments, each answered by `ClaimSegment` so that this
+   *  and the search plan cannot drift apart. Shared by the two scoped kinds so
+   *  they cannot drift apart from each other either. */
   private coversScope(required: ParsedClaim): boolean {
-    if (this.project !== "*" && this.project !== required.project) return false;
-    if (this.env !== "*" && this.env !== required.env) return false;
-    if (this.name !== "*" && this.name !== required.name) return false;
-    return true;
+    return (
+      ClaimSegment.covers(this.project!, required.project!) &&
+      ClaimSegment.covers(this.env!, required.env!) &&
+      ClaimSegment.covers(this.name!, required.name!)
+    );
   }
 }

@@ -64,6 +64,10 @@ keys create:
   --project id         project the preset's claims target (default * = all)
   --env id             environment the preset's claims target (default * = all)
 
+keys update <id>:
+  --label s            rename the key
+  --claims a,b         replace its claims outright
+
 export:
   --dir path           export to directory layout
   --out path           export to .tar.gz tarball

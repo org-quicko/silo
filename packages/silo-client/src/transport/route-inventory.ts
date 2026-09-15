@@ -70,6 +70,7 @@ export class RouteInventory {
     "GET /api/session": "key introspection, an operator surface",
     "GET /api/keys": "keys and claims are an operator surface",
     "POST /api/keys": "keys and claims are an operator surface",
+    "PATCH /api/keys/:id": "keys and claims are an operator surface",
     "DELETE /api/keys/:id": "keys and claims are an operator surface",
     "GET /api/audit": "an operator surface",
     "GET /api/observability": "an operator surface",

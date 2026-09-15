@@ -4,6 +4,98 @@
 > The *current* state is [CONTEXT.md](../../CONTEXT.md); this is how it got
 > there.
 
+- **A claim's scope segment can be a name prefix (2026-09-15).** D64.
+  `collections:acme*/prod/*:entries:read` reaches every project whose name
+  begins `acme`, including ones created later, so "this team owns the `acme-`
+  namespace" is expressible without handing over `*`. That comparison is the
+  whole case for it: a prefix pattern does not compete with enumerating the
+  scopes you can see — the Presets tab's multi-scope list already makes that two
+  clicks — it competes with `*`, which was previously the only claim covering a
+  project that does not exist yet. On that framing it makes the *safer* grant
+  expressible for the first time. Three or more literal characters then a
+  trailing `*`, and nothing else: `a*` is `*` in disguise, and general globs
+  would turn `canDelegate` from a prefix test into regex language containment,
+  which is decidable and unreadable. The floor lives in
+  `ClaimGrammar.PrefixSegment` rather than in a check after it, so an
+  under-length prefix is unknown grammar rather than a valid-looking claim
+  refused by a second rule elsewhere. Delegation is prefix containment: `ac*`
+  covers `acme` and `acme*`, and neither `a*` nor `*`. `ClaimRewrite` gains a
+  third branch — a pattern is never rewritten, and is reported as
+  `patternAffected` only when the rename carries the entity **across the
+  pattern's edge** (`dev`→`prod` loses it, `prod`→`devops` gains it,
+  `dev`→`devel` moves nothing), because without it adding patterns would have
+  reintroduced the silent authority move D51 exists to prevent. In the admin,
+  patterns are refused by both guided tabs and live only in Custom, where
+  `PatternPreview` says what each matches today beside the sentence that it also
+  matches whatever comes later; summaries spell one out (`every project starting
+  acme`) rather than printing it raw.
+
+- **One `ClaimSegment`, six callers (2026-09-15).** D64, landed first and on its
+  own, with no behaviour change. Matching a claim's scope segment was written
+  out six times — `ParsedClaim.coversScope`/`matchesScope`,
+  `SearchService.intersect`, `SqliteSearcher.accessPredicate`, `ScanSearcher`,
+  the `/api/projects` visibility filter, and the admin's plugin-grant narrowing
+  — and while a segment was only ever `*` or a literal, six copies of
+  `held === "*" || held === value` were each trivially right. The prefix patterns
+  above make the rule non-trivial, and six independently-written answers to a
+  non-trivial authorization question is six chances for one to be wrong in the
+  permissive direction. The codebase already refuses a second claim *parser* for
+  this reason; a second claim *matcher* is the same hazard one layer down. The
+  SQL fragment is built there too, so the search index cannot answer a matching
+  question differently from `ParsedClaim` — a plan that reads one row too many is
+  an authorization bug no 403 will ever reveal. It uses `GLOB`, never `LIKE`:
+  `LIKE` is case-insensitive for ASCII, which would quietly widen every pattern,
+  and its `_` wildcard is a character ids are allowed to contain.
+
+- **An API key can be edited (2026-09-15).** D63. `PATCH /api/keys/{id}` takes
+  `{label?, claims?}` and replaces the claim list outright, since a merge cannot
+  express removal; `hash`, `prefix`, `owner` and `parent_id` stay unreachable,
+  because an edit that could move any of them would be a way to mint a
+  credential without minting one. Gated on `keys:create` rather than a claim of
+  its own — whatever list it writes, the caller could have minted a key carrying
+  it — and bounded by **two** `canDelegate` checks, against what the target
+  holds *now* (revoke's bound, D37: without it the narrowest key holding
+  `keys:create` rewrites the root key down to its own and locks the instance
+  out) and against what it is being given (minting's). A key narrows itself
+  freely and cannot widen itself, since a claim list always covers itself. A
+  managed plugin key is refused, naming `silo plugin grant`. Descendants are
+  **not** re-bounded when a parent narrows, because a minted key is bounded by
+  its minter's authority at the moment of minting and by nothing afterwards
+  (D38), and re-bounding here would make revocation and editing two different
+  theories of `parent_id`. New audit action `key.update` carries
+  `label_from`/`label_to` and `claims_from`/`claims_to` — both sides, because
+  "what did this key lose when it stopped working" is the question an edit
+  creates and nothing else answers, the holder having been told nothing.
+  `KeyView` gains `updated_at`, the CLI gains `silo keys update`, and the
+  client's `RouteInventory` gains the route (its contract test caught the
+  omission).
+
+- **The key form is three tabs, and does double duty as the edit page
+  (2026-09-15).** D63. The form was a *sentence* — one reach, one role — and a
+  sentence cannot say "acme/prod and beta/prod", so everything it could not say
+  had gone behind an Advanced disclosure that was by now a wall of toggles with
+  a raw editor at the bottom that paused the controls above it. The disclosure
+  was the tell: a mode pretending to be a detail. Presets is a role over one *or
+  more* scopes, Advanced is every leaf claim with the nine collection
+  permissions per scope block and the unscoped capabilities kept outside them,
+  Custom is CodeMirror plus a claim reference derived from `ClaimWords` and
+  `HookNames`. `KeyReach` and the four-option reach control are gone: a scope is
+  now a list of project/environment rows, which says everything the four
+  reaches said (they were only ever the four combinations of two independent
+  binary choices, D19) and also says the thing they could not. What makes three
+  editors over one value honest is the part that did not exist before — the
+  inverse. `KeyPlanReader` reads a claim list back into a tab's state,
+  `KeyClaimFit` decides which tab can hold it, an existing key opens on the
+  widest tab that reproduces it exactly, and a switch that would lose a claim is
+  **refused with the claim named** rather than approximated. Hook claims and
+  prefix patterns are the two shapes no control produces — a hook is a plugin
+  authority a key gains nothing from, a pattern covers scopes no picker can list
+  — so both live only in Custom. `NewKey.tsx`, `NewKeyReach.tsx`,
+  `RawClaimsEditor.tsx`, `use-new-key-form.ts`, `new-key-plan.ts` and
+  `key-reach.ts` are gone; `NewKeyCapabilities`, `NewKeyReview` and
+  `NewKeySecret` are renamed to `InstanceCapabilities`, `KeyReview` and
+  `KeySecret`, since none of them is about newness any more.
+
 - **Issues arrive on a form (2026-09-15).** `.github/ISSUE_TEMPLATE/` adds
   `bug_report.yml`, `feature_request.yml` and `config.yml`, GitHub issue forms
   rather than the older Markdown templates, because a Markdown template is a

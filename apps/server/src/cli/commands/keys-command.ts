@@ -13,7 +13,7 @@ export class KeysCommand {
   ): Promise<void> {
     const sub = positionals[1];
     if (!sub) {
-      console.error("usage: silo keys <create|list|revoke> [flags]");
+      console.error("usage: silo keys <create|list|update|revoke> [flags]");
       process.exit(1);
     }
 
@@ -67,6 +67,33 @@ export class KeysCommand {
             v.created_at
         );
       }
+    } else if (sub === "update") {
+      const id = positionals[2];
+      if (!id) {
+        console.error("usage: silo keys update <id> [--label s] [--claims a,b]");
+        process.exit(1);
+      }
+      const label = typeof values.label === "string" ? values.label : undefined;
+      const claimsStr = typeof values.claims === "string" ? values.claims : undefined;
+      // Offline, so there is no caller to bound this against — filesystem
+      // access is the bound, exactly as it is for `keys create`. The trail
+      // records it as the CLI so the two paths stay distinguishable (D38).
+      const entry = await service.keys.update(id, {
+        ...(label === undefined ? {} : { label }),
+        ...(claimsStr === undefined
+          ? {}
+          : {
+              claims: claimsStr
+                .split(",")
+                .map((claim: string) => claim.trim())
+                .filter(Boolean),
+            }),
+        actor: AuditUtils.cli(),
+      });
+      const view = KeyService.toView(entry);
+      console.log(
+        `updated key ${view.id} (${view.claims.length} claim${view.claims.length === 1 ? "" : "s"})`
+      );
     } else if (sub === "revoke") {
       const id = positionals[2];
       if (!id) {
@@ -83,7 +110,7 @@ export class KeysCommand {
       console.log("revoked", id);
     } else {
       console.error(
-        `unknown keys subcommand "${sub}" (want create, list or revoke)`
+        `unknown keys subcommand "${sub}" (want create, list, update or revoke)`
       );
       process.exit(1);
     }

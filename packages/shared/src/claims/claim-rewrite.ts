@@ -1,3 +1,5 @@
+import { ClaimSegment } from "./claim-segment";
+
 /** Which of a claim's three scope segments a rename moves. */
 export type RenameSubject = "project" | "environment" | "collection";
 
@@ -24,8 +26,9 @@ export interface ClaimRewriteOutcome {
   rewritten: boolean;
   /**
    * The claim's reach changes even though nothing was rewritten, because it
-   * names the subject through a **wildcard ancestor** and so is not about this
-   * one thing. Disclosed to the operator rather than silently mechanised.
+   * reaches the subject through a **pattern** — a wildcard or prefix ancestor,
+   * or a prefix over the subject itself — and so is not about this one thing.
+   * Disclosed to the operator rather than silently mechanised.
    */
   patternAffected: boolean;
 }
@@ -37,7 +40,8 @@ export interface ClaimRewriteOutcome {
  * The whole cascade rests on one distinction:
  *
  * - **A literal segment is a reference to an entity.** It is rewritten.
- * - **A wildcard segment is a pattern over names.** It is never rewritten.
+ * - **A wildcard or prefix segment is a pattern over names.** It is never
+ *   rewritten.
  *
  * `collections:*​/dev/*` means "any project's `dev`", and it already matches
  * scopes that do not exist yet — that is what independent per-segment wildcards
@@ -51,38 +55,70 @@ export interface ClaimRewriteOutcome {
  * The test is therefore not "does a segment equal `from`" but "does this claim
  * name *this* entity": the subject's segment must be the literal `from`, **and**
  * every ancestor segment must literally name the subject's actual ancestor. An
- * ancestor wildcard makes the claim broader than the rename; an ancestor
- * naming something else makes it about a different entity entirely.
+ * ancestor pattern makes the claim broader than the rename; an ancestor naming
+ * something else makes it about a different entity entirely.
+ *
+ * A prefix pattern (D64) is the same rule with a sharper edge. `de*` is not a
+ * reference to `dev`, so renaming `dev` cannot rewrite it — but the claim does
+ * stop reaching that environment, and that is an authority change no claim edit
+ * records. It is reported when the rename carries the entity **across the
+ * pattern's edge**, in either direction: `dev` to `prod` loses it, `prod` to
+ * `devops` gains it, and `dev` to `devel` moves nothing, because the pattern
+ * matched before and matches after. `*` can never cross its own edge, which is
+ * why a bare wildcard subject is still reported as nothing at all.
  */
 export class ClaimRewrite {
-  private static readonly Wildcard = "*";
   private static readonly ScopedPrefixes = new Set(["collections", "hooks"]);
 
+  /** A segment that names one entity, as opposed to a set of them. Only these
+   *  are rewritten; see the class note. */
+  private static isLiteral(segment: string): boolean {
+    return !ClaimSegment.isWildcard(segment) && !ClaimSegment.isPattern(segment);
+  }
+
   static rewrite(claim: string, rename: ScopeRename): ClaimRewriteOutcome {
+    const unaffected: ClaimRewriteOutcome = { claim, rewritten: false, patternAffected: false };
+    const affected: ClaimRewriteOutcome = { claim, rewritten: false, patternAffected: true };
+
     const parts = ClaimRewrite.split(claim);
-    if (parts === null) {
-      return { claim, rewritten: false, patternAffected: false };
-    }
+    if (parts === null) return unaffected;
 
     const index = ClaimRewrite.indexOf(rename.subject);
     const segments = parts.segments;
-    if (segments[index] !== rename.from) {
-      return { claim, rewritten: false, patternAffected: false };
-    }
 
+    // Every ancestor must literally name the subject's actual ancestor for the
+    // claim to be *about this entity*. One that is a pattern may still cover it,
+    // which makes the claim broader than the rename rather than unrelated.
     const ancestors = ClaimRewrite.ancestorsOf(rename);
+    let broader = false;
     for (let position = 0; position < index; position++) {
       const segment = segments[position];
-      if (segment === ClaimRewrite.Wildcard) {
-        // Broader than the rename: it covers this name in scopes the rename
-        // does not touch, so substituting here would move authority elsewhere.
-        return { claim, rewritten: false, patternAffected: true };
-      }
-      if (segment !== ancestors[position]) {
+      const actual = ancestors[position] ?? "";
+      if (ClaimRewrite.isLiteral(segment)) {
         // A different entity that happens to share the subject's name.
-        return { claim, rewritten: false, patternAffected: false };
+        if (segment !== actual) return unaffected;
+        continue;
       }
+      // Broader than the rename: it covers this name in scopes the rename does
+      // not touch, so substituting here would move authority elsewhere.
+      if (!ClaimSegment.matches(segment, actual)) return unaffected;
+      broader = true;
     }
+
+    const subject = segments[index];
+    if (!ClaimRewrite.isLiteral(subject)) {
+      // A pattern over the subject is not a reference to it, so it is never
+      // rewritten. Its *reach* only moves when the rename carries the entity
+      // across the pattern's edge — `de*` losing `dev` to `prod` does, `de*`
+      // keeping `dev` as `devel` does not, and `*` never can.
+      return ClaimSegment.matches(subject, rename.from) ===
+        ClaimSegment.matches(subject, rename.to)
+        ? unaffected
+        : affected;
+    }
+
+    if (subject !== rename.from) return unaffected;
+    if (broader) return affected;
 
     const moved = [...segments];
     moved[index] = rename.to;

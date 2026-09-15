@@ -8,6 +8,7 @@ import type { KeyInfo } from "../keys/key-info";
 import type { AuditActor } from "../audit/audit-actor";
 import type { AuditService } from "./audit-service";
 import type { AuthenticatedKey } from "../keys/authenticated-key";
+import type { KeyEdit } from "../keys/key-edit";
 import type { KeyMintOptions } from "../keys/key-mint-options";
 import { KeyLineage, type IdentifiedKey } from "../keys/key-lineage";
 import { KeyUtils } from "../keys/key-utils";
@@ -41,10 +42,11 @@ export class KeyService {
       label: info.label,
       claims: Claims.normalize(info.claims),
       prefix: info.prefix,
-      created_at:
-        typeof entry.created_at === "string"
-          ? entry.created_at
-          : entry.created_at.toISOString(),
+      created_at: KeyService.timestamp(entry.created_at),
+      // Present since D63, because a key's claims can now change after it is
+      // minted: without it a listing cannot say that the thing it is showing is
+      // not what was handed out.
+      updated_at: KeyService.timestamp(entry.updated_at),
       // Disclosed, because a listing that showed a plugin's key as an ordinary
       // one would invite an operator to revoke it by hand and then wonder why
       // the plugin came back with a new one at the next start (D34).
@@ -135,6 +137,81 @@ export class KeyService {
   async find(id: string): Promise<KeyInfo> {
     const entry = await this.context.store.get(Scope.System, KeyUtils.KeysCollection, id);
     return entry.data as KeyInfo;
+  }
+
+  /**
+   * Change an existing key's label, its claims, or both (D63).
+   *
+   * The secret is untouched, which is the whole point and the whole hazard: a
+   * holder's credential keeps working and now does something different, and
+   * they are told nothing. That is why both sides land in the trail and why the
+   * route bounds this against the target's *current* claims as well as the new
+   * ones — see `KeysRoutes`.
+   *
+   * A **managed** key is refused for the reason revoking one is: it belongs to
+   * a plugin, its claims are that plugin's grant, and silo re-mints it at the
+   * next start — so an edit here looks like it worked and undoes itself.
+   *
+   * Descendants are deliberately **not** re-bounded when a key narrows. A
+   * minted key is bounded by its minter's authority at the moment it is minted
+   * and by nothing afterwards (D38), and re-bounding here would make
+   * revocation and editing two different theories of what `parent_id` means.
+   * Narrowing grants a descendant nothing it did not already hold; revoking is
+   * still what withdraws it.
+   */
+  async update(id: string, edit: KeyEdit): Promise<Entry> {
+    if (edit.label === undefined && edit.claims === undefined) {
+      throw new ValidationError("nothing to update: want {label}, {claims}, or both");
+    }
+
+    const entry = await this.context.store.get(Scope.System, KeyUtils.KeysCollection, id);
+    const info = entry.data as KeyInfo;
+    if (KeyUtils.isManaged(info)) {
+      throw new ValidationError(
+        `key "${id}" belongs to plugin "${info.owner!.name}" and is managed by silo. ` +
+          `Change what it may do by re-granting the plugin: silo plugin grant ${info.owner!.name}`
+      );
+    }
+
+    const label = KeyService.editedLabel(edit.label, info.label);
+    const claims = edit.claims === undefined ? info.claims : Claims.normalize(edit.claims);
+
+    const next: Entry = {
+      ...entry,
+      rev: entry.rev + 1,
+      updated_at: EntryUtils.now(),
+      data: { ...info, label, claims },
+    };
+    await this.context.withWriteLock(() =>
+      this.context.store.put(next, { usages: [], search: null })
+    );
+
+    // Both sides, always — including the half that did not move. A reader
+    // asking what an edit did should not have to find the previous event to
+    // learn that the claims stayed put.
+    await this.audit.record("key.update", edit.actor ?? { kind: "system" }, id, {
+      prefix: info.prefix,
+      label_from: info.label,
+      label_to: label,
+      claims_from: info.claims,
+      claims_to: claims,
+    });
+    return next;
+  }
+
+  /** An envelope date as the wire spells it. Adapters hand back either a
+   *  `Date` or the string they stored, and a view must not disclose both. */
+  private static timestamp(value: Date | string): string {
+    return typeof value === "string" ? value : value.toISOString();
+  }
+
+  /** The label an edit produces. Blank is refused rather than replaced with a
+   *  default: a caller who sent the field meant to name the key something. */
+  private static editedLabel(next: string | undefined, current: string): string {
+    if (next === undefined) return current;
+    const trimmed = typeof next === "string" ? next.trim() : "";
+    if (!trimmed) throw new ValidationError("label cannot be empty");
+    return trimmed;
   }
 
   /**

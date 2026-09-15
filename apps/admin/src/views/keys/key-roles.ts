@@ -29,7 +29,7 @@ export class KeyRoles {
       value: 'root',
       label: 'Root',
       blurb:
-        'Unrestricted. Ignores the reach above and covers keys, media and data transfer across the whole instance.',
+        'Unrestricted. Takes no scope, and covers keys, media and data transfer across the whole instance.',
     },
   ]
 

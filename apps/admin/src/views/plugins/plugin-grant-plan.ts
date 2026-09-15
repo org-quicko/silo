@@ -1,3 +1,4 @@
+import { ClaimSegment } from '@silo/shared/claim-segment'
 import { Claims } from '@silo/shared/claims'
 import { HookNames } from '@silo/shared/hook-names'
 import type { ParsedClaim } from '@silo/shared/parsed-claim'
@@ -130,8 +131,9 @@ export class PluginGrantPlan {
     const parsed = PluginGrantPlan.parse(claim)
     if (!parsed || (parsed.kind !== 'collection' && parsed.kind !== 'hook')) return claim
 
-    const project = parsed.project === Claims.Root && scope.project ? scope.project : parsed.project!
-    const env = parsed.env === Claims.Root && scope.env ? scope.env : parsed.env!
+    const project =
+      ClaimSegment.isWildcard(parsed.project!) && scope.project ? scope.project : parsed.project!
+    const env = ClaimSegment.isWildcard(parsed.env!) && scope.env ? scope.env : parsed.env!
 
     return parsed.kind === 'collection'
       ? Claims.collection(project, env, parsed.name!, parsed.permission!)

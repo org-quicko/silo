@@ -24,6 +24,23 @@ export class KeysApi {
     })
   }
 
+  /**
+   * Changes a key's label, its claims, or both (D63). The secret is untouched,
+   * so what changes here takes effect on the credential already in use.
+   */
+  update(
+    url: string,
+    key: string,
+    id: string,
+    edit: { label?: string; claims?: string[] },
+  ): Promise<KeyView> {
+    return this.transport.request<KeyView>(url, key, `/api/keys/${encodeURIComponent(id)}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(edit),
+    })
+  }
+
   revoke(url: string, key: string, id: string): Promise<void> {
     return this.transport.request<void>(url, key, `/api/keys/${encodeURIComponent(id)}`, {
       method: 'DELETE',

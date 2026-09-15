@@ -5,10 +5,10 @@ import { CopyButton } from '../../components/buttons/CopyButton'
 import { ModalIcon } from '../../components/modal/ModalIcon'
 import type { CreatedKey } from '../../api/types/created-key'
 import { ClaimGroups } from '../../claims/claim-groups'
-import styles from './NewKey.module.css'
+import styles from './KeyForm.module.css'
 
 /** The one and only time the secret exists outside the caller's hands (§8). */
-export function NewKeySecret({ created, onDone }: { created: CreatedKey; onDone: () => void }) {
+export function KeySecret({ created, onDone }: { created: CreatedKey; onDone: () => void }) {
   return (
     <div className={`card ${styles.success}`}>
       <ModalIcon tone="ok" className={styles.successIcon}><Check size={20} /></ModalIcon>

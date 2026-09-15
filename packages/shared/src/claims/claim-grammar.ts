@@ -4,6 +4,7 @@ import type { HookName } from "../hooks/hook-name";
 import type { Claim } from "./claim";
 import type { HookClaim } from "./hook-claim";
 import type { ClaimPreset } from "./claim-preset";
+import { ClaimSegment } from "./claim-segment";
 import { ClaimVocabulary } from "./claim-vocabulary";
 import type { CollectionClaim } from "./collection-claim";
 import type { CollectionPermission } from "./collection-permission";
@@ -22,16 +23,35 @@ export class ClaimGrammar {
    *  segments of a collection claim. */
   static readonly IdSegment = "[a-z][a-z0-9_-]{0,63}";
 
+  /**
+   * A prefix pattern: at least `ClaimSegment.MinimumPrefix` literal characters
+   * of an id, then `*` (D64).
+   *
+   * The floor lives in the grammar rather than in a check after it, so an
+   * under-length prefix is *unknown grammar* — the same refusal an invented
+   * claim gets — rather than a valid-looking claim rejected by a second rule
+   * somewhere else. A trailing `*` is the only position a pattern may take;
+   * `ClaimSegment` says why.
+   */
+  static readonly PrefixSegment =
+    `[a-z][a-z0-9_-]{${ClaimSegment.MinimumPrefix - 1},62}\\*`;
+
+  /** Any of the three spellings a scope segment may take. Ordered so the
+   *  pattern is tried before the bare id, which would otherwise match its
+   *  literal part and leave the `*` to fail the rest of the expression. */
+  private static readonly Segment =
+    `(?:\\*|${ClaimGrammar.PrefixSegment}|${ClaimGrammar.IdSegment})`;
+
   private static readonly NamePattern = new RegExp(`^${ClaimGrammar.IdSegment}$`);
 
   private static readonly CollectionPattern = new RegExp(
-    `^collections:(\\*|${ClaimGrammar.IdSegment})\\/(\\*|${ClaimGrammar.IdSegment})\\/(\\*|${ClaimGrammar.IdSegment}):(.+)$`,
+    `^collections:(${ClaimGrammar.Segment})\\/(${ClaimGrammar.Segment})\\/(${ClaimGrammar.Segment}):(.+)$`,
   );
 
   /** The same three scope segments as a collection claim; only the prefix and
    *  the trailing vocabulary differ (D34). */
   private static readonly HookPattern = new RegExp(
-    `^hooks:(\\*|${ClaimGrammar.IdSegment})\\/(\\*|${ClaimGrammar.IdSegment})\\/(\\*|${ClaimGrammar.IdSegment}):(.+)$`,
+    `^hooks:(${ClaimGrammar.Segment})\\/(${ClaimGrammar.Segment})\\/(${ClaimGrammar.Segment}):(.+)$`,
   );
 
   static collection(

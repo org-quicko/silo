@@ -15,6 +15,18 @@
 export type AuditAction =
   /** A key was minted. `detail.claims` is what it was given. */
   | "key.create"
+  /**
+   * A key's label or claims were changed (D63).
+   *
+   * The one operation that alters what an **already-distributed** secret can
+   * do, so `detail` carries both sides — `claims_from`/`claims_to` and
+   * `label_from`/`label_to` — rather than only the result. A trail that
+   * recorded the new claim list alone could not answer "what did this key lose
+   * when it stopped working", which is the question an edit creates and
+   * nothing else answers: the secret is unchanged, the prefix is unchanged, and
+   * the holder is told nothing.
+   */
+  | "key.update"
   /** A key was revoked. `detail.cascaded` names the descendants that went with
    *  it, which is the one part of the outcome the 204 cannot carry. */
   | "key.revoke"

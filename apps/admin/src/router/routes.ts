@@ -43,10 +43,18 @@ export class Routes {
   static serverSettings(serverId: string, section: ServerSettingsSection): string {
     const base = `/servers/${encodeURIComponent(serverId)}/settings`
     if (section === 'key-new') return `${base}/keys/new`
+    // A bare `key-edit` names no key, so it can only mean the list it hangs
+    // off; `Routes.key` is how one is addressed.
+    if (section === 'key-edit') return `${base}/keys`
     // A bare `plugin` names no plugin, so it can only mean the index it hangs
     // off; `Routes.plugin` is how one is addressed.
     if (section === 'plugin') return `${base}/plugins`
     return `${base}/${section}`
+  }
+
+  /** One key's edit page: its label and its claims (D63). */
+  static key(serverId: string, id: string): string {
+    return `${Routes.serverSettings(serverId, 'keys')}/${encodeURIComponent(id)}`
   }
 
   /** One plugin's page: its grant, its config, and what has been done to it. */
@@ -187,9 +195,11 @@ export class Routes {
   private static parseServerSettings(serverId: string, segs: string[]): Route | null {
     const section = segs[3]
     if (section === 'keys') {
-      return segs[4] === 'new'
-        ? { view: 'server-settings', serverId, section: 'key-new' }
-        : { view: 'server-settings', serverId, section: 'keys' }
+      if (segs[4] === 'new') return { view: 'server-settings', serverId, section: 'key-new' }
+      if (segs[4]) {
+        return { view: 'server-settings', serverId, section: 'key-edit', keyId: segs[4] }
+      }
+      return { view: 'server-settings', serverId, section: 'keys' }
     }
     if (section === 'plugins') {
       return segs[4]

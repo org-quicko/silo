@@ -5,7 +5,7 @@ import type { AccessLevel } from '@silo/shared/access-level'
 import { CopyButton } from '../../components/buttons/CopyButton'
 import { Pill } from '../../components/feedback/Pill'
 import { ClaimGroups } from '../../claims/claim-groups'
-import styles from './NewKey.module.css'
+import styles from './KeyForm.module.css'
 
 const ACCESS_TEXT: Record<AccessLevel, string> = {
   root: 'Full access',
@@ -29,7 +29,7 @@ const ACCESS_TONE: Record<AccessLevel, 'accent' | 'ok' | 'muted'> = {
  * the thing you mint here reads identically to the thing you see after
  * connecting with it.
  */
-export function NewKeyReview({
+export function KeyReview({
   claims,
   scopeLabel,
   project,
@@ -61,7 +61,7 @@ export function NewKeyReview({
       </div>
 
       {groups.length === 0 ? (
-        <p className={styles.reviewEmpty}>Nothing yet — pick what this key can do.</p>
+        <p className={styles.reviewEmpty}>Nothing yet. Pick what this key can do.</p>
       ) : (
         <div className={styles.groups}>
           {groups.map((group) => (
