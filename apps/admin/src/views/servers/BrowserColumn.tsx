@@ -8,6 +8,9 @@ interface Props {
   title: string
   /** Omitted while the column is not reachable yet. */
   count?: number
+  /** Present while a local search is filtering the list. */
+  resultCount?: number
+  search?: ReactNode
   active: boolean
   /** Omitted when the column has nothing to create. */
   onAdd?: () => void
@@ -20,6 +23,8 @@ export function BrowserColumn({
   icon: Icon,
   title,
   count,
+  resultCount,
+  search,
   active,
   onAdd,
   addTitle,
@@ -31,7 +36,15 @@ export function BrowserColumn({
         <div className={styles.columnTitle}>
           <Icon size={14} className={styles.columnIcon} />
           <span>{title}</span>
-          {count !== undefined && <span className={styles.counter}>{count}</span>}
+          {count !== undefined && (
+            <span className={styles.counter} role="status" aria-label={
+              resultCount === undefined
+                ? `${count} ${title.toLowerCase()}`
+                : `${resultCount} of ${count} ${title.toLowerCase()} match`
+            }>
+              {resultCount === undefined ? count : `${resultCount} / ${count}`}
+            </span>
+          )}
         </div>
         {onAdd && (
           <button type="button" className={styles.headerBtn} onClick={onAdd} title={addTitle}>
@@ -39,6 +52,7 @@ export function BrowserColumn({
           </button>
         )}
       </div>
+      {search}
       <div className={styles.columnList}>{children}</div>
     </div>
   )

@@ -1,8 +1,9 @@
-import { Layers } from 'lucide-react'
+import { Layers, Search } from 'lucide-react'
 import { useState } from 'react'
 import { BrowserColumn } from './BrowserColumn'
 import { ColumnItem } from './ColumnItem'
 import { ColumnPlaceholder } from './ColumnPlaceholder'
+import { ColumnSearch } from './ColumnSearch'
 import { InlineNameForm } from './InlineNameForm'
 import styles from './ServerManager.module.css'
 
@@ -30,9 +31,15 @@ export function EnvironmentColumn({
   onActivate,
 }: Props) {
   const [adding, setAdding] = useState(false)
+  const [query, setQuery] = useState('')
+  const search = query.trim().toLowerCase()
+  const matches = environments.filter((env) => env.toLowerCase().includes(search))
 
   const create = async (name: string) => {
-    await onCreate(name).then(() => setAdding(false)).catch(() => {})
+    await onCreate(name).then(() => {
+      setAdding(false)
+      setQuery('')
+    }).catch(() => {})
   }
 
   return (
@@ -40,6 +47,10 @@ export function EnvironmentColumn({
       icon={Layers}
       title="Environments"
       count={project ? environments.length : undefined}
+      resultCount={search && !loading ? matches.length : undefined}
+      search={serverId && project && (
+        <ColumnSearch label="Search environments" value={query} onChange={setQuery} disabled={loading} />
+      )}
       active={Boolean(project)}
       onAdd={project && !adding ? () => setAdding(true) : undefined}
       addTitle="New environment"
@@ -65,8 +76,10 @@ export function EnvironmentColumn({
           )}
           {environments.length === 0 && !adding ? (
             <ColumnPlaceholder message="No environments found" hint="Click + to create one" />
+          ) : search && matches.length === 0 ? (
+            <ColumnPlaceholder icon={Search} message="No matching environments" hint="Try another name or clear the search" />
           ) : (
-            environments.map((env, index) => (
+            matches.map((env, index) => (
               <ColumnItem
                 key={env}
                 title={env}

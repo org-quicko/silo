@@ -17,7 +17,7 @@ can be cloned with one command.
 
 ## Where things stand
 
-*Last updated: 2026-09-15 (D67)*
+*Last updated: 2026-09-16 (D67)*
 
 Everything through M5 is built and shipping: collections and JSON Schema
 validation, entry CRUD with optimistic concurrency, the query AST and search
@@ -114,8 +114,15 @@ the same `entries:update`-at-every-referring-scope check a force delete
 passes. The blob key and the extension stay put, which is what keeps a
 bucket-backed instance's public URL stable and leaves nothing to clean up.
 
-**The most recent change landed on 2026-09-15; everything before it on
-2026-09-10 or earlier.**
+**Projects and environments can be searched within the server browser
+(2026-09-16).** Each reachable column has a compact, labelled search field
+above its scrolling list. It filters the loaded names immediately, ignoring
+case and surrounding whitespace, and shows matches against the total plus a
+distinct no-match state. Clear or Escape restores the list; Escape clears a
+nonempty search before it can dismiss the browser. Changing servers resets
+both searches, changing projects resets the environment search, and creating
+an item clears its column's search so the new selection is visible. Search
+does not change the chosen scope or call the global search API.
 
 **A dialog reports its own refusal, inside itself (2026-09-15).** Renaming a
 media file to a name the library will not take answered in the page's error
