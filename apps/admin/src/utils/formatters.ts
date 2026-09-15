@@ -22,6 +22,20 @@ export class Formatters {
     return d.toLocaleDateString(undefined, { month: 'short', day: '2-digit' })
   }
 
+  /** The whole timestamp in the reader's own locale and zone. A rail that
+   *  states a fact states all of it; `relativeTime` is for a list you scan. */
+  static fullDateTime(iso: string): string {
+    const d = new Date(iso)
+    if (Number.isNaN(d.getTime())) return ''
+    return d.toLocaleString(undefined, {
+      year: 'numeric',
+      month: 'short',
+      day: '2-digit',
+      hour: '2-digit',
+      minute: '2-digit',
+    })
+  }
+
   static shortId(id: string): string {
     if (id.length <= 12) return id
     return id.slice(0, 8) + '…' + id.slice(-3)

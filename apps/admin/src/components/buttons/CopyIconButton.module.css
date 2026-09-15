@@ -1,0 +1,24 @@
+/* Sized to the value it sits beside: reachable, never the loudest thing in a
+   row of facts. It stays visible rather than appearing on hover, because the
+   rail is where a reader comes to take an id away with them. */
+.button {
+  display: inline-flex;
+  width: 20px;
+  height: 20px;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: 0;
+  border-radius: var(--r-1);
+  background: transparent;
+  color: var(--text-4);
+  cursor: pointer;
+}
+
+.button:hover {
+  background: var(--panel-2);
+  color: var(--text-2);
+}
+
+.copied { color: var(--ok); }

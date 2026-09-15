@@ -106,6 +106,24 @@ operator makes rather than something `media:delete` came with (D65).
 **The most recent change landed on 2026-09-15; everything before it on
 2026-09-10 or earlier.**
 
+**An entry form states its id whole (2026-09-15).** The page printed the ULID
+twice and elided it both times — `01M25FMA…41K` in the breadcrumb and again in
+the rail's SYSTEM block — with the full value reachable only by hovering. An id
+that cannot be read off the page is one a reader opens the network tab for. The
+crumb carries the entire ULID now, and every fact in the rail states its whole
+value: absolute timestamps in the reader's own zone (`Formatters.fullDateTime`)
+rather than `Sep 10` and `5d ago`, each with an icon-only `CopyIconButton`
+beside it — `components/buttons/`, a twin of the labelled `CopyButton`, which
+at 320px would outweigh the value it sits next to. A timestamp copies the ISO
+string the API stores rather than the words on screen, since that is what a
+filter or a request wants, and the row's tooltip carries it so the two are
+never silently different. `Breadcrumb` gains `flex-wrap: wrap`, the one change
+outside this page: an unbreakable 26-character crumb makes the crumbs beside it
+shrink instead, which broke `com-quicko-event` into three stacked syllables at
+phone width. `Formatters.shortId` is untouched and still labels
+list rows, search results and the delete dialog's subject, where the row around
+it already says which entry is meant.
+
 **Emptying the media library needs a claim of its own (2026-09-15).**
 `POST /api/media/purge` asks for `media:purge` in addition to `media:delete`.
 D49 shipped it behind `media:delete` alone, which both the `write` and the

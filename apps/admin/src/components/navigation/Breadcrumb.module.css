@@ -1,5 +1,9 @@
+/* Wraps rather than squeezes: a crumb naming an entry is an unbreakable
+   26-character id, and a row that cannot fit it shrinks the crumbs beside it
+   into stacks of syllables. A second line is the better answer. */
 .breadcrumb {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: 7px;
   margin-bottom: 11px;

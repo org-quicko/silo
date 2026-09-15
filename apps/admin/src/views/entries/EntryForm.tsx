@@ -1,4 +1,5 @@
 import { Button } from '../../components/buttons/Button'
+import { CopyIconButton } from '../../components/buttons/CopyIconButton'
 import { Breadcrumb } from '../../components/navigation/Breadcrumb'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import Form from '@rjsf/core'
@@ -209,7 +210,9 @@ export function EntryForm({
                 crumbs={[
                   { label: 'Collections', to: Routes.collections(serverId, scope.project, scope.env) },
                   { label: collection.name, to: backTo },
-                  { label: entry ? Formatters.shortId(entry.id) : 'New entry' },
+                  // The id in full: the crumb is how a reader reads an entry's
+                  // id off the page, and a truncated one names nothing.
+                  { label: entry ? entry.id : 'New entry' },
                 ]}
               />
               <div className={`page-head ${styles.pageHead}`}>
@@ -257,24 +260,27 @@ export function EntryForm({
             {entry ? (
               <div className={styles.group}>
                 <span className={styles.label}>SYSTEM</span>
-                <div className={styles.row}>
-                  <span className={styles.key}>id</span>
-                  <span className={styles.value} title={entry.id}>
-                    {Formatters.shortId(entry.id)}
-                  </span>
-                </div>
-                <div className={styles.row}>
-                  <span className={styles.key}>created</span>
-                  <span className={styles.value}>{Formatters.shortDate(entry.created_at)}</span>
-                </div>
-                <div className={styles.row}>
-                  <span className={styles.key}>updated</span>
-                  <span className={styles.value}>{Formatters.relativeTime(entry.updated_at)}</span>
-                </div>
-                <div className={styles.row}>
-                  <span className={styles.key}>revision</span>
-                  <span className={styles.value}>v{entry.rev}</span>
-                </div>
+                <SystemRow name="id" value={entry.id} copy={entry.id} copyLabel="Copy entry id" />
+                <SystemRow
+                  name="created"
+                  value={Formatters.fullDateTime(entry.created_at)}
+                  copy={entry.created_at}
+                  copyLabel="Copy created timestamp"
+                  hint={entry.created_at}
+                />
+                <SystemRow
+                  name="updated"
+                  value={Formatters.fullDateTime(entry.updated_at)}
+                  copy={entry.updated_at}
+                  copyLabel="Copy updated timestamp"
+                  hint={`${entry.updated_at} (${Formatters.relativeTime(entry.updated_at)})`}
+                />
+                <SystemRow
+                  name="revision"
+                  value={`v${entry.rev}`}
+                  copy={String(entry.rev)}
+                  copyLabel="Copy revision number"
+                />
               </div>
             ) : (
               <div className={styles.group}>
@@ -348,5 +354,37 @@ export function EntryForm({
         </Modal>
       )}
     </>
+  )
+}
+
+/**
+ * One fact of the rail's SYSTEM block, stated whole and copyable. A timestamp
+ * reads in the browser's own zone while it copies the ISO string the API
+ * stores, which is the form a filter or a request wants; `hint` carries that
+ * raw value on hover.
+ */
+function SystemRow({
+  name,
+  value,
+  copy,
+  copyLabel,
+  hint,
+}: {
+  name: string
+  value: string
+  copy: string
+  copyLabel: string
+  hint?: string
+}) {
+  return (
+    <div className={styles.row}>
+      <span className={styles.key}>{name}</span>
+      <span className={styles.valueGroup}>
+        <span className={styles.value} title={hint}>
+          {value}
+        </span>
+        <CopyIconButton text={copy} label={copyLabel} />
+      </span>
+    </div>
   )
 }

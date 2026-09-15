@@ -4,6 +4,29 @@
 > The *current* state is [CONTEXT.md](../../CONTEXT.md); this is how it got
 > there.
 
+- **An entry form states its id whole (2026-09-15).** The ULID was elided in
+  both places the page printed it — `Formatters.shortId` in the breadcrumb and
+  again in the rail's SYSTEM block — so reading an entry's id meant hovering for
+  a `title` or opening the network tab. The crumb now carries the whole ULID,
+  and the rail states every fact in full: `Formatters.fullDateTime` gives
+  `created` and `updated` an absolute local timestamp in place of `Sep 10` and
+  `5d ago`, and each of the four rows gains a `CopyIconButton`
+  (`components/buttons/`) — icon-only, 20px, because the labelled `CopyButton`
+  would outweigh the value it sits beside in a 320px rail. What a timestamp
+  *copies* is the ISO string the API stores, not the words on screen: that is
+  the form a filter or a request takes, and the value's `title` carries it so
+  the difference is never silent. The row keeps its one-line rhythm — the key
+  holds its width, the value wraps rather than truncating — and a 26-character
+  id still lands on one line at the rail's 276px of content. `Breadcrumb` gains
+  `flex-wrap: wrap` — the one change outside the page, and the id is what forced
+  it: an unbreakable 26-character crumb in a row that cannot hold it makes the
+  *other* crumbs shrink, and `com-quicko-event` came apart into three stacked
+  syllables at phone width. Everywhere else the rule is inert, since nothing
+  wraps until a row would otherwise be squeezed. Deliberately local
+  to this page: `shortId` remains on list rows, search results and the delete
+  dialog's subject, where the collection and the row around it already name the
+  entry, and this is the one screen where the id is the subject itself.
+
 - **Emptying the media library needs a claim of its own (2026-09-15).** D65.
   `POST /api/media/purge` now asks for `media:purge` in addition to
   `media:delete`. D49 shipped purge behind `media:delete` alone, reasoning by
