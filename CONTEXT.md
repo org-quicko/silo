@@ -17,7 +17,7 @@ can be cloned with one command.
 
 ## Where things stand
 
-*Last updated: 2026-09-15 (D62)*
+*Last updated: 2026-09-15 (D64)*
 
 Everything through M5 is built and shipping: collections and JSON Schema
 validation, entry CRUD with optimistic concurrency, the query AST and search
@@ -86,8 +86,53 @@ There is now a **published TypeScript client** for the data half of the API,
 `packages/silo-client` (D61), and it **releases independently of silo**: its
 own tag, its own version, its own workflow.
 
+An API key is no longer write-once: `PATCH /api/keys/{id}` changes its label,
+its claims, or both, leaving the secret alone, and the admin's key form now does
+double duty as the edit page (D63). That form's claim list is written in one of
+**three tabs** below the label — Presets (a role over one *or more* scopes),
+Advanced (every leaf claim, per scope), Custom (the list by hand, with a claim
+reference) — which are three modes over one list rather than three forms:
+switching reads the list back and *refuses* a switch that would lose a claim
+instead of approximating it. A claim's scope segments now also take a **prefix
+pattern**, `collections:acme*/prod/*:…`, so "this team owns the `acme-`
+namespace" is expressible without handing over `*` (D64); every segment question
+is answered by one `ClaimSegment` in `@silo/shared` rather than by the six
+places that used to answer it separately.
+
 **The most recent change landed on 2026-09-15; everything before it on
 2026-09-10 or earlier.**
+
+**An API key can be edited, and its claims are written in one of three tabs
+(2026-09-15).** `PATCH /api/keys/{id}` takes `{label?, claims?}`, replaces the
+claim list outright, and leaves the secret, prefix, owner and parent alone. It
+is gated on `keys:create` and bounded twice — against what the target holds now
+(revoke's bound, D37) and against what it is being given (minting's) — because
+an edit is both operations at once. `key.update` records both sides, `KeyView`
+gains `updated_at`, and the CLI gains `silo keys update`. In the admin one form
+now creates and edits (`views/keys/KeyForm.tsx`, `use-key-form.ts`), reached at
+`/servers/:sid/settings/keys/:id`, with a Changes panel and a warning when the
+subject is the session's own key. The four-option reach control is gone: a
+scope is now a *list* of project/environment rows, which says everything the
+reach said and also says "acme/prod and beta/prod". `KeyPlan` composes a claim
+list from a tab's state, `KeyPlanReader` reads one back, and `KeyClaimFit`
+decides which tab can hold a given list — an existing key opens on the widest
+tab that reproduces it exactly, and a switch that would lose a claim is refused
+with the claim named (D63).
+
+**A claim's scope segment can be a name prefix (2026-09-15).**
+`collections:acme*/prod/*:entries:read` reaches every project whose name starts
+`acme`, including ones created later. Three or more literal characters then a
+trailing `*`, and nothing else: a shorter prefix is `*` in disguise, and general
+globs would make delegation a language-containment problem. Every segment
+question now goes through `ClaimSegment` in `@silo/shared` — matching,
+delegation containment, search narrowing and the SQL the index compiles, which
+is `GLOB` rather than `LIKE`. That centralisation landed first, on its own, with
+no behaviour change, replacing six separately-written copies of the rule.
+`ClaimRewrite` reports a pattern as `patternAffected` when a rename carries an
+entity across its edge, so a rename cannot silently move authority. Patterns are
+refused by the two guided tabs and live only in Custom, which shows what each
+one matches today beside the sentence that it also matches whatever comes later
+(D64).
 
 **A stranger opening an issue gets a form rather than an empty box
 (2026-09-15).** `.github/ISSUE_TEMPLATE/` holds two GitHub issue forms and a

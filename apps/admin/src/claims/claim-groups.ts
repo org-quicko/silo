@@ -1,3 +1,4 @@
+import { ClaimSegment } from '@silo/shared/claim-segment'
 import { Claims } from '@silo/shared/claims'
 import { HookNames } from '@silo/shared/hook-names'
 import type { CollectionPermission } from '@silo/shared/collection-permission'
@@ -21,14 +22,27 @@ import { ClaimWords } from './claim-words'
  * changelog for the shipped bug that rule exists to make impossible.
  */
 export class ClaimGroups {
+  /**
+   * One scope segment, in words.
+   *
+   * A prefix pattern (D64) is spelled out rather than printed raw, because
+   * `acme*` in a summary reads as a list of the projects on screen and means
+   * every project whose name starts that way — the ones that exist and the ones
+   * that do not yet. The summary exists so someone can catch a mistake, and a
+   * grant that looks narrower than it is, is the mistake it most has to catch.
+   */
   private static segment(value: string, plural: string): string {
-    return value === Claims.Root ? plural : value
+    if (value === Claims.Root) return plural
+    if (ClaimSegment.isPattern(value)) {
+      return `${plural} starting ${ClaimSegment.prefixOf(value)}`
+    }
+    return value
   }
 
   /** `acme / prod · posts`, the target a scoped claim names. */
   private static target(parsed: ParsedClaim): string {
     const scope = `${ClaimGroups.segment(parsed.project!, 'every project')} / ${ClaimGroups.segment(parsed.env!, 'every environment')}`
-    return `${scope} · ${parsed.name === Claims.Root ? 'all collections' : parsed.name}`
+    return `${scope} · ${ClaimGroups.segment(parsed.name!, 'all collections')}`
   }
 
   static build(claims: readonly string[]): ClaimGroup[] {

@@ -12,7 +12,10 @@
    and not to a flex item inside it, so the label truncates itself. */
 .label { min-width: 0; margin-left: 9px; overflow: hidden; font-weight: 500; text-overflow: ellipsis; }
 .prefix { font-family: var(--font-ui); font-size: 12px; }
-.date { font-size: 12.5px; }
-.actions { display: flex; justify-content: flex-end; }
+.date { display: flex; align-items: baseline; gap: 7px; font-size: 12.5px; }
+/* A key whose claims have moved since it was minted. The secret in circulation
+   is unchanged, so the row has to say the record is not what was handed out. */
+.edited { color: var(--text-3); font-size: 10.5px; letter-spacing: 0.03em; text-transform: uppercase; }
+.actions { display: flex; align-items: center; justify-content: flex-end; gap: 8px; }
 .current { color: var(--text-3); font-size: 12px; }
 .empty { display: flex; align-items: center; justify-content: center; gap: 8px; padding: 44px 16px; color: var(--text-3); }

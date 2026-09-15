@@ -1,3 +1,4 @@
+import { ClaimSegment } from "@silo/shared/claim-segment";
 import type { SqliteConnection } from "./sqlite-connection";
 import { EntryUtils } from "../../../core/domain/entry-utils";
 import type { Entry } from "../../../core/domain/entry";
@@ -267,9 +268,13 @@ export class SqliteSearcher implements Searcher {
         ["v.env_name", t.env],
         ["c.collection_name", t.collection],
       ] as [string, string][]) {
-        if (value === "*") continue;
-        parts.push(`${column} = ?`);
-        args.push(value);
+        // Built by `ClaimSegment`, not spelled here: the index must answer a
+        // matching question exactly the way `ParsedClaim` does, and a plan that
+        // reads one row too many is an authorization bug no 403 ever reveals.
+        const test = ClaimSegment.sql(column, value);
+        if (test === null) continue;
+        parts.push(test.clause);
+        args.push(...test.args);
       }
       groups.push(parts.length === 0 ? "1" : "(" + parts.join(" AND ") + ")");
     }

@@ -50,9 +50,9 @@ body:
       required: true
 
   - type: dropdown
-    id: area
+    id: feature
     attributes:
-      label: Area
+      label: Feature
       description: The part of silo this affects.
       options:
         - Admin UI

@@ -8,7 +8,8 @@ import { ScopeMemory } from '../../utils/scope-memory'
 import { KeysView } from '../keys/Keys'
 import { PluginsView } from '../plugins/Plugins'
 import { PluginDetailView } from '../plugins/PluginDetail'
-import { NewKeyView } from '../keys/NewKey'
+import { KeyEditPage } from '../keys/KeyEditPage'
+import { KeyFormView } from '../keys/KeyForm'
 import { ExportImportView } from '../transfer/ExportImport'
 import { SettingsNav } from './SettingsNav'
 import { useSettingsScope } from './use-settings-scope'
@@ -199,11 +200,12 @@ export function SettingsView({ server, route, onUpdateServer, onDeleteServer, on
             apiKey={apiKey}
             claims={claims}
             onCreate={() => router.navigate(Routes.serverSettings(serverId, 'key-new'))}
+            onEdit={(id) => router.navigate(Routes.key(serverId, id))}
           />
         )}
 
         {route.view === 'server-settings' && route.section === 'key-new' && (
-          <NewKeyView
+          <KeyFormView
             url={url}
             apiKey={apiKey}
             // The resolved scope is only the *default* reach now — the form
@@ -211,7 +213,24 @@ export function SettingsView({ server, route, onUpdateServer, onDeleteServer, on
             // when none resolved.
             scope={scope}
             ownClaims={claims}
-            projects={projects}
+            subject={null}
+            keysUrl={Routes.serverSettings(serverId, 'keys')}
+            onCancel={() => router.navigate(Routes.serverSettings(serverId, 'keys'))}
+            onDone={() => router.navigate(Routes.serverSettings(serverId, 'keys'))}
+          />
+        )}
+
+        {/* Keyed on the key, for the reason the plugin page below is keyed on
+            its plugin: navigating between two of them must not carry a
+            half-edited claim list across. */}
+        {route.view === 'server-settings' && route.section === 'key-edit' && route.keyId && (
+          <KeyEditPage
+            key={route.keyId}
+            keyId={route.keyId}
+            url={url}
+            apiKey={apiKey}
+            scope={scope}
+            ownClaims={claims}
             keysUrl={Routes.serverSettings(serverId, 'keys')}
             onCancel={() => router.navigate(Routes.serverSettings(serverId, 'keys'))}
             onDone={() => router.navigate(Routes.serverSettings(serverId, 'keys'))}

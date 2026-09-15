@@ -113,7 +113,7 @@ export function SettingsNav({
             to={Routes.serverSettings(serverId, 'keys')}
             icon={<KeyRound size={15} />}
             title="API Keys"
-            active={serverSection === 'keys' || serverSection === 'key-new'}
+            active={serverSection === 'keys' || serverSection === 'key-new' || serverSection === 'key-edit'}
           />
           <SettingsNavItem
             to={Routes.serverSettings(serverId, 'transfer')}

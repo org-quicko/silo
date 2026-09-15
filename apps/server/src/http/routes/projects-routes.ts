@@ -1,4 +1,5 @@
 import type { Context } from "hono";
+import { ClaimSegment } from "@silo/shared/claim-segment";
 import { Claims } from "@silo/shared/claims";
 import { SiloService } from "../../core/services/silo-service";
 import type { EnvironmentRecord } from "../../core/domain/environment-record";
@@ -48,7 +49,7 @@ export class ProjectsRoutes {
         parsed.some(
           (claim) =>
             claim.kind === "root" ||
-            (claim.kind === "collection" && (claim.project === "*" || claim.project === p.name))
+            (claim.kind === "collection" && ClaimSegment.matches(claim.project!, p.name))
         )
       );
       return c.json({ items: visible.map(ProjectsRoutes.projectView) });

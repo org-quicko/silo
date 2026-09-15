@@ -186,4 +186,80 @@ describe("ClaimRewrite", () => {
       expect(twice.rewritten).toEqual([]);
     });
   });
+
+  describe("prefix patterns (D64)", () => {
+    const affected = (claim: string, rename: ScopeRename) =>
+      ClaimRewrite.rewrite(claim, rename);
+
+    test("a prefix over the subject is never rewritten", () => {
+      const outcome = affected("collections:acm*/dev/posts:entries:read", projectRename);
+      expect(outcome.claim).toBe("collections:acm*/dev/posts:entries:read");
+      expect(outcome.rewritten).toBe(false);
+    });
+
+    test("is reported when the rename carries the entity out of the prefix", () => {
+      // `acme` matched `acm*`; `globex` does not, so the key silently loses it.
+      expect(affected("collections:acm*/dev/posts:entries:read", projectRename).patternAffected)
+        .toBe(true);
+    });
+
+    test("is reported when the rename carries an entity into the prefix", () => {
+      const intoPrefix: ScopeRename = {
+        subject: "project",
+        from: "beta",
+        to: "acme-two",
+        project: "beta",
+      };
+      expect(affected("collections:acme*/dev/posts:entries:read", intoPrefix).patternAffected)
+        .toBe(true);
+    });
+
+    test("is silent when the rename stays inside the prefix", () => {
+      const withinPrefix: ScopeRename = {
+        subject: "project",
+        from: "acme",
+        to: "acme-two",
+        project: "acme",
+      };
+      const outcome = affected("collections:acm*/dev/posts:entries:read", withinPrefix);
+      expect(outcome.patternAffected).toBe(false);
+      expect(outcome.rewritten).toBe(false);
+    });
+
+    test("is silent when the prefix has nothing to do with either name", () => {
+      const outcome = affected("collections:zzz*/dev/posts:entries:read", projectRename);
+      expect(outcome.patternAffected).toBe(false);
+    });
+
+    test("a bare wildcard subject is still never reported, since it cannot lose a name", () => {
+      expect(affected("collections:*/dev/posts:entries:read", projectRename).patternAffected)
+        .toBe(false);
+    });
+
+    test("a prefix ancestor makes a literal subject reported rather than rewritten", () => {
+      const outcome = affected("collections:acm*/dev/posts:entries:read", collectionRename);
+      expect(outcome.rewritten).toBe(false);
+      expect(outcome.patternAffected).toBe(true);
+      expect(outcome.claim).toBe("collections:acm*/dev/posts:entries:read");
+    });
+
+    test("a prefix ancestor that does not cover the rename leaves the claim alone", () => {
+      const outcome = affected("collections:zzz*/dev/posts:entries:read", collectionRename);
+      expect(outcome.rewritten).toBe(false);
+      expect(outcome.patternAffected).toBe(false);
+    });
+
+    test("a prefix in the collection segment follows the same rule", () => {
+      const outcome = affected("collections:acme/dev/pos*:entries:read", collectionRename);
+      expect(outcome.rewritten).toBe(false);
+      expect(outcome.patternAffected).toBe(true);
+    });
+
+    test("hook claims are rewritten and reported identically", () => {
+      expect(affected("hooks:acm*/dev/posts:entry.afterWrite", projectRename).patternAffected)
+        .toBe(true);
+      expect(affected("hooks:acme/dev/posts:entry.afterWrite", projectRename).claim)
+        .toBe("hooks:globex/dev/posts:entry.afterWrite");
+    });
+  });
 });

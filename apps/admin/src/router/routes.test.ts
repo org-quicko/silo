@@ -22,6 +22,7 @@ describe('Routes.parse', () => {
     ['/servers/s1/settings/projects', 'server-settings:projects'],
     ['/servers/s1/settings/keys', 'server-settings:keys'],
     ['/servers/s1/settings/keys/new', 'server-settings:key-new'],
+    ['/servers/s1/settings/keys/01J0KEYID', 'server-settings:key-edit'],
     ['/servers/s1/settings/transfer', 'server-settings:transfer'],
     ['/servers/s1/settings/connection', 'server-settings:connection'],
     ['/servers/s1/settings/appearance', 'server-settings:appearance'],
@@ -138,6 +139,7 @@ describe('Routes builders', () => {
     [Routes.serverSettings('s1', 'projects'), 'server-settings:projects'],
     [Routes.serverSettings('s1', 'keys'), 'server-settings:keys'],
     [Routes.serverSettings('s1', 'key-new'), 'server-settings:key-new'],
+    [Routes.key('s1', '01J0KEYID'), 'server-settings:key-edit'],
     [Routes.serverSettings('s1', 'transfer'), 'server-settings:transfer'],
     [Routes.serverSettings('s1', 'connection'), 'server-settings:connection'],
     [Routes.serverSettings('s1', 'appearance'), 'server-settings:appearance'],
@@ -180,6 +182,9 @@ describe('Routes builders', () => {
 
   test('server-level settings carry no scope prefix, so each has one canonical URL', () => {
     expect(Routes.serverSettings('s1', 'keys')).toBe('/servers/s1/settings/keys')
+    // `new` is the one key id the edit route may not take, since it is the
+    // create page's own segment.
+    expect(Routes.key('s1', '01J0KEYID')).toBe('/servers/s1/settings/keys/01J0KEYID')
     expect(Routes.serverSettings('s1', 'keys')).not.toContain('projects')
   })
 

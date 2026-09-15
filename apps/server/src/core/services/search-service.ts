@@ -1,3 +1,4 @@
+import { ClaimSegment } from "@silo/shared/claim-segment";
 import { Claims } from "@silo/shared/claims";
 import { SchemaAccess } from "@silo/shared/schema-access";
 import { EntryUtils } from "../domain/entry-utils";
@@ -136,15 +137,9 @@ export class SearchService {
    * search back out.
    */
   private static intersect(target: SearchTarget, reach: SearchReach): SearchTarget | null {
-    const narrow = (claimed: string, asked?: string): string | null => {
-      if (asked === undefined) return claimed;
-      if (claimed === "*") return asked;
-      return claimed === asked ? claimed : null;
-    };
-
-    const project = narrow(target.project, reach.project);
-    const env = narrow(target.env, reach.env);
-    const collection = narrow(target.collection, reach.collection);
+    const project = ClaimSegment.narrow(target.project, reach.project);
+    const env = ClaimSegment.narrow(target.env, reach.env);
+    const collection = ClaimSegment.narrow(target.collection, reach.collection);
     if (project === null || env === null || collection === null) return null;
     return { project, env, collection };
   }

@@ -25,7 +25,6 @@
 
 /* Cards used as fieldsets need the browser's own reset undone. */
 fieldset.section { min-width: 0; margin: 0; }
-.sectionMuted { opacity: 0.45; }
 
 .sectionHeader {
   display: flex;
@@ -51,75 +50,57 @@ fieldset.section { min-width: 0; margin: 0; }
 
 .rootNote { margin: 0; color: var(--text-3); font-size: 12.5px; }
 
-/* ── Reach ─────────────────────────────────────────────────────────── */
+/* ── Tabs ─────────────────────────────────────────────────────────── */
 
-.reach { display: flex; flex-direction: column; gap: 14px; }
+.tabs { display: flex; flex-direction: column; gap: 8px; }
+.tabsError { color: var(--warn); font-size: 12px; }
 
-.reachOptions {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-  gap: 8px;
+/* ── A tab's sections ──────────────────────────────────────────────── */
+
+.block { display: flex; flex-direction: column; gap: 10px; }
+.block + .block { margin-top: 26px; padding-top: 22px; border-top: 1px solid var(--line); }
+.block > h3 { margin: 0; color: var(--text); font-size: 14px; font-weight: 600; }
+.block > p { margin: 0 0 4px; color: var(--text-3); font-size: 12px; line-height: 1.6; }
+
+.wildNote { margin: 0; color: var(--text-3); font-size: 12px; line-height: 1.6; }
+
+/* ── Scope rows ────────────────────────────────────────────────────── */
+
+.scopeList { display: flex; flex-direction: column; gap: 8px; }
+
+.scopeRow {
+  display: flex;
+  min-width: 0;
+  flex: 1;
+  align-items: center;
+  gap: 10px;
 }
 
-.reachOption {
-  display: flex;
+.scopeRow select,
+.scopeRow input { min-width: 0; flex: 1; }
+.scopeSlash { flex: none; color: var(--text-3); }
+
+.scopeRemove {
+  display: inline-flex;
+  width: 30px;
+  height: 30px;
+  flex: none;
   align-items: center;
-  gap: 9px;
-  padding: 11px 13px;
+  justify-content: center;
   border: 1px solid var(--line);
   border-radius: var(--radius-sm);
   background: var(--panel-2);
-  color: var(--text-2);
-  font-size: 12.5px;
-  text-align: left;
+  color: var(--text-3);
   cursor: pointer;
 }
 
-.reachOption svg { flex: none; color: var(--text-3); }
-.reachOption:hover:not(:disabled) { border-color: var(--line-2); color: var(--text); }
-.reachOption:disabled { cursor: not-allowed; opacity: 0.4; }
+.scopeRemove:hover { border-color: var(--bad); color: var(--bad); }
 
-.reachOptionActive,
-.reachOptionActive:hover:not(:disabled) {
-  border-color: var(--accent);
-  background: var(--accent-soft);
-  color: var(--text);
-}
-
-.reachOptionActive svg { color: var(--accent); }
-
-.segments {
+.scopeListFoot {
   display: flex;
-  align-items: flex-end;
-  gap: 12px;
-  padding: 14px;
-  border: 1px solid var(--line);
-  border-radius: var(--radius-sm);
-  background: var(--ink-2);
-}
-
-.segment { display: flex; min-width: 0; flex: 1; flex-direction: column; gap: 6px; }
-.segment select,
-.segment input { width: 100%; }
-
-.segmentLabel {
-  color: var(--text-3);
-  font-size: 10.5px;
-  letter-spacing: 0.03em;
-  text-transform: uppercase;
-}
-
-.segmentSlash { padding-bottom: 11px; color: var(--text-3); }
-
-.segmentWildValue {
-  display: flex;
-  min-height: 38px;
   align-items: center;
-  padding: 0 12px;
-  border: 1px dashed var(--line-2);
-  border-radius: var(--radius-sm);
-  color: var(--text-3);
-  font-size: 13px;
+  gap: 12px;
+  margin-top: 2px;
 }
 
 /* ── Roles ─────────────────────────────────────────────────────────── */
@@ -149,32 +130,40 @@ fieldset.section { min-width: 0; margin: 0; }
 
 /* ── Advanced ──────────────────────────────────────────────────────── */
 
-.advanced { padding: 0; }
-
-.advancedToggle {
+.advancedRow {
   display: flex;
-  width: 100%;
-  align-items: center;
-  gap: 10px;
-  padding: 18px 22px;
-  border: 0;
-  background: transparent;
-  color: var(--text-3);
-  text-align: left;
+  flex-direction: column;
+  gap: 12px;
+  padding: 14px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: var(--ink-2);
+}
+
+.advancedRowHead { display: flex; align-items: center; gap: 10px; }
+
+.permissions {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+  gap: 7px;
+}
+
+.permission {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 9px 11px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: var(--panel-2);
   cursor: pointer;
 }
 
-.advancedToggle:hover { color: var(--text-2); }
-.advancedToggle > span { display: flex; flex-direction: column; gap: 3px; }
-.advancedToggle b { color: var(--text); font-size: 14px; font-weight: 600; }
-.advancedToggle small { color: var(--text-3); font-size: 12px; }
-
-.advancedBody {
-  display: flex;
-  flex-direction: column;
-  gap: 22px;
-  padding: 4px 22px 22px;
-}
+.permission:hover { border-color: var(--line-2); }
+.permission span { display: flex; min-width: 0; flex-direction: column; gap: 2px; }
+.permission b { color: var(--text-2); font-size: 12.5px; font-weight: 500; }
+.permission small { color: var(--text-3); font-family: var(--font-ui); font-size: 10.5px; }
+.permissionBlocked { cursor: not-allowed; opacity: 0.4; }
 
 .scopeChoices {
   display: grid;
@@ -343,34 +332,140 @@ fieldset.section { min-width: 0; margin: 0; }
 
 .impliedNote { display: flex; align-items: center; gap: 7px; color: var(--warn); font-size: 11.5px; }
 
-/* ── Raw claim editor ──────────────────────────────────────────────── */
+/* ── Custom ───────────────────────────────────────────────────────── */
 
-.rawEntry {
+.customHead {
   display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 16px;
-  padding-top: 16px;
-  border-top: 1px solid var(--line);
-}
-
-.rawEntry > div { display: flex; flex-direction: column; gap: 3px; }
-.rawEntry b { color: var(--text); font-size: 13px; }
-.rawEntry span { color: var(--text-3); font-size: 11.5px; }
-
-.rawPanel { display: flex; flex-direction: column; gap: 11px; }
-
-.rawHead {
-  display: flex;
-  align-items: center;
+  align-items: flex-start;
   justify-content: space-between;
   gap: 16px;
 }
 
-.rawHead > div { display: flex; flex-direction: column; gap: 3px; }
-.rawHead b { color: var(--text); font-size: 13px; }
-.rawHead span { color: var(--text-3); font-size: 11.5px; }
-.rawInput { min-height: 200px; padding: 12px; font-size: 12px; line-height: 1.7; resize: vertical; }
+.customHead > div { display: flex; flex-direction: column; gap: 4px; }
+
+.customEditor {
+  overflow: hidden;
+  border: 1px solid var(--line-2);
+  border-radius: var(--radius-sm);
+}
+
+.validity { display: flex; align-items: center; gap: 7px; color: var(--ok); font-size: 12px; }
+.invalid { color: var(--bad); }
+
+/* ── Name patterns ─────────────────────────────────────────────────── */
+
+.patterns {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 13px 14px;
+  border: 1px solid color-mix(in oklab, var(--warn) 30%, transparent);
+  border-radius: var(--radius-sm);
+  background: color-mix(in oklab, var(--warn) 7%, transparent);
+}
+
+.patternsHead { display: flex; align-items: center; gap: 7px; color: var(--warn); font-size: 12px; }
+
+.patternRow {
+  display: grid;
+  align-items: baseline;
+  gap: 11px;
+  grid-template-columns: minmax(0, auto) minmax(0, 1fr);
+}
+
+.patternRow code { overflow-wrap: anywhere; color: var(--text); font-family: var(--font-ui); font-size: 11.5px; }
+.patternRow > div { display: flex; flex-direction: column; gap: 3px; }
+.patternRow span { color: var(--text-3); font-size: 11.5px; line-height: 1.6; }
+.patternRow b { color: var(--text-2); }
+.patternMatches { font-family: var(--font-ui); }
+
+/* ── Claim reference ───────────────────────────────────────────────── */
+
+.referenceSearch {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 12px;
+  border: 1px solid var(--line-2);
+  border-radius: var(--radius-sm);
+  background: var(--panel-2);
+  color: var(--text-3);
+}
+
+.referenceSearch input {
+  width: 100%;
+  padding: 10px 0;
+  border: 0;
+  background: transparent;
+  color: var(--text);
+  font-size: 13px;
+  outline: none;
+}
+
+.referenceSection { margin-top: 22px; }
+.referenceSection h4 { margin: 0; color: var(--text); font-size: 13px; font-weight: 600; }
+.referenceSection > p { margin: 3px 0 10px; color: var(--text-3); font-size: 11.5px; line-height: 1.6; }
+
+.referenceRows { display: flex; flex-direction: column; gap: 1px; border: 1px solid var(--line); border-radius: var(--radius-sm); background: var(--line); }
+
+.referenceRow {
+  display: grid;
+  align-items: center;
+  gap: 12px;
+  padding: 9px 12px;
+  background: var(--panel);
+  grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr) 28px;
+}
+
+.referenceRow:first-child { border-radius: var(--radius-sm) var(--radius-sm) 0 0; }
+.referenceRow:last-child { border-radius: 0 0 var(--radius-sm) var(--radius-sm); }
+.referenceRow code { overflow-wrap: anywhere; color: var(--text-2); font-family: var(--font-ui); font-size: 11.5px; }
+.referenceRow > span { display: flex; align-items: center; gap: 6px; color: var(--text-3); font-size: 11.5px; }
+.referenceWarn > span { color: var(--warn); }
+
+.referenceRow button {
+  display: inline-flex;
+  width: 24px;
+  height: 24px;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--panel-2);
+  color: var(--text-3);
+  cursor: pointer;
+}
+
+.referenceRow button:hover { border-color: var(--accent); color: var(--accent); }
+
+/* ── Edit diff ─────────────────────────────────────────────────────── */
+
+.diff { padding: 18px 22px; }
+
+.diffHead {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 14px;
+  margin-bottom: 12px;
+}
+
+.diffHead b { color: var(--text); font-size: 13px; }
+.diffHead span { color: var(--text-3); font-size: 12px; }
+.diffRows { display: flex; flex-direction: column; gap: 5px; }
+
+.diffRow {
+  display: grid;
+  align-items: center;
+  gap: 9px;
+  color: var(--ok);
+  grid-template-columns: 14px minmax(0, auto) minmax(0, 1fr);
+}
+
+.diffRow code { overflow-wrap: anywhere; color: var(--text-2); font-family: var(--font-ui); font-size: 11.5px; }
+.diffRow > span { color: var(--text-3); font-size: 11.5px; }
+.diffGone { color: var(--bad); }
+.diffGone code { text-decoration: line-through; opacity: 0.75; }
 
 /* ── Review ────────────────────────────────────────────────────────── */
 

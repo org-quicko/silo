@@ -11,6 +11,13 @@ A key is `silo_` followed by 32 random bytes, base64url encoded. silo stores
 only the SHA-256 hash, so the plaintext secret exists exactly once, in the
 response that created it. Revoking a key deletes its record.
 
+You can change a key's label and its claims after you create it. Use
+`PATCH /api/keys/{id}`, `silo keys update`, or **Edit** in the admin UI key
+list. The secret does not change, so the new claims apply immediately to the key
+that is already in use. Its holder gets no notice of the change. You need
+`keys:create` to do this, and your own claims must cover both what the key holds
+now and what you are giving it. silo writes both lists to the audit trail.
+
 ```text
 *
 collections:<project>/<env>/<name>:create
@@ -95,9 +102,40 @@ escape that prefix. What an operator weighs is the route list itself. See
 `collections:*/*/posts:entries:read` covers one collection wherever it lives.
 Action wildcards such as `entries:*` are not valid.
 
+**Name patterns.** A segment can also end with `*` to match a name prefix.
+`collections:acme*/prod/*:entries:read` covers the production environment of
+every project whose name starts with `acme`. Use a pattern to give a team its
+own namespace. Without one, the only claim that covers a project that does not
+exist yet is `*`, which covers the whole instance.
+
+A pattern needs three or more characters before the `*`. A shorter prefix looks
+narrow and grants almost everything. Only a trailing `*` is a pattern:
+`ac*me` and `*cme` are not valid. The `*` character is not permitted in the
+action part of a claim.
+
+A pattern matches names that do not exist yet. This is the reason to use one and
+also the risk. `collections:acme*/prod/*:create` lets the holder create a
+project named `acme-anything` and then own it. Read the pattern as a rule, not
+as the list of things you can see today.
+
+Write a pattern in the **Custom** tab of the admin UI key form. The Presets and
+Advanced tabs show only the projects and environments that exist, so they cannot
+show a pattern honestly.
+
 **Delegation does not escalate.** A key holding `keys:create` can mint only keys
 whose claims its own claims already cover. A wildcard segment can delegate a
 matching named segment. A named segment can never widen into a wildcard.
+
+A pattern follows the same rule. `acme*` can delegate `acme-web` and
+`acme-web*`, because each of those matches fewer names. It cannot delegate
+`ac*`, because `ac*` also matches `axe`. It cannot delegate `*`.
+
+**A rename does not rewrite a pattern.** When you rename a project, an
+environment or a collection, silo rewrites the claims that name it directly. A
+pattern is a rule about names and not a reference to one thing, so silo leaves
+it as it is. If the rename moves an entity in or out of a pattern, silo records
+that in the audit trail as a pattern-affected claim. Read the trail after a
+rename to see which keys changed reach.
 
 **Public reads.** Collection schema and entry reads are public by default within
 their scope. Set `"x-silo-auth": true` in a schema to require a key for both.

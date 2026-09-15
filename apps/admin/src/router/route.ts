@@ -9,6 +9,8 @@ import type { ListQuery } from './list-query'
 export type ServerSettingsSection =
   | 'keys'
   | 'key-new'
+  /** One key's label and claims (D63), addressed by its id. */
+  | 'key-edit'
   | 'transfer'
   | 'connection'
   | 'appearance'
@@ -34,6 +36,9 @@ export type Route =
       /** Set only by `section: 'plugin'`, which is the one server-level page
        *  addressed by a name rather than being a singleton. */
       plugin?: string
+      /** Set only by `section: 'key-edit'`, the other page addressed by an
+       *  identifier rather than being a singleton. */
+      keyId?: string
     }
   | { view: 'project-settings'; serverId: string; project: string; section: ProjectSettingsSection }
   | {

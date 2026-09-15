@@ -42,9 +42,9 @@ body:
       description: Workarounds you use today, and why they are not enough.
 
   - type: dropdown
-    id: area
+    id: feature
     attributes:
-      label: Area
+      label: Feature
       description: The part of silo this touches.
       options:
         - Admin UI

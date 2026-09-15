@@ -4,6 +4,7 @@ import { Scope } from "../domain/scope";
 import type { Storage } from "../ports/storage";
 import { EntryNodes } from "../query/entry-nodes";
 import { CollectionSchemas } from "../schema/collection-schemas";
+import { ClaimSegment } from "@silo/shared/claim-segment";
 import { JsonPath } from "@silo/shared/json-path";
 import type { SearchAccess } from "./search-access";
 import type { SearchHit } from "./search-hit";
@@ -167,14 +168,10 @@ export class ScanSearcher implements Searcher {
   private static permits(access: SearchAccess, scope: Scope, collection: string): boolean {
     return access.targets.some(
       (t: SearchTarget) =>
-        ScanSearcher.segment(t.project, scope.project) &&
-        ScanSearcher.segment(t.env, scope.env) &&
-        ScanSearcher.segment(t.collection, collection)
+        ClaimSegment.matches(t.project, scope.project) &&
+        ClaimSegment.matches(t.env, scope.env) &&
+        ClaimSegment.matches(t.collection, collection)
     );
-  }
-
-  private static segment(allowed: string, actual: string): boolean {
-    return allowed === "*" || allowed === actual;
   }
 
   private static match(
