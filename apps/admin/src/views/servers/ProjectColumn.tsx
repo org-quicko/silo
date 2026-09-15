@@ -1,8 +1,9 @@
-import { Folder } from 'lucide-react'
+import { Folder, Search } from 'lucide-react'
 import { useState } from 'react'
 import { BrowserColumn } from './BrowserColumn'
 import { ColumnItem } from './ColumnItem'
 import { ColumnPlaceholder } from './ColumnPlaceholder'
+import { ColumnSearch } from './ColumnSearch'
 import { InlineNameForm } from './InlineNameForm'
 import styles from './ServerManager.module.css'
 
@@ -26,9 +27,15 @@ export function ProjectColumn({
   onCreate,
 }: Props) {
   const [adding, setAdding] = useState(false)
+  const [query, setQuery] = useState('')
+  const search = query.trim().toLowerCase()
+  const matches = projects.filter((project) => project.toLowerCase().includes(search))
 
   const create = async (name: string) => {
-    await onCreate(name).then(() => setAdding(false)).catch(() => {})
+    await onCreate(name).then(() => {
+      setAdding(false)
+      setQuery('')
+    }).catch(() => {})
   }
 
   return (
@@ -36,6 +43,10 @@ export function ProjectColumn({
       icon={Folder}
       title="Projects"
       count={serverId ? projects.length : undefined}
+      resultCount={search && !loading ? matches.length : undefined}
+      search={serverId && (
+        <ColumnSearch label="Search projects" value={query} onChange={setQuery} disabled={loading} />
+      )}
       active={Boolean(serverId)}
       onAdd={serverId && !adding ? () => setAdding(true) : undefined}
       addTitle="New project"
@@ -59,8 +70,10 @@ export function ProjectColumn({
           )}
           {projects.length === 0 && !adding ? (
             <ColumnPlaceholder message="No projects found" hint="Click + to create one" />
+          ) : search && matches.length === 0 ? (
+            <ColumnPlaceholder icon={Search} message="No matching projects" hint="Try another name or clear the search" />
           ) : (
-            projects.map((project, index) => (
+            matches.map((project, index) => (
               <ColumnItem
                 key={project}
                 title={project}

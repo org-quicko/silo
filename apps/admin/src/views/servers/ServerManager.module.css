@@ -184,6 +184,7 @@
 .columnHeader {
   display: flex;
   height: 40px;
+  flex-shrink: 0;
   align-items: center;
   justify-content: space-between;
   padding: 0 14px;
@@ -241,6 +242,74 @@
   gap: 2px;
   padding: 8px;
   overflow-y: auto;
+}
+
+.columnSearch {
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  gap: 6px;
+  margin: 8px 8px 0;
+  padding: 0 8px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  color: var(--text-3);
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.columnSearch:focus-within {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px var(--accent-soft);
+}
+
+.columnSearch > svg {
+  flex-shrink: 0;
+}
+
+.columnSearch input {
+  width: 100%;
+  min-width: 0;
+  height: 30px;
+  padding: 0;
+  border: 0;
+  outline: none;
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+  font-size: 12px;
+}
+
+.columnSearch input::placeholder {
+  color: var(--text-3);
+}
+
+.columnSearch input::-webkit-search-cancel-button {
+  appearance: none;
+}
+
+.searchClear {
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--text-3);
+  cursor: pointer;
+}
+
+.searchClear:hover {
+  background: var(--ink-2);
+  color: var(--text);
+}
+
+.searchClear:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
 }
 
 .animatedList {

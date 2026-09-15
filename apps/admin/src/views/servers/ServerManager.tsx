@@ -112,6 +112,7 @@ export function ServerManager({
           onOpenStatus={onOpenStatus}
         />
         <ProjectColumn
+          key={browser.serverId}
           serverId={browser.serverId}
           projects={browser.projects}
           selected={browser.project}
@@ -120,6 +121,7 @@ export function ServerManager({
           onCreate={browser.createProject}
         />
         <EnvironmentColumn
+          key={JSON.stringify([browser.serverId, browser.project])}
           serverId={browser.serverId}
           project={browser.project}
           environments={browser.environments}

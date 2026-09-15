@@ -4,6 +4,14 @@
 > The *current* state is [CONTEXT.md](../../CONTEXT.md); this is how it got
 > there.
 
+- **Projects and environments have inline search in the server browser (2026-09-16).**
+  Each column filters its loaded names through a compact `ColumnSearch`, with
+  case-insensitive substring matching, a matching/total count, a clear button,
+  and a distinct no-match message. Escape clears a nonempty field before the
+  modal can close. Parent scope changes reset the relevant search and create
+  form through keyed columns; creating an item clears its search to reveal it.
+  Selection is independent of filtering, and no search request is made.
+
 - **The file behind a media asset can be replaced in place (D67, 2026-09-15).**
   Changing the file a reference points at meant deleting the asset and
   uploading a new one, which breaks every reference and every URL — the one
