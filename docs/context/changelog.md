@@ -4,6 +4,37 @@
 > The *current* state is [CONTEXT.md](../../CONTEXT.md); this is how it got
 > there.
 
+- **The client releases on its own tag, to npm and nowhere else
+  (2026-09-15).** `.github/workflows/release-silo-client.yml` publishes
+  `packages/silo-client` from a `silo-client-v*` tag. It is deliberately not
+  part of silo's release: the two versions answer different questions — one is
+  what `silo --version` prints and what a formula and an RPM are named for, the
+  other a compatibility promise to somebody's `import` — and tying them would
+  churn a library version on every silo patch while making a client fix wait
+  for a binary release to carry it. `v*` cannot match `silo-client-v*`, so
+  `release.yml` never sees the tag and a client release builds no executables
+  and touches no tap.
+
+  The version gate reads the *package's* manifest, not the root's, and
+  `tools/set-version.ts` leaves that one file alone — the single omission in
+  its list that is a decision rather than a gap, now said so in the comment
+  above it. A pre-release publishes under the `next` dist-tag, which is the
+  rule `release.yml` already applies to the Homebrew tap and for the same
+  reason: `npm install silo-client` must not hand somebody a release candidate.
+
+  The gate before publishing is the package's own `test:packaged` rather than a
+  second recipe that only exists on tags — build, `npm pack`, `publint`,
+  `attw --pack`, then the tarball installed into throwaway Node ESM, Node
+  CommonJS and Bun consumers (§14.8) — and `npm publish` runs the package's own
+  `prepublishOnly`, so the artifact is built by the script a maintainer runs
+  locally. The upload carries npm provenance, which is what `id-token: write`
+  is for. A version already on the registry fails before the build with a
+  message naming the fix, since npm's own refusal names nothing.
+  `workflow_dispatch` runs the whole thing and stops at
+  `npm publish --dry-run`: the rehearsal that matters for a package is npm
+  accepting the tarball, and that is where a manifest it will not take should
+  be found rather than after a tag is pushed. One secret, `NPM_TOKEN`.
+
 - **A published TypeScript client, and a resolved read that cannot be saved
   (D61, 2026-09-10).** `packages/silo-client`, published as `silo-client`: a
   typed, object-oriented client for the data half of the API, zero runtime

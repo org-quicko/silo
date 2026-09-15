@@ -131,8 +131,19 @@ not ask for. The measuring is silo's; the plugin only draws it:
 |------|------------|
 | `build/` | The release build: `BuildBinary` orchestrates, `EntryGenerator` writes the compile entrypoint that embeds the admin UI, `Archiver` tars, `CodeSigner` re-signs Mach-O, `TargetTable` holds the platforms |
 | `seed/` | A data seeder that speaks only the public HTTP API. `bun build tools/seed/main.ts --target=bun --outfile seed.js` makes it a single droppable file |
-| `set-version.ts` | Writes the version into every manifest. Commits and tags nothing |
+| `set-version.ts` | Writes silo's version into every manifest that carries it. Commits and tags nothing. `packages/silo-client/package.json` is deliberately *not* in its list — the client releases on its own tag and its own version |
 | `build-rpm.ts`, `render-formula.ts` | Packaging, driven by the release workflow |
+
+## `.github/workflows/`
+
+Two releases, cut apart on purpose: one ships a binary an operator installs,
+the other a library on somebody else's dependency graph. They share no tag, no
+version and no job.
+
+| Path | What it is |
+|------|------------|
+| `release.yml` | silo itself, on a `v*` tag: one executable per platform, checksummed, signed by cosign and GPG, published as a GitHub release, then the Homebrew tap and the dnf repo index. It refuses a tag that disagrees with the root `package.json` (D28). `workflow_dispatch` builds and uploads to the run without publishing |
+| `release-silo-client.yml` | `packages/silo-client` to npm, on a `silo-client-v*` tag — which `v*` cannot catch, so a client release builds no binaries and touches no tap. The version gate reads the *package's* manifest, a pre-release goes out under the `next` dist-tag, and the gate before publishing is the package's own `test:packaged` over the packed tarball. `workflow_dispatch` runs the same checks and `npm publish --dry-run`. Needs one secret, `NPM_TOKEN` |
 
 ## `docs/`
 

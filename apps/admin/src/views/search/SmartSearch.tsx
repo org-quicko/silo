@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { LoadingState } from '../../components/feedback/LoadingState'
-import { CornerDownLeft, Database, FileText, Image, Search, TriangleAlert } from 'lucide-react'
+import { CornerDownLeft, Database, Eye, FileText, Image, Search, TriangleAlert } from 'lucide-react'
 import { api } from '../../api/silo-api'
 import type { MediaAsset } from '../../api/types/media-asset'
 import type { ScopeRef } from '../../api/types/scope-ref'
@@ -8,6 +8,7 @@ import type { SearchHit } from '../../api/types/search-hit'
 import type { SearchReach } from '../../api/types/search-reach'
 import type { SearchSnippet } from '../../api/types/search-snippet'
 import { router } from '../../router/router'
+import { MediaPreviewDialog } from '../media/MediaPreviewDialog'
 import { PaletteResults, type PaletteItem } from './palette-results'
 import { SnippetView } from './snippet-view'
 import { useCollectionSchemas } from '../../store/use-collection-schemas'
@@ -66,6 +67,7 @@ export function SmartSearch({
   const [active, setActive] = useState(0)
   const [focused, setFocused] = useState(false)
   const [isOpen, setIsOpen] = useState(false)
+  const [previewAsset, setPreviewAsset] = useState<MediaAsset | null>(null)
 
   const wrapRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLInputElement>(null)
@@ -200,6 +202,12 @@ export function SmartSearch({
     setMention(null)
   }
 
+  const openPreview = (asset: MediaAsset) => {
+    setPreviewAsset(asset)
+    setIsOpen(false)
+    setMention(null)
+  }
+
   const matchCount = mention ? ScopeMatcher.rank(mention.query, matchable, recentOrder).length : 0
 
   const onChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -311,7 +319,18 @@ export function SmartSearch({
       } else if (e.key === 'Enter') {
         e.preventDefault()
         const item = items[active]
-        if (item) open(item)
+        if (!item) return
+        if (e.shiftKey && item.kind === 'media' && item.asset) {
+          openPreview(item.asset)
+        } else {
+          open(item)
+        }
+      } else if ((e.key === ' ' || e.code === 'Space') && (e.ctrlKey || e.metaKey || e.altKey)) {
+        e.preventDefault()
+        const item = items[active]
+        if (item?.kind === 'media' && item.asset) {
+          openPreview(item.asset)
+        }
       }
     }
   }
@@ -400,10 +419,13 @@ export function SmartSearch({
                   {group.items.map((item) => {
                     index++
                     const at = index
+                    const isMedia = item.kind === 'media' && !!item.asset
                     return (
-                      <button
+                      <div
                         key={item.id}
-                        type="button"
+                        role="option"
+                        aria-selected={at === active}
+                        tabIndex={-1}
                         className={`${styles.item} ${at === active ? styles.active : ''}`}
                         data-active={at === active}
                         onMouseMove={() => setActive(at)}
@@ -414,8 +436,31 @@ export function SmartSearch({
                           <span className={styles.itemSubtitle}>{item.subtitle}</span>
                         </span>
                         {item.snippets.length > 0 && <Snippet snippet={item.snippets[0]} />}
-                        {at === active && <CornerDownLeft size={13} className={styles.enterHint} />}
-                      </button>
+                        <div className={styles.itemActions}>
+                          {isMedia && (
+                            <button
+                              type="button"
+                              className={styles.previewActionBtn}
+                              onClick={(e) => {
+                                e.stopPropagation()
+                                openPreview(item.asset!)
+                              }}
+                              title={`Preview (${PlatformKeys.shift()}↵)`}
+                            >
+                              <Eye size={12} />
+                              <span>Preview</span>
+                              {at === active && (
+                                <span className={styles.shortcutKey}>{PlatformKeys.shift()}↵</span>
+                              )}
+                            </button>
+                          )}
+                          {at === active && (
+                            <span className={styles.enterHint} title={isMedia ? 'Open folder (↵)' : 'Open (↵)'}>
+                              <CornerDownLeft size={13} />
+                            </span>
+                          )}
+                        </div>
+                      </div>
                     )
                   })}
                 </div>
@@ -423,6 +468,16 @@ export function SmartSearch({
             </div>
           </div>
         )
+      )}
+
+      {previewAsset && (
+        <MediaPreviewDialog
+          asset={previewAsset}
+          assets={assets}
+          baseUrl={url}
+          onClose={() => setPreviewAsset(null)}
+          onNavigate={(next) => setPreviewAsset(next)}
+        />
       )}
     </div>
   )
