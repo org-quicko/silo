@@ -208,6 +208,7 @@ value you store. Storing the URL instead is what a later rename breaks.
 await poster.rename("arrival-2016.jpg")
 await poster.moveTo("posters/2016")
 await poster.setTags(["poster"])        // replaces the whole list
+await poster.replace(file)              // new bytes, same id, name and URL
 await poster.delete()                   // refused while an entry refers to it
 await poster.delete({ force: true })
 
@@ -216,6 +217,12 @@ usage.usages                            // the referring entries this key may re
 usage.total                             // the true count
 usage.visible                           // how many of them this key may see
 ```
+
+`replace` swaps the file behind an asset. The id, the reference, the name and
+the URL all stay, so every entry that refers to it shows the new file and none
+of them is rewritten. The new file must keep the same extension. It needs the
+`media:replace` claim, and `entries:update` on each scope that refers to the
+asset.
 
 Folders, and a bulk delete that takes up to 100 ids:
 

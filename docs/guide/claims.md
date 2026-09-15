@@ -30,7 +30,8 @@ collections:<project>/<env>/<name>:entries:read
 collections:<project>/<env>/<name>:entries:update
 collections:<project>/<env>/<name>:entries:delete
 hooks:<project>/<env>/<name>:<hook>
-media:create      media:delete      media:purge        media:configure
+media:create      media:delete      media:replace      media:purge
+media:configure
 keys:read         keys:create       keys:revoke
 keys:export       keys:import
 plugins:read      plugins:grant     plugins:enable     plugins:configure
@@ -64,6 +65,22 @@ library, which is a different job from managing the files you uploaded. Only
 the `root` preset carries it, and the route asks for both claims together, so a
 key holding `media:purge` alone still purges nothing. The admin hides **Purge
 library** from a key that does not hold both.
+
+**`media:replace` is not part of `media:create`.** `media:create` uploads a
+new file. `media:replace` changes the file behind an asset that is already in
+the library, and keeps its id, its name and its URL. Every entry that refers
+to that asset then shows the new file. This is a different job from managing
+the files you uploaded, so the **Read & write** role does not carry it. The
+**Manage** role does, because it is usual content work.
+
+The route also asks for `entries:update` on each project, environment and
+collection that refers to the asset. This is the same rule a forced delete
+obeys. A replace changes what those entries show, so the key must have
+permission to change them. An asset that no entry refers to needs only
+`media:replace`.
+
+The new file must keep the same file type. To change a `.png` into a `.webp`,
+upload a new asset.
 
 **`settings:configure` covers the rest of `silo.toml`:** logging, search, schema
 validation, and the auth switch. It works through **Settings > Configuration**
