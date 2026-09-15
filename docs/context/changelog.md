@@ -4,6 +4,17 @@
 > The *current* state is [CONTEXT.md](../../CONTEXT.md); this is how it got
 > there.
 
+- **The client publishes as `@org-quicko/silo-client`, matching the GitHub
+  org its own `package.json` already named in `repository` and `homepage`
+  (2026-09-15).** D61 shipped it unscoped; every place that has to agree with
+  the published name moved with the scope — the package's own `name`, the
+  workspace dependency in `apps/admin/package.json`, every import under
+  `apps/admin/src/api/` and `ApiGuide.tsx`, the consumer snippets in
+  `README.md` and `tools/packaged-tests.ts`, and the `npm view`/`npm install`
+  lines in `release-silo-client.yml`. The directory (`packages/silo-client`),
+  the release tag prefix (`silo-client-v*`) and the workflow's own file name
+  are unaffected, since none of the three is the npm name.
+
 - **The client releases on its own tag, to npm and nowhere else
   (2026-09-15).** `.github/workflows/release-silo-client.yml` publishes
   `packages/silo-client` from a `silo-client-v*` tag. It is deliberately not

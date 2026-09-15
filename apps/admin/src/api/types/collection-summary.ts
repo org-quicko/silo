@@ -1,1 +1,1 @@
-export type { CollectionSummary } from 'silo-client'
+export type { CollectionSummary } from '@org-quicko/silo-client'

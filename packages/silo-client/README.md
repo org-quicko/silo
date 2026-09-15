@@ -5,7 +5,7 @@ silo's own shape: an instance holds projects, a project holds environments, an
 environment holds collections, and a collection holds entries.
 
 ```sh
-npm install silo-client
+npm install @org-quicko/silo-client
 ```
 
 Runs on Node 18+, Bun, Deno, browsers and workers. No dependencies.
@@ -13,7 +13,7 @@ Runs on Node 18+, Bun, Deno, browsers and workers. No dependencies.
 ## Start
 
 ```ts
-import { Silo } from "silo-client"
+import { Silo } from "@org-quicko/silo-client"
 
 const silo = new Silo({ url: "http://localhost:8090", key: process.env.SILO_KEY })
 
@@ -90,7 +90,7 @@ holds the list, and creating a collection warns if its schema declares one.
 Filters are built, and a typed collection types them.
 
 ```ts
-import { Filter, Sort } from "silo-client"
+import { Filter, Sort } from "@org-quicko/silo-client"
 
 const page = await posts.list({
   where: posts.filter.field("status").equals("published")
@@ -153,7 +153,7 @@ stable when that matters.
 ## Media
 
 ```ts
-import { MediaReference } from "silo-client"
+import { MediaReference } from "@org-quicko/silo-client"
 
 const asset = await silo.media.upload({
   bytes,
@@ -243,7 +243,7 @@ results.engine                // "fts5" when the index answered, "scan" when it 
 One class per failure, so you branch on the type.
 
 ```ts
-import { ConflictError, ValidationFailedError, NetworkError } from "silo-client"
+import { ConflictError, ValidationFailedError, NetworkError } from "@org-quicko/silo-client"
 
 try {
   await draft.save()

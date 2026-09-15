@@ -1,4 +1,4 @@
-import { Filter } from 'silo-client'
+import { Filter } from '@org-quicko/silo-client'
 import { EntryMapper } from '../entry-mapper'
 import type { SearchPage } from '../types/search-page'
 import type { SearchQuery } from '../types/search-query'

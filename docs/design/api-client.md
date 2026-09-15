@@ -5,7 +5,7 @@
 
 ## 14. The TypeScript client (D61)
 
-`packages/silo-client`, published to npm as `silo-client`. A typed,
+`packages/silo-client`, published to npm as `@org-quicko/silo-client`. A typed,
 object-oriented client for the data half of silo's HTTP API: projects,
 environments, collections, schemas, entries, queries, variables, search and
 media. Zero runtime dependencies, ESM and CJS, Node 18+ / Bun / Deno /

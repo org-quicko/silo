@@ -1,5 +1,5 @@
 {
-  "name": "silo-client",
+  "name": "@org-quicko/silo-client",
   "version": "1.0.0",
   "description": "A typed, object-oriented client for silo's HTTP API",
   "keywords": [

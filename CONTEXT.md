@@ -96,7 +96,7 @@ own tag, its own version, its own workflow.
 Homebrew tap. The version gate reads the *package's* `package.json` rather than
 the root's, `tools/set-version.ts` leaves that manifest alone for the same
 reason, and a pre-release goes out under the `next` dist-tag so
-`npm install silo-client` cannot hand somebody a release candidate. The gate
+`npm install @org-quicko/silo-client` cannot hand somebody a release candidate. The gate
 before publishing is the package's own `test:packaged` — build, `npm pack`,
 `publint`, `attw --pack`, then the tarball installed into Node ESM, Node
 CommonJS and Bun consumers — rather than a second recipe that only runs on
@@ -106,7 +106,7 @@ it and stops at `npm publish --dry-run`, which is where a manifest npm will not
 accept is meant to be found. One secret, `NPM_TOKEN`.
 
 **silo has a TypeScript client, and it is a package rather than a copy of the
-admin's (2026-09-10).** `packages/silo-client`, published as `silo-client`,
+admin's (2026-09-10).** `packages/silo-client`, published as `@org-quicko/silo-client`,
 with zero runtime dependencies and one bundled artifact per module condition.
 The path is the object graph: `silo.project("acme").environment("prod")
 .collection<Post>("posts")`, where every handle is a value object that makes no

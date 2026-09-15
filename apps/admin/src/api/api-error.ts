@@ -1,4 +1,4 @@
-import { SiloError, type ValidationDetail } from 'silo-client'
+import { SiloError, type ValidationDetail } from '@org-quicko/silo-client'
 
 export {
   SiloError,
@@ -14,8 +14,8 @@ export {
   TimeoutError,
   RequestAbortedError,
   InvalidResponseError,
-} from 'silo-client'
-export type { ValidationDetail, ErrorCode } from 'silo-client'
+} from '@org-quicko/silo-client'
+export type { ValidationDetail, ErrorCode } from '@org-quicko/silo-client'
 
 export class ApiError extends SiloError {
   /** Field-level validation failures, when the error carries a list of them. */

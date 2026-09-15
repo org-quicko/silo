@@ -1,4 +1,4 @@
-import type { MediaAsset as SiloMediaAsset, MediaAssetRecord } from 'silo-client'
+import type { MediaAsset as SiloMediaAsset, MediaAssetRecord } from '@org-quicko/silo-client'
 import type { MediaAsset } from '../types/media-asset'
 import type { MediaBulkDeleteResult } from '../types/media-bulk-delete'
 import type { MediaFolderDeleteResult } from '../types/media-folder-delete'

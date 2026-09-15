@@ -1,2 +1,2 @@
-export { Variable, type VariableDeclaration } from 'silo-client'
+export { Variable, type VariableDeclaration } from '@org-quicko/silo-client'
 
