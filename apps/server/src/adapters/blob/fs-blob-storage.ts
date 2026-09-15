@@ -1,3 +1,4 @@
+import crypto from "crypto";
 import fs from "fs/promises";
 import path from "path";
 import type { BlobStorage, BlobItem, BlobPutOptions, BlobGetResult } from "../../core/ports/blob-storage";
@@ -18,10 +19,40 @@ export class FsBlobStorage implements BlobStorage {
     return fullPath;
   }
 
+  /**
+   * Writes bytes to a temp sibling and renames over the key, so a key never
+   * observably holds a partial object (D67).
+   *
+   * A plain `writeFile` truncates and then writes, which was harmless while
+   * every key was written exactly once: a crash mid-write left bytes nothing
+   * pointed at yet. Replace makes an overwrite an ordinary operation, and
+   * there the same crash leaves a *catalogued* asset truncated, with the
+   * record's `hash` and `size` still describing what used to be there.
+   * `reconcile` would not catch it either — it asks whether a blob exists,
+   * not whether it is the one the record describes. S3 `PUT` is already
+   * atomic, so this brings the fs driver to what the other one always did.
+   *
+   * The temp name is deliberately not derived from the key: a hard crash
+   * between write and rename leaves it behind, and `MediaReconciler` adopts a
+   * stray blob whose name parses as the pre-D23 `<sha256>_<name>` shape.
+   * Nothing here contains an underscore, so a leftover is reported as an
+   * orphan rather than adopted as an asset.
+   */
   async put(key: string, data: Uint8Array, options?: BlobPutOptions): Promise<void> {
     const filePath = this.resolvePath(key);
     await fs.mkdir(path.dirname(filePath), { recursive: true });
-    await fs.writeFile(filePath, data);
+
+    const tempPath = path.join(
+      path.dirname(filePath),
+      `.silo-put-${crypto.randomBytes(8).toString("hex")}.tmp`
+    );
+    try {
+      await fs.writeFile(tempPath, data);
+      await fs.rename(tempPath, filePath);
+    } catch (error) {
+      await fs.unlink(tempPath).catch(() => {});
+      throw error;
+    }
   }
 
   async get(key: string): Promise<BlobGetResult | null> {

@@ -4,10 +4,11 @@ import type { MediaUsageScope } from "../../media/media-usage-scope";
 import type { ServiceContext } from "../support/service-context";
 import type { MediaCatalogStore } from "./media-catalog-store";
 
-/** What a force-delete's reach requires knowing (D49): the distinct scopes
- *  that currently refer to the assets it would touch, and whether there were
- *  too many referring rows to enumerate exactly. */
-export interface MediaForceReach {
+/** What a content-changing media operation's reach requires knowing (D49,
+ *  D67): the distinct scopes that currently refer to the assets it would
+ *  touch, and whether there were too many referring rows to enumerate
+ *  exactly. */
+export interface MediaContentReach {
   scopes: MediaUsageScope[];
   total: number;
   /** `true` when `total` exceeded the enumeration cap — `scopes` was not
@@ -16,14 +17,14 @@ export interface MediaForceReach {
 }
 
 /**
- * The **true** referrer set a media force-delete would reach, never the
- * claim-filtered one `MediaRoutes` shows a caller (D49, §8.1).
+ * The **true** referrer set a force-delete or a replace would reach, never the
+ * claim-filtered one `MediaRoutes` shows a caller (D49, D67, §8.1).
  *
- * Filtering first would let a key force-delete *because* it cannot see the
+ * Filtering first would let a key change content *because* it cannot see the
  * referrers — a key that cannot read a scope necessarily lacks
- * `entries:update` there, so `RouteAuth.requireForcedMediaDelete` refuses it,
- * which is the correct and self-consistent outcome only if this enumerates
- * the whole truth first.
+ * `entries:update` there, so `RouteAuth.requireMediaContentAuthority` refuses
+ * it, which is the correct and self-consistent outcome only if this
+ * enumerates the whole truth first.
  */
 export class MediaUsageScopes {
   /** `Storage.listMediaUsages` pages rows, not scopes, so every row has to be
@@ -53,7 +54,7 @@ export class MediaUsageScopes {
    *  to distinct scopes. An id that no longer resolves to an asset (already
    *  gone, or never existed) contributes no tokens — its absence from the
    *  reach is correct, since deleting it needs no authority over anything. */
-  async reach(ids: readonly string[]): Promise<MediaForceReach> {
+  async reach(ids: readonly string[]): Promise<MediaContentReach> {
     const tokens: string[] = [];
     for (const id of ids) {
       const entry = await this.catalog.findAsset(id);

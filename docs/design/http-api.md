@@ -37,6 +37,7 @@ Hono web framework on Bun. JSON everywhere. Admin UI served at `/`; API under `/
 | DELETE | `/api/keys/{id}` | revoke a key (`keys:revoke`, **and** the authority to have minted it — D37) |
 | GET / POST | `/api/media` | search (no claim — D58) / upload (`media:create`) — see §8.1 |
 | GET / PATCH / DELETE | `/api/media/{id}` | asset detail / rename·move·retag (`media:create`) / guarded delete, `?force=true` to delete over a live reference (`media:delete` plus `entries:update` at the scopes it reaches — D48, D49) — see §8.1 |
+| POST | `/api/media/{id}/content` | replace the asset’s bytes, multipart `file`, keeping its id, URL and every reference (`media:replace` **and** `entries:update` at the scopes it reaches — D67) — see §8.1 |
 | POST | `/api/media/delete` | bulk delete (`{ids, force}`, up to 100), always `200` with per-id outcomes (`media:delete`, force as above — D48, D49) — see §8.1 |
 | POST | `/api/media/purge` | empty the whole library (`{confirm: "purge", force?}`), always `200` with per-id outcomes plus a folder count (`media:delete` **and** `media:purge` — D49, D65; force as above) — see §8.1 |
 | GET | `/api/media/{id}/usages` | paginated referrers, claim-filtered (no claim to read; the rows are still filtered by what the caller may see — D58) |
@@ -308,13 +309,14 @@ path changes what every one of them *resolves to*, which is a bulk
 `ScopeCopyPermissions.Replace` already state: a force must additionally hold
 the claims for the effects it cascades into. `entries:update`, not
 `entries:delete`, because the entry is not deleted and its stored content is
-not rewritten — only what one field of it resolves to. `MediaForceDeletePermissions.All
+not rewritten — only what one field of it resolves to. `MediaContentPermissions.All
 = [entries:update]` lives beside `Claims.ForcedDeletePermissions` for the
-reason it does: the admin gates its force affordances on the same list this
-enforces.
+reason it does: the admin gates its affordances on the same list this
+enforces. It is named for the *effect* rather than for force-delete because
+D67's replace exercises the same rule at the same reach.
 
 Unlike the other three force routes, media's reach is **data-derived** rather
-than read off the route's own parameters: `RouteAuth.requireForcedMediaDelete`
+than read off the route's own parameters: `RouteAuth.requireMediaContentAuthority`
 (async, unlike its sibling `requireForcedDelete`, because it queries usages)
 enumerates the distinct `(project, env, collection)` scopes currently
 referring to the assets being force-deleted — via `MediaUsageScopes.reach`,
@@ -389,6 +391,69 @@ a spurious `not_found` for the id its own first pass just removed.
 
 Any error the route does not recognise as one of those four propagates as a
 normal `5xx`/`4xx` rather than being folded silently into `failed`.
+
+**`POST /api/media/{id}/content`** replaces an asset's bytes (D67). A
+multipart body with one `file` part, the same shape an upload takes. The id,
+the `silo://media/<id>` reference, the URL, the filename, the folder and the
+tags all survive; `size`, `hash` and `content_type` are re-derived from what
+arrived, the record's `rev` and `updated_at` move, and **no entry is
+rewritten** — every reference now resolves to the new file because it always
+resolved through the id.
+
+The **blob key does not change**. Silo's own route is `/media/<id>` and
+survives anything, but a bucket-backed instance addresses objects by key
+(D58), so re-keying would move the public URL out from under whoever already
+holds it. Staying put also keeps the pre-D23 `blob:` usage token matching,
+leaves `reconcile` nothing to adopt or report, and leaves no second object to
+clean up, so a replace needs no staged marker and no saga. The consequence is
+that **the extension may not change**: the key's suffix is derived from the
+filename at upload, and on a bucket it is the visible tail of the URL, so a
+`.png` asset takes a `.png` replacement and a `400` says so. Converting a file
+is a new upload, not a replacement of this one. The library's extension
+allowlist is checked here too, exactly as it is at upload and at rename, so an
+extension retired from the policy since upload stops being replaceable.
+
+Two authority asks, the way purge takes two:
+
+- **`media:replace`**, a claim of its own rather than the `media:create` that
+  covers upload and rename. Both the `write` and the `manage` preset carry
+  `media:create`, so gating on it would mean every integration key that
+  uploads its own files could also overwrite anybody else's, anywhere in the
+  instance-global library. Unlike `media:purge` (D65) it **is** in `manage`:
+  replacing a stale asset is ordinary content work, and pricing it at `root`
+  would put editors in the account D38 says to use least.
+- **`entries:update` at every scope that refers to the asset**, through the
+  same `RouteAuth.requireMediaContentAuthority` a force-delete passes, against
+  the true unfiltered referrer set and with the same root fallback past the
+  2000-row enumeration cap. A force-delete leaves every referring entry's
+  stored value untouched and changes what the reference *resolves to*, from a
+  URL to `null`; a replace does the same thing, to a different file rather
+  than to `null`, and is the **less** visible of the two — a force surfaces as
+  a broken field, a replace as a field that still works and shows something
+  else. The quieter operation is not the one to gate more loosely.
+
+An unreferenced asset reaches nothing, so the second ask is satisfied
+trivially and the claim is what covers it. That is deliberate rather than an
+oversight: silo cannot see a reader that holds the URL and no entry, which is
+exactly the case where the reach check has nothing to say.
+
+Bytes are written before the record, as an upload does, and for a sharper
+reason here: `MediaReconciler` *prunes* a record whose blob has gone, so a
+record must never point at bytes that are not there yet. A crash in that
+window leaves the new file with the record's old `hash` and `size` beside it —
+a stale `ETag` until the replace is retried, and no reference lost. The
+filesystem blob driver writes a temp sibling and renames over the key so that
+the key itself never holds a partial object; S3 `PUT` already behaved that
+way.
+
+Nothing changes on the read path. `/media/<id>` has answered
+`Cache-Control: public, max-age=3600` with an `ETag` of the record's hash
+since D23, and stopped being `immutable` there for precisely this reason, so a
+browser picks the new file up within the hour and a conditional request is
+told exactly when it changed. A CDN in front of silo, or a public bucket, is
+the operator's to purge. No audit action is added, for the reason a
+force-delete adds none: `core/audit/audit-action.ts` audits *authority*
+changes, and this is a content decision.
 
 **`PATCH /api/media/folders`** renames or moves a folder (D49): `{"from":
 "/a", "to": "/b", "merge": false}`, behind `media:create` — the same claim

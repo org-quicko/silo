@@ -24,7 +24,7 @@ export interface MediaPurgeResult extends MediaPurgeOutcome {
  * library too large for that to hold.
  *
  * The force-authority check and the per-id delete-with-outcome loop are both
- * http-layer concerns (`RouteAuth.requireForcedMediaDelete`,
+ * http-layer concerns (`RouteAuth.requireMediaContentAuthority`,
  * `MediaDeleteBatch`), so this takes them as callbacks rather than importing
  * across the layer, the same shape `MediaAssetService.usages` already takes
  * its claim-visibility predicate in.

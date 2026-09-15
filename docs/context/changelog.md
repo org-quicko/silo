@@ -4,6 +4,59 @@
 > The *current* state is [CONTEXT.md](../../CONTEXT.md); this is how it got
 > there.
 
+- **The file behind a media asset can be replaced in place (D67, 2026-09-15).**
+  Changing the file a reference points at meant deleting the asset and
+  uploading a new one, which breaks every reference and every URL — the one
+  operation stable-id addressing exists to make possible. `POST
+  /api/media/{id}/content` takes a multipart `file` and swaps the bytes:
+  `size`, `hash` and `content_type` are re-derived, `rev` and `updated_at`
+  move, and the id, the `silo://media/<id>` reference, the URL, the filename,
+  the folder and the tags all stay, with no entry rewritten. **The blob key
+  does not change**, which is what makes it cheap: silo's own route is
+  `/media/<id>` and survives anything, but a bucket-backed instance addresses
+  objects by key (D58), so re-keying would move the public URL out from under
+  whoever already holds it — and staying put keeps the pre-D23 `blob:` usage
+  token matching, leaves `reconcile` nothing to adopt or report, and leaves no
+  second object to clean up, so there is no staged marker and no saga. The
+  price is that the **extension may not change**: the key's suffix comes from
+  the filename at upload and is the visible tail of a bucket URL, so a `.png`
+  asset takes a `.png` replacement and converting a file is a new upload. The
+  library's allowlist is checked here as it is at upload and at rename.
+  **Authority is two asks.** `media:replace` is a new fixed claim because
+  `media:create` is carried by the `write` preset, so gating on it would let
+  every integration that uploads its own files overwrite anybody else's
+  anywhere in the instance-global library; unlike `media:purge` (D65) it *is*
+  in `manage`, because replacing a stale asset is ordinary content work and
+  pricing it at `root` would put editors in the account D38 says to use least.
+  On top of that, `entries:update` at every scope that actually refers to the
+  asset — D49's gate reused rather than a looser one invented, since a
+  force-delete resolves a reference to `null` and a replace resolves it to a
+  different file, and the replace is the *less* visible of the two. So
+  `MediaForceDeletePermissions` is now `MediaContentPermissions`,
+  `RouteAuth.requireForcedMediaDelete` is `requireMediaContentAuthority`
+  (with "with force" moved into the `operation` phrase its callers pass, since
+  replace has no such flag), `MediaService.forceReach` is `contentReach`,
+  `MediaForceReach` is `MediaContentReach`, and the admin's
+  `MediaForceAvailability` is `MediaContentAvailability`. Bytes are written
+  before the record, as an upload already does and for a sharper reason —
+  `MediaReconciler` *prunes* a record whose blob is gone — so a crash in the
+  window costs a stale `ETag` until a retry and never a lost reference.
+  `FsBlobStorage.put` now writes a temp sibling and renames over the key: a
+  plain `writeFile` truncates first, which was harmless while every key was
+  written once and is a truncated *catalogued* asset once overwriting is
+  ordinary, and `reconcile` checks that a blob exists rather than that it is
+  the one the record describes. The read path needed no change at all —
+  `/media/<id>` stopped being `immutable` back in D23 precisely because "what
+  that id points at can be replaced", and its `ETag` is the record's hash.
+  Client: `MediaAsset.replace()`, with `MediaFile` now holding the
+  blob-and-filename derivation `Media.upload` had inline. Admin: a Replace
+  action in the tile menu and on the list row (whose action column is sized
+  for six now), `ReplaceAssetDialog` and `useMediaReplaceFlow`, which reads the
+  referrers *up front* rather than after a refusal — a replace is never refused
+  for being referenced, so there is no second dialog to learn it from — and
+  `MediaExtension`, a describing-only restatement of the server's extension
+  rule for the file picker's filter and label.
+
 - **A media dialog reports its own refusal, inside itself (2026-09-15).**
   Renaming a file to a name the library will not take — dropping the extension,
   say — answered in the page's error banner *behind* the open dialog, which

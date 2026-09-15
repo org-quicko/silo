@@ -25,6 +25,12 @@ const GROUPS: CapabilityGroup[] = [
       { claim: Claims.MediaCreate, label: 'Upload', help: 'Upload new media files.' },
       { claim: Claims.MediaDelete, label: 'Delete', help: 'Delete media files.', warn: true },
       {
+        claim: Claims.MediaReplace,
+        label: 'Replace',
+        help: 'Swap the file behind an asset, keeping its id. Also needs entry update where it is referenced.',
+        warn: true,
+      },
+      {
         claim: Claims.MediaPurge,
         label: 'Purge',
         help: 'Empty the whole library in one request. Needs Delete as well. No preset grants it.',

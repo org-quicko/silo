@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'bun:test'
 import { Claims } from '@silo/shared/claims'
 import type { MediaInUseAsset } from './media-delete-outcome'
-import { MediaForceAvailability } from './media-force-availability'
+import { MediaContentAvailability } from './media-content-availability'
 
 const inUseAsset = (patch: Partial<MediaInUseAsset> = {}): MediaInUseAsset => ({
   id: 'a1',
@@ -14,19 +14,19 @@ const inUseAsset = (patch: Partial<MediaInUseAsset> = {}): MediaInUseAsset => ({
 })
 
 /**
- * Mirrors `RouteAuth.requireForcedMediaDelete` (D49): the force checkbox
- * must not arm when the server would refuse it.
+ * Mirrors `RouteAuth.requireMediaContentAuthority` (D49, D67): neither the
+ * force checkbox nor Replace may be offered when the server would refuse it.
  */
-describe('MediaForceAvailability', () => {
+describe('MediaContentAvailability', () => {
   test('available when every referrer scope is visible and the key holds entries:update there', () => {
     const claims = [Claims.collection('default', 'prod', 'posts', Claims.CollectionEntriesUpdate)]
-    expect(MediaForceAvailability.unavailable([inUseAsset()], claims)).toBeNull()
+    expect(MediaContentAvailability.unavailable([inUseAsset()], claims)).toBeNull()
   })
 
   test('unavailable when the key cannot see every referrer (visible_count < usage_count)', () => {
     const asset = inUseAsset({ usage_count: 2, visible_count: 1 })
     const claims = [Claims.collection('default', 'prod', 'posts', Claims.CollectionEntriesUpdate)]
-    expect(MediaForceAvailability.unavailable([asset], claims)).not.toBeNull()
+    expect(MediaContentAvailability.unavailable([asset], claims)).not.toBeNull()
   })
 
   test('available with more referrers than one page holds, as long as every one is visible and readable (D49 fix)', () => {
@@ -35,7 +35,7 @@ describe('MediaForceAvailability', () => {
     // would be wrongly refused the way the pre-fix `items.length` bug did.
     const asset = inUseAsset({ usage_count: 25, visible_count: 25, visible_capped: false })
     const claims = [Claims.collection('default', 'prod', 'posts', Claims.CollectionEntriesUpdate)]
-    expect(MediaForceAvailability.unavailable([asset], claims)).toBeNull()
+    expect(MediaContentAvailability.unavailable([asset], claims)).toBeNull()
   })
 
   test('unavailable when the server could not enumerate every referrer (visible_capped)', () => {
@@ -44,20 +44,20 @@ describe('MediaForceAvailability', () => {
     // from the two counts disagreeing.
     const asset = inUseAsset({ usage_count: 2500, visible_count: 2000, visible_capped: true })
     const claims = [Claims.collection('default', 'prod', 'posts', Claims.CollectionEntriesUpdate)]
-    const reason = MediaForceAvailability.unavailable([asset], claims)
+    const reason = MediaContentAvailability.unavailable([asset], claims)
     expect(reason).not.toBeNull()
     expect(reason).toContain('enumerate')
   })
 
   test('unavailable when the key lacks entries:update on a referring scope it can see', () => {
     const claims = [Claims.collection('default', 'prod', 'posts', Claims.CollectionEntriesRead)]
-    const reason = MediaForceAvailability.unavailable([inUseAsset()], claims)
+    const reason = MediaContentAvailability.unavailable([inUseAsset()], claims)
     expect(reason).not.toBeNull()
     expect(reason).toContain('entries:update')
   })
 
   test('root always satisfies it', () => {
-    expect(MediaForceAvailability.unavailable([inUseAsset({ usage_count: 5, visible_count: 1 })], ['*'])).toBeNull()
+    expect(MediaContentAvailability.unavailable([inUseAsset({ usage_count: 5, visible_count: 1 })], ['*'])).toBeNull()
   })
 
   test('checked across every asset in the batch — one missing scope makes the whole batch unavailable', () => {
@@ -67,11 +67,11 @@ describe('MediaForceAvailability', () => {
       referrers: [{ media_id: 'a2', project: 'other', env: 'prod', collection: 'posts', entry_id: 'e2' }],
     })
     const claims = [Claims.collection('default', 'prod', 'posts', Claims.CollectionEntriesUpdate)]
-    expect(MediaForceAvailability.unavailable([ok, missing], claims)).not.toBeNull()
+    expect(MediaContentAvailability.unavailable([ok, missing], claims)).not.toBeNull()
   })
 
   test('no referrers and nothing hidden is trivially available', () => {
     const asset = inUseAsset({ usage_count: 0, visible_count: 0, referrers: [] })
-    expect(MediaForceAvailability.unavailable([asset], [])).toBeNull()
+    expect(MediaContentAvailability.unavailable([asset], [])).toBeNull()
   })
 })

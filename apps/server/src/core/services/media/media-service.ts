@@ -18,7 +18,7 @@ import { MediaDeletionService } from "./media-deletion-service";
 import { MediaFolderMoveService } from "./media-folder-move-service";
 import { MediaFolderService } from "./media-folder-service";
 import { MediaLinkResolver } from "./media-link-resolver";
-import type { MediaForceReach } from "./media-usage-scopes";
+import type { MediaContentReach } from "./media-usage-scopes";
 import { MediaUsageScopes } from "./media-usage-scopes";
 import type { MediaPurgeOutcome, MediaPurgeResult } from "./media-purge-service";
 import { MediaPurgeService } from "./media-purge-service";
@@ -110,6 +110,18 @@ export class MediaService {
     return this.assets.update(id, patch);
   }
 
+  /** Swaps an asset's bytes, keeping its id and every reference to it (D67).
+   *  The blob key and the extension stay put — see
+   *  `MediaAssetService.replaceContent`. */
+  replaceContent(
+    id: string,
+    originalName: string,
+    fileData: Uint8Array,
+    mimeType?: string
+  ): Promise<MediaAssetView> {
+    return this.assets.replaceContent(id, originalName, fileData, mimeType);
+  }
+
   bytes(idOrKey: string): Promise<MediaBytes | null> {
     return this.delivery.bytes(idOrKey);
   }
@@ -166,9 +178,10 @@ export class MediaService {
     return this.reconciler.run();
   }
 
-  /** The true, unfiltered scopes a media force-delete of `ids` would reach
-   *  (D49) — what `RouteAuth.requireForcedMediaDelete` checks claims against. */
-  forceReach(ids: readonly string[]): Promise<MediaForceReach> {
+  /** The true, unfiltered scopes an operation on `ids` would change the
+   *  resolved content of — a force-delete (D49) or a replace (D67) — which is
+   *  what `RouteAuth.requireMediaContentAuthority` checks claims against. */
+  contentReach(ids: readonly string[]): Promise<MediaContentReach> {
     return this.usageScopes.reach(ids);
   }
 

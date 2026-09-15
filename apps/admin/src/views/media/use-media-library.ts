@@ -230,6 +230,30 @@ export function useMediaLibrary(
       }
     },
 
+    /** Swaps an asset's bytes (D67). Nothing else about it moves, so there is
+     *  no selection or folder side effect here — only a reload, since `size`,
+     *  `updated_at` and the thumbnail all change. */
+    replaceContent: async (id: string, file: File): Promise<WriteOutcome> => {
+      try {
+        await api.media.replace(url, apiKey, id, file)
+        reload()
+        return null
+      } catch (failure: unknown) {
+        return MediaLibraryError.message(failure, 'Could not replace the file')
+      }
+    },
+
+    /** Who refers to an asset, for the Replace dialog's availability gate
+     *  (D67). Returns `null` when the facts could not be read, which the flow
+     *  treats as "cannot offer it" rather than as "nothing refers to it". */
+    usageOf: async (id: string) => {
+      try {
+        return await api.media.usages(url, apiKey, id)
+      } catch {
+        return null
+      }
+    },
+
     rename: async (id: string, filename: string, nextFolder: string): Promise<WriteOutcome> => {
       try {
         await api.media.update(url, apiKey, id, { filename, folder: nextFolder })

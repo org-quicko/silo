@@ -1,5 +1,6 @@
 import crypto from "crypto";
 import type { Filter } from "@silo/shared/filter";
+import { ValidationError } from "@silo/shared/validation-error";
 import { EntryUtils } from "../../domain/entry-utils";
 import { ConflictError } from "../../errors/conflict-error";
 import { MediaCatalog } from "../../media/media-catalog";
@@ -192,6 +193,71 @@ export class MediaAssetService {
     });
   }
 
+  /**
+   * Swaps the bytes behind an existing asset (D67). The id, the filename, the
+   * folder, the tags, the URL and every reference to it are untouched; `size`,
+   * `hash` and `content_type` are re-derived from what arrived.
+   *
+   * **The blob key does not change**, which is what keeps this cheap. Silo's
+   * own URL is `/media/<id>` and survives anything, but a bucket-backed
+   * instance addresses objects by key (D58), so re-keying would move the
+   * public URL out from under whoever already holds it. Staying put also
+   * keeps the pre-D23 `blob:` usage token matching, leaves `reconcile`
+   * nothing to adopt or report, and means there is no second object to clean
+   * up after — no staged marker, no saga.
+   *
+   * Which in turn is why the extension may not change: the key's own suffix
+   * is derived from the filename at upload (`MediaPaths.blobKey`), and it is
+   * the visible tail of the URL in bucket mode. A `.png` key serving WebP
+   * bytes is a URL that lies. Converting a file is a new asset, not a
+   * replacement of this one.
+   *
+   * Bytes first, then the record, the same order `save` takes and for a
+   * sharper reason here: `MediaReconciler` *prunes* a record whose blob has
+   * gone, so a record must never point at bytes that are not there yet. A
+   * crash in the window leaves the new bytes with the old `hash` and `size`
+   * beside them, which is wrong in a way a retry corrects and no reference
+   * survives incorrectly.
+   */
+  async replaceContent(
+    id: string,
+    originalName: string,
+    fileData: Uint8Array,
+    mimeType?: string
+  ): Promise<MediaAssetView> {
+    return this.context.withWriteLock(async () => {
+      const entry = await this.catalog.asset(id);
+      const asset = MediaCatalog.toAsset(entry);
+      if (asset.state === "deleting") {
+        throw new ConflictError(`media asset "${id}" is being deleted`);
+      }
+
+      const incoming = MediaPaths.normalizeFilename(originalName, asset.filename);
+      MediaAssetService.assertSameExtension(asset.filename, incoming);
+      // A replace is the third way bytes enter the library, so the allowlist
+      // holds here as it does at upload and at rename. An extension retired
+      // from the policy since upload stops being replaceable, which is the
+      // same answer rename already gives.
+      MediaExtensions.assert(this.context.mediaConfig.extensions, incoming);
+
+      const contentType =
+        mimeType && mimeType.trim() ? mimeType : MimeUtils.lookup(asset.filename);
+
+      await this.context.blobStorage.put(asset.blob_key, fileData, { contentType });
+
+      const replaced: MediaAsset = {
+        ...asset,
+        size: fileData.length,
+        content_type: contentType,
+        hash: crypto.createHash("sha256").update(fileData).digest("hex"),
+      };
+      const [view] = await this.usageCounter.withCounts([
+        await this.catalog.putAsset(id, replaced),
+      ]);
+      return view;
+    });
+  }
+
   /** Rename, move, or retag. None of it touches the blob or any entry. */
   async update(id: string, patch: MediaAssetPatchInput): Promise<MediaAssetView> {
     return this.context.withWriteLock(async () => {
@@ -211,6 +277,21 @@ export class MediaAssetService {
       const [view] = await this.usageCounter.withCounts([updated]);
       return view;
     });
+  }
+
+  /** Refuses a replacement that would change the file's type. See
+   *  {@link replaceContent} for why the blob key, and therefore the
+   *  extension, has to stay put. */
+  private static assertSameExtension(current: string, incoming: string): void {
+    const want = MediaExtensions.of(current);
+    const got = MediaExtensions.of(incoming);
+    if (want === got) return;
+
+    const described = got ? `a ".${got}" file` : "a file with no extension";
+    throw new ValidationError(
+      `this asset is a ".${want}" file and a replacement has to be one too; got ${described}. ` +
+        `Upload a new asset instead of converting this one.`
+    );
   }
 
   /**

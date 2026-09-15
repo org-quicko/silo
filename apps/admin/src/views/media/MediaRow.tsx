@@ -1,4 +1,4 @@
-import { Check, Eye, FileText, FolderInput, Link, Pencil, Trash2 } from 'lucide-react'
+import { Check, Eye, FileText, FolderInput, Link, Pencil, Replace, Trash2 } from 'lucide-react'
 import type { MediaAsset } from '../../api/types/media-asset'
 import { Button } from '../../components/buttons/Button'
 import { Checkbox } from '../../components/controls/Checkbox'
@@ -13,6 +13,9 @@ interface Props {
   asset: MediaAsset
   baseUrl: string
   canEdit: boolean
+  /** Swapping the bytes behind the file is its own claim (D67), so it is its
+   *  own gate rather than riding on `canEdit`. */
+  canReplace: boolean
   /** Also whether the row is selectable at all — the checkbox is a bulk
    *  delete tool, so it needs the same claim the trash icon does. */
   canDelete: boolean
@@ -22,6 +25,7 @@ interface Props {
   onPreview: (asset: MediaAsset) => void
   onEdit: () => void
   onMove: () => void
+  onReplace: () => void
   onDelete: () => void
   onDragStart?: (e: React.DragEvent) => void
 }
@@ -32,6 +36,7 @@ export function MediaRow({
   asset,
   baseUrl,
   canEdit,
+  canReplace,
   canDelete,
   gridCols,
   selected,
@@ -39,6 +44,7 @@ export function MediaRow({
   onPreview,
   onEdit,
   onMove,
+  onReplace,
   onDelete,
   onDragStart,
 }: Props) {
@@ -115,6 +121,17 @@ export function MediaRow({
               <FolderInput size={14} />
             </Button>
           </>
+        )}
+        {canReplace && (
+          <Button
+            variant="secondary"
+            size="sm"
+            className={styles.iconAction}
+            title="Replace file"
+            onClick={onReplace}
+          >
+            <Replace size={14} />
+          </Button>
         )}
         {canDelete && (
           <Button

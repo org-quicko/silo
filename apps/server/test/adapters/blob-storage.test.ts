@@ -60,6 +60,20 @@ describe("FsBlobStorage", () => {
     expect(imageItems.map((i) => i.key).sort()).toEqual(["images/a.png", "images/b.png"]);
   });
 
+  /** D67: replace makes overwriting an existing key ordinary, so a `put` goes
+   *  through a temp sibling and a rename rather than truncating in place. The
+   *  temp must never survive a successful write — `MediaReconciler` would
+   *  report it as an orphan. */
+  test("overwrites a key completely and leaves no temp file behind", async () => {
+    await store.put("logo.png", new TextEncoder().encode("a much longer original"));
+    await store.put("logo.png", new TextEncoder().encode("short"));
+
+    const after = await store.get("logo.png");
+    expect(new TextDecoder().decode(after!.data)).toBe("short");
+    expect(after!.size).toBe(5);
+    expect((await fs.readdir(tempDir)).sort()).toEqual(["logo.png"]);
+  });
+
   test("prevents key traversal outside base dir", async () => {
     expect(store.get("../../src/etc/passwd")).rejects.toThrow();
   });

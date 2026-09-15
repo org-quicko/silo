@@ -32,6 +32,32 @@ export class ClaimVocabulary {
   static readonly MediaCreate = "media:create";
   static readonly MediaDelete = "media:delete";
   /**
+   * Swapping the bytes behind an existing asset (D67) — `POST
+   * /api/media/:id/content`, which keeps the id, the URL and every reference
+   * and changes only what they resolve to.
+   *
+   * A separate claim for the reason `media:purge` is one: `media:create` is
+   * what an integration managing its own uploads holds, and both the `write`
+   * and the `manage` preset carry it. Replacing is not a larger version of
+   * uploading. It reaches every asset in the instance-global library,
+   * including the ones the caller never uploaded, and it is the one media
+   * operation whose effect is **invisible** at the reference — the field
+   * still resolves, to a different file.
+   *
+   * Carried by `manage` but not by `write`, which is where it parts company
+   * with `media:purge` (root only). Replacing a stale asset is ordinary
+   * content work on an operator's Tuesday, and pricing it at `root` would
+   * put editors in the account D38 wants used least. `write` is the
+   * integration preset — a key that uploads its own files has no business
+   * overwriting somebody else's.
+   *
+   * Never sufficient alone where the asset is referenced:
+   * `RouteAuth.requireMediaContentAuthority` additionally requires
+   * `entries:update` at every scope that refers to it, the same gate a force
+   * delete passes (`MediaContentPermissions`).
+   */
+  static readonly MediaReplace = "media:replace";
+  /**
    * Emptying the whole library in one request (D65) — `POST /api/media/purge`,
    * which asks for this *in addition to* `media:delete`.
    *
@@ -130,6 +156,7 @@ export class ClaimVocabulary {
     [ClaimVocabulary.TransferCopy]: true,
     [ClaimVocabulary.MediaCreate]: true,
     [ClaimVocabulary.MediaDelete]: true,
+    [ClaimVocabulary.MediaReplace]: true,
     [ClaimVocabulary.MediaPurge]: true,
     [ClaimVocabulary.MediaConfigure]: true,
     [ClaimVocabulary.SettingsConfigure]: true,

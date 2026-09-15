@@ -7,7 +7,7 @@ import type { CollectionPermission } from "./collection-permission";
  * A rename is a create at the new name and a delete at the old one, so it asks
  * for both — the same "hold the claims for what this actually does" rule
  * `ForcedDeletePermissions`, `TransferPermissions.Replace`,
- * `ScopeCopyPermissions.Replace` and `MediaForceDeletePermissions` each state
+ * `ScopeCopyPermissions.Replace` and `MediaContentPermissions` each state
  * at their own reach.
  *
  * Neither half is enough alone. `collections:create` would let a caller who may
