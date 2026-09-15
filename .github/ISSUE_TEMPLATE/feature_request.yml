@@ -1,0 +1,78 @@
+name: Feature request
+description: Suggest something silo should do.
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        silo stays small and standards-based, so the bar for a new feature is
+        the problem behind it. Describe the problem first. If a decision in
+        [IMPLEMENTATION.md](https://github.com/org-quicko/silo/blob/main/IMPLEMENTATION.md)
+        already covers this, say which one and why it should change.
+
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Before you file
+      options:
+        - label: I searched the open and closed issues and found no request for this.
+          required: true
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: The problem
+      description: What are you trying to do, and what stops you today? Describe the situation, not the solution.
+      placeholder: I run one instance per customer and have no way to ...
+    validations:
+      required: true
+
+  - type: textarea
+    id: solution
+    attributes:
+      label: What you want silo to do
+      description: The change you have in mind. A route, a flag, a field or a screen is more useful than a goal.
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: What you tried instead
+      description: Workarounds you use today, and why they are not enough.
+
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      description: The part of silo this touches.
+      options:
+        - Admin UI
+        - HTTP API
+        - CLI
+        - Collections, schemas and entries
+        - Media library
+        - Search
+        - Export, import and copy
+        - Projects, environments and variables
+        - API keys and claims
+        - Plugins
+        - silo-client (npm package)
+        - Install and packaging
+        - Documentation
+        - Not sure
+    validations:
+      required: true
+
+  - type: textarea
+    id: context
+    attributes:
+      label: Anything else
+      description: Links, screenshots, or how another CMS solves the same problem.
+
+  - type: checkboxes
+    id: contribution
+    attributes:
+      label: Contribution
+      options:
+        - label: I am willing to open a pull request for this.

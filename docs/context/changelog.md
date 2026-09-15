@@ -4,6 +4,29 @@
 > The *current* state is [CONTEXT.md](../../CONTEXT.md); this is how it got
 > there.
 
+- **Issues arrive on a form (2026-09-15).** `.github/ISSUE_TEMPLATE/` adds
+  `bug_report.yml`, `feature_request.yml` and `config.yml`, GitHub issue forms
+  rather than the older Markdown templates, because a Markdown template is a
+  suggestion and a form field is a gate. The bug form requires only what the
+  first reply would have to ask for anyway and what the answer cannot be given
+  without: steps, expected against actual, `silo version`, how silo was
+  installed, the platform, and which area of silo it is. The storage driver,
+  logs, a `silo.toml` with secrets removed, and screenshots are optional, so a
+  report that has most of it still gets filed. The feature form asks for the
+  problem before the solution, and links `IMPLEMENTATION.md` in its header:
+  silo's stated bar is that it stays small, so a request that argues with a
+  decision should say which one. The `Area` dropdown is duplicated across both
+  forms because GitHub issue forms have no include; the two lists must be
+  changed together. `config.yml` leaves **blank issues enabled**, which is the
+  one place this set departs from what large repos do. They disable it and send
+  everything else to Discussions; Discussions are off here, so disabling it
+  would send a question or a documentation typo nowhere. Its contact links
+  cover the exception that must never be a public issue, a vulnerability, which
+  goes to private advisories (already enabled on the repo), and the general
+  case, which goes to `docs/guide/`. The labels applied on submit, `bug` and
+  `enhancement`, are ones the repo already carries: GitHub silently drops a
+  label that does not exist, so a form is a bad place to name a new one.
+
 - **The client's README documents the client that exists, and its examples are
   MovieSpace (2026-09-15).** The Errors section still called `draft.save()` and
   `draft.refresh()`, both deleted by D62 — the snippet a reader reaches for
