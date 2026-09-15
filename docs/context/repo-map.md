@@ -38,7 +38,7 @@ script.
 | `IMPLEMENTATION.md` | Vision, the decisions log, and the index into `docs/design/` |
 | `CLAUDE.md` | Standing instructions for AI assistants |
 | `silo.toml` | A commented example config; every key is optional |
-| `Dockerfile` | Two stages — build the admin UI, then a runtime image with only the server's dependencies. Its `COPY` list must name every workspace manifest, or `bun install` aborts with "Workspace not found" |
+| `Dockerfile` | Two stages — build `@org-quicko/silo-client` then the admin UI, then a runtime image with only the server's dependencies. Each stage copies the manifests of the workspaces it installs and of those they depend on, and no others: Bun skips a `bun.lock` workspace missing from the context, but aborts when a present one depends on it |
 | `.gitattributes` | `* text=auto eol=lf`. What it fixes is the *working tree* on Windows, where `core.autocrlf=true` would otherwise check the repo out as CRLF and break the byte-for-byte drift test between the scaffolder's `silo-api.d.ts` and the host's copy |
 
 ## `apps/server/src/`
@@ -129,7 +129,7 @@ not ask for. The measuring is silo's; the plugin only draws it:
 
 | Path | What it is |
 |------|------------|
-| `build/` | The release build: `BuildBinary` orchestrates, `EntryGenerator` writes the compile entrypoint that embeds the admin UI, `Archiver` tars, `CodeSigner` re-signs Mach-O, `TargetTable` holds the platforms |
+| `build/` | The release build: `BuildBinary` orchestrates (building `@org-quicko/silo-client` before the admin UI, whose imports resolve to the client's `dist/`), `EntryGenerator` writes the compile entrypoint that embeds the admin UI, `Archiver` tars, `CodeSigner` re-signs Mach-O, `TargetTable` holds the platforms |
 | `seed/` | A data seeder that speaks only the public HTTP API. `bun build tools/seed/main.ts --target=bun --outfile seed.js` makes it a single droppable file |
 | `set-version.ts` | Writes silo's version into every manifest that carries it. Commits and tags nothing. `packages/silo-client/package.json` is deliberately *not* in its list — the client releases on its own tag and its own version |
 | `build-rpm.ts`, `render-formula.ts` | Packaging, driven by the release workflow |
@@ -143,7 +143,7 @@ release is anybody's problem.
 
 | Path | What it is |
 |------|------------|
-| `workflows/release.yml` | silo itself, on a `v*` tag: one executable per platform, checksummed, signed by cosign and GPG, published as a GitHub release, then the Homebrew tap and the dnf repo index. It refuses a tag that disagrees with the root `package.json` (D28). `workflow_dispatch` builds and uploads to the run without publishing |
+| `workflows/release.yml` | silo itself, on a `v*` tag: one executable per platform, checksummed, signed by cosign and GPG, published as a GitHub release, then the Homebrew tap and the dnf repo index. It refuses a tag that disagrees with the root `package.json` (D28), and builds the client before `bun test`, since the admin suites import it. `workflow_dispatch` builds and uploads to the run without publishing |
 | `workflows/release-silo-client.yml` | `packages/silo-client` to npm, on a `silo-client-v*` tag — which `v*` cannot catch, so a client release builds no binaries and touches no tap. The version gate reads the *package's* manifest, a pre-release goes out under the `next` dist-tag, and the gate before publishing is the package's own `test:packaged` over the packed tarball. `workflow_dispatch` runs the same checks and `npm publish --dry-run`. Needs one secret, `NPM_TOKEN` |
 | `ISSUE_TEMPLATE/bug_report.yml` | The bug form. Required: two preflight checks, what happened, what was expected, steps, area, version, install method, platform. Optional: storage driver, logs (`render: shell`), `silo.toml` with secrets removed (`render: toml`), anything else. Labels the issue `bug` |
 | `ISSUE_TEMPLATE/feature_request.yml` | The feature form: problem before solution, what was tried instead, area, and a willing-to-PR box. Labels the issue `enhancement` |

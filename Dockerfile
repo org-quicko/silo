@@ -10,20 +10,25 @@
 ARG BUN_VERSION=1.4.0
 
 # ---- Stage 1: build the admin UI ----
-# Every workspace member's manifest has to be present before `bun install` runs:
-# Bun aborts with "Workspace not found" if one named in the root manifest is
-# missing from the build context. Adding a workspace and not adding it here
-# breaks the image build and nothing else. `--filter @silo/admin` then installs
-# only the UI's tree, leaving the server's dependencies out.
+# Each stage copies the manifests of the workspaces it installs and of the
+# workspaces those depend on, and no more. Bun skips a member bun.lock lists but
+# the context lacks, and aborts only when a present member depends on it: a new
+# dependency of the admin's has to be added here, an unrelated workspace does
+# not. `--filter @silo/admin` installs only the UI's tree. The admin resolves
+# @org-quicko/silo-client through the client's built dist/, so that is built
+# first, from the files its build script reads.
 FROM oven/bun:${BUN_VERSION}-alpine AS ui
 WORKDIR /app
 COPY package.json bun.lock ./
-COPY apps/server/package.json ./apps/server/
 COPY apps/admin/package.json ./apps/admin/
 COPY packages/shared/package.json ./packages/shared/
-COPY packages/create-silo-plugin/package.json ./packages/create-silo-plugin/
+COPY packages/silo-client/package.json ./packages/silo-client/
 RUN bun install --frozen-lockfile --filter @silo/admin
 COPY packages/shared/src/ ./packages/shared/src/
+COPY packages/silo-client/src/ ./packages/silo-client/src/
+COPY packages/silo-client/tsconfig.json packages/silo-client/tsconfig.build.json ./packages/silo-client/
+COPY packages/silo-client/tools/emit-cts-types.ts ./packages/silo-client/tools/
+RUN bun run --cwd packages/silo-client build
 COPY apps/admin/ ./apps/admin/
 RUN bun run --cwd apps/admin build
 
@@ -31,18 +36,16 @@ RUN bun run --cwd apps/admin build
 FROM oven/bun:${BUN_VERSION}-alpine AS runtime
 WORKDIR /app
 
-# Exactly the production dependencies captured in the text lockfile. The admin
-# and scaffolder manifests are copied only to satisfy the workspace declaration;
-# neither ships in the image. `--filter '!@silo/admin'` keeps the UI's own tree
-# (React, Vite, CodeMirror — roughly 70 MB) out of the runtime image, which
-# needs nothing from it but the prebuilt `dist` copied in below.
+# Exactly the server's production dependencies captured in the text lockfile.
+# Only the server's own workspaces are copied, so neither the UI's tree (React,
+# Vite, CodeMirror — roughly 70 MB) nor the client is installed; the image needs
+# nothing from either beyond the UI's prebuilt `dist` copied in below, which
+# already bundles the client.
 COPY package.json bun.lock ./
 COPY apps/server/package.json ./apps/server/
-COPY apps/admin/package.json ./apps/admin/
 COPY packages/shared/package.json ./packages/shared/
 COPY packages/shared/src/ ./packages/shared/src/
-COPY packages/create-silo-plugin/package.json ./packages/create-silo-plugin/
-RUN bun install --frozen-lockfile --production --filter '!@silo/admin'
+RUN bun install --frozen-lockfile --production
 
 # Server source and the built UI. `UiAssets` reads ./apps/admin/dist relative to
 # the working directory, which is why the layout is preserved rather than

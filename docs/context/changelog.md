@@ -4,6 +4,42 @@
 > The *current* state is [CONTEXT.md](../../CONTEXT.md); this is how it got
 > there.
 
+- **The Docker image builds the client, and each stage copies only the
+  workspaces it needs (2026-09-16).** `docker build` stopped at the UI stage's
+  install: `workspace "@silo/admin" depends on workspace
+  "@org-quicko/silo-client" (packages/silo-client), which is listed in bun.lock
+  but not on disk`. The stage now copies the client's manifest before
+  installing, then its `src/`, both tsconfigs and `tools/emit-cts-types.ts`, and
+  runs the client's own `build` before the admin's, since the admin resolves
+  the client through its `dist/` exactly as the release build does. The runtime
+  stage failed the same way, but only because it copied the admin's manifest to
+  satisfy a rule Bun no longer has: 1.4 skips a workspace `bun.lock` lists and
+  the context lacks — the two plugins were never copied and never broke
+  anything — and aborts only when a workspace that *is* present depends on it.
+  So each stage copies the manifests of what it installs and of what those
+  depend on, and nothing else: the UI stage drops the server's and the
+  scaffolder's, the runtime stage the admin's and the scaffolder's, and
+  `--filter '!@silo/admin'` goes with the admin's manifest. The runtime installs
+  the same 16 packages either way and holds no trace of the client. A new
+  dependency of the admin's still needs adding to the UI stage; an unrelated
+  workspace needs no Dockerfile change. Verified by replaying the Dockerfile's
+  `COPY` and `RUN` steps on the host with Bun 1.4.0 and serving from the result
+  (healthcheck `200`, admin UI served); no Docker daemon was available, so
+  `docker build` itself has not run.
+
+- **The client is built before anything resolves it (2026-09-16).** The
+  v1.1.0 release failed in `verify`: `@org-quicko/silo-client`'s `exports`
+  point at its gitignored `dist/`, which a fresh checkout does not have, so the
+  two admin suites that import it at runtime (`variable-hints`, `search-api`)
+  could not load it. It passed locally only because a `dist/` from an earlier
+  build was lying around, and the admin's `tsc -b && vite build` in the
+  `build` job would have failed on the same missing directory next. `verify`
+  now builds the client before `bun test`, and `BuildBinary.buildUi` builds it
+  before the admin, so `bun run build` still works from a clean clone and the
+  release still runs the local recipe. The admin keeps consuming the built
+  package, the same artifact a published consumer installs, rather than its
+  source.
+
 - **Environment copy can select and inspect its changes (2026-09-16).**
   `selection` narrows a copy to source collections or merge-only entry ids,
   with both route and service validation before writes. Scoped dry runs add a

@@ -19,6 +19,16 @@ can be cloned with one command.
 
 *Last updated: 2026-09-16 (D67)*
 
+**Everything that resolves the client builds it first (2026-09-16).** The admin
+imports `@org-quicko/silo-client` through the package's `exports`, which name
+its gitignored `dist/`, so a clean checkout has nothing to resolve until the
+client is built. The v1.1.0 release failed on exactly that; the release
+`verify` job, `bun run build` and the Docker image's UI stage now each build the
+client before the admin. The Dockerfile copies only the manifests a stage
+installs and what those depend on — Bun 1.4 skips a `bun.lock` workspace the
+context lacks and aborts only when a present one depends on it — so the runtime
+image carries neither the UI's dependencies nor the client.
+
 **Environment copy now has selected collections, selected entries, and a
 bounded dry-run drilldown (2026-09-16).** The Data Transfer destination is the
 sidebar environment; an optional selection preserves schemas while narrowing
@@ -1412,6 +1422,7 @@ unchanged and the full suite passes throughout. See
 
 ```bash
 bun install
+bun run --cwd packages/silo-client build   # the admin resolves the client's dist/
 bun test
 bun run start                    # the server, from source
 bun run --cwd apps/admin dev     # the admin UI against a running server

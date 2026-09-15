@@ -79,8 +79,13 @@ export class BuildBinary {
    * check because "is this dist newer than every source file" is a question
    * with an expensive right answer and a wrong cheap one; CI passes `--skip-ui`
    * having just built it once for all targets.
+   *
+   * The admin imports `@org-quicko/silo-client` through the package's
+   * `exports`, which point at its gitignored `dist/`, so the client is built
+   * first — a clean checkout has nothing there to resolve.
    */
   private static async buildUi(): Promise<void> {
+    await CommandRunner.run([process.execPath, "run", "--cwd", "packages/silo-client", "build"]);
     await CommandRunner.run([process.execPath, "run", "--cwd", "apps/admin", "build"]);
   }
 
