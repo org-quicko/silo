@@ -1,0 +1,135 @@
+name: Bug report
+description: Something in silo does not work the way it should.
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for filing this. The more of the form you fill in, the sooner
+        someone can reproduce the bug and fix it.
+
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Before you file
+      options:
+        - label: I searched the open and closed issues and found no report of this.
+          required: true
+        - label: I can reproduce this on the latest version of silo.
+          required: true
+
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened
+      description: What silo did.
+      placeholder: A PUT to an entry returns 409 even though no other writer touched it.
+    validations:
+      required: true
+
+  - type: textarea
+    id: what-expected
+    attributes:
+      label: What you expected
+      description: What silo should have done instead.
+    validations:
+      required: true
+
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      description: The shortest sequence that shows the bug. Commands and requests are better than prose.
+      placeholder: |
+        1. silo init --data ./silo_data
+        2. silo serve
+        3. Create a collection with this schema: { ... }
+        4. curl -X POST http://localhost:8090/api/... -d '{ ... }'
+        5. The response is 500, not 201.
+    validations:
+      required: true
+
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      description: The part of silo this affects.
+      options:
+        - Admin UI
+        - HTTP API
+        - CLI
+        - Collections, schemas and entries
+        - Media library
+        - Search
+        - Export, import and copy
+        - Projects, environments and variables
+        - API keys and claims
+        - Plugins
+        - silo-client (npm package)
+        - Install and packaging
+        - Documentation
+        - Not sure
+    validations:
+      required: true
+
+  - type: input
+    id: version
+    attributes:
+      label: Version
+      description: The output of `silo version`. For a client bug, the version of `@org-quicko/silo-client`.
+      placeholder: 1.0.0
+    validations:
+      required: true
+
+  - type: dropdown
+    id: install
+    attributes:
+      label: How you installed silo
+      options:
+        - Homebrew
+        - dnf or RPM
+        - Docker
+        - Prebuilt binary
+        - From source
+        - npm (silo-client only)
+        - Other
+    validations:
+      required: true
+
+  - type: input
+    id: platform
+    attributes:
+      label: Operating system and architecture
+      placeholder: macOS 15.3 arm64, Amazon Linux 2023 x64, Docker on Ubuntu 24.04
+    validations:
+      required: true
+
+  - type: dropdown
+    id: driver
+    attributes:
+      label: Storage driver
+      description: The `--driver` flag, or `[storage] driver` in silo.toml.
+      options:
+        - sqlite (default)
+        - fs
+        - Not sure
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs and output
+      description: Server logs, the failing response, or the browser console for an admin UI bug.
+      render: shell
+
+  - type: textarea
+    id: config
+    attributes:
+      label: silo.toml
+      description: Your config file, with API keys and other secrets removed.
+      render: toml
+
+  - type: textarea
+    id: context
+    attributes:
+      label: Anything else
+      description: Screenshots, a link to a branch that reproduces it, or what you already ruled out.

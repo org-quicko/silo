@@ -89,6 +89,22 @@ own tag, its own version, its own workflow.
 **The most recent change landed on 2026-09-15; everything before it on
 2026-09-10 or earlier.**
 
+**A stranger opening an issue gets a form rather than an empty box
+(2026-09-15).** `.github/ISSUE_TEMPLATE/` holds two GitHub issue forms and a
+`config.yml`. `bug_report.yml` requires what a maintainer would otherwise ask
+for in the first reply and cannot act without: steps, expected against actual,
+`silo version`, install method, platform, and the area of silo — with the
+storage driver, logs, a redacted `silo.toml` and screenshots optional, because
+a report missing them is still worth reading. `feature_request.yml` asks for
+the problem before the solution and points at the decisions log, since the
+answer to most requests here is which decision they argue with.
+`config.yml` keeps **blank issues on**: Discussions are off on this repo, so
+turning them off would leave a question or a typo fix with nowhere to go. Its
+two contact links route the one thing that must not be a public issue, a
+vulnerability, to private advisories, and everything answerable to
+`docs/guide/`. Both forms label on submit, `bug` and `enhancement`, which are
+labels the repo already has; nothing here invents a triage vocabulary.
+
 **A media hit in the search bar opens the asset's folder with the asset in
 view (2026-09-15).** The link is `Routes.media(serverId, filename, folder)` —
 `/servers/:sid/media/brand?q=logo.png` — because the library still has no

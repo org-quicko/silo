@@ -134,16 +134,25 @@ not ask for. The measuring is silo's; the plugin only draws it:
 | `set-version.ts` | Writes silo's version into every manifest that carries it. Commits and tags nothing. `packages/silo-client/package.json` is deliberately *not* in its list — the client releases on its own tag and its own version |
 | `build-rpm.ts`, `render-formula.ts` | Packaging, driven by the release workflow |
 
-## `.github/workflows/`
+## `.github/`
 
 Two releases, cut apart on purpose: one ships a binary an operator installs,
 the other a library on somebody else's dependency graph. They share no tag, no
-version and no job.
+version and no job. Beside them, the forms a stranger fills in before either
+release is anybody's problem.
 
 | Path | What it is |
 |------|------------|
-| `release.yml` | silo itself, on a `v*` tag: one executable per platform, checksummed, signed by cosign and GPG, published as a GitHub release, then the Homebrew tap and the dnf repo index. It refuses a tag that disagrees with the root `package.json` (D28). `workflow_dispatch` builds and uploads to the run without publishing |
-| `release-silo-client.yml` | `packages/silo-client` to npm, on a `silo-client-v*` tag — which `v*` cannot catch, so a client release builds no binaries and touches no tap. The version gate reads the *package's* manifest, a pre-release goes out under the `next` dist-tag, and the gate before publishing is the package's own `test:packaged` over the packed tarball. `workflow_dispatch` runs the same checks and `npm publish --dry-run`. Needs one secret, `NPM_TOKEN` |
+| `workflows/release.yml` | silo itself, on a `v*` tag: one executable per platform, checksummed, signed by cosign and GPG, published as a GitHub release, then the Homebrew tap and the dnf repo index. It refuses a tag that disagrees with the root `package.json` (D28). `workflow_dispatch` builds and uploads to the run without publishing |
+| `workflows/release-silo-client.yml` | `packages/silo-client` to npm, on a `silo-client-v*` tag — which `v*` cannot catch, so a client release builds no binaries and touches no tap. The version gate reads the *package's* manifest, a pre-release goes out under the `next` dist-tag, and the gate before publishing is the package's own `test:packaged` over the packed tarball. `workflow_dispatch` runs the same checks and `npm publish --dry-run`. Needs one secret, `NPM_TOKEN` |
+| `ISSUE_TEMPLATE/bug_report.yml` | The bug form. Required: two preflight checks, what happened, what was expected, steps, area, version, install method, platform. Optional: storage driver, logs (`render: shell`), `silo.toml` with secrets removed (`render: toml`), anything else. Labels the issue `bug` |
+| `ISSUE_TEMPLATE/feature_request.yml` | The feature form: problem before solution, what was tried instead, area, and a willing-to-PR box. Labels the issue `enhancement` |
+| `ISSUE_TEMPLATE/config.yml` | Blank issues stay **on**, because Discussions are off and a question would otherwise have nowhere to go. Two contact links: private security advisories, and `docs/guide/` |
+
+The `Area` dropdown is the same list in both forms, and it is a list of this
+map's own directories as a reader of the README would name them. Keep the two
+copies identical: GitHub has no include, and a form that offers areas the other
+does not is how a bug and its fix end up filed against different parts of silo.
 
 ## `docs/`
 
