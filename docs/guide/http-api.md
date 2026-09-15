@@ -47,6 +47,7 @@ Present a key as `Authorization: Bearer <key>` or `X-Api-Key: <key>`.
 | `GET` | `/api/media/{id}` | one asset's catalog record |
 | `GET` | `/api/media/{id}/usages` | the entries that reference this asset. Answers `total`, `visible` and `visible_capped`, because a key may not read every referrer |
 | `PATCH` | `/api/media/{id}` | rename, move, or retag one asset (`{filename, folder, tags}`, `media:create`) |
+| `POST` | `/api/media/{id}/content` | replace the file behind one asset (multipart `file`). Keeps the id, the name and the URL, so every entry that refers to it shows the new file. The new file must keep the same file type. Needs `media:replace`, and `entries:update` at the scopes it reaches |
 | `DELETE` | `/api/media/{id}` | delete a media asset. Refused while an entry still references it, unless `?force=true`, which also needs `entries:update` at the scopes it reaches |
 | `POST` | `/api/media/delete` | delete up to 100 assets at once (`{ids, force}`). Always `200`, with a `deleted`/`failed` body |
 | `POST` | `/api/media/purge` | empty the whole library (`{confirm: "purge", force?}`). Always `200`, with a `deleted`/`failed` body plus a folder count. Needs `media:delete` and `media:purge` |
