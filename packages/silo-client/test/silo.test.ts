@@ -79,16 +79,16 @@ describe("Silo", () => {
       .project("acme").environment("prod").collection<Post>("posts");
 
     const resolved = await posts.get("01J8");
-    // @ts-expect-error a read whose variables are substituted is not editable
+    // @ts-expect-error a row carries no methods: writes go through the collection
     resolved.save;
 
-    const editable = await posts.edit("01J8");
-    expect(typeof editable.save).toBe("function");
+    const raw = await posts.get("01J8", { variables: "raw" });
+    expect(raw.id).toBe("01J8");
   });
 
-  test("only the editable surface asks for the stored templates", async () => {
+  test("only a raw read and the writes ask for the stored templates", async () => {
     const stub = new StubFetch();
-    for (let queued = 0; queued < 4; queued += 1) {
+    for (let queued = 0; queued < 3; queued += 1) {
       stub.enqueue(StubResponse.json(entryBody("01J8", 1)));
     }
     const posts = new Silo({ url: "http://x", fetch: stub.fetch })
@@ -97,14 +97,11 @@ describe("Silo", () => {
     await posts.get("01J8");
     expect(stub.received[0]!.url).not.toContain("variables=raw");
 
-    await posts.edit("01J8");
+    await posts.get("01J8", { variables: "raw" });
     expect(stub.received[1]!.url).toContain("variables=raw");
 
-    await posts.editable.get("01J8");
-    expect(stub.received[2]!.url).toContain("variables=raw");
-
     await posts.create({ title: "Hello", status: "draft" });
-    expect(stub.received[3]!.url).toContain("variables=raw");
+    expect(stub.received[2]!.url).toContain("variables=raw");
   });
 
   test("search reaches the instance from the client and the collection from a handle", async () => {
@@ -135,15 +132,15 @@ describe("Silo", () => {
     expect(stub.received[1]!.headers["authorization"]).toBe("Bearer silo_first");
   });
 
-  test("the editable surface pages like the resolved one", async () => {
+  test("a raw list pages like a resolved one", async () => {
     const stub = new StubFetch();
     stub.enqueue(StubResponse.json({ data: [entryBody("01J8", 1)], total: 1, limit: 50, offset: 0 }));
 
     const page = await new Silo({ url: "http://x", fetch: stub.fetch })
-      .scope("acme", "prod").collection<Post>("posts").editable.list();
+      .scope("acme", "prod").collection<Post>("posts").list({}, { variables: "raw" });
 
     expect(page.entries).toHaveLength(1);
-    expect(typeof page.entries[0]!.save).toBe("function");
+    expect(page.entries[0]!.id).toBe("01J8");
     expect(stub.received[0]!.url).toContain("variables=raw");
   });
 
@@ -161,6 +158,6 @@ describe("Silo", () => {
     const post = await new Silo({ url: "http://x", fetch: stub.fetch })
       .scope("acme", "prod").collection("posts").get("01J8");
 
-    expect(post.fields.title).toBe("Hello");
+    expect(post.title).toBe("Hello");
   });
 });

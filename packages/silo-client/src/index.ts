@@ -26,21 +26,19 @@ export type { DeleteOptions } from "./scope/delete-options.js";
 export { Collections } from "./collections/collections.js";
 export { CollectionHandle } from "./collections/collection-handle.js";
 export { CollectionSchema } from "./collections/collection-schema.js";
-export { ReservedFieldNames } from "./collections/reserved-field-names.js";
 export type { CollectionSummary } from "./collections/collection-summary.js";
 export type { CollectionDefinition } from "./collections/collection-definition.js";
 export type { JsonSchema } from "./collections/json-schema.js";
 
 // Entries
-export { EntryBase } from "./entries/entry-base.js";
-export { ResolvedEntry } from "./entries/resolved-entry.js";
-export { Entry } from "./entries/entry.js";
 export { EntryPage } from "./entries/entry-page.js";
 export { EntryStream } from "./entries/entry-stream.js";
 export { EntryPageStream } from "./entries/entry-page-stream.js";
 export { EntryReader } from "./entries/entry-reader.js";
+export type { Entry } from "./entries/entry.js";
+export type { EntryEnvelope } from "./entries/entry-envelope.js";
 export type { EntryListQuery } from "./entries/entry-list-query.js";
-export type { EntryPayload } from "./entries/entry-payload.js";
+export type { EntryReadOptions } from "./entries/entry-read-options.js";
 
 // Queries
 export { Filter } from "./query/filter.js";

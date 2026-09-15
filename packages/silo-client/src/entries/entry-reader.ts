@@ -1,64 +1,65 @@
 import { PageWindow } from "../pagination/page-window.js";
 import type { RowLoader } from "../pagination/row-stream.js";
-import type { RequestOptions } from "../request-options.js";
+import type { ScopeReference } from "../scope/scope-reference.js";
 import { ApiPath } from "../transport/api-path.js";
 import { PagePayload } from "../transport/page-payload.js";
-import type { EntryContext } from "./entry-base.js";
+import type { Entry } from "./entry.js";
 import type { EntryListQuery } from "./entry-list-query.js";
 import { EntryPage, type EntryPageLoader } from "./entry-page.js";
 import { EntryPageStream } from "./entry-page-stream.js";
-import type { EntryPayload } from "./entry-payload.js";
+import type { EntryReadOptions } from "./entry-read-options.js";
 import { EntryStream } from "./entry-stream.js";
 
 /**
- * Reads entries out of one collection and hands each answer to `wrap`.
+ * The four reads of one collection: one entry, one page, every entry, every
+ * page.
  *
- * A collection holds two: one asks for substituted values and answers
- * snapshots, the other asks for the stored templates and answers editable
- * entries. Both read the same routes, so the paging is written once here.
+ * Nothing is mapped on the way through — an answer is the wire's own row
+ * (D62) — so what this class actually owns is the paging the four share and
+ * the one place `variables` is turned into a query parameter.
  */
-export class EntryReader<Row> {
+export class EntryReader<Fields> {
   constructor(
-    private readonly context: EntryContext,
-    private readonly variables: "raw" | undefined,
-    private readonly wrap: (payload: EntryPayload) => Row,
+    private readonly scope: ScopeReference,
+    private readonly collection: string,
   ) {}
 
-  async get(id: string, options: RequestOptions = {}): Promise<Row> {
-    const payload = await this.context.transport.json<EntryPayload>({
+  get(id: string, options: EntryReadOptions = {}): Promise<Entry<Fields>> {
+    const { variables, ...request } = options;
+    return this.scope.transport.json<Entry<Fields>>({
       method: "GET",
-      path: ApiPath.entry(this.context.project, this.context.environment, this.context.collection, id),
-      query: { variables: this.variables },
-      ...options,
+      path: ApiPath.entry(this.scope.project, this.scope.environment, this.collection, id),
+      query: { variables },
+      ...request,
     });
-    return this.wrap(payload);
   }
 
-  async list(query: EntryListQuery = {}, options: RequestOptions = {}): Promise<EntryPage<Row>> {
-    const loader: EntryPageLoader<Row> = (window) =>
+  async list(query: EntryListQuery = {}, options: EntryReadOptions = {}): Promise<EntryPage<Entry<Fields>>> {
+    const { variables, ...request } = options;
+    const loader: EntryPageLoader<Entry<Fields>> = (window) =>
       this.list({ ...query, limit: window.limit, offset: window.offset }, options);
 
-    const body = await this.context.transport.json<Record<string, unknown>>({
+    const body = await this.scope.transport.json<Record<string, unknown>>({
       method: "GET",
-      path: ApiPath.entries(this.context.project, this.context.environment, this.context.collection),
+      path: ApiPath.entries(this.scope.project, this.scope.environment, this.collection),
       query: {
         limit: query.limit,
         offset: query.offset,
         filter: query.where?.toJSON(),
         sort: query.sort === undefined ? undefined : String(query.sort),
-        variables: this.variables,
+        variables,
       },
-      ...options,
+      ...request,
     });
 
-    const page = PagePayload.read<EntryPayload>(body);
+    const page = PagePayload.read<Entry<Fields>>(body);
     const window = new PageWindow(page.limit ?? query.limit ?? 50, page.offset ?? query.offset ?? 0);
-    return new EntryPage(page.rows.map((payload) => this.wrap(payload)), page.total, window, loader);
+    return new EntryPage(page.rows, page.total, window, loader);
   }
 
   /** Every matching entry, one at a time, `limit` rows per request. */
-  all(query: EntryListQuery = {}, options: RequestOptions = {}): EntryStream<Row> {
-    const loader: RowLoader<Row> = async (window) => {
+  all(query: EntryListQuery = {}, options: EntryReadOptions = {}): EntryStream<Entry<Fields>> {
+    const loader: RowLoader<Entry<Fields>> = async (window) => {
       const page = await this.list({ ...query, limit: window.limit, offset: window.offset }, options);
       return { rows: [...page.entries], window: new PageWindow(page.limit, page.offset) };
     };
@@ -66,7 +67,7 @@ export class EntryReader<Row> {
   }
 
   /** Every matching page, one at a time. */
-  pages(query: EntryListQuery = {}, options: RequestOptions = {}): EntryPageStream<Row> {
+  pages(query: EntryListQuery = {}, options: EntryReadOptions = {}): EntryPageStream<Entry<Fields>> {
     return new EntryPageStream(() => this.list(query, options), options);
   }
 }

@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { CollectionHandle } from "../../src/collections/collection-handle";
-import { Entry } from "../../src/entries/entry";
+import { ConflictError } from "../../src/errors/conflict-error";
 import { ScopeReference } from "../../src/scope/scope-reference";
 import { Transport } from "../../src/transport/transport";
 import { StubFetch } from "../support/stub-fetch";
@@ -25,7 +25,7 @@ const entryPayload = (overrides: Partial<Post> & { rev?: number } = {}) => ({
 });
 
 describe("CollectionHandle.get", () => {
-  test("on a resolved-mode handle: no ?variables=, and the result has no save()", async () => {
+  test("sends no ?variables=, and answers the wire's own flat row", async () => {
     const stubFetch = new StubFetch();
     stubFetch.enqueue(StubResponse.json(entryPayload()));
     const posts = new CollectionHandle<Post>(scopeOf(stubFetch), "my posts");
@@ -36,35 +36,43 @@ describe("CollectionHandle.get", () => {
     expect(stubFetch.received[0].url).toBe(
       "http://localhost:8090/api/projects/acme/envs/prod/collections/my%20posts/01J8%20x",
     );
-    expect((entry as unknown as { save?: unknown }).save).toBeUndefined();
+    // Flat, and exactly the response: no envelope nesting, no `fields`, no
+    // methods, nothing carried alongside it (D62).
+    expect(entry).toEqual({
+      id: "01J8 x",
+      rev: 1,
+      created_at: "2026-01-01T00:00:00.000Z",
+      updated_at: "2026-01-01T00:00:00.000Z",
+      title: "Hello",
+      status: "draft",
+    });
+    expect(Object.getPrototypeOf(entry)).toBe(Object.prototype);
   });
 
-  test("through editable: sends ?variables=raw, and the result has save()", async () => {
-    const stubFetch = new StubFetch();
-    stubFetch.enqueue(StubResponse.json(entryPayload()));
-    const posts = new CollectionHandle<Post>(scopeOf(stubFetch), "posts");
-
-    const entry = await posts.editable.get("01J8 x");
-
-    expect(stubFetch.received[0].url).toContain("variables=raw");
-    expect(stubFetch.received[0].url).toContain("01J8%20x");
-    expect(entry).toBeInstanceOf(Entry);
-    expect(typeof entry.save).toBe("function");
-  });
-});
-
-describe("CollectionHandle.edit / create / replace", () => {
-  test("edit() always reads ?variables=raw regardless of client mode", async () => {
+  test("{ variables: 'raw' } asks for the stored templates", async () => {
     const stubFetch = new StubFetch();
     stubFetch.enqueue(StubResponse.json(entryPayload({ title: "{{TITLE}}" })));
     const posts = new CollectionHandle<Post>(scopeOf(stubFetch), "posts");
 
-    const draft = await posts.edit("01J8 x");
+    const entry = await posts.get("01J8 x", { variables: "raw" });
 
     expect(stubFetch.received[0].url).toContain("variables=raw");
-    expect(draft.fields.title).toBe("{{TITLE}}");
-    expect(typeof draft.save).toBe("function");
+    expect(stubFetch.received[0].url).toContain("01J8%20x");
+    expect(entry.title).toBe("{{TITLE}}");
   });
+
+  test("the read options are not smuggled into the query string", async () => {
+    const stubFetch = new StubFetch();
+    stubFetch.enqueue(StubResponse.json(entryPayload()));
+    const posts = new CollectionHandle<Post>(scopeOf(stubFetch), "posts");
+
+    await posts.get("01J8 x", { timeoutMilliseconds: 5_000 });
+
+    expect(stubFetch.received[0].url).not.toContain("timeout");
+  });
+});
+
+describe("CollectionHandle.create / replace", () => {
 
   test("create() sends POST with ?variables=raw and the fields as the body", async () => {
     const stubFetch = new StubFetch();
@@ -78,7 +86,10 @@ describe("CollectionHandle.edit / create / replace", () => {
       "http://localhost:8090/api/projects/acme/envs/prod/collections/posts?variables=raw",
     );
     expect(JSON.parse(stubFetch.received[0].body ?? "{}")).toEqual({ title: "Hello", status: "draft" });
-    expect(typeof created.save).toBe("function");
+    // The echo is a row like any other, so the rev it answers is the one the
+    // next `replace()` takes.
+    expect(created.rev).toBe(1);
+    expect(created.title).toBe("Hello");
   });
 
   test("replace() sends PUT with the given rev and ?variables=raw", async () => {
@@ -91,6 +102,24 @@ describe("CollectionHandle.edit / create / replace", () => {
     expect(stubFetch.received[0].method).toBe("PUT");
     expect(stubFetch.received[0].url).toBe(
       "http://localhost:8090/api/projects/acme/envs/prod/collections/posts/01J8%20x?rev=5&variables=raw",
+    );
+  });
+
+  test("a stale rev is a ConflictError, and a raw re-read gives the one to retry with", async () => {
+    const stubFetch = new StubFetch();
+    stubFetch.enqueue(StubResponse.errorBody(409, "conflict", "stale revision"));
+    const posts = new CollectionHandle<Post>(scopeOf(stubFetch), "posts");
+
+    const stale = posts.replace("01J8 x", 3, { title: "Hello again", status: "published" });
+    await expect(stale).rejects.toBeInstanceOf(ConflictError);
+
+    stubFetch.enqueue(StubResponse.json(entryPayload({ rev: 5, title: "Someone else's edit" })));
+    const current = await posts.get("01J8 x", { variables: "raw" });
+
+    expect(current.rev).toBe(5);
+    expect(current.title).toBe("Someone else's edit");
+    expect(stubFetch.received[1].url).toBe(
+      "http://localhost:8090/api/projects/acme/envs/prod/collections/posts/01J8%20x?variables=raw",
     );
   });
 });
@@ -124,16 +153,15 @@ describe("CollectionHandle.list", () => {
     expect(page.limit).toBe(50);
   });
 
-  test("editable.list() sends ?variables=raw and answers editable entries", async () => {
+  test("list({}, { variables: 'raw' }) sends ?variables=raw", async () => {
     const stubFetch = new StubFetch();
-    stubFetch.enqueue(StubResponse.json({ data: [entryPayload()], total: 1, limit: 50, offset: 0 }));
+    stubFetch.enqueue(StubResponse.json({ data: [entryPayload({ title: "{{TITLE}}" })], total: 1, limit: 50, offset: 0 }));
     const posts = new CollectionHandle<Post>(scopeOf(stubFetch), "posts");
 
-    const page = await posts.editable.list();
+    const page = await posts.list({}, { variables: "raw" });
 
     expect(stubFetch.received[0].url).toContain("variables=raw");
-    expect(page.entries[0]).toBeInstanceOf(Entry);
-    expect(typeof page.entries[0]!.save).toBe("function");
+    expect(page.entries[0]!.title).toBe("{{TITLE}}");
   });
 
   test("sends the filter and sort, and next() requests the echoed window, not the one asked for", async () => {
@@ -179,7 +207,7 @@ describe("CollectionHandle.all / pages", () => {
     const posts = new CollectionHandle<Post>(scopeOf(stubFetch), "posts");
 
     const titles: string[] = [];
-    for await (const entry of posts.all({ limit: 2 })) titles.push(entry.fields.title);
+    for await (const entry of posts.all({ limit: 2 })) titles.push(entry.title);
 
     expect(titles).toEqual(["a", "b", "c"]);
   });

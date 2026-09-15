@@ -4,7 +4,6 @@ import { ApiPath } from "../transport/api-path.js";
 import type { CollectionDefinition } from "./collection-definition.js";
 import type { CollectionSummary } from "./collection-summary.js";
 import type { JsonSchema } from "./json-schema.js";
-import { ReservedFieldNames } from "./reserved-field-names.js";
 
 interface CollectionSummaryPayload {
   id: string;
@@ -29,8 +28,10 @@ export class Collections {
     return body.items.map(Collections.toSummary);
   }
 
+  /** A schema declaring a field named `id`, `rev`, `seq`, `created_at` or
+   * `updated_at` is refused by the server with a `ValidationFailedError`
+   * naming it, so there is nothing to warn about here (D62). */
   async create(name: string, schema: JsonSchema, options: RequestOptions = {}): Promise<CollectionDefinition> {
-    Collections.warnOnReservedFields(schema);
     return this.scope.transport.json<CollectionDefinition>({
       method: "POST",
       path: ApiPath.collections(this.scope.project, this.scope.environment),
@@ -48,17 +49,5 @@ export class Collections {
       createdAt: new Date(payload.created_at),
       updatedAt: new Date(payload.updated_at),
     };
-  }
-
-  /** The only `console` use in this package: a schema declaring a reserved
-   * field still validates, so this is the one place a caller can learn
-   * about it before finding out from a field that is silently never
-   * returned. */
-  private static warnOnReservedFields(schema: JsonSchema): void {
-    for (const name of Object.keys(schema.properties ?? {})) {
-      if (ReservedFieldNames.isReserved(name)) {
-        console.warn(`@org-quicko/silo-client: collection schema declares reserved field "${name}", which the server never returns`);
-      }
-    }
   }
 }

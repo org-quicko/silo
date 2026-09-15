@@ -128,7 +128,13 @@ export class PaletteResults {
           title: asset.filename,
           subtitle: asset.folder ? (asset.folder.startsWith('/') ? asset.folder : `/${asset.folder}`) : '/',
           snippets: [],
-          href: Routes.media(ctx.serverId, undefined, asset.folder),
+          // The library still has no per-asset URL — the preview dialog is
+          // component state, not a route — so the link names the folder the
+          // asset lives in *and* carries the search that found it. The folder
+          // alone would land the reader among everything beside it, which is
+          // the hunt they had already finished; `MediaFilter` ands the two, so
+          // together they open the asset's own directory with it in view.
+          href: Routes.media(ctx.serverId, asset.filename, asset.folder),
           asset,
         })),
       })

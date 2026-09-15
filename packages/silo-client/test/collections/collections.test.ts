@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { Collections } from "../../src/collections/collections";
+import { ValidationFailedError } from "../../src/errors/validation-failed-error";
 import { ScopeReference } from "../../src/scope/scope-reference";
 import { Transport } from "../../src/transport/transport";
 import { StubFetch } from "../support/stub-fetch";
@@ -57,42 +58,27 @@ describe("Collections.create", () => {
     expect(collection).toEqual({ id: "01J8", name: "my posts", schema });
   });
 
-  test("warns, naming the field, when a schema declares a reserved field name", async () => {
+  test("a schema declaring a reserved field name is refused by the server, not warned about here", async () => {
     const stubFetch = new StubFetch();
     const schema = { type: "object", properties: { title: { type: "string" }, created_at: { type: "string" } } };
-    stubFetch.enqueue(StubResponse.json({ id: "01J8", name: "posts", schema }, 201));
+    stubFetch.enqueue(
+      StubResponse.errorBody(
+        400,
+        "validation_failed",
+        'collection "posts" declares reserved field "created_at"',
+        [{ path: "/properties/created_at", message: "reserved field name" }],
+      ),
+    );
 
-    const originalWarn = console.warn;
-    const warnings: string[] = [];
-    console.warn = (message?: unknown) => {
-      warnings.push(String(message));
-    };
-    try {
-      await new Collections(scopeOf(stubFetch)).create("posts", schema);
-    } finally {
-      console.warn = originalWarn;
-    }
+    const attempt = new Collections(scopeOf(stubFetch)).create("posts", schema);
 
-    expect(warnings).toHaveLength(1);
-    expect(warnings[0]).toContain("created_at");
-  });
-
-  test("does not warn for an ordinary schema", async () => {
-    const stubFetch = new StubFetch();
-    const schema = { type: "object", properties: { title: { type: "string" } } };
-    stubFetch.enqueue(StubResponse.json({ id: "01J8", name: "posts", schema }, 201));
-
-    const originalWarn = console.warn;
-    const warnings: string[] = [];
-    console.warn = (message?: unknown) => {
-      warnings.push(String(message));
-    };
-    try {
-      await new Collections(scopeOf(stubFetch)).create("posts", schema);
-    } finally {
-      console.warn = originalWarn;
-    }
-
-    expect(warnings).toHaveLength(0);
+    // The client sends it and reports what came back: silo owns this rule now,
+    // so there is no local list here to drift from it (D62).
+    const error = await attempt.catch((caught: unknown) => caught);
+    expect(error).toBeInstanceOf(ValidationFailedError);
+    expect((error as ValidationFailedError).message).toContain("created_at");
+    expect((error as ValidationFailedError).details).toEqual([
+      { path: "/properties/created_at", message: "reserved field name" },
+    ]);
   });
 });

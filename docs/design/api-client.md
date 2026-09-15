@@ -44,87 +44,80 @@ silently repointed at a path they were not built for. A `NotFoundError` from a
 stale handle is the honest outcome, and building a handle for the new name is
 one line.
 
-### 14.2 A resolved read is not editable
+### 14.2 An entry is the wire's own row
 
-This is the decision the rest of the client is arranged around.
+This is the decision the rest of the client is arranged around, and it is the
+opposite of the one D61 made. It replaces the `ResolvedEntry`/`Entry` split
+wholesale (D62).
 
-Every `{{NAME}}` an entry holds is substituted on the way out (D57), and
-resolving is the default because an app reading content should not have to opt
-in to a usable value. That makes the default read the wrong thing to write
-back: an entry storing `url: "{{API_URL}}/posts"` comes back holding
-`https://api.acme.com/posts`, and saving it replaces the reference an author
-typed with a snapshot of what it happened to mean. The admin UI already knows
-this and asks for `?variables=raw` on every single read for exactly this
-reason.
+A read answers exactly what the API answered: the author's fields and the
+envelope's four keys in one flat object, nothing renamed, nested or wrapped,
+`created_at` still spelled `created_at` and still a string. A row carries no
+transport, no scope, no prototype and no methods, so it logs as its own
+contents, survives `structuredClone`, and drops into a store or React state
+as-is.
 
-Documenting "an editor should ask for raw" leaves the mistake available, so the
-type system removes it instead. `collection.get(id)` answers a `ResolvedEntry`,
-which carries `delete()` and **no `save()`** at all; `collection.edit(id)`
-reads raw and answers an `Entry`, which has `save()` and `refresh()`. Which of
-the two you are holding is therefore a compile-time fact rather than a
-convention.
+**Why the split existed, and why it stopped paying.** Resolving `{{NAME}}` is
+the default on the way out (D57) and must stay so, since an app reading content
+should not opt in to a usable value. That makes the default read the wrong
+thing to write back: an entry storing `url: "{{API_URL}}/posts"` comes back
+holding `https://api.acme.com/posts`, and writing it replaces the reference an
+author typed with a snapshot of what it meant that day. D61 reasoned that where
+a mistake cannot be corrected after the fact the affordance should not exist,
+and removed `save()` from the type a resolving read answers.
 
-The editable half is a whole read surface, not one method: `collection.editable`
-answers `get`, `list`, `all` and `pages`, each reading raw and each answering
-an `Entry`. A tool editing a page of entries needs that, and `edit(id)` is the
-one-entry shorthand over it.
+The reasoning was right and it solved the wrong layer. The hazard was never
+"holding a resolved value"; it was `entry.save()` specifically, a method that
+writes back a value the caller acquired without choosing how it was read. Take
+the method away and there is nothing left to withhold: `posts.replace(id, rev,
+fields)` names the fields being sent at the call site, so sending a resolved
+value is a thing a caller types rather than a thing that happens to them. Two
+classes, two read surfaces, an `EntryFor` conditional and a mode parameter were
+all in service of a guard that the write signature now provides for free.
 
-Writes always send `?variables=raw`, whichever surface they were called on, so
-a create or a replace echoes back what was sent. Without that, the same failure
-returns one step later: a create response holding substituted values, held and
-saved, overwrites the template the caller just wrote.
+**What the split cost while it stood.** An entry had to reach the network to
+offer `save()`, so every row carried an `EntryContext` holding the `Transport`,
+and `protected` is a compile-time fiction: at runtime `context` was a plain
+enumerable own property. So `console.log(entry)` printed the instance's API key
+in full, on every row of every list, into any logger or error report that
+inspects an object. `toJSON()` was clean and nothing else was. That is not an
+argument against active records in general, but it is what this one did, and it
+was found the ordinary way, by someone printing a row.
 
-**Both surfaces are concrete classes, and there is no mode.** The first cut put
-`variables` on `SiloOptions` and threaded the choice as a type parameter from
-`Silo` through `ProjectHandle` and `EnvironmentHandle` into
-`CollectionHandle<Fields, Mode>`, with a conditional `EntryFor<Fields, Mode>`
-deciding what a read answered. It worked, and it was the wrong trade: a type
-parameter that appears in four class signatures and every return type is the
-most prominent thing in the API, and what it bought was one construction-time
-setting. Naming the surface at the call site says the same thing where it is
-read. Deleting it removed the `Mode` parameter from four classes, the
-`EntryFor` conditional, `VariablesMode` itself, and the mode argument `Search`
-carried, and the shared paging moved into one `EntryReader<Row>` that each
-surface instantiates with its own wrapper.
+**What survives.** The raw-versus-resolved choice, because an editor still has
+to read the template it is about to edit. It is a per-call option now,
+`{ variables: "raw" }`, accepted by `get`, `list`, `all` and `pages`, rather
+than a second class hierarchy. Writes always send `raw` whichever way the row
+was read, or the same failure returns one step later in a create's echoed body.
+The option is the smallest thing that can express the choice, which is what
+D61's own argument against the `Mode` type parameter should have concluded.
 
-A runtime `variables` option could not survive that change: without the type
-parameter, `get()` would claim a `ResolvedEntry` while holding raw data, which
-is a worse lie than the one this section exists to prevent.
+### 14.3 The revision is passed, not held
 
-The cost is a second entry type and a second read surface. The alternative
-candidates were both worse. Making `raw` the global default undoes D57 for
-every consumer that is not an editor. A runtime guard on `save()` moves the
-error from the compiler to production.
+`PUT` and `DELETE` require the revision the caller expects (`?rev=`) and a
+mismatch is a `409`. That is the correct protocol and the most error-prone part
+of this API to consume, because the number has to survive the trip from a read
+to a write.
 
-### 14.3 An entry owns its revision
+D61 put it inside the entry so a caller never wrote it down. The price was an
+object that had to carry a transport in order to spend it, which is the whole
+of 14.2. So the revision is a parameter again: `posts.replace(id, rev, fields)`
+and `posts.delete(id, rev)`, with `rev` the one the row answered. A
+`ConflictError` and a fresh read are still the recovery, and the row a read
+answers still carries the `rev` the next write needs, so nothing is written
+down that was not written down before. What is given up is the `entry.save()`
+spelling and the local refusal of a second overlapping `save()` on one
+instance, which was a guard against a mistake only the mutable object made
+possible.
 
-`PUT` and `DELETE` on an entry require the revision the caller expects
-(`?rev=`), and a mismatch is a `409`. That is the correct protocol and it is
-the most error-prone part of this API to consume, because the number has to be
-threaded from a read to a write through whatever the caller's own state layer
-is.
-
-So the entry object holds it. `save()` sends the rev it holds, adopts the rev
-and timestamps it gets back, mutates in place and returns itself; a `409` is a
-`ConflictError` and `refresh()` is the recovery. A caller never writes a
-revision down.
-
-Two consequences worth stating. A second overlapping `save()` on one instance
-is refused locally rather than sent, because the second would carry a rev the
-first has already superseded and the local message names the bug better than a
-`409` does. And a mutable object is hostile to React state, so `toJSON()` is
-first-class rather than an afterthought: it answers the flat wire shape, which
-is what belongs in a store.
-
-Fields live under `entry.fields` rather than spread onto the instance, so a
-field named `save` or `rev` cannot shadow a method or the envelope. The promise
-is narrow and the client says so: it prevents collisions with the **client's**
-members, not with the wire's. `EntryUtils.toApiResponse` deletes user fields
-named `id`, `rev`, `seq`, `created_at` and `updated_at` before answering, so
-those five never survive a read and no client can reconstruct them.
-`ReservedFieldNames` exports the list and `Collections.create` warns when a
-schema declares one. Fixing that properly needs an enveloped entry response
-from the server, which is a server decision and not this package's to make.
+Fields sit at the row's top level rather than under `entry.fields`. D61 nested
+them so a field named `save` or `toJSON` could not shadow a member; there are
+no members now, and the envelope's own five names are refused by silo where
+data enters (D62), so the collision the nesting guarded against cannot occur at
+either layer. The client therefore holds no reserved-name list of its own and
+no create-time warning: silo owns the rule, answers a `validation_failed`
+naming the field, and a second copy of the list in the client is a second thing
+to drift.
 
 ### 14.4 Pagination navigates by the window the server answered
 
@@ -175,15 +168,22 @@ sort path must select at most one node.
 
 ### 14.6 Only known metadata is renamed
 
-The client uses one naming convention internally, so `requires_auth` reads as
-`requiresAuth`, `set_in` as `setIn`, the timestamps as `Date`s named
-`createdAt` and `updatedAt`, and a search hit's `env` as `environment`.
+Around the **metadata** types the client uses one naming convention, so
+`requires_auth` reads as `requiresAuth`, `set_in` as `setIn`, a collection
+summary's timestamps as `Date`s named `createdAt` and `updatedAt`, and a search
+hit's `env` as `environment`.
 
 Every one of those is an **explicit entry in a per-type mapper**, never a
 transform over unknown keys. A recursive camel-case pass would rewrite a
 customer's `product_code` field, rename the schema properties that validate
 it, and break `{{API_URL}}`. Content, JSON Schema property names and variable
 names are never touched, and a test asserts it.
+
+**An entry is not one of these types** (D62). Its row is the wire's, untouched,
+`created_at` included, because the convention was bought at the price of a
+mapper in each direction and a row that could no longer be handed back to the
+call it came from. A search hit keeps its `environment` rename because the hit
+is the client's own structure; the entry inside it is not.
 
 ### 14.7 Four kinds of failure, and what a write's outcome is not
 

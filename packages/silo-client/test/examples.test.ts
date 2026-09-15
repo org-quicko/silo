@@ -1,5 +1,4 @@
 import { describe, expect, test } from "bun:test";
-import { Entry } from "../src/entries/entry";
 import { Filter } from "../src/query/filter";
 import { Sort } from "../src/query/sort";
 import { EnvironmentHandle } from "../src/scope/environment-handle";
@@ -13,32 +12,33 @@ import { StubResponse } from "./support/stub-response";
  * builds the same handle chain `Silo.project().environment()` would, and
  * proves it compiles and runs exactly as documented.
  */
-interface Post {
+interface Movie {
   title: string;
+  year: number;
   status: "draft" | "published";
-  tags: string[];
-  url?: string;
+  genres: string[];
+  trailerUrl?: string;
 }
 
 describe("Projects and environments", () => {
   test("rename is bound to the identity reviewed in a dry run", async () => {
     const stubFetch = new StubFetch();
     stubFetch.enqueue(
-      StubResponse.json({ id: "01J8", from: "acme", to: "acme-corp", rewritten_claims: [], pattern_affected_claims: [] }),
+      StubResponse.json({ id: "01J8", from: "moviespace", to: "movie-space", rewritten_claims: [], pattern_affected_claims: [] }),
     );
     stubFetch.enqueue(
-      StubResponse.json({ id: "01J8", from: "acme", to: "acme-corp", rewritten_claims: [], pattern_affected_claims: [] }),
+      StubResponse.json({ id: "01J8", from: "moviespace", to: "movie-space", rewritten_claims: [], pattern_affected_claims: [] }),
     );
     stubFetch.enqueue(StubResponse.empty());
 
-    const acme = new ProjectHandle(new Transport({ url: "http://localhost:8090", fetch: stubFetch.fetch }), "acme");
+    const moviespace = new ProjectHandle(new Transport({ url: "http://localhost:8090", fetch: stubFetch.fetch }), "moviespace");
 
-    const preview = await acme.rename("acme-corp", { dryRun: true });
+    const preview = await moviespace.rename("movie-space", { dryRun: true });
     preview.id;
     preview.rewrittenClaims;
     preview.patternAffectedClaims;
-    await acme.rename("acme-corp", { expectedId: preview.id });
-    await acme.delete({ force: true });
+    await moviespace.rename("movie-space", { expectedId: preview.id });
+    await moviespace.delete({ force: true });
 
     expect(stubFetch.received).toHaveLength(3);
   });
@@ -47,18 +47,22 @@ describe("Projects and environments", () => {
 describe("Collections and schemas", () => {
   test("create, schema get/put, rename", async () => {
     const stubFetch = new StubFetch();
-    const schema = { type: "object", required: ["title"], properties: { title: { type: "string" }, status: { type: "string" } } };
-    stubFetch.enqueue(StubResponse.json({ id: "01J8", name: "posts", schema }, 201));
-    stubFetch.enqueue(StubResponse.json({ id: "01J8", name: "posts", schema }));
-    stubFetch.enqueue(StubResponse.json({ id: "01J8", name: "posts", schema }));
+    const schema = {
+      type: "object",
+      required: ["title"],
+      properties: { title: { type: "string" }, year: { type: "integer" }, status: { type: "string" } },
+    };
+    stubFetch.enqueue(StubResponse.json({ id: "01J8", name: "movies", schema }, 201));
+    stubFetch.enqueue(StubResponse.json({ id: "01J8", name: "movies", schema }));
+    stubFetch.enqueue(StubResponse.json({ id: "01J8", name: "movies", schema }));
 
     const transport = new Transport({ url: "http://localhost:8090", fetch: stubFetch.fetch });
-    const environment = new ProjectHandle(transport, "acme").environment("prod");
+    const environment = new ProjectHandle(transport, "moviespace").environment("prod");
 
-    await environment.collections.create("posts", schema);
-    const posts = environment.collection<Post>("posts");
-    await posts.schema.get();
-    await posts.schema.put(schema);
+    await environment.collections.create("movies", schema);
+    const movies = environment.collection<Movie>("movies");
+    await movies.schema.get();
+    await movies.schema.put(schema);
 
     expect(stubFetch.received).toHaveLength(3);
   });
@@ -67,10 +71,10 @@ describe("Collections and schemas", () => {
 describe("Entries: reading, editing, writing, listing", () => {
   const environmentOf = (stubFetch: StubFetch): EnvironmentHandle => {
     const transport = new Transport({ url: "http://localhost:8090", fetch: stubFetch.fetch });
-    return new ProjectHandle(transport, "acme").environment("prod");
+    return new ProjectHandle(transport, "moviespace").environment("prod");
   };
 
-  test("a resolved read has no save()", async () => {
+  test("a read answers a flat row, and writes take its id and rev", async () => {
     const stubFetch = new StubFetch();
     stubFetch.enqueue(
       StubResponse.json({
@@ -78,25 +82,26 @@ describe("Entries: reading, editing, writing, listing", () => {
         rev: 3,
         created_at: "2026-01-01T00:00:00.000Z",
         updated_at: "2026-01-01T00:00:00.000Z",
-        title: "Hello",
+        title: "Arrival",
+        year: 2016,
         status: "draft",
-        tags: [],
-        url: "https://api.acme.com/posts",
+        genres: ["sci-fi"],
+        trailerUrl: "https://cdn.moviespace.com/trailers/arrival.mp4",
       }),
     );
     stubFetch.enqueue(StubResponse.empty());
-    const posts = environmentOf(stubFetch).collection<Post>("posts");
+    const movies = environmentOf(stubFetch).collection<Movie>("movies");
 
-    const post = await posts.get("01J8");
+    const movie = await movies.get("01J8");
 
-    expect(post.fields.url).toBe("https://api.acme.com/posts");
-    // @ts-expect-error -- a resolved read has no save(), proven through the
-    // full ProjectHandle -> EnvironmentHandle -> CollectionHandle chain.
-    post.save;
-    await post.delete();
+    expect(movie.trailerUrl).toBe("https://cdn.moviespace.com/trailers/arrival.mp4");
+    // @ts-expect-error -- a row carries no methods, proven through the full
+    // ProjectHandle -> EnvironmentHandle -> CollectionHandle chain.
+    movie.save;
+    await movies.delete(movie.id, movie.rev);
   });
 
-  test("edit() carries the template, and save() writes it back untouched", async () => {
+  test("a raw read carries the template, and replace() writes it back untouched", async () => {
     const stubFetch = new StubFetch();
     stubFetch.enqueue(
       StubResponse.json({
@@ -104,10 +109,11 @@ describe("Entries: reading, editing, writing, listing", () => {
         rev: 3,
         created_at: "2026-01-01T00:00:00.000Z",
         updated_at: "2026-01-01T00:00:00.000Z",
-        title: "Hello",
+        title: "Arrival",
+        year: 2016,
         status: "draft",
-        tags: [],
-        url: "{{API_URL}}/posts",
+        genres: ["sci-fi"],
+        trailerUrl: "{{CDN_URL}}/trailers/arrival.mp4",
       }),
     );
     stubFetch.enqueue(
@@ -116,23 +122,28 @@ describe("Entries: reading, editing, writing, listing", () => {
         rev: 4,
         created_at: "2026-01-01T00:00:00.000Z",
         updated_at: "2026-01-02T00:00:00.000Z",
-        title: "Hello",
+        title: "Arrival",
+        year: 2016,
         status: "published",
-        tags: [],
-        url: "{{API_URL}}/posts",
+        genres: ["sci-fi"],
+        trailerUrl: "{{CDN_URL}}/trailers/arrival.mp4",
       }),
     );
-    const posts = environmentOf(stubFetch).collection<Post>("posts");
+    const movies = environmentOf(stubFetch).collection<Movie>("movies");
 
-    const draft = await posts.edit("01J8");
-    expect(draft.fields.url).toBe("{{API_URL}}/posts");
-    draft.fields.status = "published";
-    await draft.save();
+    const draft = await movies.get("01J8", { variables: "raw" });
+    expect(draft.trailerUrl).toBe("{{CDN_URL}}/trailers/arrival.mp4");
 
-    expect(JSON.parse(stubFetch.received[1].body ?? "{}").url).toBe("{{API_URL}}/posts");
+    const { id, rev, created_at, updated_at, ...fields } = draft;
+    await movies.replace(id, rev, { ...fields, status: "published" });
+
+    // The template survives the round trip, which is the whole point of
+    // reading raw before writing.
+    expect(JSON.parse(stubFetch.received[1].body ?? "{}").trailerUrl).toBe("{{CDN_URL}}/trailers/arrival.mp4");
+    void [created_at, updated_at];
   });
 
-  test("the editable surface answers editable entries from every read", async () => {
+  test("a row is a plain value: it clones, and carries nothing alongside it", async () => {
     const stubFetch = new StubFetch();
     stubFetch.enqueue(
       StubResponse.json({
@@ -140,35 +151,39 @@ describe("Entries: reading, editing, writing, listing", () => {
         rev: 1,
         created_at: "2026-01-01T00:00:00.000Z",
         updated_at: "2026-01-01T00:00:00.000Z",
-        title: "Hello",
+        title: "Arrival",
+        year: 2016,
         status: "draft",
-        tags: [],
+        genres: ["sci-fi"],
       }),
     );
-    const posts = environmentOf(stubFetch).collection<Post>("posts");
+    const movies = environmentOf(stubFetch).collection<Movie>("movies");
 
-    const editable = await posts.editable.get("01J8");
+    const movie = await movies.get("01J8");
 
-    expect(editable).toBeInstanceOf(Entry);
-    // Compiles with no cast and no ts-expect-error, unlike the same call on
-    // the collection itself.
-    expect(typeof editable.save).toBe("function");
+    // No transport, no scope, no prototype: what a store or a structured
+    // clone would have choked on before (D62).
+    expect(Object.keys(movie).sort()).toEqual(
+      ["created_at", "genres", "id", "rev", "status", "title", "updated_at", "year"],
+    );
+    expect(structuredClone(movie)).toEqual(movie);
+    expect(JSON.parse(JSON.stringify(movie))).toEqual(movie);
   });
 
-  test("create and replace send ?variables=raw and answer editable entries", async () => {
+  test("create sends ?variables=raw and answers the row it stored", async () => {
     const stubFetch = new StubFetch();
     stubFetch.enqueue(
       StubResponse.json(
-        { id: "01J9", rev: 1, created_at: "2026-01-01T00:00:00.000Z", updated_at: "2026-01-01T00:00:00.000Z", title: "Hello", status: "draft", tags: [] },
+        { id: "01J9", rev: 1, created_at: "2026-01-01T00:00:00.000Z", updated_at: "2026-01-01T00:00:00.000Z", title: "Arrival", year: 2016, status: "draft", genres: ["sci-fi"] },
         201,
       ),
     );
     stubFetch.enqueue(StubResponse.empty());
-    const posts = environmentOf(stubFetch).collection<Post>("posts");
+    const movies = environmentOf(stubFetch).collection<Movie>("movies");
 
-    const created = await posts.create({ title: "Hello", status: "draft", tags: [] });
+    const created = await movies.create({ title: "Arrival", year: 2016, status: "draft", genres: ["sci-fi"] });
     expect(created.rev).toBe(1);
-    await posts.delete(created.id, created.rev);
+    await movies.delete(created.id, created.rev);
   });
 
   test("list() answers a page with the server's window, and next() advances by it", async () => {
@@ -176,17 +191,17 @@ describe("Entries: reading, editing, writing, listing", () => {
     stubFetch.enqueue(
       StubResponse.json({
         data: [
-          { id: "01J8", rev: 1, created_at: "2026-01-01T00:00:00.000Z", updated_at: "2026-01-01T00:00:00.000Z", title: "Hello", status: "published", tags: [] },
+          { id: "01J8", rev: 1, created_at: "2026-01-01T00:00:00.000Z", updated_at: "2026-01-01T00:00:00.000Z", title: "Arrival", year: 2016, status: "published", genres: ["sci-fi"] },
         ],
         total: 137,
         limit: 500,
         offset: 0,
       }),
     );
-    const posts = environmentOf(stubFetch).collection<Post>("posts");
+    const movies = environmentOf(stubFetch).collection<Movie>("movies");
 
-    const filtered = await posts.list({
-      where: posts.filter.field("status").equals("published").and(posts.filter.each("tags").equals("release")).and(posts.filter.field("title").contains("ada")),
+    const filtered = await movies.list({
+      where: movies.filter.field("status").equals("published").and(movies.filter.each("genres").equals("sci-fi")).and(movies.filter.field("title").contains("arrival")),
       sort: Sort.recentlyUpdated(),
       limit: 900,
     });
@@ -202,17 +217,23 @@ describe("Queries: filters and sort, untyped statics", () => {
   test("every leaf operator builds the documented wire shape", () => {
     expect(Filter.field("status").equals("published").toJSON()).toEqual({ op: "eq", path: "$.data.status", value: "published" });
     expect(Filter.field("status").notEquals("draft").toJSON()).toEqual({ op: "neq", path: "$.data.status", value: "draft" });
-    expect(Filter.field("title").contains("ada").toJSON()).toEqual({ op: "contains", path: "$.data.title", value: "ada" });
-    expect(Filter.field("views").greaterThan(10).toJSON()).toEqual({ op: "gt", path: "$.data.views", value: 10 });
-    expect(Filter.field("views").atLeast(10).toJSON()).toEqual({ op: "gte", path: "$.data.views", value: 10 });
-    expect(Filter.field("views").lessThan(10).toJSON()).toEqual({ op: "lt", path: "$.data.views", value: 10 });
-    expect(Filter.field("views").atMost(10).toJSON()).toEqual({ op: "lte", path: "$.data.views", value: 10 });
+    expect(Filter.field("title").contains("arrival").toJSON()).toEqual({ op: "contains", path: "$.data.title", value: "arrival" });
+    expect(Filter.field("year").greaterThan(2000).toJSON()).toEqual({ op: "gt", path: "$.data.year", value: 2000 });
+    expect(Filter.field("year").atLeast(2000).toJSON()).toEqual({ op: "gte", path: "$.data.year", value: 2000 });
+    expect(Filter.field("year").lessThan(2000).toJSON()).toEqual({ op: "lt", path: "$.data.year", value: 2000 });
+    expect(Filter.field("year").atMost(2000).toJSON()).toEqual({ op: "lte", path: "$.data.year", value: 2000 });
     expect(Filter.field("status").oneOf(["draft", "review"]).toJSON()).toEqual({ op: "in", path: "$.data.status", value: ["draft", "review"] });
-    expect(Filter.field("subtitle").exists().toJSON()).toEqual({ op: "exists", path: "$.data.subtitle" });
-    expect(Filter.each("tags").notEquals("x").toJSON()).toEqual({ op: "neq", path: "$.data.tags[*]", value: "x" });
-    expect(Filter.not(Filter.each("tags").equals("x")).toJSON()).toEqual({
+    expect(Filter.field("tagline").exists().toJSON()).toEqual({ op: "exists", path: "$.data.tagline" });
+    expect(Filter.each("genres").notEquals("horror").toJSON()).toEqual({ op: "neq", path: "$.data.genres[*]", value: "horror" });
+    expect(Filter.not(Filter.each("genres").equals("horror")).toJSON()).toEqual({
       op: "not",
-      args: [{ op: "eq", path: "$.data.tags[*]", value: "x" }],
+      args: [{ op: "eq", path: "$.data.genres[*]", value: "horror" }],
+    });
+    // A dot reaches inside a nested field, as the README's `director.name`.
+    expect(Filter.field("director.name").contains("villeneuve").toJSON()).toEqual({
+      op: "contains",
+      path: "$.data.director.name",
+      value: "villeneuve",
     });
   });
 
@@ -230,34 +251,34 @@ describe("Variables", () => {
   test("declare, rename, describe, undeclare, list, set, unset", async () => {
     const stubFetch = new StubFetch();
     const declaration = (overrides: Record<string, unknown> = {}) => ({
-      name: "API_URL",
-      description: "Public API root",
-      value: "https://api.acme.com",
+      name: "CDN_URL",
+      description: "Public asset root",
+      value: "https://cdn.moviespace.com",
       set_in: 1,
       created_at: "2026-01-01T00:00:00.000Z",
       updated_at: "2026-01-01T00:00:00.000Z",
       ...overrides,
     });
     stubFetch.enqueue(StubResponse.json(declaration(), 201));
-    stubFetch.enqueue(StubResponse.json(declaration({ name: "PUBLIC_API_URL" })));
-    stubFetch.enqueue(StubResponse.json(declaration({ name: "PUBLIC_API_URL", description: "The public API root" })));
+    stubFetch.enqueue(StubResponse.json(declaration({ name: "PUBLIC_CDN_URL" })));
+    stubFetch.enqueue(StubResponse.json(declaration({ name: "PUBLIC_CDN_URL", description: "The public asset root" })));
     stubFetch.enqueue(StubResponse.empty());
     stubFetch.enqueue(StubResponse.json({ items: [declaration()] }));
     stubFetch.enqueue(StubResponse.json(declaration()));
     stubFetch.enqueue(StubResponse.json(declaration({ value: null, set_in: 0 })));
 
     const transport = new Transport({ url: "http://localhost:8090", fetch: stubFetch.fetch });
-    const acme = new ProjectHandle(transport, "acme");
+    const moviespace = new ProjectHandle(transport, "moviespace");
 
-    await acme.variables.declare("API_URL", { description: "Public API root", environment: "prod", value: "https://api.acme.com" });
-    await acme.variables.rename("API_URL", "PUBLIC_API_URL");
-    await acme.variables.describe("PUBLIC_API_URL", "The public API root");
-    await acme.variables.undeclare("PUBLIC_API_URL");
+    await moviespace.variables.declare("CDN_URL", { description: "Public asset root", environment: "prod", value: "https://cdn.moviespace.com" });
+    await moviespace.variables.rename("CDN_URL", "PUBLIC_CDN_URL");
+    await moviespace.variables.describe("PUBLIC_CDN_URL", "The public asset root");
+    await moviespace.variables.undeclare("PUBLIC_CDN_URL");
 
-    const environment = acme.environment("prod");
+    const environment = moviespace.environment("prod");
     await environment.variables.list();
-    await environment.variables.set("PUBLIC_API_URL", "https://api.acme.com");
-    await environment.variables.unset("PUBLIC_API_URL");
+    await environment.variables.set("PUBLIC_CDN_URL", "https://cdn.moviespace.com");
+    await environment.variables.unset("PUBLIC_CDN_URL");
 
     expect(stubFetch.received).toHaveLength(7);
   });
@@ -270,11 +291,11 @@ describe("Search", () => {
     stubFetch.enqueue(StubResponse.json({ data: [], total: 0, limit: 50, offset: 0, truncated: false, engine: "scan" }));
 
     const transport = new Transport({ url: "http://localhost:8090", fetch: stubFetch.fetch });
-    const environment = new ProjectHandle(transport, "acme").environment("prod");
-    const posts = environment.collection<Post>("posts");
+    const environment = new ProjectHandle(transport, "moviespace").environment("prod");
+    const movies = environment.collection<Movie>("movies");
 
-    await posts.search({ query: "pricing" });
-    await environment.search({ query: "pricing" });
+    await movies.search({ query: "arrival" });
+    await environment.search({ query: "arrival" });
 
     expect(stubFetch.received).toHaveLength(2);
   });

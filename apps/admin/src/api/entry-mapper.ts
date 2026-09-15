@@ -16,10 +16,14 @@ export class EntryMapper {
         data: item.data,
       }
     }
-    const { id, created_at, updated_at, collection: colName, rev, seq, ...data } = item
+    // `collection` is deliberately not destructured off: the flat entry
+    // response has never carried one, so stripping it only ever swallowed a
+    // user field legitimately named `collection` — reserved names are refused
+    // at write time now, and that is not one of them (D62).
+    const { id, created_at, updated_at, rev, seq, ...data } = item
     return {
       id: id || '',
-      collection: colName || fallbackCollection,
+      collection: fallbackCollection,
       rev: rev ?? 1,
       seq: seq ?? 0,
       created_at: created_at || '',

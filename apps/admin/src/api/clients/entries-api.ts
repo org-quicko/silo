@@ -16,7 +16,9 @@ export interface EntryPage {
  * Entry CRUD. Every response goes through `EntryMapper`, so no view has to know
  * the wire envelope.
  *
- * Every read here uses @org-quicko/silo-client's `.editable` / `.edit()` so variables remain raw.
+ * Every read here passes `{ variables: 'raw' }` so the `{{NAME}}` templates
+ * reach the form as typed: a form seeded with a resolved value saves that value
+ * back, replacing the reference with a snapshot of what it meant (D57).
  */
 export class EntriesApi {
   private readonly transport: HttpTransport
@@ -33,14 +35,17 @@ export class EntriesApi {
     query: EntryQuery = {},
   ): Promise<EntryPage> {
     const handle = this.transport.silo(url, key).scope(scope.project, scope.env).collection(collection)
-    const page = await handle.editable.list({
-      limit: query.limit,
-      offset: query.offset,
-      sort: query.sort,
-      where: query.filter as any,
-    })
+    const page = await handle.list(
+      {
+        limit: query.limit,
+        offset: query.offset,
+        sort: query.sort,
+        where: query.filter as any,
+      },
+      { variables: 'raw' },
+    )
     return {
-      items: page.entries.map((entry) => EntryMapper.fromApiEntry(entry.toJSON(), collection)),
+      items: page.entries.map((entry) => EntryMapper.fromApiEntry(entry, collection)),
       total: page.total,
       limit: page.limit,
       offset: page.offset,
@@ -51,8 +56,8 @@ export class EntriesApi {
    *  directly rather than picked out of a list response. */
   async get(url: string, key: string, scope: ScopeRef, collection: string, id: string): Promise<Entry> {
     const handle = this.transport.silo(url, key).scope(scope.project, scope.env).collection(collection)
-    const entry = await handle.edit(id)
-    return EntryMapper.fromApiEntry(entry.toJSON(), collection)
+    const entry = await handle.get(id, { variables: 'raw' })
+    return EntryMapper.fromApiEntry(entry, collection)
   }
 
   async create(
@@ -64,7 +69,7 @@ export class EntriesApi {
   ): Promise<Entry> {
     const handle = this.transport.silo(url, key).scope(scope.project, scope.env).collection(collection)
     const entry = await handle.create(data)
-    return EntryMapper.fromApiEntry(entry.toJSON(), collection)
+    return EntryMapper.fromApiEntry(entry, collection)
   }
 
   async update(
@@ -78,7 +83,7 @@ export class EntriesApi {
   ): Promise<Entry> {
     const handle = this.transport.silo(url, key).scope(scope.project, scope.env).collection(collection)
     const entry = await handle.replace(id, rev, data)
-    return EntryMapper.fromApiEntry(entry.toJSON(), collection)
+    return EntryMapper.fromApiEntry(entry, collection)
   }
 
   delete(

@@ -17,7 +17,7 @@ can be cloned with one command.
 
 ## Where things stand
 
-*Last updated: 2026-09-10 (D61)*
+*Last updated: 2026-09-15 (D62)*
 
 Everything through M5 is built and shipping: collections and JSON Schema
 validation, entry CRUD with optimistic concurrency, the query AST and search
@@ -89,6 +89,15 @@ own tag, its own version, its own workflow.
 **The most recent change landed on 2026-09-15; everything before it on
 2026-09-10 or earlier.**
 
+**A media hit in the search bar opens the asset's folder with the asset in
+view (2026-09-15).** The link is `Routes.media(serverId, filename, folder)` —
+`/servers/:sid/media/brand?q=logo.png` — because the library still has no
+per-asset URL and the folder alone names a directory, not a file. `MediaFilter`
+ands the two server-side, so the folder gives the context and the filename keeps
+the found asset on screen. The preview dialog beside it (`Shift`-`Enter`, or the
+row's Preview button) is component state rather than a route, so it addresses no
+asset and the media route stays `{ view: 'media', serverId, folder, q }`.
+
 **The client releases on its own, and npm is the only thing it ships to
 (2026-09-15).** `.github/workflows/release-silo-client.yml` publishes
 `packages/silo-client` to npm from a `silo-client-v*` tag, which `release.yml`'s
@@ -112,19 +121,19 @@ The path is the object graph: `silo.project("acme").environment("prod")
 .collection<Post>("posts")`, where every handle is a value object that makes no
 request. There is no default scope, because a client that guesses `default/prod`
 reads the wrong environment silently. The decision the rest is arranged around
-is that **a resolved read is not editable**: resolving `{{NAME}}` is the default
-on the way out (D57) and must stay so, which makes the default read the wrong
-thing to write back, so `get` answers a `ResolvedEntry` with no `save()` at all
-and `edit` reads raw and answers an `Entry` that has one, with
-`collection.editable` holding that whole read surface for a tool editing a page
-of entries at a time. Writes always send `?variables=raw`, so a create echoes
-what was sent. There is deliberately **no client-wide mode**: threading the
-choice as a type parameter through four classes made it the most prominent
-thing in the API to buy one construction-time setting, and a runtime option
-without the parameter would have `get()` claim a `ResolvedEntry` while holding
-raw data. An entry owns its revision
-and `save()` adopts the one it gets back, so a caller never writes a number
-down. Pagination navigates by **the window the server answered**, since
+is that **an entry is the wire's own row** (D62, replacing D61's split): a read
+answers `Entry<Fields> = Fields & EntryEnvelope`, the response exactly as it
+arrived, flat, with `created_at` still spelled that way and still a string. A
+row carries no transport, no scope and no methods, so it logs as its contents
+and goes into a store as-is. Writes are calls on the collection that take the
+revision explicitly — `posts.replace(id, rev, fields)`, `posts.delete(id, rev)`
+— and always send `?variables=raw`, so a create echoes what was sent. Resolving
+`{{NAME}}` is still the default on the way out (D57) and reading raw before
+editing is still required, but it is a per-call `{ variables: "raw" }` on
+`get`/`list`/`all`/`pages` rather than a second class hierarchy: D61 withheld
+`save()` from a resolving read to make the round trip unrepresentable, and
+removing `save()` altogether removes the hazard it was guarding. Pagination
+navigates by **the window the server answered**, since
 `QueryUtils.normalizeQuery` clamps a `limit` over 500 and replaces a
 nonpositive one with 50, both silently, so paging by a requested 900 would step
 over 400 entries. Filters are built and a typed collection types them
