@@ -33,9 +33,3 @@
   border-color: var(--bad);
   outline: none;
 }
-
-.error {
-  color: var(--bad);
-  font-family: var(--font-ui);
-  font-size: 12px;
-}

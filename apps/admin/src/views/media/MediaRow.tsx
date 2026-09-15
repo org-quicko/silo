@@ -1,4 +1,4 @@
-import { Eye, FileText, Link, Pencil, Trash2 } from 'lucide-react'
+import { Check, Eye, FileText, FolderInput, Link, Pencil, Trash2 } from 'lucide-react'
 import type { MediaAsset } from '../../api/types/media-asset'
 import { Button } from '../../components/buttons/Button'
 import { Checkbox } from '../../components/controls/Checkbox'
@@ -7,6 +7,7 @@ import { Formatters } from '../../utils/formatters'
 import table from '../../components/data/DataTable.module.css'
 import styles from './MediaLibrary.module.css'
 import { MediaFileUrl } from './media-file-url'
+import { useCopyToClipboard } from './use-copy-to-clipboard'
 
 interface Props {
   asset: MediaAsset
@@ -20,6 +21,7 @@ interface Props {
   onToggleSelect: () => void
   onPreview: (asset: MediaAsset) => void
   onEdit: () => void
+  onMove: () => void
   onDelete: () => void
   onDragStart?: (e: React.DragEvent) => void
 }
@@ -36,9 +38,11 @@ export function MediaRow({
   onToggleSelect,
   onPreview,
   onEdit,
+  onMove,
   onDelete,
   onDragStart,
 }: Props) {
+  const link = useCopyToClipboard('Link copied')
   const fileUrl = MediaFileUrl.of(asset, baseUrl)
   const used = asset.usage_count || 0
   const isImage = asset.content_type.startsWith('image/')
@@ -86,20 +90,31 @@ export function MediaRow({
           size="sm"
           className={styles.iconAction}
           title="Copy the public URL"
-          onClick={() => navigator.clipboard.writeText(fileUrl)}
+          onClick={() => link.copy(fileUrl)}
         >
-          <Link size={14} />
+          {link.copied ? <Check size={14} /> : <Link size={14} />}
         </Button>
         {canEdit && (
-          <Button
-            variant="secondary"
-            size="sm"
-            className={styles.iconAction}
-            title="Rename or move"
-            onClick={onEdit}
-          >
-            <Pencil size={14} />
-          </Button>
+          <>
+            <Button
+              variant="secondary"
+              size="sm"
+              className={styles.iconAction}
+              title="Rename file"
+              onClick={onEdit}
+            >
+              <Pencil size={14} />
+            </Button>
+            <Button
+              variant="secondary"
+              size="sm"
+              className={styles.iconAction}
+              title="Move file"
+              onClick={onMove}
+            >
+              <FolderInput size={14} />
+            </Button>
+          </>
         )}
         {canDelete && (
           <Button

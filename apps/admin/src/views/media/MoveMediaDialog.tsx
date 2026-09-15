@@ -4,6 +4,7 @@ import { Modal } from '../../components/modal/Modal'
 import { ModalActions } from '../../components/modal/ModalActions'
 import { ModalBody } from '../../components/modal/ModalBody'
 import { ModalCopy } from '../../components/modal/ModalCopy'
+import { ModalError } from '../../components/modal/ModalError'
 import { ModalHeader } from '../../components/modal/ModalHeader'
 import { ModalIcon } from '../../components/modal/ModalIcon'
 import { MediaPath } from './media-path'
@@ -14,11 +15,13 @@ interface Props {
   subject: MoveSubject
   targetFolder: string
   busy: boolean
+  /** Why the last attempt was refused, shown above the actions. */
+  error: string
   onConfirm: () => void
   onClose: () => void
 }
 
-export function MoveMediaDialog({ subject, targetFolder, busy, onConfirm, onClose }: Props) {
+export function MoveMediaDialog({ subject, targetFolder, busy, error, onConfirm, onClose }: Props) {
   const { assets, folderPaths } = subject
   const totalCount = assets.length + folderPaths.length
   const targetLabel = targetFolder === '' ? 'All files (root)' : targetFolder
@@ -69,6 +72,8 @@ export function MoveMediaDialog({ subject, targetFolder, busy, onConfirm, onClos
           </div>
         ))}
       </div>
+
+      {error && <ModalError className={styles.dialogError}>{error}</ModalError>}
 
       <ModalActions>
         <Button variant="secondary" disabled={busy} onClick={onClose}>

@@ -19,7 +19,7 @@ import {
 import type { MediaAsset } from '../../api/types/media-asset'
 import { ByteSize } from '../../utils/byte-size'
 import { Formatters } from '../../utils/formatters'
-import { ToastManager } from '../../utils/toast-manager'
+import { useCopyToClipboard } from './use-copy-to-clipboard'
 import { MediaFileUrl } from './media-file-url'
 import styles from './MediaLibrary.module.css'
 
@@ -55,8 +55,8 @@ function detectMediaType(asset: MediaAsset): MediaType {
 }
 
 export function MediaPreviewDialog({ asset, assets, baseUrl, onClose, onNavigate }: Props) {
-  const [copied, setCopied] = useState(false)
-  const [copiedText, setCopiedText] = useState(false)
+  const link = useCopyToClipboard('Link copied')
+  const fileText = useCopyToClipboard('Text copied')
   const [textContent, setTextContent] = useState<string | null>(null)
   const [textLoading, setTextLoading] = useState(false)
   const [textError, setTextError] = useState('')
@@ -134,19 +134,10 @@ export function MediaPreviewDialog({ asset, assets, baseUrl, onClose, onNavigate
     return () => controller.abort()
   }, [fileUrl, mediaType, asset.filename, asset.content_type])
 
-  const copyUrl = () => {
-    navigator.clipboard.writeText(fileUrl)
-    setCopied(true)
-    setTimeout(() => setCopied(false), 1500)
-    ToastManager.show('Link copied')
-  }
+  const copyUrl = () => link.copy(fileUrl)
 
   const copyFileText = () => {
-    if (!textContent) return
-    navigator.clipboard.writeText(textContent)
-    setCopiedText(true)
-    setTimeout(() => setCopiedText(false), 1500)
-    ToastManager.show('Text copied')
+    if (textContent) fileText.copy(textContent)
   }
 
   const textLines = useMemo(() => {
@@ -215,8 +206,8 @@ export function MediaPreviewDialog({ asset, assets, baseUrl, onClose, onNavigate
               onClick={copyUrl}
               title="Copy public URL"
             >
-              {copied ? <Check size={14} /> : <Copy size={14} />}
-              <span>{copied ? 'Copied' : 'Copy URL'}</span>
+              {link.copied ? <Check size={14} /> : <Copy size={14} />}
+              <span>{link.copied ? 'Copied' : 'Copy URL'}</span>
             </button>
             <a
               href={fileUrl}
@@ -348,8 +339,8 @@ export function MediaPreviewDialog({ asset, assets, baseUrl, onClose, onNavigate
                     title="Copy text content"
                     disabled={!textContent}
                   >
-                    {copiedText ? <Check size={13} /> : <Copy size={13} />}
-                    <span>{copiedText ? 'Copied' : 'Copy'}</span>
+                    {fileText.copied ? <Check size={13} /> : <Copy size={13} />}
+                    <span>{fileText.copied ? 'Copied' : 'Copy'}</span>
                   </button>
                 </div>
               </div>

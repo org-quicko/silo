@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import type { MediaAsset } from '../../api/types/media-asset'
 import { MediaPath } from './media-path'
+import type { WriteOutcome } from './use-media-library'
 
 export interface MoveSubject {
   assets: MediaAsset[]
@@ -41,15 +42,23 @@ export function validateMove(subject: MoveSubject, targetFolder: string): { vali
 }
 
 /**
- * Drives the drag-and-drop move confirmation flow.
+ * Drives the two ways a move is asked for (D66), which differ only in whether
+ * the destination is known when the flow starts: a drop already names one and
+ * needs it confirmed, the Move action does not and opens the picker.
+ *
+ * `targetFolder` is what separates them — a string is a drop awaiting
+ * confirmation, `null` is the picker. One dialog shows at a time, the same
+ * shape `useMediaDeleteFlow` and `useMediaRenameFolderFlow` already take for
+ * their own pairs.
  */
 export function useMediaMoveFlow(
-  moveItems: (assets: MediaAsset[], folderPaths: string[], targetFolder: string) => Promise<boolean>,
+  moveItems: (assets: MediaAsset[], folderPaths: string[], targetFolder: string) => Promise<WriteOutcome>,
   onMoved?: (subject: MoveSubject, targetFolder: string) => void,
 ) {
   const [subject, setSubject] = useState<MoveSubject | null>(null)
   const [targetFolder, setTargetFolder] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
+  const [error, setError] = useState('')
 
   const start = (items: MoveSubject, target: string): boolean => {
     const { valid } = validateMove(items, target)
@@ -57,21 +66,36 @@ export function useMediaMoveFlow(
 
     setSubject(items)
     setTargetFolder(target)
+    setError('')
     return true
+  }
+
+  /** Opens the picker instead: the destination is what the reader is here to
+   *  choose, so there is nothing to validate yet. */
+  const startPicker = (items: MoveSubject) => {
+    setSubject(items)
+    setTargetFolder(null)
+    setError('')
   }
 
   const cancel = () => {
     setSubject(null)
     setTargetFolder(null)
+    setError('')
   }
 
-  const confirm = async () => {
-    if (!subject || targetFolder === null) return
+  /** The one move. The picker's Move button is its own confirmation, so it
+   *  lands here directly rather than through a second dialog. A refusal stays
+   *  in the dialog, which stays open with the destination still chosen. */
+  const moveTo = async (target: string) => {
+    if (!subject || !validateMove(subject, target).valid) return
     setBusy(true)
+    setError('')
     try {
-      const ok = await moveItems(subject.assets, subject.folderPaths, targetFolder)
-      if (ok) {
-        onMoved?.(subject, targetFolder)
+      const failure = await moveItems(subject.assets, subject.folderPaths, target)
+      setError(failure ?? '')
+      if (!failure) {
+        onMoved?.(subject, target)
         cancel()
       }
     } finally {
@@ -79,12 +103,20 @@ export function useMediaMoveFlow(
     }
   }
 
+  const confirm = async () => {
+    if (targetFolder === null) return
+    await moveTo(targetFolder)
+  }
+
   return {
     subject,
     targetFolder,
     busy,
+    error,
     start,
+    startPicker,
     cancel,
     confirm,
+    moveTo,
   }
 }

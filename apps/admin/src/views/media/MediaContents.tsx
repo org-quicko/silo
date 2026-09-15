@@ -10,6 +10,7 @@ import { MediaRow } from './MediaRow'
 import { UploadZone } from './UploadZone'
 import type { useMediaDeleteFlow } from './use-media-delete-flow'
 import type { useMediaLibrary } from './use-media-library'
+import type { useMediaMoveFlow } from './use-media-move-flow'
 import type { useMediaRenameFolderFlow } from './use-media-rename-folder-flow'
 import table from '../../components/data/DataTable.module.css'
 import styles from './MediaLibrary.module.css'
@@ -18,6 +19,7 @@ interface Props {
   view: 'grid' | 'list'
   library: ReturnType<typeof useMediaLibrary>
   deleteFlow: ReturnType<typeof useMediaDeleteFlow>
+  moveFlow: ReturnType<typeof useMediaMoveFlow>
   renameFolderFlow: ReturnType<typeof useMediaRenameFolderFlow>
   canUpload: boolean
   canDelete: boolean
@@ -41,6 +43,7 @@ export function MediaContents({
   view,
   library,
   deleteFlow,
+  moveFlow,
   renameFolderFlow,
   canUpload,
   canDelete,
@@ -92,6 +95,8 @@ export function MediaContents({
   const openFolder = (path: string) => () => library.selectFolder(path)
   const renameFolder = (path: string) => () => renameFolderFlow.start(path)
   const deleteFolder = (path: string) => () => deleteFlow.startFolder(path)
+  const moveFolder = (path: string) => () => moveFlow.startPicker({ assets: [], folderPaths: [path] })
+  const moveAsset = (asset: MediaAsset) => () => moveFlow.startPicker({ assets: [asset], folderPaths: [] })
 
   const handleDragAsset = (asset: MediaAsset) => (e: React.DragEvent) => {
     const isSelected = library.selected.has(asset.id)
@@ -160,6 +165,7 @@ export function MediaContents({
               onToggleSelect={() => library.toggleFolderSelected(path)}
               onOpen={openFolder(path)}
               onRename={renameFolder(path)}
+              onMove={moveFolder(path)}
               onDelete={deleteFolder(path)}
               onDragStart={handleDragFolder(path)}
               onDropToFolder={handleFolderDrop}
@@ -176,6 +182,7 @@ export function MediaContents({
               onToggleSelect={() => library.toggleSelected(asset.id)}
               onPreview={onPreviewAsset}
               onEdit={() => onEditAsset(asset)}
+              onMove={moveAsset(asset)}
               onDelete={() => deleteFlow.start([asset])}
               onDragStart={handleDragAsset(asset)}
             />
@@ -231,6 +238,7 @@ export function MediaContents({
             canDelete={canDelete}
             onOpen={openFolder(path)}
             onRename={renameFolder(path)}
+            onMove={moveFolder(path)}
             onDelete={deleteFolder(path)}
             onDragStart={handleDragFolder(path)}
             onDropToFolder={handleFolderDrop}
@@ -248,6 +256,7 @@ export function MediaContents({
             onToggleSelect={() => library.toggleSelected(asset.id)}
             onPreview={onPreviewAsset}
             onEdit={() => onEditAsset(asset)}
+            onMove={moveAsset(asset)}
             onDelete={() => deleteFlow.start([asset])}
             onDragStart={handleDragAsset(asset)}
           />

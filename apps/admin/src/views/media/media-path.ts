@@ -32,6 +32,13 @@ export class MediaPath {
     return parts[parts.length - 1] ?? folder
   }
 
+  /** `name` placed inside `parent` — the one spelling of a path a rename, a
+   *  move and a new folder all have to agree on, root's empty string
+   *  included. */
+  static child(parent: string, name: string): string {
+    return parent ? `${parent}/${name}` : `/${name}`
+  }
+
   /** `folder`'s parent — "" for a top-level folder, and for root itself.
    *  Where the browser lands after the folder it was in is deleted (D49). */
   static parent(folder: string): string {
