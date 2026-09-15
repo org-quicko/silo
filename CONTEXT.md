@@ -19,6 +19,15 @@ can be cloned with one command.
 
 *Last updated: 2026-09-16 (D67)*
 
+**Environment copy now has selected collections, selected entries, and a
+bounded dry-run drilldown (2026-09-16).** The Data Transfer destination is the
+sidebar environment; an optional selection preserves schemas while narrowing
+source collections or merge-only entry ids. One source-scope search adds the
+chosen collection or entry to a compact transfer list. The importer remains the single
+authority for preview and apply decisions. Dry runs return collection schema
+actions and paged entry actions without disclosing destination entry ids to a
+write-only key.
+
 Everything through M5 is built and shipping: collections and JSON Schema
 validation, entry CRUD with optimistic concurrency, the query AST and search
 (D29/D30), the media catalog (D23), projects and environments (D18–D22), API

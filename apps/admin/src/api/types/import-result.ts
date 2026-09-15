@@ -1,3 +1,5 @@
+import type { ScopeCopyPreview } from './scope-copy-preview'
+
 export interface ImportResult {
   mode: string
   dry_run: boolean
@@ -5,4 +7,5 @@ export interface ImportResult {
   updated: number
   deleted: number
   skipped: number
+  scope_copy?: ScopeCopyPreview
 }

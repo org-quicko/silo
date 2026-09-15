@@ -115,6 +115,71 @@ describe("Scope copy API", () => {
     expect((await service.entries.get(staging, "notes", untouched.id)).data.title).toBe("other collection");
   });
 
+  test("copies only selected collections or entry ids, while still carrying their schemas", async () => {
+    const first = await service.entries.create(prod, "posts", { title: "first" });
+    const second = await service.entries.create(prod, "posts", { title: "second" });
+    await service.collections.putSchema(prod, "notes", { type: "object" });
+    await service.entries.create(prod, "notes", { title: "leave behind" });
+
+    const selected = await copy(staging, {
+      from: { project: "acme", env: "prod" },
+      selection: [{ collection: "posts", entry_ids: [first.id] }],
+    });
+    expect(selected.status).toBe(200);
+    expect((await service.entries.get(staging, "posts", first.id)).data.title).toBe("first");
+    await expect(service.entries.get(staging, "posts", second.id)).rejects.toThrow();
+    await expect(service.collections.get(staging, "notes")).rejects.toThrow();
+    expect((await service.collections.get(staging, "posts")).schema).toMatchObject({ type: "object" });
+  });
+
+  test("rejects malformed, duplicate, missing, and replace-subset selections before writes", async () => {
+    const entry = await service.entries.create(prod, "posts", { title: "source" });
+    const badBodies = [
+      { from: { project: "acme", env: "prod" }, selection: [] },
+      { from: { project: "acme", env: "prod" }, selection: [{ collection: "posts" }, { collection: "posts" }] },
+      { from: { project: "acme", env: "prod" }, selection: [{ collection: "_keys" }] },
+      { from: { project: "acme", env: "prod" }, selection: [{ collection: null }] },
+      { from: { project: "acme", env: "prod" }, selection: [{ collection: {} }] },
+      { from: { project: "acme", env: "prod" }, selection: [{ collection: "posts", entry_ids: [entry.id, entry.id] }] },
+      { from: { project: "acme", env: "prod" }, selection: [{ collection: "posts", entry_ids: ["../unsafe"] }] },
+      { from: { project: "acme", env: "prod" }, selection: [{ collection: "posts", entry_ids: ["missing"] }] },
+      { from: { project: "acme", env: "prod" }, mode: "replace", selection: [{ collection: "posts", entry_ids: [entry.id] }] },
+    ];
+    for (const body of badBodies) expect((await copy(staging, body)).status).toBe(400);
+    await expect(service.entries.get(staging, "posts", entry.id)).rejects.toThrow();
+  });
+
+  test("dry-run pages collection schema actions and entry actions without writing", async () => {
+    const source = await service.entries.create(prod, "posts", { title: "source" });
+    await service.collections.putSchema(staging, "posts", { type: "object" });
+    await service.entries.create(staging, "posts", { title: "stale" });
+
+    const response = await copy(staging, {
+      from: { project: "acme", env: "prod" },
+      mode: "replace",
+      dry_run: true,
+      detail_offset: 0,
+      detail_limit: 1,
+      selection: [{ collection: "posts" }],
+    });
+    expect(response.status).toBe(200);
+    const body = await response.json() as { scope_copy: { collections: Array<{ collection: string; schema: string; deleted: number; added: number }>; entries: Array<{ action: string }>; total: number } };
+    expect(body.scope_copy.collections).toContainEqual(expect.objectContaining({ collection: "posts", schema: "update", deleted: 1, added: 1 }));
+    expect(body.scope_copy.entries).toHaveLength(1);
+    expect(body.scope_copy.total).toBe(2);
+    await expect(service.entries.get(staging, "posts", source.id)).rejects.toThrow();
+  });
+
+  test("a selected collection needs authority at that collection, not the whole scope", async () => {
+    const entry = await service.entries.create(prod, "posts", { title: "source" });
+    const { secret } = await service.keys.create("posts-only", [
+      ...Claims.ScopeCopyReadPermissions.map((permission) => Claims.collection("acme", "prod", "posts", permission)),
+      ...Claims.ScopeCopyWritePermissions.map((permission) => Claims.collection("acme", "staging", "posts", permission)),
+    ]);
+    const response = await copy(staging, { from: { project: "acme", env: "prod" }, selection: [{ collection: "posts", entry_ids: [entry.id] }] }, secret);
+    expect(response.status).toBe(200);
+  });
+
   test("copying a scope onto itself is a 400", async () => {
     const response = await copy(prod, { from: { project: "acme", env: "prod" } });
     expect(response.status).toBe(400);

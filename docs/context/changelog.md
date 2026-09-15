@@ -4,6 +4,17 @@
 > The *current* state is [CONTEXT.md](../../CONTEXT.md); this is how it got
 > there.
 
+- **Environment copy can select and inspect its changes (2026-09-16).**
+  `selection` narrows a copy to source collections or merge-only entry ids,
+  with both route and service validation before writes. Scoped dry runs add a
+  bounded `scope_copy` preview: schema action and totals per collection, then
+  paged action-labelled entries. The importer supplies the decisions for both
+  preview and apply, and destination deletion ids stay redacted without a
+  destination read claim. The environment transfer UI states the fixed sidebar
+  destination, offers one server-backed source-scope search and a compact
+  selected-transfer list with exact-id lookup,
+  and loads raw source payload only when a preview entry is opened.
+
 - **Projects and environments have inline search in the server browser (2026-09-16).**
   Each column filters its loaded names through a compact `ColumnSearch`, with
   case-insensitive substring matching, a matching/total count, a clear button,

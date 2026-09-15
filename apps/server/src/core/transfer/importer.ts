@@ -21,6 +21,7 @@ import { ImportWalker, type ImportedProject, type ScopedImport } from "./import-
 import { KeyUtils } from "../keys/key-utils";
 import type { ImportOptions } from "./import-options";
 import type { ImportResult } from "./import-result";
+import { ScopeCopyPreviewBuilder } from "./scope-copy-preview-builder";
 
 export interface ParsedImport {
   manifest: ExportManifest;
@@ -87,6 +88,7 @@ export class Importer {
       deleted: 0,
       skipped: 0,
     };
+    const preview = ScopeCopyPreviewBuilder.from(opts);
 
     const localMeta = await store.meta();
     let validator: SchemaValidator | undefined;
@@ -108,8 +110,10 @@ export class Importer {
     }
 
     for (const scoped of pi.scopes) {
-      await Importer.executeScopedImport(store, scoped, pi.manifest, localMeta, mode, opts, response, validator);
+      await Importer.executeScopedImport(store, scoped, pi.manifest, localMeta, mode, opts, response, validator, preview);
     }
+
+    if (preview) response.scope_copy = preview.result();
 
     return response;
   }
@@ -126,7 +130,8 @@ export class Importer {
     mode: "merge" | "replace",
     opts: ImportOptions,
     response: ImportResult,
-    validator: SchemaValidator | undefined
+    validator: SchemaValidator | undefined,
+    preview?: ScopeCopyPreviewBuilder,
   ): Promise<void> {
     const { scope, schemas, entries } = scoped;
 
@@ -144,6 +149,18 @@ export class Importer {
         try {
           const { total } = await store.list(scope, colName, { limit: 1, offset: 0 });
           response.deleted += total;
+          if (preview) {
+            if (opts.scopeCopyPreview?.includeDestinationDetails && preview.needsIds(total)) {
+              const start = Math.max(0, opts.scopeCopyPreview.offset - preview.position());
+              const length = Math.min(total - start, opts.scopeCopyPreview.limit);
+              const page = await store.list(scope, colName, { sort: [{ path: "$.id", desc: false }], limit: length, offset: start });
+              preview.repeated(colName, "deleted", start);
+              preview.entriesFor(colName, "deleted", page.items.map((entry) => entry.id));
+              preview.repeated(colName, "deleted", total - start - page.items.length);
+            } else {
+              preview.repeated(colName, "deleted", total);
+            }
+          }
 
           if (!opts.dryRun) {
             let entriesLeft = total;
@@ -175,6 +192,7 @@ export class Importer {
         const localSchema = await store.getSchema(scope, colName);
         if (mode === "merge") {
           if (JSON.stringify(localSchema) !== JSON.stringify(remoteSchema)) {
+            preview?.schema(colName, opts.prefer === "local" ? "unchanged" : "update");
             if (opts.prefer === "local") {
               continue;
             }
@@ -185,7 +203,9 @@ export class Importer {
               );
             }
           }
+          else preview?.schema(colName, "unchanged");
         } else {
+          preview?.schema(colName, "update");
           if (!opts.dryRun) {
             await Importer.createRecord(
               (id) => store.putSchema(scope, colName, remoteSchema, id),
@@ -195,6 +215,7 @@ export class Importer {
         }
       } catch (caught: any) {
         if (caught instanceof NotFoundError) {
+          preview?.schema(colName, "create");
           if (!opts.dryRun) {
             await Importer.createRecord(
               (id) => store.putSchema(scope, colName, remoteSchema, id),
@@ -234,6 +255,7 @@ export class Importer {
       for (const remote of remoteEntries) {
         if (mode === "replace") {
           response.added++;
+          preview?.entriesFor(colName, "added", [remote.id]);
           if (!opts.dryRun) {
             if (colValidator) {
               await colValidator.validateEntry(scope, colName, remote.data);
@@ -271,6 +293,7 @@ export class Importer {
 
           if (win) {
             response.updated++;
+            preview?.entriesFor(colName, "updated", [remote.id]);
             if (!opts.dryRun) {
               if (colValidator) {
                 await colValidator.validateEntry(scope, colName, remote.data);
@@ -279,10 +302,12 @@ export class Importer {
             }
           } else {
             response.skipped++;
+            preview?.entriesFor(colName, "skipped", [remote.id]);
           }
         } catch (caught: any) {
           if (caught instanceof NotFoundError) {
             response.added++;
+            preview?.entriesFor(colName, "added", [remote.id]);
             if (!opts.dryRun) {
               if (colValidator) {
                 await colValidator.validateEntry(scope, colName, remote.data);

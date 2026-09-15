@@ -63,6 +63,23 @@ destination.
 
 Because export/import speak only `Storage`, migrating backends is: `silo export` on the old instance, `silo import --mode replace` on the new one. This doubles as the acceptance test for every new adapter.
 
+### 7.4.1 Scoped copy selection and preview
+
+`POST /api/projects/{project}/envs/{env}/copy` may name a non-empty
+`selection` of source collections. An omitted selection preserves the legacy
+whole-scope operation; a selected collection carries its schema and all its
+entries, and `entry_ids` narrows that collection to a non-empty set. Entry
+subsets are merge-only because replace deletes an entire destination
+collection. Both HTTP and `ScopeCopier` reject malformed, duplicate, reserved,
+or missing names and ids before a write.
+
+A dry run can request `detail_offset` and a capped `detail_limit`. Its additive
+`scope_copy` result reports per-collection schema actions and totals, plus one
+bounded page of labelled entry actions. The importer records the decisions it
+actually makes, rather than a second preview simulation. Destination entry ids
+in deletion detail require destination read claims; otherwise the result keeps
+the count and redacts the ids.
+
 ### 7.5 Known limitation: deletions don't merge
 
 v1 has no tombstones, so a deletion on instance A is not propagated by merging A's export into B — only `replace` mode reflects deletions. Documented loudly. Tombstones arrive with the sync design (§12.1).
