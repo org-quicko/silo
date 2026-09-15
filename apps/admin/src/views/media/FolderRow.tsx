@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { Folder, Pencil, Trash2 } from 'lucide-react'
+import { Folder, FolderInput, Pencil, Trash2 } from 'lucide-react'
 import { Button } from '../../components/buttons/Button'
 import { Checkbox } from '../../components/controls/Checkbox'
 import { MediaPath } from './media-path'
@@ -21,6 +21,7 @@ interface Props {
   canDelete: boolean
   onOpen: () => void
   onRename: () => void
+  onMove: () => void
   onDelete: () => void
   onDragStart?: (e: React.DragEvent) => void
   onDropToFolder?: (targetFolder: string, e: React.DragEvent) => void
@@ -40,6 +41,7 @@ export function FolderRow({
   canDelete,
   onOpen,
   onRename,
+  onMove,
   onDelete,
   onDragStart,
   onDropToFolder,
@@ -107,15 +109,26 @@ export function FolderRow({
       <div className={table.cell} />
       <div className={`${table.cell} ${table.actions} ${styles.rowActions}`}>
         {canEdit && (
-          <Button
-            variant="secondary"
-            size="sm"
-            className={styles.iconAction}
-            title="Rename or move"
-            onClick={onRename}
-          >
-            <Pencil size={14} />
-          </Button>
+          <>
+            <Button
+              variant="secondary"
+              size="sm"
+              className={styles.iconAction}
+              title="Rename folder"
+              onClick={onRename}
+            >
+              <Pencil size={14} />
+            </Button>
+            <Button
+              variant="secondary"
+              size="sm"
+              className={styles.iconAction}
+              title="Move folder"
+              onClick={onMove}
+            >
+              <FolderInput size={14} />
+            </Button>
+          </>
         )}
         {canDelete && (
           <Button

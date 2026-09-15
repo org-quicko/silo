@@ -6,6 +6,7 @@ import { Modal } from './Modal'
 import { ModalActions } from './ModalActions'
 import { ModalBody } from './ModalBody'
 import { ModalCopy } from './ModalCopy'
+import { ModalError } from './ModalError'
 import { ModalHeader } from './ModalHeader'
 import { ModalIcon } from './ModalIcon'
 import styles from './DangerConfirm.module.css'
@@ -77,7 +78,7 @@ export function DangerConfirm({
           autoComplete="off"
           autoFocus
         />
-        {error && <span className={styles.error}>{error}</span>}
+        {error && <ModalError>{error}</ModalError>}
       </form>
 
       <ModalActions>

@@ -5,6 +5,7 @@ import { Modal } from '../../components/modal/Modal'
 import { ModalActions } from '../../components/modal/ModalActions'
 import { ModalBody } from '../../components/modal/ModalBody'
 import { ModalCopy } from '../../components/modal/ModalCopy'
+import { ModalError } from '../../components/modal/ModalError'
 import { ModalHeader } from '../../components/modal/ModalHeader'
 import { ModalIcon } from '../../components/modal/ModalIcon'
 import styles from './MediaLibrary.module.css'
@@ -14,6 +15,8 @@ interface Props {
    *  library root when it's blank. */
   parent: string
   busy: boolean
+  /** Why the last attempt was refused, shown under the field. */
+  error: string
   onCreate: (name: string) => void
   onClose: () => void
 }
@@ -21,7 +24,7 @@ interface Props {
 /** Replaces `window.prompt`, which this app's preview environments refuse to
  *  run — the folder name needs a real field either way, for the same reasons
  *  every other create/rename flow here uses a `Modal`. */
-export function NewFolderDialog({ parent, busy, onCreate, onClose }: Props) {
+export function NewFolderDialog({ parent, busy, error, onCreate, onClose }: Props) {
   const [name, setName] = useState('')
   const trimmed = name.trim()
 
@@ -61,6 +64,7 @@ export function NewFolderDialog({ parent, busy, onCreate, onClose }: Props) {
             placeholder="e.g. Hero banners"
           />
         </label>
+        {error && <ModalError>{error}</ModalError>}
       </form>
 
       <ModalActions>

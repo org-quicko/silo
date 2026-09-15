@@ -17,7 +17,7 @@ can be cloned with one command.
 
 ## Where things stand
 
-*Last updated: 2026-09-15 (D65)*
+*Last updated: 2026-09-15 (D66)*
 
 Everything through M5 is built and shipping: collections and JSON Schema
 validation, entry CRUD with optimistic concurrency, the query AST and search
@@ -101,10 +101,51 @@ namespace" is expressible without handing over `*` (D64); every segment question
 is answered by one `ClaimSegment` in `@silo/shared` rather than by the six
 places that used to answer it separately. The vocabulary gains one more fixed
 claim, `media:purge`, so emptying the whole media library is a grant an
-operator makes rather than something `media:delete` came with (D65).
+operator makes rather than something `media:delete` came with (D65). In the
+media library, renaming and moving are now **two actions rather than one
+dialog**, and a move is browsed as a folder tree instead of typed as a path
+(D66).
 
 **The most recent change landed on 2026-09-15; everything before it on
 2026-09-10 or earlier.**
+
+**A dialog reports its own refusal, inside itself (2026-09-15).** Renaming a
+media file to a name the library will not take answered in the page's error
+banner behind the open dialog, which stayed open and unchanged — from where the
+reader was looking, nothing had happened. `ModalError` in
+`components/modal/` is the one line a dialog says that in, `DangerConfirm`
+included. The library's dialog-driven writes return their message rather than
+pushing it to the banner: `rename`, `createFolder` and `moveItems` answer a
+`WriteOutcome` (`null` on success, the message otherwise), and
+`RenameFolderOutcome` is a tagged union so its error arm carries one. Each flow
+holds the message for its own dialog, the shape `useMediaPurge` already had, so
+a refused write leaves the dialog open with the reason in it and only a success
+closes one. The page banner keeps what belongs to the page: a listing that would
+not load, and delete outcomes that outlive their dialog. Copy-link feedback was
+the same class of silence in one place — `useCopyToClipboard` is now the single
+toast-and-tick every copy button in the library reads from, which is what the
+list view's copy had been missing.
+
+**Rename and move are two actions in the media library, and a move is browsed
+(2026-09-15).** One dialog asked both questions at once — a file's had a name
+field and a folder field, a folder's had a single New path field — so moving
+anything without dragging it meant typing a path. A path field cannot say that
+the folder you named does not exist, and cannot say that a folder may not be
+moved into itself. Rename is now one field and stays where it is:
+`RenameFolderDialog` takes the folder's *name* and rebuilds the path from the
+parent it keeps, so D49's merge-on-collision offer still fires on a sibling
+name and never on a typo elsewhere. Move opens `MoveToFolderDialog`, which
+shows the library as a tree — expanded on the branch the items are in, one
+disclosure arrow and one name button per row rather than a button inside a
+button — and disables every destination the move cannot take, with the reason
+on the row, off the same `validateMove` a drop already used. `MediaFolderTree`
+is the pure half: a flat folder list shaped into that tree, each level sorted,
+an unnamed ancestor created rather than orphaning what sits below it. Drag and
+drop is unchanged, and `MoveMediaDialog` stays its confirmation — a drop names
+its destination, so it is confirmed rather than chosen — while
+`useMediaMoveFlow` tells the two apart by whether `targetFolder` is a string or
+`null`. Move is reachable from both tile menus, both list rows, and the
+selection bar, where a multi-item move existed only as a drag before.
 
 **An entry form states its id whole (2026-09-15).** The page printed the ULID
 twice and elided it both times — `01M25FMA…41K` in the breadcrumb and again in

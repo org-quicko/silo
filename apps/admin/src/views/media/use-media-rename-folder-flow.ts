@@ -12,6 +12,10 @@ import type { RenameFolderOutcome } from './use-media-library'
  * is exactly what `DangerConfirm` is reserved for. One dialog shows at a
  * time, `mergeOffer` replacing the rename dialog rather than stacking on it,
  * the same shape `useMediaDeleteFlow` already takes for its own pair.
+ *
+ * Any other refusal is `error`, which the open dialog shows: the flow keeps
+ * it rather than letting it land in the page banner behind the dialog that
+ * asked for it.
  */
 export function useMediaRenameFolderFlow(
   renameFolder: (from: string, to: string, merge: boolean) => Promise<RenameFolderOutcome>,
@@ -20,26 +24,33 @@ export function useMediaRenameFolderFlow(
   const [path, setPath] = useState<string | null>(null)
   const [mergeOffer, setMergeOffer] = useState<{ from: string; to: string } | null>(null)
   const [busy, setBusy] = useState(false)
+  const [error, setError] = useState('')
 
   const start = (folderPath: string) => {
     setPath(folderPath)
     setMergeOffer(null)
+    setError('')
   }
 
   const cancel = () => {
     setPath(null)
     setMergeOffer(null)
+    setError('')
   }
 
   const save = async (to: string) => {
     if (!path) return
     setBusy(true)
+    setError('')
     try {
       const outcome = await renameFolder(path, to, false)
       if (MediaRenameOutcome.closes(outcome)) {
         onRenamed?.()
         cancel()
-      } else setMergeOffer(MediaRenameOutcome.mergeOffer(outcome, path, to))
+        return
+      }
+      setMergeOffer(MediaRenameOutcome.mergeOffer(outcome, path, to))
+      setError(MediaRenameOutcome.message(outcome))
     } finally {
       setBusy(false)
     }
@@ -48,16 +59,19 @@ export function useMediaRenameFolderFlow(
   const confirmMerge = async () => {
     if (!mergeOffer) return
     setBusy(true)
+    setError('')
     try {
       const outcome = await renameFolder(mergeOffer.from, mergeOffer.to, true)
       if (MediaRenameOutcome.closes(outcome)) {
         onRenamed?.()
         cancel()
+        return
       }
+      setError(MediaRenameOutcome.message(outcome))
     } finally {
       setBusy(false)
     }
   }
 
-  return { path, mergeOffer, busy, start, cancel, save, confirmMerge }
+  return { path, mergeOffer, busy, error, start, cancel, save, confirmMerge }
 }

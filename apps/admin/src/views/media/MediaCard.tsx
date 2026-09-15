@@ -2,9 +2,9 @@ import { useState } from 'react'
 import { Check, Eye, FileText, Image as ImageIcon, Link, MoreHorizontal } from 'lucide-react'
 import type { MediaAsset } from '../../api/types/media-asset'
 import { Checkbox } from '../../components/controls/Checkbox'
-import { ToastManager } from '../../utils/toast-manager'
 import { MediaCardMenu } from './MediaCardMenu'
 import { MediaFileUrl } from './media-file-url'
+import { useCopyToClipboard } from './use-copy-to-clipboard'
 import styles from './MediaLibrary.module.css'
 
 interface Props {
@@ -19,13 +19,14 @@ interface Props {
   onToggleSelect: () => void
   onPreview: (asset: MediaAsset) => void
   onEdit: () => void
+  onMove: () => void
   onDelete: () => void
   onDragStart?: (e: React.DragEvent) => void
 }
 
 /** One asset in the grid: a header row naming it, a preview thumbnail, and — revealed
  *  on hover so the tile stays quiet at rest — a select checkbox, a copy-link
- *  shortcut, a preview shortcut, and a "more" menu for rename/delete. */
+ *  shortcut, a preview shortcut, and a "more" menu for rename/move/delete. */
 export function MediaCard({
   asset,
   baseUrl,
@@ -35,21 +36,15 @@ export function MediaCard({
   onToggleSelect,
   onPreview,
   onEdit,
+  onMove,
   onDelete,
   onDragStart,
 }: Props) {
   const [menuOpen, setMenuOpen] = useState(false)
-  const [justCopied, setJustCopied] = useState(false)
+  const link = useCopyToClipboard('Link copied')
   const fileUrl = MediaFileUrl.of(asset, baseUrl)
   const used = asset.usage_count || 0
   const isImage = asset.content_type.startsWith('image/')
-
-  const copyLink = () => {
-    navigator.clipboard.writeText(fileUrl)
-    setJustCopied(true)
-    setTimeout(() => setJustCopied(false), 1500)
-    ToastManager.show('Link copied')
-  }
 
   const handleCardClick = () => {
     onPreview(asset)
@@ -116,10 +111,10 @@ export function MediaCard({
             title="Copy the public URL"
             onClick={(e) => {
               e.stopPropagation()
-              copyLink()
+              link.copy(fileUrl)
             }}
           >
-            {justCopied ? <Check size={12.5} /> : <Link size={12.5} />}
+            {link.copied ? <Check size={12.5} /> : <Link size={12.5} />}
           </button>
         </div>
       </div>
@@ -132,12 +127,17 @@ export function MediaCard({
           }}
           onCopyLink={() => {
             setMenuOpen(false)
-            copyLink()
+            link.copy(fileUrl)
           }}
           canRename={canEdit}
           onRename={() => {
             setMenuOpen(false)
             onEdit()
+          }}
+          canMove={canEdit}
+          onMove={() => {
+            setMenuOpen(false)
+            onMove()
           }}
           canDelete={canDelete}
           deleteTitle={used > 0 ? 'Referenced by entries' : 'Delete file'}

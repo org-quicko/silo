@@ -19,8 +19,21 @@ export const MediaDefaultPageSize = 50
 
 /** What a folder rename attempt did: saved, refused on a collision at `to`
  *  (the one outcome `useMediaRenameFolderFlow` turns into a merge offer), or
- *  failed some other way (already reported through `error`). */
-export type RenameFolderOutcome = 'ok' | 'conflict' | 'error'
+ *  failed some other way, carrying the message for the dialog that asked. */
+export type RenameFolderOutcome =
+  | { status: 'ok' }
+  | { status: 'conflict' }
+  | { status: 'error'; message: string }
+
+/** What a write a dialog is driving did: `null` when it worked, the message
+ *  to show when it did not.
+ *
+ *  Returned rather than pushed into the library's own `error` banner, which
+ *  sits *behind* the dialog that asked: a reader watching a dialog reads a
+ *  refusal there as nothing happening at all. The banner keeps the failures
+ *  that belong to the page — a listing that would not load, a delete whose
+ *  outcome arrives after its dialog has closed. */
+export type WriteOutcome = string | null
 
 /**
  * The library's contents and the operations that change them.
@@ -175,6 +188,9 @@ export function useMediaLibrary(
     setPageSize,
     folder,
     subfolders,
+    /** Every folder in the library, flat — what the move picker's tree is
+     *  built from, since a destination is not limited to what is on screen. */
+    allFolders: folders,
     folderCounts,
     selectFolder,
     extensions,
@@ -214,45 +230,44 @@ export function useMediaLibrary(
       }
     },
 
-    rename: async (id: string, filename: string, nextFolder: string) => {
+    rename: async (id: string, filename: string, nextFolder: string): Promise<WriteOutcome> => {
       try {
         await api.media.update(url, apiKey, id, { filename, folder: nextFolder })
         reload()
-        return true
+        return null
       } catch (failure: unknown) {
-        setError(MediaLibraryError.message(failure, 'Could not save'))
-        return false
+        return MediaLibraryError.message(failure, 'Could not save')
       }
     },
 
-    createFolder: async (path: string) => {
+    createFolder: async (path: string): Promise<WriteOutcome> => {
       try {
         const created = await api.media.createFolder(url, apiKey, path)
         selectFolder(created.path)
-        return true
+        return null
       } catch (failure: unknown) {
-        setError(MediaLibraryError.message(failure, 'Could not create the folder'))
-        return false
+        return MediaLibraryError.message(failure, 'Could not create the folder')
       }
     },
 
     /** Rename or move a folder (D49). Navigates along if the folder being
      *  browsed was renamed or moved out from under the browser.
      *
-     *  A collision at `to` without `merge` reports `'conflict'` rather than
-     *  setting `error` — `useMediaRenameFolderFlow` is what turns that into
-     *  the merge offer, so it must not also land in the generic banner. */
+     *  A collision at `to` without `merge` reports `'conflict'` rather than a
+     *  message — `useMediaRenameFolderFlow` is what turns that into the merge
+     *  offer, so it must not also read as a plain failure. */
     renameFolder: async (from: string, to: string, merge = false): Promise<RenameFolderOutcome> => {
       try {
         const result = await api.media.renameFolder(url, apiKey, from, to, merge)
         reload()
         if (folder === result.from) selectFolder(result.to)
         else if (folder.startsWith(result.from + '/')) selectFolder(result.to + folder.slice(result.from.length))
-        return 'ok'
+        return { status: 'ok' }
       } catch (failure: unknown) {
-        if (!merge && (failure instanceof ConflictError || (failure instanceof ApiError && failure.status === 409))) return 'conflict'
-        setError(MediaLibraryError.message(failure, 'Could not rename the folder'))
-        return 'error'
+        if (!merge && (failure instanceof ConflictError || (failure instanceof ApiError && failure.status === 409))) {
+          return { status: 'conflict' }
+        }
+        return { status: 'error', message: MediaLibraryError.message(failure, 'Could not rename the folder') }
       }
     },
 
@@ -324,7 +339,7 @@ export function useMediaLibrary(
       assetsToMove: MediaAsset[],
       folderPathsToMove: string[],
       targetFolder: string,
-    ): Promise<boolean> => {
+    ): Promise<WriteOutcome> => {
       try {
         for (const a of assetsToMove) {
           if (a.folder !== targetFolder) {
@@ -332,19 +347,20 @@ export function useMediaLibrary(
           }
         }
         for (const fromPath of folderPathsToMove) {
-          const folderName = MediaPath.name(fromPath)
-          const toPath = targetFolder ? `${targetFolder}/${folderName}` : `/${folderName}`
+          const toPath = MediaPath.child(targetFolder, MediaPath.name(fromPath))
           if (fromPath !== toPath) {
             await api.media.renameFolder(url, apiKey, fromPath, toPath, false)
           }
         }
         selection.clearSelection()
         reload()
-        return true
+        return null
       } catch (failure: unknown) {
-        setError(MediaLibraryError.message(failure, 'Could not move items'))
+        // A move is a request per item, so a failure part-way through leaves
+        // the listing half-changed: reload before reporting, or the dialog
+        // names a state the page no longer shows.
         reload()
-        return false
+        return MediaLibraryError.message(failure, 'Could not move items')
       }
     },
   }

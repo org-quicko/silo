@@ -30,7 +30,9 @@ import styles from './MediaLibrary.module.css'
 type LibraryView = 'grid' | 'list'
 
 const VIEW_KEY = 'silo_media_view'
-const LIST_COLS = 'minmax(0, 1fr) 100px 100px 112px'
+/** The last column holds five hover actions on a file row since Move split
+ *  off Rename (D66), so it is sized for them rather than for four. */
+const LIST_COLS = 'minmax(0, 1fr) 100px 100px 172px'
 /** With the leading checkbox column — list view, once `media:delete` makes
  *  a row selectable. */
 const LIST_COLS_SELECTABLE = `28px ${LIST_COLS}`
@@ -90,8 +92,10 @@ export function MediaLibraryView({
 
   const [editing, setEditing] = useState<MediaAsset | null>(null)
   const [editingBusy, setEditingBusy] = useState(false)
+  const [editingError, setEditingError] = useState('')
   const [creatingFolder, setCreatingFolder] = useState(false)
   const [creatingFolderBusy, setCreatingFolderBusy] = useState(false)
+  const [creatingFolderError, setCreatingFolderError] = useState('')
   const [headMenuOpen, setHeadMenuOpen] = useState(false)
   const [previewAsset, setPreviewAsset] = useState<MediaAsset | null>(null)
   const [view, setView] = useState<LibraryView>(
@@ -124,16 +128,31 @@ export function MediaLibraryView({
     localStorage.setItem(VIEW_KEY, next)
   }
 
+  /** A refusal keeps the dialog open with the message inside it, so only a
+   *  success closes — the same rule every other dialog in the library takes. */
   const submitNewFolder = async (name: string) => {
     setCreatingFolderBusy(true)
+    setCreatingFolderError('')
     try {
-      if (await library.createFolder(library.folder ? `${library.folder}/${name}` : `/${name}`)) {
+      const failure = await library.createFolder(MediaPath.child(library.folder, name))
+      setCreatingFolderError(failure ?? '')
+      if (!failure) {
+        setCreatingFolder(false)
         ToastManager.show(`Folder "${name}" created`)
       }
     } finally {
       setCreatingFolderBusy(false)
-      setCreatingFolder(false)
     }
+  }
+
+  const openNewFolder = () => {
+    setCreatingFolderError('')
+    setCreatingFolder(true)
+  }
+
+  const openRename = (asset: MediaAsset) => {
+    setEditingError('')
+    setEditing(asset)
   }
 
   const handleDropToFolder = (targetFolder: string, assets: MediaAsset[], folderPaths: string[]) => {
@@ -192,7 +211,7 @@ export function MediaLibraryView({
           <div className="head-actions">
             {canUpload && (
               <>
-                <Button variant="secondary" onClick={() => setCreatingFolder(true)}>
+                <Button variant="secondary" onClick={openNewFolder}>
                   <FolderPlus size={14} /> New folder
                 </Button>
                 <Button variant="primary" onClick={browse} disabled={library.uploading}>
@@ -279,7 +298,9 @@ export function MediaLibraryView({
         {canDelete && selectedCount > 0 && (
           <MediaSelectionBar
             count={selectedCount}
+            canMove={canUpload}
             onClear={library.clearSelection}
+            onMove={() => moveFlow.startPicker({ assets: selectedAssets, folderPaths: selectedFolderPaths })}
             onDelete={() => deleteFlow.startMixed(selectedAssets, selectedFolderPaths)}
           />
         )}
@@ -288,13 +309,14 @@ export function MediaLibraryView({
           view={view}
           library={library}
           deleteFlow={deleteFlow}
+          moveFlow={moveFlow}
           renameFolderFlow={renameFolderFlow}
           canUpload={canUpload}
           canDelete={canDelete}
           baseUrl={baseUrl}
           listCols={listCols}
           onBrowse={browse}
-          onEditAsset={setEditing}
+          onEditAsset={openRename}
           onPreviewAsset={setPreviewAsset}
           onDropToFolder={handleDropToFolder}
           pagination={view === 'list' ? pager : undefined}
@@ -309,6 +331,7 @@ export function MediaLibraryView({
         assets={library.assets}
         editing={editing}
         editingBusy={editingBusy}
+        editingError={editingError}
         deleteFlow={deleteFlow}
         moveFlow={moveFlow}
         purgeFlow={purgeFlow}
@@ -316,13 +339,16 @@ export function MediaLibraryView({
         previewAsset={previewAsset}
         onClosePreview={() => setPreviewAsset(null)}
         onNavigatePreview={setPreviewAsset}
-        onRenameAsset={async (filename, folder) => {
+        onRenameAsset={async (filename) => {
           if (!editing) return
           setEditingBusy(true)
+          setEditingError('')
           try {
-            if (await library.rename(editing.id, filename, folder)) {
+            const failure = await library.rename(editing.id, filename, editing.folder)
+            setEditingError(failure ?? '')
+            if (!failure) {
               setEditing(null)
-              ToastManager.show('File updated')
+              ToastManager.show('File renamed')
             }
           } finally {
             setEditingBusy(false)
@@ -331,7 +357,9 @@ export function MediaLibraryView({
         onCloseRenameAsset={() => setEditing(null)}
         creatingFolder={creatingFolder}
         creatingFolderBusy={creatingFolderBusy}
-        newFolderParent={library.folder}
+        creatingFolderError={creatingFolderError}
+        currentFolder={library.folder}
+        folders={library.allFolders}
         onCreateFolder={submitNewFolder}
         onCloseNewFolder={() => setCreatingFolder(false)}
       />

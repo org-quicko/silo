@@ -4,6 +4,64 @@
 > The *current* state is [CONTEXT.md](../../CONTEXT.md); this is how it got
 > there.
 
+- **A media dialog reports its own refusal, inside itself (2026-09-15).**
+  Renaming a file to a name the library will not take — dropping the extension,
+  say — answered in the page's error banner *behind* the open dialog, which
+  stayed open, unchanged, with the Save button live. From where the reader was
+  looking, nothing had happened. `ModalError` (`components/modal/`, beside
+  `ModalBody` and `ModalActions`) is now the one line a dialog says that in,
+  and `DangerConfirm` uses it in place of the local `.error` it had. The
+  library's dialog-driven writes stopped pushing into the banner and return the
+  message instead: `rename`, `createFolder` and `moveItems` answer a
+  `WriteOutcome` (`null` when it worked, the message when it did not), and
+  `RenameFolderOutcome` became a tagged union so its `error` arm can carry one
+  — `MediaRenameOutcome` gains `message` beside `closes` and `mergeOffer`, and
+  a conflict still says nothing, because the merge offer is its answer.
+  `useMediaRenameFolderFlow` and `useMediaMoveFlow` each hold an `error`
+  cleared on open and on every attempt, the shape `useMediaPurge` already had.
+  The banner keeps what belongs to the page: a listing that would not load, and
+  the delete outcomes that outlive their dialog. A refused write now leaves the
+  dialog open **with the reason in it**, and only a success closes one.
+
+- **Copying a link says so in both layouts (2026-09-15).** The grid tile's copy
+  button raised the toast and ticked itself; the list row's copied silently, so
+  the same click looked like it had failed. The four lines behind that
+  acknowledgement existed three times over and had drifted in the fourth place
+  that needed them. `useCopyToClipboard` is now the single copy: it writes,
+  toasts, and holds a tick for 1.5s, and `MediaCard`, `MediaRow` and
+  `MediaPreviewDialog` (both its Copy URL and its Copy text) all read from it.
+  The list row gains the tick it never had.
+
+- **Renaming and moving are two actions in the media library, and a move is
+  browsed (2026-09-15).** One dialog answered both questions for a file (a name
+  field and a folder field) and both for a folder (a single New path field), so
+  the only way to move anything without dragging it was to type a path — a path
+  whose existence nothing checked, in a field that could not say a folder cannot
+  be moved into itself. The two questions now have their own controls. Rename is
+  one field and stays in place: `RenameAssetDialog` takes the file name,
+  `RenameFolderDialog` takes the folder's *name* and rebuilds the whole path
+  from the parent it keeps, so the merge-on-collision offer D49 added still
+  fires on a sibling name and never on a typo elsewhere in the path. Move opens
+  `MoveToFolderDialog` — the library's folder list as a tree, expanded on the
+  branch the items are in, with a disclosure arrow and a name button per row
+  rather than one nested in the other, since expanding a folder and choosing it
+  are different answers. Every destination the move cannot take is disabled with
+  the reason on the row, off the same `validateMove` a drop already used: a
+  folder into itself, into its own subtree, or the folder the items are in
+  already. `MediaFolderTree` (new, pure, tested) is the flat list shaped into
+  that tree — each level sorted, an unnamed ancestor created rather than
+  orphaning what sits under it — and `MediaPath.child` is the one spelling of
+  "name inside parent" that rename, move and New folder now share instead of
+  three copies of the same ternary. `useMediaMoveFlow` grew the second entry
+  point rather than a second hook: `targetFolder` is a string for a drop
+  awaiting confirmation and `null` for the picker, the same
+  one-shows-at-a-time shape `useMediaDeleteFlow` and `useMediaRenameFolderFlow`
+  already take. Drag and drop is untouched, and `MoveMediaDialog` stays what it
+  was — a drop names its destination, so it is confirmed rather than chosen.
+  Move is reachable from the tile menus, both list rows, and the selection bar,
+  which is where a multi-item move lived only as a drag before. The list view's
+  action column widens to 172px for the fifth button a file row now carries.
+
 - **An entry form states its id whole (2026-09-15).** The ULID was elided in
   both places the page printed it — `Formatters.shortId` in the breadcrumb and
   again in the rail's SYSTEM block — so reading an entry's id meant hovering for

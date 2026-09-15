@@ -4,6 +4,7 @@ import { DeleteAssetDialog } from './DeleteAssetDialog'
 import { MediaForceAvailability } from './media-force-availability'
 import { MergeFolderDialog } from './MergeFolderDialog'
 import { MoveMediaDialog } from './MoveMediaDialog'
+import { MoveToFolderDialog } from './MoveToFolderDialog'
 import { MediaPreviewDialog } from './MediaPreviewDialog'
 import { NewFolderDialog } from './NewFolderDialog'
 import { PurgeLibraryDialog } from './PurgeLibraryDialog'
@@ -20,6 +21,8 @@ interface Props {
   assets: MediaAsset[]
   editing: MediaAsset | null
   editingBusy: boolean
+  /** Why the open rename dialog's last save was refused. */
+  editingError: string
   deleteFlow: ReturnType<typeof useMediaDeleteFlow>
   moveFlow: ReturnType<typeof useMediaMoveFlow>
   purgeFlow: ReturnType<typeof useMediaPurge>
@@ -27,11 +30,17 @@ interface Props {
   previewAsset: MediaAsset | null
   onClosePreview: () => void
   onNavigatePreview: (asset: MediaAsset) => void
-  onRenameAsset: (filename: string, folder: string) => void
+  onRenameAsset: (filename: string) => void
   onCloseRenameAsset: () => void
   creatingFolder: boolean
   creatingFolderBusy: boolean
-  newFolderParent: string
+  /** Why the open new-folder dialog's last attempt was refused. */
+  creatingFolderError: string
+  /** Where the library is now: the new folder's parent, and the branch the
+   *  move picker opens on. */
+  currentFolder: string
+  /** Every folder in the library, flat — the move picker's tree. */
+  folders: string[]
   onCreateFolder: (name: string) => void
   onCloseNewFolder: () => void
 }
@@ -51,6 +60,7 @@ export function MediaDialogs({
   assets,
   editing,
   editingBusy,
+  editingError,
   deleteFlow,
   moveFlow,
   purgeFlow,
@@ -62,7 +72,9 @@ export function MediaDialogs({
   onCloseRenameAsset,
   creatingFolder,
   creatingFolderBusy,
-  newFolderParent,
+  creatingFolderError,
+  currentFolder,
+  folders,
   onCreateFolder,
   onCloseNewFolder,
 }: Props) {
@@ -83,7 +95,20 @@ export function MediaDialogs({
           subject={moveFlow.subject}
           targetFolder={moveFlow.targetFolder}
           busy={moveFlow.busy}
+          error={moveFlow.error}
           onConfirm={moveFlow.confirm}
+          onClose={moveFlow.cancel}
+        />
+      )}
+
+      {moveFlow.subject && moveFlow.targetFolder === null && (
+        <MoveToFolderDialog
+          subject={moveFlow.subject}
+          currentFolder={currentFolder}
+          folders={folders}
+          busy={moveFlow.busy}
+          error={moveFlow.error}
+          onMove={moveFlow.moveTo}
           onClose={moveFlow.cancel}
         />
       )}
@@ -92,6 +117,7 @@ export function MediaDialogs({
         <RenameAssetDialog
           asset={editing}
           busy={editingBusy}
+          error={editingError}
           onSave={onRenameAsset}
           onClose={onCloseRenameAsset}
         />
@@ -99,8 +125,9 @@ export function MediaDialogs({
 
       {creatingFolder && (
         <NewFolderDialog
-          parent={newFolderParent}
+          parent={currentFolder}
           busy={creatingFolderBusy}
+          error={creatingFolderError}
           onCreate={onCreateFolder}
           onClose={onCloseNewFolder}
         />
@@ -110,6 +137,7 @@ export function MediaDialogs({
         <RenameFolderDialog
           path={renameFolderFlow.path}
           busy={renameFolderFlow.busy}
+          error={renameFolderFlow.error}
           onSave={renameFolderFlow.save}
           onClose={renameFolderFlow.cancel}
         />

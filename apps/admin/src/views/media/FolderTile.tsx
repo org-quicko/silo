@@ -17,15 +17,16 @@ interface Props {
   onToggleSelect: () => void
   onOpen: () => void
   onRename: () => void
+  onMove: () => void
   onDelete: () => void
   onDragStart?: (e: React.DragEvent) => void
   onDropToFolder?: (targetFolder: string, e: React.DragEvent) => void
 }
 
 /** One folder in the grid — a header row and a big folder glyph stand in for
- *  the preview and file metadata a `MediaCard` shows. Rename and delete move
- *  into the "more" menu (D49) rather than a persistent action row, since the
- *  tile has no footer to hold them in. */
+ *  the preview and file metadata a `MediaCard` shows. Rename, move and delete
+ *  live in the "more" menu (D49) rather than a persistent action row, since
+ *  the tile has no footer to hold them in. */
 export function FolderTile({
   path,
   itemCount,
@@ -35,6 +36,7 @@ export function FolderTile({
   onToggleSelect,
   onOpen,
   onRename,
+  onMove,
   onDelete,
   onDragStart,
   onDropToFolder,
@@ -125,6 +127,11 @@ export function FolderTile({
           onRename={() => {
             setMenuOpen(false)
             onRename()
+          }}
+          canMove={canEdit}
+          onMove={() => {
+            setMenuOpen(false)
+            onMove()
           }}
           canDelete={canDelete}
           onDelete={() => {
