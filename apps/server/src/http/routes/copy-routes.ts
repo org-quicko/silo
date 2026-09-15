@@ -4,9 +4,11 @@ import type { SiloService } from "../../core/services/silo-service";
 import { ValidationError } from "@silo/shared/validation-error";
 import { HttpSiloClient } from "../../adapters/http/http-silo-client";
 import { Scope } from "../../core/domain/scope";
+import { EntryUtils } from "../../core/domain/entry-utils";
 import { RouteAuth } from "../auth/route-auth";
 import type { CopyRequest } from "./copy-request";
 import type { ScopeCopyRequest } from "./scope-copy-request";
+import type { ScopeCopySelection } from "../routes/scope-copy-request";
 
 export class CopyRoutes {
   static register(app: any, service: SiloService) {
@@ -67,23 +69,16 @@ export class CopyRoutes {
       const from = CopyRoutes.validateScopeOptions(body);
 
       const mode = body.mode || "merge";
-      RouteAuth.requireScopeWide(c, "a scope copy's source", from.project, from.env, Claims.ScopeCopyReadPermissions);
-      RouteAuth.requireScopeWide(c, "a scope copy's destination", to.project, to.env, Claims.ScopeCopyWritePermissions);
-      if (mode === "replace") {
-        RouteAuth.requireScopeWide(
-          c,
-          'a scope copy in "replace" mode',
-          to.project,
-          to.env,
-          Claims.ScopeCopyReplacePermissions,
-        );
-      }
+      CopyRoutes.requireScopeCopyAuthority(c, from, to, body.selection, mode);
+      const scopeCopyPreview = CopyRoutes.previewOptions(c, to, body.selection, body);
 
       const result = await service.transfer.copyScope(from, to, {
         mode,
         dryRun: body.dry_run,
         validate: body.validate,
         prefer: body.prefer,
+        selection: body.selection?.map((item) => ({ collection: item.collection, entryIds: item.entry_ids })),
+        scopeCopyPreview,
       });
       return c.json(result);
     };
@@ -122,7 +117,103 @@ export class CopyRoutes {
         throw new ValidationError(`${field} must be a boolean`);
       }
     }
+    for (const field of ["detail_offset", "detail_limit"] as const) {
+      const value = body[field];
+      if (value !== undefined && (!Number.isInteger(value) || value < 0 || (field === "detail_limit" && value === 0))) {
+        throw new ValidationError(`${field} must be a positive integer`);
+      }
+    }
+    if ((body.detail_offset !== undefined || body.detail_limit !== undefined) && body.dry_run !== true) {
+      throw new ValidationError("preview detail is available only with dry_run: true");
+    }
+    CopyRoutes.validateSelection(body.selection, body.mode);
     return Scope.of(from.project, from.env);
+  }
+
+  /** Validate before any storage read or write, so a malformed scope never partially copies. */
+  private static validateSelection(selection: unknown, mode: ScopeCopyRequest["mode"]): asserts selection is ScopeCopySelection[] | undefined {
+    if (selection === undefined) return;
+    if (!Array.isArray(selection) || selection.length === 0) {
+      throw new ValidationError("selection must be a non-empty array");
+    }
+    const collections = new Set<string>();
+    let hasEntrySubset = false;
+    for (const item of selection) {
+      if (!item || typeof item !== "object" || Array.isArray(item)) {
+        throw new ValidationError("each selection item must name a collection");
+      }
+      const choice = item as ScopeCopySelection;
+      if (typeof choice.collection !== "string" || !Claims.isCollectionName(choice.collection) || choice.collection.startsWith("_")) {
+        throw new ValidationError(`invalid selected collection "${String(choice.collection)}"`);
+      }
+      if (collections.has(choice.collection)) {
+        throw new ValidationError(`duplicate selected collection "${choice.collection}"`);
+      }
+      collections.add(choice.collection);
+      if (choice.entry_ids !== undefined) {
+        hasEntrySubset = true;
+        if (!Array.isArray(choice.entry_ids) || choice.entry_ids.length === 0 || choice.entry_ids.some((id) => typeof id !== "string" || id.length === 0)) {
+          throw new ValidationError(`entry_ids for "${choice.collection}" must be a non-empty string array`);
+        }
+        if (new Set(choice.entry_ids).size !== choice.entry_ids.length) {
+          throw new ValidationError(`duplicate selected entry id in collection "${choice.collection}"`);
+        }
+        for (const id of choice.entry_ids) EntryUtils.assertSafeSegment(id, "selected entry id");
+      }
+    }
+    if (hasEntrySubset && mode === "replace") {
+      throw new ValidationError("replace mode cannot copy a selected entry subset; use merge instead");
+    }
+  }
+
+  /** Details are dry-run only; destination ids are withheld unless their scope is readable. */
+  private static previewOptions(
+    c: Context,
+    to: Scope,
+    selection: ScopeCopySelection[] | undefined,
+    body: ScopeCopyRequest,
+  ): { offset: number; limit: number; includeDestinationDetails: boolean } | undefined {
+    if (body.dry_run !== true) return undefined;
+    const offset = body.detail_offset ?? 0;
+    const limit = Math.min(body.detail_limit ?? 25, 100);
+    const key = RouteAuth.requireKey(c);
+    const collections = selection?.map((item) => item.collection) ?? ["*"];
+    const includeDestinationDetails = collections.every((collection) =>
+      Claims.ScopeCopyReadPermissions.every((permission) =>
+        Claims.has(key.claims, Claims.collection(to.project, to.env, collection, permission)),
+      ),
+    );
+    return { offset, limit, includeDestinationDetails };
+  }
+
+  private static requireScopeCopyAuthority(
+    c: Context,
+    from: Scope,
+    to: Scope,
+    selection: ScopeCopySelection[] | undefined,
+    mode: "merge" | "replace",
+  ): void {
+    if (!selection) {
+      RouteAuth.requireScopeWide(c, "a scope copy's source", from.project, from.env, Claims.ScopeCopyReadPermissions);
+      RouteAuth.requireScopeWide(c, "a scope copy's destination", to.project, to.env, Claims.ScopeCopyWritePermissions);
+      if (mode === "replace") {
+        RouteAuth.requireScopeWide(c, 'a scope copy in "replace" mode', to.project, to.env, Claims.ScopeCopyReplacePermissions);
+      }
+      return;
+    }
+    for (const item of selection) {
+      for (const permission of Claims.ScopeCopyReadPermissions) {
+        RouteAuth.requireCollectionClaim(c, from.project, from.env, item.collection, permission);
+      }
+      for (const permission of Claims.ScopeCopyWritePermissions) {
+        RouteAuth.requireCollectionClaim(c, to.project, to.env, item.collection, permission);
+      }
+      if (mode === "replace") {
+        for (const permission of Claims.ScopeCopyReplacePermissions) {
+          RouteAuth.requireCollectionClaim(c, to.project, to.env, item.collection, permission);
+        }
+      }
+    }
   }
 
   private static async readBody(c: Context): Promise<CopyRequest> {

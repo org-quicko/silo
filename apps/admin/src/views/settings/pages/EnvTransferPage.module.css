@@ -1,4 +1,5 @@
 .panel {
+  container-type: inline-size;
   display: flex;
   flex-direction: column;
   overflow: hidden;
@@ -59,10 +60,20 @@
 }
 
 .scopeFrom {
+  overflow-wrap: anywhere;
   color: var(--text-2);
 }
 
+.directionLabel {
+  color: var(--text-3);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: .06em;
+  text-transform: uppercase;
+}
+
 .scopeTo {
+  overflow-wrap: anywhere;
   color: var(--accent);
   font-weight: 600;
 }
@@ -98,4 +109,103 @@
   color: var(--text-3);
   font-family: var(--font-ui);
   font-size: 12.5px;
+}
+
+.destination, .customize, .selection {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 12px 14px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  font-family: var(--font-ui);
+  font-size: 12px;
+}
+
+.destination span, .selectionHead { color: var(--text-3); font-weight: 600; text-transform: uppercase; letter-spacing: .06em; }
+.destination b { color: var(--accent); font-size: 13px; }
+.destination small, .customize > span, .entryMode small, .empty { color: var(--text-3); }
+.customize label, .collectionChoice > label, .entryMode > label, .entryPicker label { display: flex; align-items: center; gap: 7px; }
+.customize input, .collectionChoice input, .entryMode input, .entryPicker input { accent-color: var(--accent); }
+.selection { gap: 10px; }
+.collectionChoice { padding-top: 9px; border-top: 1px solid var(--line); }
+.collectionChoice > label span { color: var(--text-3); }
+.entryMode { display: flex; flex-wrap: wrap; gap: 10px; margin: 8px 0 0 23px; }
+.entryPicker { display: flex; flex-basis: 100%; flex-direction: column; gap: 7px; max-height: 250px; overflow: auto; padding: 8px; border: 1px solid var(--line); border-radius: var(--radius-sm); }
+.entryPicker code { margin-left: auto; color: var(--text-3); font-size: 10px; }
+
+.searchBox { display: flex; align-items: center; gap: 8px; padding: 0 10px; border: 1px solid var(--line); border-radius: var(--radius-sm); color: var(--text-3); }
+.searchBox input { width: 100%; min-width: 0; border: 0; outline: 0; background: transparent; color: var(--text); font: inherit; line-height: 34px; }
+.suggestions { display: flex; flex-direction: column; max-height: 260px; overflow: auto; border: 1px solid var(--line); border-radius: var(--radius-sm); }
+.suggestions > div, .selectedTransfer > div { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 8px 10px; border-bottom: 1px solid var(--line); }
+.suggestions > div:last-child, .selectedTransfer > div:last-child { border-bottom: 0; }
+.suggestions span, .selectedTransfer span { display: flex; min-width: 0; flex-direction: column; gap: 2px; }
+.suggestions small, .selectedTransfer small { color: var(--text-3); }
+.selectedTransfer { display: flex; flex-direction: column; gap: 6px; padding-top: 4px; }
+.selectedTransfer > b { color: var(--text-3); font-size: 11px; letter-spacing: .05em; text-transform: uppercase; }
+.selectedTransfer > div { border: 1px solid var(--line); border-radius: var(--radius-sm); }
+.selectedTransfer button { display: inline-grid; place-items: center; width: 28px; height: 28px; border: 0; border-radius: var(--radius-sm); background: transparent; color: var(--text-3); cursor: pointer; }
+.selectedTransfer button:hover { background: var(--ink-2); color: var(--text); }
+.selectedTransfer button:disabled { cursor: default; opacity: .45; }
+
+.previewDetails {
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  color: var(--text-2);
+  font-family: var(--font-ui);
+  font-size: 12px;
+}
+
+.previewStats {
+  display: grid;
+  gap: 12px;
+  grid-template-columns: repeat(auto-fit, minmax(105px, 1fr));
+}
+
+.suggestions b, .suggestions small, .selectedTransfer b, .selectedTransfer small {
+  overflow-wrap: anywhere;
+}
+
+.suggestions button, .selectedTransfer button {
+  flex-shrink: 0;
+}
+
+.previewDetails summary { cursor: pointer; padding: 11px 14px; font-weight: 600; }
+.previewSummary { margin: 0; padding: 9px 14px; border-top: 1px solid var(--line); color: var(--text-3); }
+.previewCollections, .previewEntries { display: flex; flex-direction: column; border-top: 1px solid var(--line); }
+.previewCollections > div { display: grid; grid-template-columns: minmax(90px, 1fr) auto auto; gap: 10px; padding: 8px 14px; border-bottom: 1px solid var(--line); }
+.previewCollections span, .previewEntries span { color: var(--text-3); }
+.previewEntries button { display: flex; gap: 8px; width: 100%; padding: 8px 14px; border: 0; border-bottom: 1px solid var(--line); background: transparent; color: var(--text-2); font: inherit; text-align: left; }
+.previewEntries button:not(:disabled) { cursor: pointer; }
+.previewEntries button:not(:disabled):hover { background: var(--ink-2); }
+.previewEntries button:disabled { cursor: default; }
+.previewEntries code { color: var(--text-3); font-size: 10px; }
+.previewPaging { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 10px 14px; }
+.payloadPanel { border-top: 1px solid var(--line); }
+.payloadPanel > div { display: flex; align-items: center; gap: 8px; padding: 8px 14px; }
+.payloadPanel code { color: var(--text-3); font-size: 10px; }
+.payloadPanel button { margin-left: auto; }
+.payload { max-height: 240px; overflow: auto; margin: 0; padding: 12px 14px; border-top: 1px solid var(--line); background: var(--ink-2); color: var(--text-2); font-size: 11px; }
+
+@media (max-width: 480px) {
+  .body { padding: 12px; }
+  .direction { flex-wrap: wrap; gap: 6px; }
+  .directionLabel { flex-basis: 100%; }
+  .previewCollections > div { grid-template-columns: 1fr; gap: 3px; }
+  .actions { align-items: stretch; flex-direction: column; }
+  .actionButtons { justify-content: stretch; }
+  .actionButtons > * { flex: 1; }
+}
+
+@container (max-width: 540px) {
+  .direction {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr);
+  }
+
+  .direction .arrow { display: none; }
+  .previewCollections > div { grid-template-columns: 1fr; gap: 3px; }
+  .previewEntries button, .payloadPanel > div { flex-wrap: wrap; overflow-wrap: anywhere; }
+  .actions { align-items: stretch; flex-direction: column; }
+  .actionButtons > * { flex: 1; }
 }

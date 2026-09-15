@@ -9,6 +9,10 @@ import { Importer } from "./importer";
 import type { ScopedImport } from "./import-walker";
 import type { ImportResult } from "./import-result";
 import type { ScopeCopyOptions } from "./scope-copy-options";
+import type { ScopeCopySelection } from "./scope-copy-options";
+import { NotFoundError } from "../errors/not-found-error";
+import { Claims } from "@silo/shared/claims";
+import { EntryUtils } from "../domain/entry-utils";
 
 /**
  * Copies one scope's schemas and entries onto another scope of the **same
@@ -33,6 +37,7 @@ export class ScopeCopier {
     opts: ScopeCopyOptions,
   ): Promise<ImportResult> {
     ScopeCopier.validate(from, to);
+    ScopeCopier.validateSelection(opts);
 
     const meta = await store.meta();
     // `instance_id` is read from the same instance on both sides, so the
@@ -45,8 +50,33 @@ export class ScopeCopier {
       last_seq: meta.last_seq,
     };
 
-    const scoped = await ScopeCopier.read(store, from, to);
+    const scoped = await ScopeCopier.read(store, from, to, opts.selection);
     return Importer.executeImport(store, { manifest, scopes: [scoped] }, opts);
+  }
+
+  /** Service callers bypass HTTP, so the subset safety rule lives here too. */
+  private static validateSelection(options: ScopeCopyOptions): void {
+    const selection = options.selection;
+    if (!selection) return;
+    if (selection.length === 0) throw new ValidationError("selection must be a non-empty array");
+    if (options.mode === "replace" && selection.some((item) => item.entryIds !== undefined)) {
+      throw new ValidationError("replace mode cannot copy a selected entry subset; use merge instead");
+    }
+    const collections = new Set<string>();
+    for (const item of selection) {
+      if (typeof item.collection !== "string" || !Claims.isCollectionName(item.collection) || item.collection.startsWith("_")) {
+        throw new ValidationError(`invalid selected collection "${String(item.collection)}"`);
+      }
+      if (collections.has(item.collection)) throw new ValidationError(`duplicate selected collection "${item.collection}"`);
+      collections.add(item.collection);
+      if (item.entryIds !== undefined) {
+        if (item.entryIds.length === 0) throw new ValidationError(`entry_ids for "${item.collection}" must be non-empty`);
+        if (new Set(item.entryIds).size !== item.entryIds.length) {
+          throw new ValidationError(`duplicate selected entry id in collection "${item.collection}"`);
+        }
+        for (const id of item.entryIds) EntryUtils.assertSafeSegment(id, "selected entry id");
+      }
+    }
   }
 
   private static validate(from: Scope, to: Scope): void {
@@ -66,7 +96,12 @@ export class ScopeCopier {
    * applies to an archive: the address the caller named is authoritative and
    * the envelope's own `project`/`env` are overwritten from it (D18).
    */
-  private static async read(store: Storage, from: Scope, to: Scope): Promise<ScopedImport> {
+  private static async read(
+    store: Storage,
+    from: Scope,
+    to: Scope,
+    selection?: ScopeCopySelection[],
+  ): Promise<ScopedImport> {
     const schemas = CollectionSchemas.map(await store.listCollections(from));
     for (const name of schemas.keys()) {
       if (ScopeCopier.isReserved(name)) schemas.delete(name);
@@ -75,11 +110,23 @@ export class ScopeCopier {
     // One read, as `Exporter` now does: since D51 every collection is a record,
     // so there is no collection holding entries that a schema-derived list
     // would drop.
+    const selected = new Map(selection?.map((item) => [item.collection, item.entryIds]) ?? []);
+    if (selection) {
+      for (const collection of selected.keys()) {
+        if (!schemas.has(collection)) {
+          throw new ValidationError(`source collection "${collection}" does not exist`);
+        }
+      }
+      for (const collection of [...schemas.keys()]) {
+        if (!selected.has(collection)) schemas.delete(collection);
+      }
+    }
+
     const names = [...schemas.keys()].sort();
 
     const entries = new Map<string, Entry[]>();
     for (const name of names) {
-      entries.set(name, await ScopeCopier.readEntries(store, from, to, name));
+      entries.set(name, await ScopeCopier.readEntries(store, from, to, name, selected.get(name)));
     }
     // No ids: a copy into another scope of the same instance creates new
     // collection records there rather than carrying the source's identity, the
@@ -92,7 +139,23 @@ export class ScopeCopier {
     from: Scope,
     to: Scope,
     collection: string,
+    selectedIds?: string[],
   ): Promise<Entry[]> {
+    if (selectedIds) {
+      const items: Entry[] = [];
+      for (const id of selectedIds) {
+        try {
+          const entry = await store.get(from, collection, id);
+          items.push({ ...entry, project: to.project, env: to.env });
+        } catch (caught) {
+          if (caught instanceof NotFoundError) {
+            throw new ValidationError(`source entry "${id}" does not exist in collection "${collection}"`);
+          }
+          throw caught;
+        }
+      }
+      return items;
+    }
     const items: Entry[] = [];
     let offset = 0;
     while (true) {

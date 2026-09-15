@@ -2,8 +2,6 @@ import { AlertTriangle, ArrowRight, Check, Copy, RefreshCw } from 'lucide-react'
 import { Claims } from '@silo/shared/claims'
 import { Button } from '../../../components/buttons/Button'
 import { Breadcrumb } from '../../../components/navigation/Breadcrumb'
-import { StatRow } from '../../../components/data/StatRow'
-import { StatTile } from '../../../components/data/StatTile'
 import { Routes } from '../../../router/routes'
 import type { ScopeRef } from '../../../api/types/scope-ref'
 import { useScopeCopy } from './use-scope-copy'
@@ -12,6 +10,8 @@ import type { Server } from '../../servers/server'
 import { SettingsPageHead } from '../parts/SettingsPageHead'
 import settings from '../SettingsView.module.css'
 import styles from './EnvTransferPage.module.css'
+import { ScopeCopyPicker } from './ScopeCopyPicker'
+import { ScopeCopyPreview } from './ScopeCopyPreview'
 
 type Mode = 'merge' | 'replace'
 type Prefer = '' | 'local' | 'remote'
@@ -132,7 +132,7 @@ export function EnvTransferPage({
                     disabled={copy.busy}
                   >
                     <option value="merge">Merge</option>
-                    <option value="replace">Replace source collections</option>
+                    <option value="replace" disabled={copy.customize && copy.selection.some((item) => item.entryIds !== undefined)}>Replace source collections</option>
                   </select>
                 </div>
 
@@ -159,26 +159,47 @@ export function EnvTransferPage({
               </div>
 
               <div className={styles.direction}>
+                <span className={styles.directionLabel}>Source</span>
                 <span className={styles.scopeFrom}>
                   {copy.from ? `${copy.from.project}/${copy.from.env}` : '—'}
                 </span>
                 <ArrowRight size={15} className={styles.arrow} />
+                <span className={styles.directionLabel}>Destination</span>
                 <span className={styles.scopeTo}>
                   {scope.project}/{scope.env}
                 </span>
               </div>
 
+              <div className={styles.customize}>
+                <label>
+                  <input
+                    type="checkbox"
+                    checked={copy.customize}
+                    onChange={(event) => copy.setCustomize(event.target.checked)}
+                    disabled={copy.busy}
+                  />
+                  Choose what to copy
+                </label>
+                <span>By default every collection and entry is copied. Selected collection schemas are copied too.</span>
+              </div>
+
+              {copy.customize && <ScopeCopyPicker copy={copy} />}
+
               {copy.mode === 'replace' && (
                 <div className="banner banner-warn">
                   <AlertTriangle size={15} />
                   <span>
-                    Every collection the source carries is emptied in {scope.env} before it is written.
+                    Every {copy.customize ? 'selected' : 'source'} collection is emptied in {scope.env} before it is written.
                     Collections that exist only here are left alone.
                   </span>
                 </div>
               )}
 
-              {copy.from && !copy.canRead && (
+              {copy.customize && copy.selection.some((item) => item.entryIds !== undefined) && (
+                <div className="banner banner-warn"><AlertTriangle size={15} /><span>Individual entries use Merge so other destination entries are kept.</span></div>
+              )}
+
+              {copy.from && !copy.customize && !copy.canRead && (
                 <div className="banner banner-bad">
                   <AlertTriangle size={15} />
                   <span>
@@ -188,7 +209,7 @@ export function EnvTransferPage({
                 </div>
               )}
 
-              {!copy.canWrite && (
+              {!copy.customize && !copy.canWrite && (
                 <div className="banner banner-bad">
                   <AlertTriangle size={15} />
                   <span>
@@ -198,7 +219,7 @@ export function EnvTransferPage({
                 </div>
               )}
 
-              {copy.mode === 'replace' && copy.canWrite && !copy.canReplace && (
+              {!copy.customize && copy.mode === 'replace' && copy.canWrite && !copy.canReplace && (
                 <div className="banner banner-bad">
                   <AlertTriangle size={15} />
                   <span>
@@ -215,24 +236,7 @@ export function EnvTransferPage({
                 </div>
               )}
 
-              {copy.result && (
-                <>
-                  <StatRow>
-                    <StatTile n={copy.result.added} label="to create" tone="ok" prefix="+" />
-                    <StatTile n={copy.result.updated} label="to update" tone="warn" prefix="~" />
-                    <StatTile n={copy.result.deleted} label="to delete" tone="bad" />
-                    <StatTile n={copy.result.skipped} label="unchanged" tone="muted" />
-                  </StatRow>
-                  {copy.applied && (
-                    <div className="banner banner-ok">
-                      <Check size={15} />
-                      <span>
-                        Copied into {scope.env} in <b>{copy.applied.mode}</b> mode.
-                      </span>
-                    </div>
-                  )}
-                </>
-              )}
+              <ScopeCopyPreview copy={copy} destination={scope} />
 
               <div className={styles.actions}>
                 <span className={styles.actionNote}>
@@ -251,7 +255,7 @@ export function EnvTransferPage({
                   <Button
                     variant="primary"
                     onClick={() => copy.run(copy.preview === null)}
-                    disabled={copy.busy || !copy.from || !copy.allowed || copy.applied !== null}
+                    disabled={copy.busy || !copy.from || !copy.allowed || !copy.selectionValid || copy.applied !== null}
                   >
                     {copy.busy ? <RefreshCw size={14} className="spin" /> : copy.preview ? <Check size={14} /> : <Copy size={14} />}
                     {copy.busy ? 'Working…' : copy.preview ? 'Apply copy' : copy.applied ? 'Copy complete' : 'Preview copy'}

@@ -10,4 +10,13 @@ export interface CopyScopeOptions {
   dryRun: boolean
   prefer?: '' | 'local' | 'remote'
   validate?: boolean
+  /** Omit for the whole source scope; entryIds narrows one collection. */
+  selection?: CopyScopeSelection[]
+  detailOffset?: number
+  detailLimit?: number
+}
+
+export interface CopyScopeSelection {
+  collection: string
+  entryIds?: string[]
 }

@@ -98,6 +98,15 @@ curl -X POST http://new-silo:8090/api/copy \
 
 ## Copying between environments
 
+An environment copy can be narrowed with an optional `selection` body field:
+`[{"collection":"posts"}]` copies that collection and all of its entries;
+`[{"collection":"posts","entry_ids":["..."]}]` copies just those entries.
+Omit `selection` to retain the original whole-environment copy. Selected
+collections always carry their schemas. Entry subsets are merge-only: replace
+empties a collection, so a request combining it with `entry_ids` is refused.
+Every selected source collection must be readable and every destination
+collection writable; the server verifies all names and entry ids before writes.
+
 Moving data between two environments of one instance needs no archive. Promoting
 `dev` to `staging`, or seeding a fresh environment from `prod`, is one request.
 `POST /api/projects/{project}/envs/{env}/copy` is destination-driven, like
@@ -137,7 +146,12 @@ onto itself is a `400`. Media is stored per instance rather than per
 environment, so it is already shared and none is copied.
 
 The admin UI exposes this at **Settings > Environment > Data Transfer**, with
-the same preview-then-apply flow.
+the same preview-then-apply flow. Its destination is the environment selected
+in the sidebar. **Choose what to copy** opens one source-scope search that adds
+collection or entry selections to a compact removable list; it accepts an exact
+entry id. Dry-run details paginate
+collection schema actions and entry actions, and an entry can be opened there
+to inspect its source payload before applying.
 
 ## Format version
 

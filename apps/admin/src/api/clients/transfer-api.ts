@@ -85,6 +85,12 @@ export class TransferApi {
         dry_run: options.dryRun,
         validate: options.validate,
         prefer: options.prefer || undefined,
+        selection: options.selection?.map((item) => ({
+          collection: item.collection,
+          entry_ids: item.entryIds,
+        })),
+        detail_offset: options.detailOffset,
+        detail_limit: options.detailLimit,
       }),
     })
   }
