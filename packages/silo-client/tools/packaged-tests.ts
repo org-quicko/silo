@@ -82,7 +82,7 @@ class PackagedTests {
 
   private static async consumeAsEsm(tarball: string): Promise<void> {
     const source = [
-      'import { Silo, Filter, Sort, ConflictError } from "silo-client";',
+      'import { Silo, Filter, Sort, ConflictError } from "@org-quicko/silo-client";',
       "const silo = new Silo({ url: \"http://localhost:8090\" });",
       "if (typeof silo.project !== \"function\") throw new Error(\"no project handle\");",
       'if (Filter.field("status").equals("published").toJSON().op !== "eq") throw new Error("filter broken");',
@@ -95,7 +95,7 @@ class PackagedTests {
 
   private static async consumeAsCommonJs(tarball: string): Promise<void> {
     const source = [
-      'const { Silo, Filter } = require("silo-client");',
+      'const { Silo, Filter } = require("@org-quicko/silo-client");',
       "const silo = new Silo({ url: \"http://localhost:8090\" });",
       "if (typeof silo.project !== \"function\") throw new Error(\"no project handle\");",
       'if (Filter.field("status").equals("published").toJSON().op !== "eq") throw new Error("filter broken");',
@@ -106,7 +106,7 @@ class PackagedTests {
 
   private static async consumeFromBun(tarball: string): Promise<void> {
     const source = [
-      'import { Silo } from "silo-client";',
+      'import { Silo } from "@org-quicko/silo-client";',
       "const silo = new Silo({ url: \"http://localhost:8090\" });",
       "if (typeof silo.project !== \"function\") throw new Error(\"no project handle\");",
       'console.log("bun ok");',

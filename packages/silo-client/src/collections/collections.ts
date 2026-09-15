@@ -57,7 +57,7 @@ export class Collections {
   private static warnOnReservedFields(schema: JsonSchema): void {
     for (const name of Object.keys(schema.properties ?? {})) {
       if (ReservedFieldNames.isReserved(name)) {
-        console.warn(`silo-client: collection schema declares reserved field "${name}", which the server never returns`);
+        console.warn(`@org-quicko/silo-client: collection schema declares reserved field "${name}", which the server never returns`);
       }
     }
   }

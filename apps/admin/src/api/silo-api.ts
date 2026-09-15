@@ -1,4 +1,4 @@
-import type { Silo } from 'silo-client'
+import type { Silo } from '@org-quicko/silo-client'
 import { AuditApi } from './clients/audit-api'
 import { CollectionsApi } from './clients/collections-api'
 import { EntriesApi } from './clients/entries-api'
@@ -37,7 +37,7 @@ export class SiloApi {
   readonly settings = new SettingsApi(this.transport)
   readonly variables = new VariablesApi(this.transport)
 
-  /** Creates a typed silo-client instance pointed at the given server. */
+  /** Creates a typed @org-quicko/silo-client instance pointed at the given server. */
   silo(url: string, key?: string): Silo {
     return this.transport.silo(url, key)
   }

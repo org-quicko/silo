@@ -16,7 +16,7 @@ export interface EntryPage {
  * Entry CRUD. Every response goes through `EntryMapper`, so no view has to know
  * the wire envelope.
  *
- * Every read here uses silo-client's `.editable` / `.edit()` so variables remain raw.
+ * Every read here uses @org-quicko/silo-client's `.editable` / `.edit()` so variables remain raw.
  */
 export class EntriesApi {
   private readonly transport: HttpTransport

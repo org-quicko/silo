@@ -1,4 +1,4 @@
-import { Silo } from 'silo-client'
+import { Silo } from '@org-quicko/silo-client'
 import { ApiError } from '../api-error'
 import type { ValidationDetail } from '@silo/shared/validation-detail'
 

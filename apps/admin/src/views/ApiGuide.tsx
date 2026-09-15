@@ -42,7 +42,7 @@ export function ApiGuide({ collection, url, scope }: { collection: Collection; u
   -H "Content-Type: application/json" \\
   -d '${body}'`
 
-  const ts = `import { Silo } from 'silo-client'
+  const ts = `import { Silo } from '@org-quicko/silo-client'
 
 const silo = new Silo('${instanceUrl}', { apiKey: process.env.SILO_KEY })
 const ${collection.name} = silo.scope('${scope.project}', '${scope.env}').collection('${collection.name}')
@@ -92,7 +92,7 @@ const entry = await ${collection.name}.create(${JSON.stringify(sample, null, 2)}
                   variant="compact"
                   value={snippetTab}
                   options={[
-                    { value: 'ts', label: 'TypeScript (silo-client)' },
+                    { value: 'ts', label: 'TypeScript' },
                     { value: 'curl', label: 'cURL' },
                   ]}
                   onChange={setSnippetTab}
