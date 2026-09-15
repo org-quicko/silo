@@ -79,8 +79,15 @@ describe('PaletteResults.build', () => {
   test('media is its own group, and only in the UI', () => {
     const groups = PaletteResults.build([hit({ id: 'a' })], [asset('logo.png')], ctx)
     expect(groups.map((g) => g.kind)).toEqual(['entry', 'media'])
-    // The library has no per-asset URL, so the link carries the search instead.
-    expect(groups[1].items[0].href).toContain('/media?q=logo.png')
+    // Still no per-asset URL, so the link opens the asset's folder with the
+    // search that found it applied — the folder alone would make the reader
+    // hunt through it for what the palette had already located.
+    expect(groups[1].items[0].href).toBe('/servers/s1/media/brand?q=logo.png')
+  })
+
+  test('an asset at the library root has no folder segment to name', () => {
+    const groups = PaletteResults.build([], [{ ...asset('logo.png'), folder: '' }], ctx)
+    expect(groups[0].items[0].href).toBe('/servers/s1/media?q=logo.png')
   })
 
   test('no media means no media group, rather than an empty heading', () => {

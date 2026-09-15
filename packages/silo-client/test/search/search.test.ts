@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { ResolvedEntry } from "../../src/entries/resolved-entry";
+
 import { Search } from "../../src/search/search";
 import { SearchReach } from "../../src/search/search-reach";
 import { Transport } from "../../src/transport/transport";
@@ -56,7 +56,7 @@ describe("Search reaches", () => {
 });
 
 describe("Search.run", () => {
-  test("maps a hit's env to environment, and its entry to a ResolvedEntry", async () => {
+  test("maps a hit's env to environment, and passes its entry through as the wire row", async () => {
     const stubFetch = new StubFetch();
     stubFetch.enqueue(
       StubResponse.json({ data: [hitOf()], total: 1, limit: 50, offset: 0, truncated: false, engine: "fts5" }),
@@ -67,7 +67,7 @@ describe("Search.run", () => {
     expect(page.hits[0].project).toBe("acme");
     expect(page.hits[0].environment).toBe("prod");
     expect(page.hits[0].collection).toBe("posts");
-    expect(page.hits[0].entry).toBeInstanceOf(ResolvedEntry);
+    expect(page.hits[0].entry).toEqual(hitOf().entry);
     expect(page.hits[0].snippets).toEqual([{ path: "$.data.title", before: "", match: "Hello", after: "" }]);
     expect(page.engine).toBe("fts5");
   });

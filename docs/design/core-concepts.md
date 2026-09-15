@@ -38,9 +38,13 @@ type Entry struct {
   concern, invisible to the API. `rev` **is** returned (2026-08-20), because
   §8 requires it back as `If-Match`/`?rev=` — a client that never sees a
   revision can only guess one, which succeeds exactly once per entry and then
-  `409`s on every later write. A user field named `rev` is dropped from the
-  data the same way `id` already was, so the envelope value cannot be
-  shadowed.
+  `409`s on every later write. A user field cannot shadow an envelope value,
+  because since D62 there can be no such field: `id`, `rev`, `seq`,
+  `created_at` and `updated_at` are **refused where data enters** — at
+  `putSchema` for a schema declaring one, and at `SchemaValidator.validateEntry`
+  for an entry carrying one, which is the choke point the write paths and the
+  importer share. Until D62 they were instead deleted from the response, which
+  stored a field silo would never answer and told nobody it had done so.
 
 ### 5.2 Collections & schemas (full JSON Schema)
 
@@ -106,7 +110,7 @@ A query is that filter plus `sort` (paths with an optional `-` prefix for descen
 | `$.data.author.name`, `$.data.items[0]`, `$.data.items[-1]` | singular paths into user data |
 | `$.data.tags[*]`, `$.data.meta.*` | wildcard paths, zero or more nodes |
 
-The envelope half is exactly what `EntryUtils.toApiResponse` exposes; user fields sit under `$.data` rather than flattened as the wire response has them, so a user field named `id` can never shadow the envelope's. `project`, `env`, `collection` and `seq` are unaddressable because the API hides them (§5.1) — derived from one rule, not restated as a second allow-list. An envelope field is a scalar and takes no further selectors: `$.id[0]` is a parse error, not an empty result. The pre-D29 spellings (`author.name`, `$id`) are gone, with no shim and no detection.
+The envelope half is exactly what `EntryUtils.toApiResponse` exposes; user fields sit under `$.data` rather than flattened as the wire response has them, so `$.id` and `$.data.id` stay distinguishable in a filter even though the response puts both at one level — and since D62 the second of those cannot exist at all. `project`, `env`, `collection` and `seq` are unaddressable because the API hides them (§5.1) — derived from one rule, not restated as a second allow-list. An envelope field is a scalar and takes no further selectors: `$.id[0]` is a parse error, not an empty result. The pre-D29 spellings (`author.name`, `$id`) are gone, with no shim and no detection.
 
 **Cardinality is part of the contract.** A singular path selects zero or one node; a wildcard path selects zero or more. A leaf op is true when **any** selected node satisfies it. **ANY over zero nodes is false — for every op, `neq` included.** `exists` is true when the path selects at least one node. `not` negates the completed child predicate. Sort accepts singular paths only, since a wildcard has no deterministic order.
 

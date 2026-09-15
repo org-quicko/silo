@@ -2,6 +2,7 @@ import { SiloRef } from "@silo/shared/silo-ref";
 import Ajv2020 from "ajv/dist/2020";
 import addFormats from "ajv-formats";
 import { NotFoundError } from "../errors/not-found-error";
+import { ReservedFieldNames } from "@silo/shared/reserved-field-names";
 import { ValidationError } from "@silo/shared/validation-error";
 import type { ValidationDetail } from "@silo/shared/validation-detail";
 import type { Storage } from "../ports/storage";
@@ -50,6 +51,15 @@ export class SchemaValidator {
   }
 
   async validateEntry(scope: Scope, collection: string, data: any): Promise<void> {
+    // Before the schema is even compiled, because this is a protocol rule and
+    // not a schema one: Ajv runs `strict: false` against whatever document the
+    // author supplied, and JSON Schema admits undeclared properties unless a
+    // schema says otherwise, so refusing these at `putSchema` alone would still
+    // let a plain `POST` store an `id`. Every write path and the importer reach
+    // entry data through here, which is what makes this the one place that
+    // closes all of them (D62).
+    ReservedFieldNames.assertNonePresent(data);
+
     const cacheKey = `${scope.key()}:${collection}`;
     let validateFn = this.cache.get(cacheKey);
     if (!validateFn) {

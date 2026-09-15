@@ -1,4 +1,5 @@
 import { Claims } from "@silo/shared/claims";
+import { ReservedFieldNames } from "@silo/shared/reserved-field-names";
 import { SchemaAccess } from "@silo/shared/schema-access";
 import { SearchFields } from "@silo/shared/search-fields";
 import { ValidationError } from "@silo/shared/validation-error";
@@ -118,6 +119,12 @@ export class CollectionService {
     // Checked on save, so a mistyped search path is a 400 the author sees now
     // rather than a field that quietly stops being searchable (D30).
     SearchFields.validate(schema);
+
+    // Checked against the author's own document rather than the bundled one,
+    // so the error names what they typed. This is the early half of the rule:
+    // the half that actually guarantees it sits in `validateEntry`, since a
+    // schema is free to admit properties it never declared (D62).
+    ReservedFieldNames.assertNoneDeclared(schema, name);
 
     const bundledSchema = await SchemaBundler.bundle(
       scope,

@@ -51,7 +51,7 @@ export class SearchApi {
         project: hit.project,
         env: hit.environment,
         collection: hit.collection,
-        entry: EntryMapper.fromApiEntry(hit.entry.toJSON(), hit.collection),
+        entry: EntryMapper.fromApiEntry(hit.entry, hit.collection),
         snippets: [...hit.snippets],
       })),
       total: page.total,

@@ -94,11 +94,6 @@ export class EntryUtils {
       e.data && typeof e.data === "object" && !Array.isArray(e.data)
         ? { ...e.data }
         : {};
-    delete userFields.id;
-    delete userFields.rev;
-    delete userFields.seq;
-    delete userFields.created_at;
-    delete userFields.updated_at;
 
     if (schema && links) {
       userFields = MediaResolver.resolveMediaFields(userFields, schema, links);
@@ -115,12 +110,19 @@ export class EntryUtils {
     // `If-Match`/`?rev=` (§8). Without it a client can only guess, which
     // works exactly once per entry and then 409s forever — the envelope's
     // other internals (`collection`, `seq`, scope) stay hidden.
-    return {
-      id: e.id,
-      rev: e.rev,
-      ...userFields,
-      created_at: createdAt,
-      updated_at: updatedAt,
-    };
+    //
+    // The envelope is *written* last so it always wins, and *positioned* first
+    // because that is where a reader looks for it. Nothing can carry a
+    // reserved key any more — `putSchema` refuses a schema declaring one and
+    // `validateEntry` refuses an entry carrying one — but an entry stored
+    // before those guards existed still can, and a response that let it
+    // through would name an entry nobody can address. This is the one place
+    // that case is absorbed rather than deleted from storage (D62).
+    const response: Record<string, any> = { id: e.id, rev: e.rev, ...userFields };
+    response.id = e.id;
+    response.rev = e.rev;
+    response.created_at = createdAt;
+    response.updated_at = updatedAt;
+    return response;
   }
 }

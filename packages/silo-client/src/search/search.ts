@@ -1,5 +1,4 @@
-import type { EntryPayload } from "../entries/entry-payload.js";
-import { ResolvedEntry } from "../entries/resolved-entry.js";
+import type { Entry } from "../entries/entry.js";
 import { PageWindow } from "../pagination/page-window.js";
 import type { RequestOptions } from "../request-options.js";
 import { PagePayload } from "../transport/page-payload.js";
@@ -14,7 +13,7 @@ interface SearchHitPayload {
   project: string;
   env: string;
   collection: string;
-  entry: EntryPayload;
+  entry: Entry;
   snippets: SearchHit["snippets"];
 }
 
@@ -51,20 +50,20 @@ export class Search {
     const window = new PageWindow(page.limit ?? query.limit ?? 50, page.offset ?? query.offset ?? 0);
     const truncated = body.truncated === true;
     const engine = body.engine as SearchEngine;
-    const hits = page.rows.map((hit) => this.toHit(hit));
+    const hits = page.rows.map((hit) => Search.toHit(hit));
 
     return new SearchPage(hits, page.total, window, truncated, engine, loader);
   }
 
-  private toHit(payload: SearchHitPayload): SearchHit {
+  /** `env` is the only rename: the hit's own location, which sits here rather
+   * than on the entry so a result found outside the scope on screen can still
+   * be linked to. */
+  private static toHit(payload: SearchHitPayload): SearchHit {
     return {
       project: payload.project,
       environment: payload.env,
       collection: payload.collection,
-      entry: new ResolvedEntry(
-        { transport: this.transport, project: payload.project, environment: payload.env, collection: payload.collection },
-        payload.entry,
-      ),
+      entry: payload.entry,
       snippets: payload.snippets,
     };
   }

@@ -245,15 +245,57 @@ describe("Entries API Response Format", () => {
     expect(stale.status).toBe(409);
   });
 
-  test("a user field named rev does not shadow the envelope revision", async () => {
-    await service.collections.putSchema(Scope.Default, "notes", {
+  test("a schema declaring a reserved field name is refused", async () => {
+    const attempt = service.collections.putSchema(Scope.Default, "notes", {
       type: "object",
       properties: { rev: { type: "string" } },
     });
-    await service.entries.create(Scope.Default, "notes", { rev: "draft-7" });
+
+    await expect(attempt).rejects.toThrow(/reserved field "rev"/);
+  });
+
+  test("an entry carrying a reserved field name is refused even when the schema never declared it", async () => {
+    // JSON Schema admits undeclared properties by default, so this schema
+    // accepts an `id` it never mentions. That is exactly why the schema-time
+    // check is not the one that makes the guarantee (D62).
+    await service.collections.putSchema(Scope.Default, "notes", {
+      type: "object",
+      properties: { title: { type: "string" } },
+    });
+
+    const attempt = service.entries.create(Scope.Default, "notes", { title: "hi", id: "spoofed" });
+
+    await expect(attempt).rejects.toThrow(/reserved field "id"/);
+  });
+
+  test("an entry stored before the guards existed still answers an addressable envelope", async () => {
+    await service.collections.putSchema(Scope.Default, "notes", {
+      type: "object",
+      properties: { title: { type: "string" } },
+    });
+
+    // Written straight to the store, which is the only way to produce one now
+    // that both write paths refuse it.
+    const now = EntryUtils.now();
+    await store.put(
+      {
+        id: "01KX3FGFV01GWEBZEHDNZ38239",
+        project: Scope.Default.project,
+        env: Scope.Default.env,
+        collection: "notes",
+        rev: 4,
+        seq: 1,
+        created_at: now,
+        updated_at: now,
+        data: { title: "legacy", id: "spoofed", rev: "draft-7" },
+      },
+      { usages: [], search: null }
+    );
 
     const res = await app.request("/api/projects/default/environments/prod/collections/notes");
-    const json = await res.json() as { data: any[] };
-    expect(json.data[0].rev).toBe(1);
+    const json = (await res.json()) as { data: any[] };
+
+    expect(json.data[0].id).toBe("01KX3FGFV01GWEBZEHDNZ38239");
+    expect(json.data[0].rev).toBe(4);
   });
 });

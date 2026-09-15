@@ -1,6 +1,6 @@
 {
   "name": "@org-quicko/silo-client",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "A typed, object-oriented client for silo's HTTP API",
   "keywords": [
     "silo",
@@ -50,9 +50,9 @@
     "prepublishOnly": "bun run build"
   },
   "devDependencies": {
-    "@arethetypeswrong/cli": "^0.18.0",
+    "@arethetypeswrong/cli": "^0.18.5",
     "@silo/shared": "workspace:*",
-    "publint": "^0.3.0",
+    "publint": "^0.3.24",
     "typescript": "^7.0.2"
   }
 }

@@ -1,65 +1,14 @@
-import type { RequestOptions } from "../request-options.js";
-import { ApiPath } from "../transport/api-path.js";
-import { EntryMapper } from "./entry-mapper.js";
-import type { EntryPayload } from "./entry-payload.js";
-import { ResolvedEntry } from "./resolved-entry.js";
+import type { EntryEnvelope } from "./entry-envelope.js";
 
 /**
- * An editable entry, from a raw read: `posts.edit(id)`, a create, a
- * replace, or any read on a client constructed with `variables: "raw"`.
- * `fields` is mutable again here, undoing `ResolvedEntry`'s narrowing.
+ * One entry exactly as the API answers it: the author's fields and the
+ * envelope in one flat object, with nothing renamed, nested or wrapped.
+ *
+ * This is a plain value. It carries no transport, no scope and no methods, so
+ * it logs as its own contents, survives `structuredClone`, and drops into a
+ * store or React state as-is. Writes go through the collection —
+ * `posts.replace(id, rev, fields)`, `posts.delete(id, rev)` — where the
+ * revision being sent is visible at the call site instead of hidden inside an
+ * object (D62).
  */
-export class Entry<Fields> extends ResolvedEntry<Fields> {
-  declare rev: number;
-  declare createdAt: Date;
-  declare updatedAt: Date;
-  declare fields: Fields;
-
-  private saving = false;
-
-  /**
-   * Sends `PUT` with the rev this instance holds, adopts the rev and
-   * timestamps the response answers, and mutates in place. A second
-   * overlapping call on the same instance is refused locally — it would
-   * send a rev already known to be stale.
-   */
-  async save(options: RequestOptions = {}): Promise<this> {
-    if (this.saving) {
-      throw new Error(`cannot save entry "${this.id}": a previous save() on this instance has not finished yet`);
-    }
-    this.saving = true;
-    try {
-      const payload = await this.context.transport.json<EntryPayload>({
-        method: "PUT",
-        path: ApiPath.entry(this.context.project, this.context.environment, this.context.collection, this.id),
-        query: { rev: this.rev, variables: "raw" },
-        body: this.fields,
-        ...options,
-      });
-      this.adopt(payload);
-      return this;
-    } finally {
-      this.saving = false;
-    }
-  }
-
-  /** Re-reads this entry raw, and replaces `fields`, `rev` and the
-   * timestamps in place — what a `ConflictError` from `save()` calls for. */
-  async refresh(options: RequestOptions = {}): Promise<this> {
-    const payload = await this.context.transport.json<EntryPayload>({
-      method: "GET",
-      path: ApiPath.entry(this.context.project, this.context.environment, this.context.collection, this.id),
-      query: { variables: "raw" },
-      ...options,
-    });
-    this.adopt(payload);
-    return this;
-  }
-
-  private adopt(payload: EntryPayload): void {
-    this.rev = Number(payload.rev);
-    this.createdAt = new Date(payload.created_at);
-    this.updatedAt = new Date(payload.updated_at);
-    this.fields = EntryMapper.fieldsOf<Fields>(payload);
-  }
-}
+export type Entry<Fields = Record<string, unknown>> = Fields & EntryEnvelope;

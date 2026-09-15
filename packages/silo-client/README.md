@@ -1,14 +1,16 @@
 # silo-client
 
-The typed client for [silo](https://github.com/org-quicko/silo). It follows
-silo's own shape: an instance holds projects, a project holds environments, an
-environment holds collections, and a collection holds entries.
+The typed client for [silo](https://github.com/org-quicko/silo). It has the same
+shape as silo itself: an instance holds projects, a project holds environments,
+an environment holds collections, and a collection holds entries.
 
 ```sh
 npm install @org-quicko/silo-client
 ```
 
-Runs on Node 18+, Bun, Deno, browsers and workers. No dependencies.
+Runs on Node 18+, Bun, Deno, browsers and workers. It has no dependencies.
+
+The examples below build moviespace, a small film database.
 
 ## Start
 
@@ -17,115 +19,142 @@ import { Silo } from "@org-quicko/silo-client"
 
 const silo = new Silo({ url: "http://localhost:8090", key: process.env.SILO_KEY })
 
-const posts = silo.project("acme").environment("prod").collection("posts")
+const movies = silo.project("moviespace").environment("prod").collection("movies")
 
-const page = await posts.list({ limit: 10 })
-for (const post of page.entries) {
-  console.log(post.fields.title)
+const page = await movies.list({ limit: 10 })
+for (const movie of page.entries) {
+  console.log(movie.title)
 }
 ```
 
-Handles are cheap. `silo.project("acme").environment("prod")` makes no request,
-so nothing above needs an `await` until the read.
-
-Both scope names are always explicit. There is no default project or
-environment, because a client that guesses reads the wrong environment quietly.
-`silo.scope("acme", "prod")` is the same chain in one call.
+`silo.project("moviespace").environment("prod")` sends no request. It only
+builds the path, so nothing needs an `await` until the read.
 
 ## Entries
 
-Name your fields and the collection is typed.
+Describe your fields and the collection becomes typed.
 
 ```ts
-interface Post {
+interface Movie {
   title: string
+  year: number
   status: "draft" | "published"
-  tags: string[]
+  genres: string[]
 }
 
-const posts = silo.project("acme").environment("prod").collection<Post>("posts")
+const movies = silo.project("moviespace").environment("prod").collection<Movie>("movies")
 
-const created = await posts.create({ title: "Hello", status: "draft", tags: [] })
+const created = await movies.create({
+  title: "Arrival",
+  year: 2016,
+  status: "draft",
+  genres: ["sci-fi"],
+})
 
-const draft = await posts.edit(created.id)
-draft.fields.status = "published"
-await draft.save()
+await movies.replace(created.id, created.rev, {
+  title: "Arrival",
+  year: 2016,
+  status: "published",
+  genres: ["sci-fi", "drama"],
+})
 ```
 
-An entry keeps its own revision, so you never hold one. `save()` sends the
-revision it read, adopts the one it gets back, and raises `ConflictError` if
-somebody wrote first.
-
-`get` and `edit` answer different things, and the difference matters.
-
-| Call | Answers | Variables | `save()` |
-|------|---------|-----------|----------|
-| `posts.get(id)` | `ResolvedEntry<Post>` | substituted | not available |
-| `posts.edit(id)` | `Entry<Post>` | left as written | available |
-
-A `{{VARIABLE}}` in your content is substituted on the way out. Saving an entry
-you read that way would write the substituted value over the reference, so a
-read that substitutes has no `save()` at all, and `edit` is how you read an
-entry you mean to write back.
-
-`posts.editable` is the whole read surface with the same rule, for a tool that
-edits more than one entry at a time.
+A row is exactly what the API sent back: your fields and silo's envelope keys
+together in one flat object.
 
 ```ts
-await posts.editable.get(id)
-await posts.editable.list({ limit: 50 })
-for await (const post of posts.editable.all()) { }
+{
+  id: "01M24ZX2ZK60T72CNPCM222E3Z",
+  rev: 1,
+  title: "Arrival",
+  year: 2016,
+  status: "published",
+  genres: ["sci-fi", "drama"],
+  created_at: "2026-09-10T06:25:55.699Z",
+  updated_at: "2026-09-10T06:25:55.699Z",
+}
 ```
 
-`replace(id, rev, fields)` and `delete(id, rev)` are there for when you hold an
-id and a revision from somewhere else. Both `replace` and `save` send every
-field, because the route is a full replace.
 
-Five field names never survive a round trip, because silo strips them before it
-answers: `id`, `rev`, `seq`, `created_at` and `updated_at`. `ReservedFieldNames`
-holds the list, and creating a collection warns if its schema declares one.
+Writes are calls on the collection, and each one takes the revision it expects:
+
+```ts
+await movies.create(fields)
+await movies.replace(id, rev, fields)
+await movies.delete(id, rev)
+```
+
+`rev` is the revision the row reported. If it is out of date the call raises
+`ConflictError`. A fresh read gives you the current one. `replace` needs
+every field, because the route replaces the whole entry.
+
+### Reading an entry you plan to edit
+
+silo substitutes a `{{VARIABLE}}` in your content on the way out. If you write
+that value back, you replace the reference somebody typed with whatever it
+happened to mean today, and you cannot recover the template from the result. So
+read raw before you edit:
+
+```ts
+const draft = await movies.get(id, { variables: "raw" })
+draft.trailerUrl     // "{{CDN_URL}}/trailers/arrival.mp4", as stored
+
+const { id: _, rev, created_at, updated_at, ...fields } = draft
+await movies.replace(draft.id, rev, { ...fields, status: "published" })
+```
+
+`{ variables: "raw" }` works on every read: `get`, `list`, `all` and `pages`.
+Writes always send raw, so `create` and `replace` answer with what you sent.
+
+Five field names belong to the envelope: `id`, `rev`, `seq`, `created_at` and
+`updated_at`. silo refuses a schema that declares one when you create the
+collection, and refuses an entry that carries one when you write it. A row can
+never collide with its own envelope.
 
 ## Queries
 
-Filters are built, and a typed collection types them.
+You build filters, and a typed collection types them.
 
 ```ts
 import { Filter, Sort } from "@org-quicko/silo-client"
 
-const page = await posts.list({
-  where: posts.filter.field("status").equals("published")
-    .and(posts.filter.each("tags").equals("release")),
+const page = await movies.list({
+  where: movies.filter.field("status").equals("published")
+    .and(movies.filter.each("genres").equals("sci-fi")),
   sort: Sort.recentlyUpdated(),
   limit: 20,
 })
 ```
 
-`field` addresses your own fields, `each` addresses every element of an array,
-and `meta` addresses the envelope.
+`field` addresses your own fields. `each` addresses every element of an array.
+`meta` addresses the envelope.
 
 ```ts
-posts.filter.field("author.name").contains("ada")
-posts.filter.each("tags").equals("release")
+movies.filter.field("title").contains("arrival")
+movies.filter.each("genres").equals("sci-fi")
 Filter.meta("updated_at").greaterThan("2026-01-01T00:00:00Z")
 ```
 
-The operators are `equals`, `notEquals`, `contains`, `greaterThan`, `atLeast`,
-`lessThan`, `atMost`, `oneOf` and `exists`, joined with `and`, `or` and `not`.
-`Filter` has the same surface untyped, for a filter you assemble at runtime,
-and `Filter.raw(node)` takes the wire AST.
+A dot reaches inside a nested field, so `field("director.name")` addresses the
+`name` of a `director` object.
 
-Two spellings of a wildcard mean two different things, which is why `each` is
-its own call:
+The operators are `equals`, `notEquals`, `contains`, `greaterThan`, `atLeast`,
+`lessThan`, `atMost`, `oneOf` and `exists`. Join them with `and`, `or` and
+`not`. `Filter` offers the same calls without types, for a filter you assemble
+at runtime, and `Filter.raw(node)` takes the wire format directly.
+
+`each` is a separate call because the two ways of writing a wildcard ask
+different questions:
 
 ```ts
-posts.filter.each("tags").notEquals("draft")          // some tag is not "draft"
-Filter.not(posts.filter.each("tags").equals("draft")) // no tag is "draft"
+movies.filter.each("genres").notEquals("horror")          // some genre is not "horror"
+Filter.not(movies.filter.each("genres").equals("horror")) // no genre is "horror"
 ```
 
 ## Pagination
 
 ```ts
-const first = await posts.list({ limit: 25 })
+const first = await movies.list({ limit: 25 })
 first.total        // 137
 first.pageNumber   // 1
 first.hasMore      // true
@@ -134,66 +163,67 @@ const second = await first.next()
 ```
 
 A page reports the window silo actually used, which is not always the one you
-asked for: silo caps `limit` at 500 and replaces a nonpositive one with 50.
-`next()` advances by the answered window, so an oversized request pages
-correctly instead of stepping over entries.
+asked for. silo caps `limit` at 500, and replaces a limit of zero or less with
+50. `next()` moves forward by the window silo reported, so an oversized request
+still pages correctly instead of stepping over entries.
 
-Every page is iterable, and two iterators page for you.
+Every page can be iterated, and two helpers page for you.
 
 ```ts
 for (const entry of page) { }
 
-for await (const entry of posts.all({ where })) { }
-for await (const page of posts.pages({ limit: 100 })) { }
+for await (const entry of movies.all({ where })) { }
+for await (const page of movies.pages({ limit: 100 })) { }
 ```
 
-Offset paging over data being written is not a snapshot. Sort by something
-stable when that matters.
+Paging by offset over data that is being written is not a snapshot. Sort by
+something stable when that matters.
 
 ## Media
 
 ```ts
 import { MediaReference } from "@org-quicko/silo-client"
 
-const asset = await silo.media.upload({
+const poster = await silo.media.upload({
   bytes,
-  filename: "hero.png",
-  contentType: "image/png",
-  folder: "heroes",
+  filename: "arrival.jpg",
+  contentType: "image/jpeg",
+  folder: "posters",
 })
 
-await posts.create({
-  title: "Hello",
+await movies.create({
+  title: "Arrival",
+  year: 2016,
   status: "draft",
-  tags: [],
-  cover: MediaReference.of(asset.id),
+  genres: ["sci-fi"],
+  poster: MediaReference.of(poster.id),
 })
 ```
 
-Entries reference an asset by id, so renaming or moving a file rewrites
-nothing. `asset.url` is the link to serve; `asset.reference` is the value to
-store. Storing the URL is the mistake a later rename breaks.
+An entry refers to an asset by id, so renaming or moving a file rewrites
+nothing. Use `asset.url` for the link you serve, and `asset.reference` for the
+value you store. Storing the URL instead is what a later rename breaks.
 
 ```ts
-await asset.rename("hero-2.png")
-await asset.moveTo("heroes/2026")
-await asset.setTags(["banner"])        // replaces the list
-await asset.delete()                   // refused while an entry references it
-await asset.delete({ force: true })
+await poster.rename("arrival-2016.jpg")
+await poster.moveTo("posters/2016")
+await poster.setTags(["poster"])        // replaces the whole list
+await poster.delete()                   // refused while an entry refers to it
+await poster.delete({ force: true })
 
-const usage = await asset.usages()
-usage.usages                           // the referrers this key may read
-usage.total                            // the true count
-usage.visible                          // what this key may see of it
+const usage = await poster.usages()
+usage.usages                            // the referring entries this key may read
+usage.total                             // the true count
+usage.visible                           // how many of them this key may see
 ```
 
-Folders, and a bulk delete capped at 100 ids:
+Folders, and a bulk delete that takes up to 100 ids:
 
 ```ts
 await silo.media.folders.list()
-await silo.media.folders.create("heroes/2026")
-await silo.media.folders.rename("heroes", "banners", { merge: true })
-await silo.media.folders.delete("banners", { recursive: true })
+await silo.media.folders.create("posters/2016")
+await silo.media.folders.rename("posters", "artwork", { merge: true })
+await silo.media.folders.delete("artwork", { recursive: true })
 
 const report = await silo.media.deleteMany(ids, { force: true })
 report.deleted
@@ -202,80 +232,85 @@ report.failed
 
 ## Variables
 
-A variable is declared once per project and valued per environment.
+You declare a variable once per project, and give it a value per environment.
 
 ```ts
-const acme = silo.project("acme")
-await acme.variables.declare("API_URL", { environment: "prod", value: "https://api.acme.com" })
+const moviespace = silo.project("moviespace")
+await moviespace.variables.declare("CDN_URL", {
+  environment: "prod",
+  value: "https://cdn.moviespace.com",
+})
 
-const environment = acme.environment("prod")
+const environment = moviespace.environment("prod")
 await environment.variables.list()
-await environment.variables.set("API_URL", "https://api.acme.com")
-await environment.variables.unset("API_URL")
+await environment.variables.set("CDN_URL", "https://cdn.moviespace.com")
+await environment.variables.unset("CDN_URL")
 ```
 
-`variable.value` is `null` when this environment has given it nothing, which is
-not `""`. An empty value substitutes as empty; an unset one leaves `{{API_URL}}`
-standing in the response.
+`variable.value` is `null` when this environment has given it no value, which is
+not the same as `""`. An empty value substitutes as empty. An unset one leaves
+`{{CDN_URL}}` standing in the response.
 
 ## Search
 
-The reach is whatever you call it on, so a missing argument cannot widen a
+The reach is whatever you call it on, so leaving out an argument cannot widen a
 search.
 
 ```ts
-await posts.search({ query: "pricing" })          // one collection
-await environment.search({ query: "pricing" })    // one environment
-await silo.search({ query: "pricing" })           // everything the key can read
+await movies.search({ query: "arrival" })          // one collection
+await environment.search({ query: "arrival" })     // one environment
+await silo.search({ query: "arrival" })            // everything the key can read
 ```
 
-A hit says where it was found and quotes why it matched.
+A hit says where it was found, and quotes the text that matched.
 
 ```ts
-const results = await silo.search({ query: "pricing" })
-results.hits[0].collection    // "posts"
+const results = await silo.search({ query: "arrival" })
+results.hits[0].collection    // "movies"
 results.hits[0].snippets      // [{ path, before, match, after }]
 results.engine                // "fts5" when the index answered, "scan" when it walked
 ```
 
 ## Errors
 
-One class per failure, so you branch on the type.
+There is one class per failure, so you can branch on the type.
 
 ```ts
-import { ConflictError, ValidationFailedError, NetworkError } from "@org-quicko/silo-client"
+import { ConflictError, ValidationFailedError } from "@org-quicko/silo-client"
 
 try {
-  await draft.save()
+  await movies.replace(movie.id, movie.rev, fields)
 } catch (error) {
   if (error instanceof ConflictError) {
-    await draft.refresh()        // somebody else wrote first
+    // Somebody else wrote first. Read again for the current revision.
+    const current = await movies.get(movie.id)
+    await movies.replace(current.id, current.rev, fields)
   } else if (error instanceof ValidationFailedError) {
     error.details                // [{ path: "/title", message }]
   }
 }
 ```
 
-`SiloError` is the base for anything silo refused: `ValidationFailedError`,
+`SiloError` is the base class for anything silo refused: `ValidationFailedError`,
 `UnauthorizedError`, `ForbiddenError`, `NotFoundError`, `ConflictError`,
 `MediaInUseError`, `MediaDeleteStalledError` and `InternalError`.
 
 `NetworkError`, `TimeoutError`, `RequestAbortedError` and `InvalidResponseError`
-are not `SiloError`, because nothing answered. A `NetworkError` on a write does
-not prove the write failed. Read the entry back before deciding.
+are not `SiloError`, because silo never answered. A `NetworkError` on a write
+does not prove the write failed. Read the entry back before you decide.
 
 ## Cancellation
 
 Every call takes the same last argument.
 
 ```ts
-await posts.list({ limit: 20 }, { signal: controller.signal })
-await posts.get(id, { timeoutMilliseconds: 2_000 })
+await movies.list({ limit: 20 }, { signal: controller.signal })
+await movies.get(id, { timeoutMilliseconds: 2_000 })
 ```
 
-`abort()` raises `RequestAbortedError` and the deadline raises `TimeoutError`.
-Nothing is retried for you: a retried `POST` is a duplicate entry, and only the
-caller knows whether a call was safe to repeat.
+`abort()` raises `RequestAbortedError`, and the deadline raises `TimeoutError`.
+Nothing is retried for you. A retried `POST` creates a second entry, and only
+the caller knows whether a call was safe to repeat.
 
 ## Anonymous reads
 
@@ -283,14 +318,14 @@ A key is optional. Without one you reach the collections whose schema does not
 set `x-silo-auth`.
 
 ```ts
-const silo = new Silo({ url: "https://cms.example.com" })
+const silo = new Silo({ url: "https://cms.moviespace.com" })
 ```
 
 ## What this client does not reach
 
 Keys, claims, plugins, export and import, settings, audit and observability.
 Those are operator surfaces, and the admin UI and the CLI own them. There is no
-generic `request()` either: `RouteInventory` lists every route this client
+generic `request()` either. `RouteInventory` lists every route this client
 covers and every route it leaves out, and a test holds that list against the
 server's own registrations.
 

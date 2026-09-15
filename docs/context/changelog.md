@@ -4,6 +4,67 @@
 > The *current* state is [CONTEXT.md](../../CONTEXT.md); this is how it got
 > there.
 
+- **The client's README documents the client that exists, and its examples are
+  MovieSpace (2026-09-15).** The Errors section still called `draft.save()` and
+  `draft.refresh()`, both deleted by D62 — the snippet a reader reaches for
+  while something is already failing, and it would not have compiled. It now
+  shows the conflict path the client actually has: catch `ConflictError`, read
+  again for the current revision, `replace` with that. The examples move from
+  `acme`/`posts` to `moviespace`/`movies`, a small film database, so the field
+  names mean something as they are read (`year`, `genres`, `trailerUrl`)
+  instead of standing in as nouns. `test/examples.test.ts` moves with them: its
+  only reason to exist is that the README's blocks compile and run, so a domain
+  it no longer shares is a claim it quietly stops making, and it now also pins
+  the nested `director.name` path the filter section promises. The prose keeps
+  the READMEs' rule against em dashes and splits the sentences that needed a
+  second reading; the structure and the reasoning in it are unchanged.
+
+- **A media hit in the search bar lands on the asset again, rather than merely
+  near it (2026-09-15).** D49 gave `Routes.media` a `folder` argument, and the
+  palette's media link was moved onto it — dropping the `?q=` that had been the
+  address. The library has no per-asset URL, so the search *was* how the link
+  pointed at one thing: opening `/media/brand` unfiltered put the reader back to
+  hunting through everything beside the file they had just found, which is the
+  hunt the palette had finished for them. The link now carries both —
+  `/servers/:sid/media/brand?q=logo.png` — and `MediaFilter` ands the folder
+  clause with the filename `contains` server-side, so the asset's own directory
+  opens with the asset in view. The preview dialog wired in alongside the
+  regression (`Shift`-`Enter`, or the row's Preview button) is component state
+  and not a route, so it makes no asset addressable and replaces no link; the
+  media route is still `{ view: 'media', serverId, folder, q }`. Found as a
+  failing test rather than by reading the diff: the change rode into a commit
+  about the client's release workflow, which is where a UI regression is least
+  likely to be looked for. `palette-results.test.ts` had asserted the pre-D49
+  href through `toContain('/media?q=logo.png')`, a fragment that stayed true
+  while only the query mattered and said nothing about the folder; it now
+  asserts the whole URL, like every other href assertion in that file.
+
+- **An entry is the wire's own flat row, and a reserved field name is refused
+  where data enters rather than deleted on the way out (2026-09-15, D62).**
+  Found by printing a row: `console.log(entry)` showed the instance's API key,
+  because `ResolvedEntry` held an `EntryContext` holding the `Transport` and
+  TypeScript's `protected` is erased at runtime. **Client, 1.0.1:**
+  `ResolvedEntry`, `EntryBase`, the `Entry` class, `EntryMapper` and
+  `EntryPayload` are deleted; a read answers `Entry<Fields> = Fields &
+  EntryEnvelope`, the response exactly as it arrived. `collection.editable`,
+  `edit()`, `entry.save()`, `refresh()`, `delete()`, `toJSON()` and
+  `entry.fields` go with them: writes are `posts.replace(id, rev, fields)` and
+  `posts.delete(id, rev)`, and the raw read survives as `{ variables: "raw" }`
+  on `get`/`list`/`all`/`pages`. **Server:** `EntryUtils.toApiResponse` stops
+  deleting `id`, `rev`, `seq`, `created_at` and `updated_at`;
+  `CollectionService.putSchema` refuses a schema declaring one and
+  `SchemaValidator.validateEntry` refuses an entry carrying one. The second is
+  what makes it a guarantee: Ajv runs `strict: false` and JSON Schema admits
+  undeclared properties, so a schema-time check alone still let a plain `POST`
+  store an `id` and make the entry unaddressable. `ReservedFieldNames` moves to
+  `@silo/shared` as the single list, and the client's copy and its create-time
+  `console.warn` are gone. The response is built envelope-last and ordered
+  envelope-first so an entry stored before the guards stays addressable.
+  **Admin:** the two reads move to `{ variables: 'raw' }`, `toJSON()` calls
+  drop, and `EntryMapper.fromApiEntry` stops destructuring `collection` off
+  the flat shape, which had been swallowing a user field legitimately named
+  `collection` that read fine over curl.
+
 - **The client publishes as `@org-quicko/silo-client`, matching the GitHub
   org its own `package.json` already named in `repository` and `homepage`
   (2026-09-15).** D61 shipped it unscoped; every place that has to agree with

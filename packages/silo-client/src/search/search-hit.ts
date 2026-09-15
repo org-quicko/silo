@@ -1,4 +1,4 @@
-import type { ResolvedEntry } from "../entries/resolved-entry.js";
+import type { Entry } from "../entries/entry.js";
 import type { SearchSnippet } from "./search-snippet.js";
 
 /**
@@ -6,14 +6,14 @@ import type { SearchSnippet } from "./search-snippet.js";
  * what lets a caller link to a result found outside the scope on screen, and
  * `environment` is mapped from the wire's `env`.
  *
- * The entry is always a `ResolvedEntry`: a result is not addressed to one
- * typed collection, so there is no `Fields` to give it, and it is not meant to
- * be edited from here — re-read through `collection.edit()` for that.
+ * The entry is untyped: a result is not addressed to one collection, so there
+ * is no `Fields` to give it. Its `{{NAME}}` templates are resolved, so read it
+ * again through `collection.get(id, { variables: "raw" })` before editing.
  */
 export interface SearchHit {
   readonly project: string;
   readonly environment: string;
   readonly collection: string;
-  readonly entry: ResolvedEntry<unknown>;
+  readonly entry: Entry;
   readonly snippets: readonly SearchSnippet[];
 }
