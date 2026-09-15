@@ -12,6 +12,7 @@ import type { useMediaDeleteFlow } from './use-media-delete-flow'
 import type { useMediaLibrary } from './use-media-library'
 import type { useMediaMoveFlow } from './use-media-move-flow'
 import type { useMediaRenameFolderFlow } from './use-media-rename-folder-flow'
+import type { useMediaReplaceFlow } from './use-media-replace-flow'
 import table from '../../components/data/DataTable.module.css'
 import styles from './MediaLibrary.module.css'
 
@@ -21,7 +22,9 @@ interface Props {
   deleteFlow: ReturnType<typeof useMediaDeleteFlow>
   moveFlow: ReturnType<typeof useMediaMoveFlow>
   renameFolderFlow: ReturnType<typeof useMediaRenameFolderFlow>
+  replaceFlow: ReturnType<typeof useMediaReplaceFlow>
   canUpload: boolean
+  canReplace: boolean
   canDelete: boolean
   baseUrl: string
   listCols: string
@@ -45,7 +48,9 @@ export function MediaContents({
   deleteFlow,
   moveFlow,
   renameFolderFlow,
+  replaceFlow,
   canUpload,
+  canReplace,
   canDelete,
   baseUrl,
   listCols,
@@ -177,12 +182,14 @@ export function MediaContents({
               asset={asset}
               baseUrl={baseUrl}
               canEdit={canUpload}
+              canReplace={canReplace}
               canDelete={canDelete}
               selected={library.selected.has(asset.id)}
               onToggleSelect={() => library.toggleSelected(asset.id)}
               onPreview={onPreviewAsset}
               onEdit={() => onEditAsset(asset)}
               onMove={moveAsset(asset)}
+              onReplace={() => replaceFlow.start(asset)}
               onDelete={() => deleteFlow.start([asset])}
               onDragStart={handleDragAsset(asset)}
             />
@@ -250,6 +257,7 @@ export function MediaContents({
             asset={asset}
             baseUrl={baseUrl}
             canEdit={canUpload}
+            canReplace={canReplace}
             canDelete={canDelete}
             gridCols={listCols}
             selected={library.selected.has(asset.id)}
@@ -257,6 +265,7 @@ export function MediaContents({
             onPreview={onPreviewAsset}
             onEdit={() => onEditAsset(asset)}
             onMove={moveAsset(asset)}
+            onReplace={() => replaceFlow.start(asset)}
             onDelete={() => deleteFlow.start([asset])}
             onDragStart={handleDragAsset(asset)}
           />

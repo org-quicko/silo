@@ -1,7 +1,7 @@
 import type { MediaAsset } from '../../api/types/media-asset'
 import { AssetInUseDialog } from './AssetInUseDialog'
 import { DeleteAssetDialog } from './DeleteAssetDialog'
-import { MediaForceAvailability } from './media-force-availability'
+import { MediaContentAvailability } from './media-content-availability'
 import { MergeFolderDialog } from './MergeFolderDialog'
 import { MoveMediaDialog } from './MoveMediaDialog'
 import { MoveToFolderDialog } from './MoveToFolderDialog'
@@ -10,10 +10,12 @@ import { NewFolderDialog } from './NewFolderDialog'
 import { PurgeLibraryDialog } from './PurgeLibraryDialog'
 import { RenameAssetDialog } from './RenameAssetDialog'
 import { RenameFolderDialog } from './RenameFolderDialog'
+import { ReplaceAssetDialog } from './ReplaceAssetDialog'
 import type { useMediaDeleteFlow } from './use-media-delete-flow'
 import type { useMediaMoveFlow } from './use-media-move-flow'
 import type { useMediaPurge } from './use-media-purge'
 import type { useMediaRenameFolderFlow } from './use-media-rename-folder-flow'
+import type { useMediaReplaceFlow } from './use-media-replace-flow'
 
 interface Props {
   claims: string[]
@@ -27,6 +29,7 @@ interface Props {
   moveFlow: ReturnType<typeof useMediaMoveFlow>
   purgeFlow: ReturnType<typeof useMediaPurge>
   renameFolderFlow: ReturnType<typeof useMediaRenameFolderFlow>
+  replaceFlow: ReturnType<typeof useMediaReplaceFlow>
   previewAsset: MediaAsset | null
   onClosePreview: () => void
   onNavigatePreview: (asset: MediaAsset) => void
@@ -65,6 +68,7 @@ export function MediaDialogs({
   moveFlow,
   purgeFlow,
   renameFolderFlow,
+  replaceFlow,
   previewAsset,
   onClosePreview,
   onNavigatePreview,
@@ -110,6 +114,23 @@ export function MediaDialogs({
           error={moveFlow.error}
           onMove={moveFlow.moveTo}
           onClose={moveFlow.cancel}
+        />
+      )}
+
+      {replaceFlow.asset && (
+        <ReplaceAssetDialog
+          asset={replaceFlow.asset}
+          usageCount={replaceFlow.referrers?.usage_count ?? null}
+          unavailable={
+            replaceFlow.referrers
+              ? MediaContentAvailability.unavailable([replaceFlow.referrers], claims)
+              : null
+          }
+          loading={replaceFlow.loading}
+          busy={replaceFlow.busy}
+          error={replaceFlow.error}
+          onReplace={replaceFlow.confirm}
+          onClose={replaceFlow.cancel}
         />
       )}
 
@@ -176,7 +197,7 @@ export function MediaDialogs({
           assets={deleteFlow.inUse}
           checked={deleteFlow.forceChecked}
           busy={deleteFlow.busy}
-          forceUnavailable={MediaForceAvailability.unavailable(deleteFlow.inUse, claims)}
+          forceUnavailable={MediaContentAvailability.unavailable(deleteFlow.inUse, claims)}
           onCheckedChange={deleteFlow.setForceChecked}
           onForceDelete={deleteFlow.forceDelete}
           onClose={deleteFlow.cancel}

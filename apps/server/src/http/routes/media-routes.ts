@@ -34,7 +34,7 @@ export class MediaRoutes {
       const force = body?.force === true;
 
       if (force) {
-        await RouteAuth.requireForcedMediaDelete(c, "bulk media delete", service.media, ids);
+        await RouteAuth.requireMediaContentAuthority(c, "bulk media delete with force", service.media, ids);
       }
 
       const batch = await MediaDeleteBatch.run(service, ids, force, (id, caught) =>
@@ -66,7 +66,7 @@ export class MediaRoutes {
 
       const result = await service.media.purge(
         force,
-        (ids) => RouteAuth.requireForcedMediaDelete(c, "purge", service.media, ids),
+        (ids) => RouteAuth.requireMediaContentAuthority(c, "purge with force", service.media, ids),
         (ids, forced) =>
           MediaDeleteBatch.run(service, ids, forced, (id, caught) => MediaInUseDetails.build(c, service, id, caught))
       );
@@ -141,7 +141,9 @@ export class MediaRoutes {
 
     // Rename, move, retag. `media:create` rather than a new claim: it is the
     // claim that already governs putting a file into the library, and where
-    // it sits is the same kind of statement as what it is called.
+    // it sits is the same kind of statement as what it is called. None of it
+    // changes what a reference resolves to, which is exactly what separates it
+    // from the replace below.
     app.patch("/api/media/:id", async (c: Context) => {
       RouteAuth.requireClaim(c, Claims.MediaCreate);
       const body = await c.req.json();
@@ -154,6 +156,41 @@ export class MediaRoutes {
       );
     });
 
+    // Swap the bytes behind an asset, keeping its id, its URL and every
+    // reference to it (D67). Two asks, the way purge takes two:
+    //
+    // `media:replace` because `media:create` is carried by the `write` preset,
+    // so gating on it would mean every integration key that uploads its own
+    // files could also overwrite anybody else's, anywhere in the
+    // instance-global library. Unlike `media:purge` it *is* in `manage`:
+    // replacing a stale asset is ordinary content work, and pricing it at root
+    // would put editors in the account D38 says to use least.
+    //
+    // Then `entries:update` at every scope that refers to it, the same gate a
+    // force delete passes and for a stronger reason — a force resolves a
+    // reference to `null` and shows as a broken field, a replace resolves it
+    // to a different file and shows as nothing at all. An unreferenced asset
+    // reaches nothing and so needs only the first ask; the claim is what
+    // covers it, since silo cannot see a reader that holds the URL and no
+    // entry.
+    //
+    // Authority before the body is read: a refusal should not first pay for
+    // the upload it is about to reject.
+    app.post("/api/media/:id/content", async (c: Context) => {
+      RouteAuth.requireClaim(c, Claims.MediaReplace);
+      const id = c.req.param("id") || "";
+      await RouteAuth.requireMediaContentAuthority(c, "media replace", service.media, [id]);
+
+      const body = await c.req.parseBody();
+      const file = body["file"];
+      if (!file || !(file instanceof File)) {
+        throw new ValidationError("missing or invalid 'file' field in multipart request");
+      }
+
+      const bytes = new Uint8Array(await file.arrayBuffer());
+      return c.json(await service.media.replaceContent(id, file.name, bytes, file.type));
+    });
+
     app.delete("/api/media/:id", async (c: Context) => {
       RouteAuth.requireClaim(c, Claims.MediaDelete);
       const id = c.req.param("id") || "";
@@ -162,8 +199,8 @@ export class MediaRoutes {
       if (force) {
         // D49: `media:delete` alone is no longer enough. Additionally
         // requires `entries:update` on every scope this asset is actually
-        // referenced from — see `RouteAuth.requireForcedMediaDelete`.
-        await RouteAuth.requireForcedMediaDelete(c, "media delete", service.media, [id]);
+        // referenced from — see `RouteAuth.requireMediaContentAuthority`.
+        await RouteAuth.requireMediaContentAuthority(c, "media delete with force", service.media, [id]);
       }
       try {
         await service.media.delete(id, { force });

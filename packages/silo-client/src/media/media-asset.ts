@@ -4,7 +4,9 @@ import type { Transport } from "../transport/transport.js";
 import { MediaAssetMapper } from "./media-asset-mapper.js";
 import type { MediaAssetPayload } from "./media-asset-payload.js";
 import type { MediaDeleteOptions } from "./media-delete-options.js";
+import { MediaFile } from "./media-file.js";
 import { MediaReference } from "./media-reference.js";
+import type { MediaReplace, MediaReplaceOptions } from "./media-replace.js";
 import type { MediaUsageQuery } from "./media-usage-page.js";
 import { MediaUsagePage } from "./media-usage-page.js";
 
@@ -76,6 +78,42 @@ export class MediaAsset {
   /** REPLACES the tag list — `PATCH` replaces, it does not append. */
   async setTags(tags: readonly string[], options?: RequestOptions): Promise<this> {
     return this.patch({ tags: [...tags] }, options);
+  }
+
+  /**
+   * Swaps the bytes behind this asset (D67). `id`, `reference`, `url`,
+   * `filename` and `folder` all survive; `hash`, `sizeInBytes` and
+   * `contentType` are re-read from the server's answer.
+   *
+   * Every entry referencing it now resolves to the new file, without any of
+   * them being rewritten — which is the point, and the reason the server asks
+   * for `media:replace` **and** `entries:update` at every scope that refers
+   * to it.
+   *
+   * The new file must keep the current extension: the blob key's suffix is
+   * derived from the filename at upload and is the visible tail of the URL on
+   * a bucket-backed instance, so a `.png` asset takes a `.png` replacement.
+   * Converting a file is a new upload, not a replacement of this one.
+   */
+  async replace(input: MediaReplace, options?: MediaReplaceOptions): Promise<this> {
+    const form = new FormData();
+    if (input instanceof Blob) {
+      form.set("file", input, MediaFile.nameOf(input, options?.filename));
+    } else {
+      form.set("file", MediaFile.toBlob(input.bytes, input.contentType), input.filename);
+    }
+
+    const payload = await this.transport.upload<MediaAssetPayload>(
+      {
+        method: "POST",
+        path: ApiPath.mediaAssetContent(this.id),
+        signal: options?.signal,
+        timeoutMilliseconds: options?.timeoutMilliseconds,
+      },
+      form,
+    );
+    this.record = MediaAssetMapper.toRecord(payload);
+    return this;
   }
 
   /** Refused while an entry references it; `{ force: true }` also needs

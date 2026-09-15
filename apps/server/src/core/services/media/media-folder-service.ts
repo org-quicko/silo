@@ -85,7 +85,7 @@ export class MediaFolderService {
    *
    * Public for two callers outside this class: `MediaFolderRoutes`' recursive
    * folder delete, which needs the id list both for `RouteAuth.
-   * requireForcedMediaDelete`'s authority check and for the delete loop
+   * requireMediaContentAuthority`'s authority check and for the delete loop
    * itself, before either runs — and `delete` above, which only needs the
    * count.
    */

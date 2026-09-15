@@ -97,6 +97,10 @@ export class ApiPath {
     return `${ApiPath.mediaAsset(id)}/usages`;
   }
 
+  static mediaAssetContent(id: string): string {
+    return `${ApiPath.mediaAsset(id)}/content`;
+  }
+
   static mediaBulkDelete(): string {
     return "/api/media/delete";
   }

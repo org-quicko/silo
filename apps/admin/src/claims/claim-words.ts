@@ -72,6 +72,7 @@ export class ClaimWords {
   static readonly fixed: Record<string, string> = {
     [Claims.MediaCreate]: 'upload media',
     [Claims.MediaDelete]: 'delete media',
+    [Claims.MediaReplace]: 'replace the file behind a media asset',
     [Claims.MediaPurge]: 'empty the whole media library',
     [Claims.MediaConfigure]: 'change how the media library is set up',
     [Claims.SettingsConfigure]: 'change the server config file',
@@ -101,6 +102,7 @@ export class ClaimWords {
     Claims.KeysExport,
     Claims.KeysImport,
     Claims.MediaDelete,
+    Claims.MediaReplace,
     Claims.MediaPurge,
     Claims.MediaConfigure,
     Claims.SettingsConfigure,

@@ -274,6 +274,19 @@ the `media_in_use` code when this package was written — it is corrected now,
 but a drift guard reading a document that can be incomplete is false
 confidence.
 
+`POST /api/media/{id}/content` joined it with D67, as `MediaAsset.replace()`.
+It is a method on the asset rather than on `Media` because a replace has a
+subject that already exists, which is the same reason `rename`, `moveTo` and
+`delete` live there: `Media` is how you find or add an asset, `MediaAsset` is
+what you do to one. It adopts the server's answer in place like every other
+mutating call, so `hash`, `sizeInBytes` and `contentType` move while `id`,
+`reference` and `url` do not — which is the property the class doc already
+warns about from the other direction, that `url` is where to fetch today's
+bytes and `reference` is what belongs in an entry. `MediaFile` holds the
+blob-and-filename derivation that `Media.upload` had inline, because the
+server reads the extension off that name on both paths and two spellings of it
+could disagree about what is being sent.
+
 ### 14.9 What the client deliberately does not reach
 
 Keys, claims, plugins, transfer, settings, audit, observability, session

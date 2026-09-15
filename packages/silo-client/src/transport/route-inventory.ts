@@ -55,6 +55,7 @@ export class RouteInventory {
     "PATCH /api/media/:id",
     "DELETE /api/media/:id",
     "GET /api/media/:id/usages",
+    "POST /api/media/:id/content",
     "POST /api/media/delete",
     "GET /api/media/folders",
     "POST /api/media/folders",

@@ -77,6 +77,19 @@ export class ClaimPresets {
    * that job. Putting it in either preset would make "who may empty the
    * library" a side effect of picking a role, which is the same failure the
    * three above are kept out for.
+   *
+   * `media:replace` (D67) is the fifth, and the only one kept out of `write`
+   * while staying **in** `manage`. The `write` half is purge's argument
+   * again: `media:create` is what an integration managing its own uploads
+   * needs, and overwriting bytes it did not upload is not a larger version of
+   * that job. The `manage` half is where it stops. Replacing a stale asset is
+   * ordinary content work, and pricing it at `root` would put editors in the
+   * account D38 says to use least — the reason `audit:read` is in this list
+   * too. It is no blank cheque at that reach either:
+   * `RouteAuth.requireMediaContentAuthority` still requires `entries:update`
+   * at every scope referring to the asset, and a `manage` key holds that only
+   * on its own targets. The preset says what a key may do; the reach check
+   * says where it may land.
    */
   private static readonly Fixed: Record<
     Exclude<ClaimPreset, "root">,
@@ -89,6 +102,7 @@ export class ClaimPresets {
     manage: [
       ClaimVocabulary.MediaCreate,
       ClaimVocabulary.MediaDelete,
+      ClaimVocabulary.MediaReplace,
       ClaimVocabulary.PluginsRead,
       ClaimVocabulary.PluginsConfigure,
       // Reading the trail is an operator's job, and withholding it from the

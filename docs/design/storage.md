@@ -288,6 +288,20 @@ speaking its API, built on Bun's own `S3Client`) — resolved by driver name
 through `ProviderRegistry` exactly as the `Storage` adapters are, so a provider
 plugin's driver reaches the same lookup the built-ins do (§13.7).
 
+`put` **overwrites atomically**, and since D67 that matters. `FsBlobStorage`
+writes a temp sibling and renames over the key rather than truncating it in
+place; `S3BlobStorage` never had the problem, since a `PUT` publishes no
+partial object. A plain `writeFile` was harmless while every key was written
+exactly once — a crash mid-write left bytes nothing pointed at yet — but
+replacing an asset's content makes an overwrite ordinary, and there the same
+crash leaves a *catalogued* asset truncated with its record still describing
+what used to be there. `reconcile` would not catch it: it asks whether a blob
+exists, not whether it is the one the record describes. The temp name is
+deliberately not derived from the key, so a leftover from a hard crash is
+reported as an orphan rather than adopted as an asset by the pre-D23
+`<sha256>_<name>` rule. The port is still six methods; nothing about this is
+visible through it.
+
 Which one an instance uses was, until D45, a `silo.toml` question and only that:
 `[blob_storage]`, the `SILO_BLOB_*` variables, or `--blob-path`. That is fine on
 a box with a shell and impossible on a managed platform without one, where

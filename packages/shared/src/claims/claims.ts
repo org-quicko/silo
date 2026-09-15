@@ -12,7 +12,7 @@ import type { FixedClaim } from "./fixed-claim";
 import { ForcedDeletePermissions } from "./forced-delete-permissions";
 import type { HookClaim } from "./hook-claim";
 import type { HookName } from "../hooks/hook-name";
-import { MediaForceDeletePermissions } from "./media-force-delete-permissions";
+import { MediaContentPermissions } from "./media-content-permissions";
 import { ParsedClaim } from "./parsed-claim";
 import { RenamePermissions } from "./rename-permissions";
 import { ScopeCopyPermissions } from "./scope-copy-permissions";
@@ -42,9 +42,11 @@ export class Claims extends ClaimVocabulary {
   /** What a `?force=true` delete exercises, at whatever reach it reaches. */
   static readonly ForcedDeletePermissions = ForcedDeletePermissions.All;
 
-  /** What a media `?force=true` delete *additionally* exercises, at the
-   *  scopes it is found to reach (D49) — see `RouteAuth.requireForcedMediaDelete`. */
-  static readonly MediaForceDeletePermissions = MediaForceDeletePermissions.All;
+  /** What a media operation that changes what a reference resolves to — a
+   *  `?force=true` delete (D49), a byte replace (D67) — *additionally*
+   *  exercises, at the scopes it is found to reach. See
+   *  `RouteAuth.requireMediaContentAuthority`. */
+  static readonly MediaContentPermissions = MediaContentPermissions.All;
 
   /** What renaming a project, environment or collection exercises, at the
    *  subject's own reach (D51). */

@@ -12,6 +12,9 @@ interface Props {
   /** The server's base URL; the asset's own `url` is rooted at it. */
   baseUrl: string
   canEdit: boolean
+  /** Swapping the bytes behind the file is its own claim (D67), so it is its
+   *  own gate rather than riding on `canEdit`. */
+  canReplace: boolean
   /** Also whether the card is selectable at all — the checkbox is a bulk
    *  delete tool, so it needs the same claim the trash icon does. */
   canDelete: boolean
@@ -20,6 +23,7 @@ interface Props {
   onPreview: (asset: MediaAsset) => void
   onEdit: () => void
   onMove: () => void
+  onReplace: () => void
   onDelete: () => void
   onDragStart?: (e: React.DragEvent) => void
 }
@@ -31,12 +35,14 @@ export function MediaCard({
   asset,
   baseUrl,
   canEdit,
+  canReplace,
   canDelete,
   selected,
   onToggleSelect,
   onPreview,
   onEdit,
   onMove,
+  onReplace,
   onDelete,
   onDragStart,
 }: Props) {
@@ -138,6 +144,11 @@ export function MediaCard({
           onMove={() => {
             setMenuOpen(false)
             onMove()
+          }}
+          canReplace={canReplace}
+          onReplace={() => {
+            setMenuOpen(false)
+            onReplace()
           }}
           canDelete={canDelete}
           deleteTitle={used > 0 ? 'Referenced by entries' : 'Delete file'}

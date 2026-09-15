@@ -60,6 +60,17 @@ export class MediaApi {
       .then((asset) => MediaApi.toMediaAsset(asset))
   }
 
+  /** Swaps the bytes behind an asset (D67). The id, name, folder and URL all
+   *  survive; every entry referencing it resolves to the new file without
+   *  being rewritten. The replacement must keep the current extension. */
+  replace(url: string, key: string, id: string, file: File): Promise<MediaAsset> {
+    return this.transport
+      .silo(url, key)
+      .media.get(id)
+      .then((asset) => asset.replace(file))
+      .then((asset) => MediaApi.toMediaAsset(asset))
+  }
+
   get(url: string, key: string, id: string): Promise<MediaAsset> {
     return this.transport
       .silo(url, key)

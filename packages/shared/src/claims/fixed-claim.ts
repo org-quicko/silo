@@ -10,6 +10,7 @@ export type FixedClaim =
   | "transfer:copy"
   | "media:create"
   | "media:delete"
+  | "media:replace"
   | "media:purge"
   | "media:configure"
   | "settings:configure"

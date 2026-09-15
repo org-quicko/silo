@@ -17,7 +17,7 @@ can be cloned with one command.
 
 ## Where things stand
 
-*Last updated: 2026-09-15 (D66)*
+*Last updated: 2026-09-15 (D67)*
 
 Everything through M5 is built and shipping: collections and JSON Schema
 validation, entry CRUD with optimistic concurrency, the query AST and search
@@ -104,7 +104,15 @@ claim, `media:purge`, so emptying the whole media library is a grant an
 operator makes rather than something `media:delete` came with (D65). In the
 media library, renaming and moving are now **two actions rather than one
 dialog**, and a move is browsed as a folder tree instead of typed as a path
-(D66).
+(D66). The file behind an asset can now be **replaced in place**: `POST
+/api/media/{id}/content` swaps the bytes while the id, the reference, the URL
+and the filename all stay put, so every entry that uses it shows the new file
+without one of them being rewritten (D67). It takes a `media:replace` claim
+— carried by `manage` but not by `write`, since `media:create` is what an
+upload integration holds — and, wherever the asset is actually referenced,
+the same `entries:update`-at-every-referring-scope check a force delete
+passes. The blob key and the extension stay put, which is what keeps a
+bucket-backed instance's public URL stable and leaves nothing to clean up.
 
 **The most recent change landed on 2026-09-15; everything before it on
 2026-09-10 or earlier.**
@@ -835,7 +843,7 @@ scope the assets being force-deleted are actually referenced from — the same
 rule `ForcedDeletePermissions` and the transfer/scope-copy replace
 permissions already stated three times, that a force must additionally hold
 the claims for the effects it cascades into. Unlike those three, media's reach
-is **data-derived**: `RouteAuth.requireForcedMediaDelete` (async, unlike its
+is **data-derived**: `RouteAuth.requireMediaContentAuthority` (async, unlike its
 sibling, because it queries usages) enumerates the *true* referring scopes via
 `MediaUsageScopes`, which pages `Storage.listMediaUsages` up to a 2000-row cap
 and refuses anyone but a key holding `*` past it — checked against the whole
@@ -843,7 +851,8 @@ truth, never the claim-filtered enumeration a refusal's body shows the
 caller, since filtering first would let a key force-delete *because* it
 cannot see the referrers. The admin mirrors it: `AssetInUseDialog`'s force
 checkbox is hidden, not merely disabled, whenever the server would refuse it
-(`MediaForceAvailability`). `PATCH /api/media/folders` renames or moves a
+(`MediaContentAvailability`, which D67 renamed from `MediaForceAvailability`
+when a replace became its second caller). `PATCH /api/media/folders` renames or moves a
 folder, its descendant folders and every asset within — no entry touched, no
 blob moved, the same D23 property a single asset's rename has always had. It
 refuses on collision with `to` unless the caller opts in with `merge: true`;

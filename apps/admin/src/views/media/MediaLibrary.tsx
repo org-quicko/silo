@@ -24,15 +24,16 @@ import { useMediaLibrary } from './use-media-library'
 import { useMediaMoveFlow } from './use-media-move-flow'
 import { useMediaPurge } from './use-media-purge'
 import { useMediaRenameFolderFlow } from './use-media-rename-folder-flow'
+import { useMediaReplaceFlow } from './use-media-replace-flow'
 import { ToastManager } from '../../utils/toast-manager'
 import styles from './MediaLibrary.module.css'
 
 type LibraryView = 'grid' | 'list'
 
 const VIEW_KEY = 'silo_media_view'
-/** The last column holds five hover actions on a file row since Move split
- *  off Rename (D66), so it is sized for them rather than for four. */
-const LIST_COLS = 'minmax(0, 1fr) 100px 100px 172px'
+/** The last column holds six hover actions on a file row since Replace joined
+ *  Rename and Move (D66, D67), so it is sized for them rather than for four. */
+const LIST_COLS = 'minmax(0, 1fr) 100px 100px 206px'
 /** With the leading checkbox column — list view, once `media:delete` makes
  *  a row selectable. */
 const LIST_COLS_SELECTABLE = `28px ${LIST_COLS}`
@@ -84,6 +85,9 @@ export function MediaLibraryView({
   )
   const purgeFlow = useMediaPurge(library.purge, () => ToastManager.show('Media library purged'))
   const renameFolderFlow = useMediaRenameFolderFlow(library.renameFolder, () => ToastManager.show('Folder renamed'))
+  const replaceFlow = useMediaReplaceFlow(library.usageOf, library.replaceContent, () =>
+    ToastManager.show('File replaced'),
+  )
   const moveFlow = useMediaMoveFlow(library.moveItems, (subject, target) => {
     const count = subject.assets.length + subject.folderPaths.length
     const targetLabel = target === '' ? 'root' : `"${MediaPath.name(target)}"`
@@ -118,6 +122,11 @@ export function MediaLibraryView({
   // Both halves, exactly as `POST /api/media/purge` asks for them (D65) — an
   // affordance and a refusal must not disagree.
   const canPurge = canDelete && Claims.has(claims, Claims.MediaPurge)
+  // Its own claim, not `media:create` (D67): the `write` preset carries the
+  // latter, and an affordance and a refusal must not disagree. Whether the
+  // key may replace *this* file is a second question the dialog answers, from
+  // the referrers, through `MediaContentAvailability`.
+  const canReplace = Claims.has(claims, Claims.MediaReplace)
   const baseUrl = url ? (url.endsWith('/') ? url.slice(0, -1) : url) : ''
   const listCols = canDelete ? LIST_COLS_SELECTABLE : LIST_COLS
 
@@ -311,7 +320,9 @@ export function MediaLibraryView({
           deleteFlow={deleteFlow}
           moveFlow={moveFlow}
           renameFolderFlow={renameFolderFlow}
+          replaceFlow={replaceFlow}
           canUpload={canUpload}
+          canReplace={canReplace}
           canDelete={canDelete}
           baseUrl={baseUrl}
           listCols={listCols}
@@ -336,6 +347,7 @@ export function MediaLibraryView({
         moveFlow={moveFlow}
         purgeFlow={purgeFlow}
         renameFolderFlow={renameFolderFlow}
+        replaceFlow={replaceFlow}
         previewAsset={previewAsset}
         onClosePreview={() => setPreviewAsset(null)}
         onNavigatePreview={setPreviewAsset}

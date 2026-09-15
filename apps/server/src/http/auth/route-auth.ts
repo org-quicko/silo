@@ -178,48 +178,59 @@ export class RouteAuth {
   }
 
   /**
-   * The extra authority a media `?force=true` delete needs (D49) — the sibling
-   * `requireForcedDelete` doesn't have, because a media force's reach is
-   * **data-derived** rather than the route's own scope parameters. It must
-   * enumerate who currently refers to `mediaIds` before it can know which
-   * scopes to check, which is a store query — the one reason this is `async`
-   * and its sibling is not.
+   * The extra authority an operation that changes what a media reference
+   * *resolves to* needs — a `?force=true` delete (D49) or a byte replace
+   * (D67). The sibling `requireForcedDelete` has no equivalent because a
+   * media operation's reach is **data-derived** rather than the route's own
+   * scope parameters: it must enumerate who currently refers to `mediaIds`
+   * before it can know which scopes to check, which is a store query and the
+   * one reason this is `async` and its sibling is not.
    *
-   * Checked against `media.forceReach`, the TRUE referrer set, never a
-   * claim-filtered one: filtering first would let a key force-delete
-   * *because* it cannot see the referrers, and a key that cannot read a scope
-   * necessarily lacks `entries:update` there, so refusing it is the correct
-   * and self-consistent outcome (§8.1).
+   * Both callers pass through here rather than replace getting a looser gate
+   * of its own. A force-delete resolves a reference to `null` and shows up as
+   * a broken field; a replace resolves it to a different file and shows up as
+   * nothing at all. The quieter of the two is not the one to gate less.
+   *
+   * `operation` is the whole phrase, force included where there is a force
+   * ("media delete with force", "media replace"), because replace has no such
+   * flag and a message that said so anyway would name something the caller
+   * never sent.
+   *
+   * Checked against `media.contentReach`, the TRUE referrer set, never a
+   * claim-filtered one: filtering first would let a key through *because* it
+   * cannot see the referrers, and a key that cannot read a scope necessarily
+   * lacks `entries:update` there, so refusing it is the correct and
+   * self-consistent outcome (§8.1).
    *
    * When the reach is too wide to enumerate exactly (over the 2000-row cap
    * `MediaUsageScopes` pages up to), only a key holding `*` may proceed —
-   * silo cannot enumerate everything the operation would break, so only a key
+   * silo cannot enumerate everything the operation would change, so only a key
    * that can do anything may do this one.
    *
    * The refusal names only the scopes the key may already read and counts the
    * rest, the same split the `409` body takes: checking against the true reach
    * must not become the one place that discloses it (§8.1).
    */
-  static async requireForcedMediaDelete(
+  static async requireMediaContentAuthority(
     c: Context,
     operation: string,
     media: MediaService,
     mediaIds: readonly string[],
   ): Promise<void> {
     const key = RouteAuth.requireKey(c);
-    const reach = await media.forceReach(mediaIds);
+    const reach = await media.contentReach(mediaIds);
 
     if (reach.capped) {
       if (!Claims.has(key.claims, Claims.Root)) {
         throw new ForbiddenError(
-          `${operation} with force references too many entries to enumerate exactly; only a key holding "*" may force it`,
+          `${operation} references too many entries to enumerate exactly; only a key holding "*" may do it`,
         );
       }
       return;
     }
 
     const missing = reach.scopes.filter((scope) =>
-      Claims.MediaForceDeletePermissions.some(
+      Claims.MediaContentPermissions.some(
         (permission) =>
           !Claims.has(
             key.claims,
@@ -244,10 +255,10 @@ export class RouteAuth {
     if (hidden > 0) {
       where.push(`${hidden} scope${hidden === 1 ? "" : "s"} this key cannot read`);
     }
-    const needed = Claims.MediaForceDeletePermissions.join('", "');
+    const needed = Claims.MediaContentPermissions.join('", "');
 
     throw new ForbiddenError(
-      `${operation} with force changes what the entries referring to it resolve to, so it needs "${needed}" at every referring scope; this key is missing that at ${where.join(" and ")}`,
+      `${operation} changes what the entries referring to it resolve to, so it needs "${needed}" at every referring scope; this key is missing that at ${where.join(" and ")}`,
     );
   }
 

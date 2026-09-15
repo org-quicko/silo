@@ -62,7 +62,7 @@ export class MediaFolderRoutes {
 
       const ids = await service.media.folderAssetIds(path);
       if (force) {
-        await RouteAuth.requireForcedMediaDelete(c, "recursive folder delete", service.media, ids);
+        await RouteAuth.requireMediaContentAuthority(c, "recursive folder delete with force", service.media, ids);
       }
 
       const batch = await MediaDeleteBatch.run(service, ids, force, (id, caught) =>

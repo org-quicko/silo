@@ -6,6 +6,7 @@ import type { Transport } from "../transport/transport.js";
 import type { TransportQueryValue } from "../transport/transport-request.js";
 import { MediaAsset } from "./media-asset.js";
 import { MediaAssetMapper } from "./media-asset-mapper.js";
+import { MediaFile } from "./media-file.js";
 import type { MediaAssetPayload } from "./media-asset-payload.js";
 import type { MediaDeleteOptions } from "./media-delete-options.js";
 import { MediaDeleteReport } from "./media-delete-report.js";
@@ -42,11 +43,11 @@ export class Media {
 
     if (input instanceof Blob) {
       const fileOptions = (second as MediaUploadFileOptions) ?? {};
-      form.set("file", input, Media.filenameOf(input, fileOptions.filename));
+      form.set("file", input, MediaFile.nameOf(input, fileOptions.filename));
       folder = fileOptions.folder;
       options = third ?? fileOptions;
     } else {
-      form.set("file", Media.toBlob(input.bytes, input.contentType), input.filename);
+      form.set("file", MediaFile.toBlob(input.bytes, input.contentType), input.filename);
       folder = input.folder;
       options = second as RequestOptions | undefined;
     }
@@ -129,21 +130,5 @@ export class Media {
       modified_before: query.modifiedBefore,
       sort: query.sort,
     };
-  }
-
-  private static toBlob(bytes: Uint8Array | ArrayBuffer | Blob, contentType?: string): Blob {
-    if (bytes instanceof Blob) return bytes;
-    // `Uint8Array`'s `ArrayBufferLike` backing (which admits `SharedArrayBuffer`)
-    // is stricter than `BlobPart` under this lib's types; a runtime `Blob`
-    // accepts either, so the cast is safe.
-    return new Blob([bytes as BlobPart], contentType ? { type: contentType } : undefined);
-  }
-
-  /** A `File` carries its own name; a bare `Blob` does not, and uploading it
-   * as "blob" is worse than refusing outright. */
-  private static filenameOf(input: Blob, explicit?: string): string {
-    if (explicit) return explicit;
-    if (input instanceof File && input.name) return input.name;
-    throw new Error("media upload: a Blob has no filename — pass { filename } explicitly");
   }
 }

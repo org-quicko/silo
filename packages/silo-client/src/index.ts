@@ -88,6 +88,7 @@ export type { MediaAssetRecord } from "./media/media-asset.js";
 export type { MediaQuery } from "./media/media-query.js";
 export type { MediaUsage } from "./media/media-usage.js";
 export type { MediaUsageQuery } from "./media/media-usage-page.js";
+export type { MediaReplace, MediaReplaceBytes, MediaReplaceOptions } from "./media/media-replace.js";
 export type { MediaUpload, MediaUploadBytes, MediaUploadFileOptions } from "./media/media-upload.js";
 export type { MediaDeleteFailure } from "./media/media-delete-failure.js";
 export type { MediaDeleteOptions } from "./media/media-delete-options.js";

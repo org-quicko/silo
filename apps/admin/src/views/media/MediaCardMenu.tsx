@@ -1,5 +1,5 @@
 import { useEffect, useRef } from 'react'
-import { Eye, FolderInput, Link, Pencil, Trash2 } from 'lucide-react'
+import { Eye, FolderInput, Link, Pencil, Replace, Trash2 } from 'lucide-react'
 import styles from './MediaLibrary.module.css'
 
 interface Props {
@@ -9,6 +9,9 @@ interface Props {
   onRename: () => void
   canMove: boolean
   onMove: () => void
+  /** Absent for a folder tile, which has no file behind it to replace. */
+  canReplace?: boolean
+  onReplace?: () => void
   canDelete: boolean
   deleteTitle?: string
   onDelete: () => void
@@ -16,9 +19,10 @@ interface Props {
 }
 
 /** The grid tile's "more" menu — Preview, Copy link (files only), Rename, Move,
- *  Delete — replacing the persistent action row a hover-only tile has no room
- *  for. Rename and Move are separate items because they are separate questions
- *  (D66). */
+ *  Replace, Delete — replacing the persistent action row a hover-only tile has
+ *  no room for. Rename and Move are separate items because they are separate
+ *  questions (D66); Replace sits beside them rather than under Upload because
+ *  its subject is this file and not the folder (D67). */
 export function MediaCardMenu({
   onPreview,
   onCopyLink,
@@ -26,6 +30,8 @@ export function MediaCardMenu({
   onRename,
   canMove,
   onMove,
+  canReplace,
+  onReplace,
   canDelete,
   deleteTitle,
   onDelete,
@@ -60,6 +66,11 @@ export function MediaCardMenu({
       {canMove && (
         <button type="button" className={styles.cardMenuItem} onClick={onMove}>
           <FolderInput size={14} /> <span>Move</span>
+        </button>
+      )}
+      {canReplace && onReplace && (
+        <button type="button" className={styles.cardMenuItem} onClick={onReplace}>
+          <Replace size={14} /> <span>Replace file</span>
         </button>
       )}
       {canDelete && (

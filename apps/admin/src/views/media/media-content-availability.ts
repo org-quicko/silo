@@ -2,10 +2,15 @@ import { Claims } from '@silo/shared/claims'
 import type { MediaInUseAsset } from './media-delete-outcome'
 
 /**
- * Whether the force checkbox in `AssetInUseDialog` may arm, mirroring the
- * server's own rule (`RouteAuth.requireForcedMediaDelete`, D49): a force
- * additionally needs `entries:update` on every scope an asset is actually
- * referenced from.
+ * Whether an operation that changes what a media reference resolves to may be
+ * offered: the force checkbox in `AssetInUseDialog` (D49), and the Replace
+ * action (D67). Mirrors the server's own rule
+ * (`RouteAuth.requireMediaContentAuthority`) — either additionally needs
+ * `entries:update` on every scope an asset is actually referenced from.
+ *
+ * One class for both because it is one rule. Replace reaches it from the
+ * asset's own usage page rather than from a refused delete, which is a
+ * difference in where the referrer facts come from and in nothing else.
  *
  * `forced-delete-permissions.ts` states the principle this exists for: the
  * admin UI gates its delete buttons on exactly what the routes enforce, so an
@@ -19,11 +24,12 @@ import type { MediaInUseAsset } from './media-delete-outcome'
  * `visible_count` is a lower bound, not an exact count, and the gate must
  * refuse on purpose there, not by accident of `visible_count` falling short.
  */
-export class MediaForceAvailability {
-  /** `null` when force may be offered; otherwise the reason to show in its
-   *  place. Checked over every asset a force call would cover at once — one
-   *  `POST /api/media/delete` call forces all of them together, so one
-   *  missing scope makes the whole batch unavailable. */
+export class MediaContentAvailability {
+  /** `null` when the operation may be offered; otherwise the reason to show
+   *  in its place. Checked over every asset the call would cover at once —
+   *  one `POST /api/media/delete` forces all of them together, so one missing
+   *  scope makes the whole batch unavailable. A replace passes a list of one,
+   *  which is the same rule with nothing to batch. */
   static unavailable(assets: readonly MediaInUseAsset[], claims: readonly string[]): string | null {
     // Root covers every check below by construction (`Claims.has` already
     // short-circuits on it) — stated explicitly so this holds even if
