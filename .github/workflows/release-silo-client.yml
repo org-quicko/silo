@@ -1,0 +1,205 @@
+# Publishes `packages/silo-client` to npm, on its own schedule and its own
+# version, with nothing about it tied to a silo release.
+#
+# The two answer different questions. silo's version is what `silo --version`
+# prints and what a Homebrew formula and an RPM are named for; the client's is
+# a compatibility promise to somebody else's `import`. Tying them would mean
+# every silo patch release churning a version on a library that did not change,
+# and a client fix waiting for a binary release to carry it. So they are cut
+# apart deliberately: this workflow has its own tag prefix and its own version
+# gate, and `tools/set-version.ts` leaves
+# `packages/silo-client/package.json` alone for the same reason.
+#
+# Triggered by pushing a tag:
+#
+#     git tag -a silo-client-v1.1.0 -m "silo-client 1.1.0"
+#     git push origin silo-client-v1.1.0
+#
+# `silo-client-v*` cannot be caught by release.yml's `v*`, so a client release
+# builds no binaries and touches no tap.
+#
+# `workflow_dispatch` runs everything up to and including `npm publish
+# --dry-run`. That is the rehearsal worth having here: the pack, the manifest
+# lint, the type-condition check and npm's own acceptance of the tarball, with
+# no version number burned.
+name: release-silo-client
+
+# Read-only by default; the publish job asks for the one thing it needs.
+permissions:
+  contents: read
+
+on:
+  push:
+    tags: ["silo-client-v*"]
+  workflow_dispatch:
+
+env:
+  # The same runtime the rest of the repo builds with; the client's `build`
+  # script is `bun build`, and `prepublishOnly` runs it during `npm publish`.
+  BUN_VERSION: "1.4.0"
+  # Node is here for npm itself, and for the packed-tarball harness, which
+  # consumes the artifact as Node ESM and as Node CommonJS.
+  NODE_VERSION: "22"
+
+# A second client tag pushed while the first is mid-publish would race it to
+# the registry.
+concurrency:
+  group: release-silo-client-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  # One place decides what this run publishes, so nothing downstream re-derives
+  # it from a ref and gets it subtly different.
+  version:
+    runs-on: ubuntu-24.04
+    outputs:
+      version: ${{ steps.resolve.outputs.version }}
+      dist_tag: ${{ steps.resolve.outputs.dist_tag }}
+    steps:
+      - uses: actions/checkout@v7
+      - id: resolve
+        run: |
+          declared=$(jq -r .version packages/silo-client/package.json)
+
+          # The manifest is the source of truth and the tag is a request to
+          # publish what it already says. A dispatch has no tag, so the
+          # manifest is the whole answer there.
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            version="$declared"
+          else
+            version="${GITHUB_REF_NAME#silo-client-v}"
+          fi
+
+          case "$version" in
+            [0-9]*.[0-9]*.[0-9]*) ;;
+            *) echo "::error::'$version' is not a semantic version" && exit 1 ;;
+          esac
+
+          # When the tag and the manifest disagree, one of them is wrong and
+          # there is no way to tell which — but npm would publish the manifest's
+          # version under the tag's name, and the mismatch would only surface
+          # later as a tag that points at something else.
+          if [ "$declared" != "$version" ]; then
+            echo "::error::tag $GITHUB_REF_NAME does not match packages/silo-client/package.json ($declared)"
+            exit 1
+          fi
+
+          # A pre-release publishes under `next`: `npm install silo-client`
+          # must not hand someone a release candidate. Same rule release.yml
+          # applies to the Homebrew tap, for the same reason.
+          case "$version" in
+            *-*) dist_tag=next ;;
+            *) dist_tag=latest ;;
+          esac
+
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "dist_tag=$dist_tag" >> "$GITHUB_OUTPUT"
+          echo "silo-client $version -> npm dist-tag $dist_tag"
+
+  # The package's own gate rather than a second recipe that only runs on tags.
+  # `test:packaged` builds, asserts all four `dist` entry points exist, runs
+  # `npm pack`, then `publint` and `attw --pack` over the artifact, then
+  # installs that tarball into throwaway Node ESM, Node CommonJS and Bun
+  # consumers. Unit tests over `src/` cannot tell you whether the `exports` map
+  # resolves or whether a CommonJS consumer's types load; this can.
+  verify:
+    needs: version
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: ${{ env.BUN_VERSION }}
+      - uses: actions/setup-node@v7
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+      - run: bun install --frozen-lockfile
+      - name: Type-check
+        run: bun run --cwd packages/silo-client typecheck
+      - name: Test
+        run: bun run --cwd packages/silo-client test
+      - name: Test the packed tarball
+        run: bun run --cwd packages/silo-client test:packaged
+
+  publish:
+    needs: [version, verify]
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      id-token: write # npm provenance, which mints an OIDC token for Sigstore
+    steps:
+      - uses: actions/checkout@v7
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: ${{ env.BUN_VERSION }}
+
+      # `registry-url` is the part that matters: it writes the `.npmrc` that
+      # reads `NODE_AUTH_TOKEN`. Without it the secret is set and ignored, and
+      # the publish fails as an anonymous one.
+      - uses: actions/setup-node@v7
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          registry-url: https://registry.npmjs.org
+
+      - run: bun install --frozen-lockfile
+
+      # Fail here rather than after a build: npm refuses to republish a version
+      # that exists, and hearing it now names the fix.
+      #
+      # The output is the answer, not the exit code. `npm view` exits 0 and
+      # prints nothing when the package exists but that version does not, and
+      # errors outright when the name has never been published at all — which
+      # is the first release rather than a failure. Reading the status would
+      # get both cases backwards.
+      - name: Check the version is unpublished
+        if: github.event_name != 'workflow_dispatch'
+        run: |
+          version="${{ needs.version.outputs.version }}"
+          published=$(npm view "silo-client@$version" version 2>/dev/null || true)
+          if [ -n "$published" ]; then
+            echo "::error::silo-client@$version is already published. Bump packages/silo-client/package.json and tag the bump."
+            exit 1
+          fi
+
+      # `npm publish` runs the package's own `prepublishOnly`, which is
+      # `bun run build` — so the tarball is built by the same script a
+      # maintainer runs locally, not by a recipe that exists only here.
+      - name: Publish
+        working-directory: packages/silo-client
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: |
+          flags=(--access public --tag "${{ needs.version.outputs.dist_tag }}")
+
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            # The rehearsal: packs, runs every check npm makes, and stops
+            # short of the upload. No token needed, and none is used.
+            flags+=(--dry-run)
+          else
+            if [ -z "$NODE_AUTH_TOKEN" ]; then
+              echo "::error::NPM_TOKEN is not set — add it as a repository secret with publish rights on silo-client"
+              exit 1
+            fi
+            # Attests the tarball to this run and this commit, so a consumer
+            # can check that what they installed was built from this tree.
+            # Requires `id-token: write` and the `repository` field the
+            # manifest already carries.
+            flags+=(--provenance)
+          fi
+
+          npm publish "${flags[@]}"
+
+      - name: Summarise
+        run: |
+          {
+            echo "### silo-client ${{ needs.version.outputs.version }}"
+            if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+              echo "Rehearsal only — nothing was published."
+            else
+              echo "Published to npm under \`${{ needs.version.outputs.dist_tag }}\`."
+              echo ""
+              echo '```sh'
+              echo "npm install silo-client@${{ needs.version.outputs.version }}"
+              echo '```'
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"

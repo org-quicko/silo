@@ -210,9 +210,50 @@
   font-weight: 600;
 }
 
+.itemActions {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 8px;
+  margin-left: auto;
+}
+
+.previewActionBtn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 2px 7px;
+  border: 1px solid var(--line-2);
+  border-radius: var(--radius-sm);
+  background: var(--panel);
+  color: var(--text-2);
+  cursor: pointer;
+  font-family: var(--font-ui);
+  font-size: 11.5px;
+  font-weight: 500;
+  line-height: 1.5;
+  transition: border-color 0.12s, color 0.12s, background 0.12s;
+}
+
+.previewActionBtn:hover {
+  border-color: var(--accent);
+  background: var(--panel-2);
+  color: var(--text);
+}
+
+.shortcutKey {
+  display: inline-flex;
+  align-items: center;
+  padding: 0 3px;
+  border-radius: 3px;
+  background: color-mix(in oklab, var(--line-2) 60%, transparent);
+  color: var(--text-3);
+  font-family: var(--font-ui);
+  font-size: 10px;
+}
+
 .enterHint {
   flex: none;
-  margin-left: auto;
   color: var(--text-3);
 }
 

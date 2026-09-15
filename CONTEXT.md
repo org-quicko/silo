@@ -83,10 +83,27 @@ out for a bucket that is deliberately private, whose links then answered
 way out, and it is the only thing that keeps silo in the read path (D59).
 
 There is now a **published TypeScript client** for the data half of the API,
-`packages/silo-client` (D61).
+`packages/silo-client` (D61), and it **releases independently of silo**: its
+own tag, its own version, its own workflow.
 
-**The most recent change landed on 2026-09-10; everything before it on
-2026-09-09 or earlier.**
+**The most recent change landed on 2026-09-15; everything before it on
+2026-09-10 or earlier.**
+
+**The client releases on its own, and npm is the only thing it ships to
+(2026-09-15).** `.github/workflows/release-silo-client.yml` publishes
+`packages/silo-client` to npm from a `silo-client-v*` tag, which `release.yml`'s
+`v*` cannot catch, so a client release builds no executables and touches no
+Homebrew tap. The version gate reads the *package's* `package.json` rather than
+the root's, `tools/set-version.ts` leaves that manifest alone for the same
+reason, and a pre-release goes out under the `next` dist-tag so
+`npm install silo-client` cannot hand somebody a release candidate. The gate
+before publishing is the package's own `test:packaged` — build, `npm pack`,
+`publint`, `attw --pack`, then the tarball installed into Node ESM, Node
+CommonJS and Bun consumers — rather than a second recipe that only runs on
+tags, and `npm publish` runs the package's own `prepublishOnly` to build what
+it uploads. The tarball carries npm provenance. `workflow_dispatch` runs all of
+it and stops at `npm publish --dry-run`, which is where a manifest npm will not
+accept is meant to be found. One secret, `NPM_TOKEN`.
 
 **silo has a TypeScript client, and it is a package rather than a copy of the
 admin's (2026-09-10).** `packages/silo-client`, published as `silo-client`,

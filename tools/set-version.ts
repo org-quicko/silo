@@ -25,6 +25,14 @@ export class SetVersion {
    * (`0.2.0` → `^0.2`). Leave it behind on a release and every plugin created
    * afterwards declares a range one version too narrow — which does not
    * degrade, it refuses the start.
+   *
+   * `packages/silo-client` is **absent on purpose**, and this is the one
+   * omission that is a decision rather than a list. It is published to npm by
+   * `.github/workflows/release-silo-client.yml`, on a `silo-client-v*` tag of
+   * its own, and its version is a compatibility promise to a consumer's
+   * `import` rather than something `silo --version` prints. Moving it here
+   * would churn a library version on every silo patch and make a client fix
+   * wait for a binary release to carry it. Its manifest is bumped by hand.
    */
   private static readonly manifests = [
     "package.json",

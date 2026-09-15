@@ -14,6 +14,7 @@ export interface PaletteItem {
   subtitle: string
   snippets: SearchSnippet[]
   href: string
+  asset?: MediaAsset
 }
 
 export interface PaletteGroup {
@@ -125,12 +126,10 @@ export class PaletteResults {
           id: `media:${asset.id}`,
           kind: 'media' as const,
           title: asset.filename,
-          subtitle: asset.folder || '/',
+          subtitle: asset.folder ? (asset.folder.startsWith('/') ? asset.folder : `/${asset.folder}`) : '/',
           snippets: [],
-          // The library has no per-asset URL, so the link carries the search
-          // that found it — landing on a library of everything would make the
-          // reader hunt for what they had already found.
-          href: Routes.media(ctx.serverId, asset.filename),
+          href: Routes.media(ctx.serverId, undefined, asset.folder),
+          asset,
         })),
       })
     }

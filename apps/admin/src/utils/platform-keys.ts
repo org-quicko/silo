@@ -18,6 +18,10 @@ export class PlatformKeys {
     return PlatformKeys.isApple(platform) ? '⌥' : 'Alt+'
   }
 
+  static shift(platform?: string): string {
+    return PlatformKeys.isApple(platform) ? '⇧' : 'Shift+'
+  }
+
   /** `userAgentData` where it exists, then the deprecated `platform`, then the UA string. */
   private static platform(): string {
     if (typeof navigator === 'undefined') return ''
