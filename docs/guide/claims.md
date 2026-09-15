@@ -30,7 +30,7 @@ collections:<project>/<env>/<name>:entries:read
 collections:<project>/<env>/<name>:entries:update
 collections:<project>/<env>/<name>:entries:delete
 hooks:<project>/<env>/<name>:<hook>
-media:create      media:delete      media:configure
+media:create      media:delete      media:purge        media:configure
 keys:read         keys:create       keys:revoke
 keys:export       keys:import
 plugins:read      plugins:grant     plugins:enable     plugins:configure
@@ -56,6 +56,14 @@ key holding `media:create` and `media:delete` still cannot repoint
 the library. It is one claim rather than a read and write pair, because the read
 half is not the harmless half: it names the bucket, the endpoint and the access
 key id.
+
+**`media:purge` is not part of `media:delete`.** `media:delete` removes files,
+one or a hundred at a time, and the **Read & write** and **Manage** roles both
+carry it. `media:purge` is the one request that ends every asset in the
+library, which is a different job from managing the files you uploaded. Only
+the `root` preset carries it, and the route asks for both claims together, so a
+key holding `media:purge` alone still purges nothing. The admin hides **Purge
+library** from a key that does not hold both.
 
 **`settings:configure` covers the rest of `silo.toml`:** logging, search, schema
 validation, and the auth switch. It works through **Settings > Configuration**

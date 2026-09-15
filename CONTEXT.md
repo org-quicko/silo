@@ -17,7 +17,7 @@ can be cloned with one command.
 
 ## Where things stand
 
-*Last updated: 2026-09-15 (D64)*
+*Last updated: 2026-09-15 (D65)*
 
 Everything through M5 is built and shipping: collections and JSON Schema
 validation, entry CRUD with optimistic concurrency, the query AST and search
@@ -37,7 +37,9 @@ multi-select, and a reference that no longer resolves reads back `null`
 instead of a broken link (D48). Force now additionally requires
 `entries:update` at every scope it actually reaches, folders can be renamed
 or moved (with an opt-in merge past a collision) and deleted recursively, and
-the whole library can be purged (D49). The three settings APIs now check that
+the whole library can be purged (D49) — behind a `media:purge` claim of its
+own since D65, because `media:delete` is carried by the `write` and `manage`
+presets and so put emptying the library in front of every upload integration. The three settings APIs now check that
 the file they write can be written, say why when it cannot, and a container
 names that file with `SILO_CONFIG` (D50). Projects, environments and
 collections are keyed records with ULIDs, so all three can be **renamed** —
@@ -97,10 +99,30 @@ instead of approximating it. A claim's scope segments now also take a **prefix
 pattern**, `collections:acme*/prod/*:…`, so "this team owns the `acme-`
 namespace" is expressible without handing over `*` (D64); every segment question
 is answered by one `ClaimSegment` in `@silo/shared` rather than by the six
-places that used to answer it separately.
+places that used to answer it separately. The vocabulary gains one more fixed
+claim, `media:purge`, so emptying the whole media library is a grant an
+operator makes rather than something `media:delete` came with (D65).
 
 **The most recent change landed on 2026-09-15; everything before it on
 2026-09-10 or earlier.**
+
+**Emptying the media library needs a claim of its own (2026-09-15).**
+`POST /api/media/purge` asks for `media:purge` in addition to `media:delete`.
+D49 shipped it behind `media:delete` alone, which both the `write` and the
+`manage` preset carry — so the one request that ends every asset in the
+instance was behind the claim an ordinary upload integration is minted with.
+`media:purge` is a new `FixedClaim`, carried by no preset but `root`, the
+fourth claim to take that shape after `media:configure` (D45),
+`settings:configure` (D47) and `plugins:grant`/`plugins:enable` (D34), and the
+first of them that is not about writing `silo.toml`. A named claim rather than
+a hard-coded `*` check, because silo has no roles and "admin only" has to be
+something the key editor can offer, the claim reference can list and an export
+can carry — and because an operator can then delegate purge to one key without
+minting a second root credential. Both claims together, on
+`POST /api/media/reconcile`'s shape: purge is a delete, so `media:purge` alone
+purges nothing. The admin hides the head menu's "Purge library" item unless the
+session key holds both, which is the rule the admin already follows for every
+delete button (D65).
 
 **An API key can be edited, and its claims are written in one of three tabs
 (2026-09-15).** `PATCH /api/keys/{id}` takes `{label?, claims?}`, replaces the
@@ -795,8 +817,8 @@ gets rename/delete actions on folder rows and tiles (restructured off a
 `<button>` wrapping the whole tile, since rename and delete are buttons of
 their own now and cannot nest inside one) through the same two-dialog flow
 files use, and a low-emphasis "Purge library" action in the library's page
-head, gated on `media:delete`, through `DangerConfirm` with the force opt-in
-inside it.
+head, gated on `media:delete` and `media:purge` (D65), through `DangerConfirm`
+with the force opt-in inside it.
 
 **Before it, D23's flat refusal on a referenced media delete was reversed,
 and the read path was given somewhere to put the truth (D48, 2026-08-31).**

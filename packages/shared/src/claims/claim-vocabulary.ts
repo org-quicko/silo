@@ -31,6 +31,20 @@ export class ClaimVocabulary {
   static readonly TransferCopy = "transfer:copy";
   static readonly MediaCreate = "media:create";
   static readonly MediaDelete = "media:delete";
+  /**
+   * Emptying the whole library in one request (D65) — `POST /api/media/purge`,
+   * which asks for this *in addition to* `media:delete`.
+   *
+   * A separate claim because `media:delete` is what an integration that
+   * manages its own uploads holds, and both the `write` and the `manage`
+   * preset carry it. Purge is not a larger version of that job: it is one
+   * request that ends every asset in the instance, including the ones the
+   * caller never uploaded and the ones it cannot see referenced. Carried by no
+   * preset but `root`, so an operator hands it over deliberately or not at
+   * all — the shape `media:configure` (D45) and `settings:configure` (D47)
+   * already take.
+   */
+  static readonly MediaPurge = "media:purge";
   /** Reading and changing how the media library is set up: where it keeps its
    *  bytes (D45), where its URLs point, and what it accepts (D46). A
    *  configuration claim, not a per-asset one — see `PluginForbiddenClaims`
@@ -116,6 +130,7 @@ export class ClaimVocabulary {
     [ClaimVocabulary.TransferCopy]: true,
     [ClaimVocabulary.MediaCreate]: true,
     [ClaimVocabulary.MediaDelete]: true,
+    [ClaimVocabulary.MediaPurge]: true,
     [ClaimVocabulary.MediaConfigure]: true,
     [ClaimVocabulary.SettingsConfigure]: true,
     [ClaimVocabulary.PluginsRead]: true,

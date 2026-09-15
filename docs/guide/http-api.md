@@ -49,7 +49,7 @@ Present a key as `Authorization: Bearer <key>` or `X-Api-Key: <key>`.
 | `PATCH` | `/api/media/{id}` | rename, move, or retag one asset (`{filename, folder, tags}`, `media:create`) |
 | `DELETE` | `/api/media/{id}` | delete a media asset. Refused while an entry still references it, unless `?force=true`, which also needs `entries:update` at the scopes it reaches |
 | `POST` | `/api/media/delete` | delete up to 100 assets at once (`{ids, force}`). Always `200`, with a `deleted`/`failed` body |
-| `POST` | `/api/media/purge` | empty the whole library (`{confirm: "purge", force?}`). Always `200`, with a `deleted`/`failed` body plus a folder count |
+| `POST` | `/api/media/purge` | empty the whole library (`{confirm: "purge", force?}`). Always `200`, with a `deleted`/`failed` body plus a folder count. Needs `media:delete` and `media:purge` |
 | `GET` | `/api/media/folders` | the folders the library holds |
 | `POST` | `/api/media/folders` | create a folder (`{path}`, `media:create`) |
 | `PATCH` | `/api/media/folders` | rename or move a folder (`{from, to}`), and every asset and descendant folder within |

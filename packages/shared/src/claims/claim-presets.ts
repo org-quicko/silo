@@ -69,6 +69,14 @@ export class ClaimPresets {
    * `settings:configure` (D47) is absent for the third time over: it writes the
    * same file, and one of the fields it writes turns every schema validation
    * into an outbound fetch.
+   *
+   * `media:purge` is the fourth (D65), and the one that is *not* about
+   * `silo.toml`. `write` and `manage` both carry `media:delete`, which is the
+   * claim an integration managing its own uploads needs; purge ends every
+   * asset in the instance in one request, which is not a larger version of
+   * that job. Putting it in either preset would make "who may empty the
+   * library" a side effect of picking a role, which is the same failure the
+   * three above are kept out for.
    */
   private static readonly Fixed: Record<
     Exclude<ClaimPreset, "root">,

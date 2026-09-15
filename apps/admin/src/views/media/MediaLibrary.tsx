@@ -111,6 +111,9 @@ export function MediaLibraryView({
 
   const canUpload = Claims.has(claims, Claims.MediaCreate)
   const canDelete = Claims.has(claims, Claims.MediaDelete)
+  // Both halves, exactly as `POST /api/media/purge` asks for them (D65) — an
+  // affordance and a refusal must not disagree.
+  const canPurge = canDelete && Claims.has(claims, Claims.MediaPurge)
   const baseUrl = url ? (url.endsWith('/') ? url.slice(0, -1) : url) : ''
   const listCols = canDelete ? LIST_COLS_SELECTABLE : LIST_COLS
 
@@ -216,7 +219,7 @@ export function MediaLibraryView({
                   >
                     <Settings size={14} /> <span>Storage settings</span>
                   </Link>
-                  {canDelete && (
+                  {canPurge && (
                     <button
                       type="button"
                       className={`${styles.cardMenuItem} ${styles.cardMenuDanger}`}
