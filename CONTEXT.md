@@ -19,6 +19,53 @@ can be cloned with one command.
 
 *Last updated: 2026-09-16 (D70)*
 
+**A collection can now say more than "required" (2026-09-16).** The visual
+schema builder wrote `type`, `enum`, `$ref` and a required list and nothing
+else, so every other rule JSON Schema can state had to be typed into Code
+view — and the entry form, which already knows how to draw those rules, had
+nothing to draw. `SchemaConstraints` (`apps/admin/src/schema/`) is the set the
+builder now reads and writes: `format`, `minLength`, `maxLength` and `pattern`
+on a string, `minimum`, `maximum` and `multipleOf` on a number or integer, and
+`minItems`, `maxItems` and `uniqueItems` on a list — a reference list included,
+since that is an array too. Each keyword earns its place twice, because the
+server asserts it *and* RJSF already renders it: a `format` picks the entry
+form's control outright (`date` a date picker, `date-time` a datetime-local,
+`email` and `uri` their typed inputs), and a range becomes the number input's
+`min`/`max`/`step` through RJSF's own `getInputProps`, which `BaseInputTemplate`
+now calls rather than deriving the type by hand. Only formats `ajv-formats`
+asserts on **both** sides are offered, which is why `color` and `data-url` are
+not: RJSF's validator registers those and silo's server does not, so the form
+would accept a value the authority then stored unchecked. The keywords are
+written as a **set** on every save — `SchemaDraft` rewrites them from the field
+rather than letting the `raw` spread carry them through — so a string retyped as
+a boolean does not keep a `maxLength` the builder has stopped showing, and Code
+view cannot disagree with the row above it. They are held as the **text** that
+was typed rather than as numbers, because a keystroke rebuilds the whole
+document and parsing `0.` back to a number would delete the dot somebody is
+still typing; the conversion happens on the way out, where a half-typed value is
+simply a keyword not written yet. Everything here is part of the validating
+shape, so a populated collection freezes it (D69): the editor shows every
+constraint read-only, and a description-only save still round-trips the document
+unchanged. The builder row and the entry form's hint line both name what a field
+will accept, so a rule is stated before a save is refused for it, and
+`noHtml5Validate` puts every refusal in the form's own error list in Ajv's
+wording — the browser's native bubble reached neither the banner nor the field,
+and answered a range differently from a length and differently again from the
+same rule refused by the server.
+
+**Two shapes the entry form would not draw (2026-09-16).** A list that declares
+no `items` is what the builder's `array` kind writes, and RJSF answers "Missing
+items definition" for it *before* a `ui:widget` is read — so the chips widget
+chosen for the field never ran and the entry form printed it as unsupported.
+`FormSchema` now says what the schema already means, `items: {}`, which is the
+same move it makes for a property that declares nothing at all. And
+`format: "uri"` is a URL again: `buildUiSchema` and `MediaValue` counted it as
+media on its own, so the builder's new URL format would have drawn the media
+picker and written a `silo://media/<id>` for somebody who asked for a link. A
+media field says so with `x-silo-type: "media"`, which is what every importer
+writes and what the server rewrites on read; `cell-format.ts` already read the
+two apart this way, so the list and the form now agree.
+
 **JSON Schema became a rule, not just a shape (2026-09-16).** Collections were
 built on JSON Schema, and it drew the forms and described the data, but it did
 not reliably decide what got stored. `EntryService` validated every API write,

@@ -81,8 +81,15 @@ export function buildUiSchema(schema: any, root: any = schema): any {
     } else if (
       MediaField.is(p) ||
       p['x-silo-media'] === true ||
-      (type === 'string' && (p.format === 'uri' || xui.widget === 'media'))
+      (type === 'string' && xui.widget === 'media')
     ) {
+      // `format: "uri"` alone is *not* media. It is what the schema editor
+      // writes for a URL field, and it means what JSON Schema says it means —
+      // a URI — so it falls through to RJSF's own URL control. A media field
+      // carries `x-silo-type: "media"`, which is what every importer writes and
+      // what the server rewrites into an absolute URL on read; the widget hint
+      // stays for a schema that asks for the picker by name. `cell-format.ts`
+      // already read it this narrowly, so the list and the form now agree.
       ui[key] = { 'ui:widget': 'media' }
     } else if (type === 'object' && p.properties) {
       const nested = buildUiSchema(p, root)

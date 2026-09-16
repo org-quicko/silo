@@ -1,3 +1,5 @@
+import { SchemaType } from '../schema/schema-type'
+
 /**
  * The collection schema as the *form* has to see it.
  *
@@ -14,6 +16,13 @@
  * `x-silo-ui.widget: "json"` to the JSON field, and stamping it here makes the
  * schema non-empty in the same stroke, so the property survives to be rendered
  * by it.
+ *
+ * A list that declares no `items` is the same problem in the other direction,
+ * and is what the schema editor's `array` kind writes: RJSF answers "Missing
+ * items definition" before a `ui:widget` is read, so the chips widget picked
+ * for it never ran and the field printed as unsupported. Saying what the schema
+ * already means — items constrained by nothing — costs no constraint and hands
+ * RJSF something it will draw.
  */
 export class FormSchema {
   /** Silo's UI hint keyword, which the schema is free to carry already. */
@@ -62,11 +71,20 @@ export class FormSchema {
 
   private static property(property: any): any {
     if (!property || typeof property !== 'object' || Array.isArray(property)) return property
-    if (!FormSchema.isAny(property)) return FormSchema.forEntry(property)
+    // After the walk, so the items this synthesises are not then walked and
+    // stamped for the JSON field — the chips widget is what should draw them.
+    if (!FormSchema.isAny(property)) return FormSchema.withItems(FormSchema.forEntry(property))
     return {
       ...property,
       [FormSchema.UiKeyword]: { ...(property[FormSchema.UiKeyword] || {}), widget: 'json' },
     }
+  }
+
+  /** A list that declares no `items` gets the schema that says so. Read through
+   *  `SchemaType`, because every imported list is `["array", "null"]`. */
+  private static withItems(property: any): any {
+    if (SchemaType.of(property) !== 'array' || 'items' in property) return property
+    return { ...property, items: {} }
   }
 
   private static isAny(property: any): boolean {
