@@ -42,9 +42,9 @@ export interface StrapiList {
 export interface StrapiInventory {
   version: StrapiVersion
   lists: StrapiList[]
-  /** Content types nothing could be read from, and why. Reported rather than
-   *  omitted: a content type that silently vanished from the plan is the one an
-   *  operator will notice missing after the import. */
+  /** Content types an import would write nothing for, and why. Reported rather
+   *  than omitted: a content type that silently vanished from the plan is the one
+   *  an operator will notice missing after the import. */
   skipped: { contentType: string; reason: string }[]
   media: { files: number; attached: number }
 }
@@ -84,7 +84,7 @@ export class StrapiInventory {
       if (StrapiShapes.isEmpty(shape)) {
         skipped.push({
           contentType: contentType.uid,
-          reason: 'it has no importable fields — only relations and Strapi bookkeeping',
+          reason: StrapiInventory.emptyReason(shape, entities.length),
         })
         continue
       }
@@ -123,6 +123,33 @@ export class StrapiInventory {
       for (const uid of StrapiShapes.uidsOf(list.shape)) owners.add(uid)
     }
     return [...owners]
+  }
+
+  /**
+   * Why a content type an import would write nothing for is not on the plan.
+   *
+   * Two different mistakes, and an operator fixes them in two different places.
+   * A content type of relations and Strapi bookkeeping is silo's model meeting
+   * Strapi's, and there is nothing to do about it. A content type whose every
+   * field is a component no table could be proved for is *this export* failing
+   * to name storage that exists — recoverable, and only if the panel says which
+   * component, which is why the uid is in the reason rather than a fixed string.
+   *
+   * The count goes in because skipping is what takes it off the plan: "1 empty
+   * entry" and "3400 empty entries" are the same bug and not the same loss.
+   */
+  private static emptyReason(shape: StrapiShape, count: number): string {
+    const unresolved = StrapiShapes.unresolved(shape)
+    if (unresolved.length === 0) {
+      return 'it has no importable fields: only relations and Strapi bookkeeping'
+    }
+    return (
+      `it has no importable fields: no table could be proved for ${unresolved.join(', ')}, and ` +
+      `that is the whole of what it holds, so it would import as ${count} empty ` +
+      `${count === 1 ? 'entry' : 'entries'}. Strapi names a component's table from a pluralised ` +
+      `form of its uid, and that mapping is in the project's src/components files rather than ` +
+      `the export.`
+    )
   }
 
   /**

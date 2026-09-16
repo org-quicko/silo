@@ -136,9 +136,22 @@ export class StrapiShapes {
     return [...new Set(missing)]
   }
 
-  /** Whether there is anything in here an import would write. */
+  /**
+   * Whether there is anything in here an import would write.
+   *
+   * A child counts only where a table was proved for at least one of the
+   * components it names. One where none was writes `[]` or `null` and can write
+   * nothing else, so a content type holding only those imports as a collection
+   * of identical empty entries — see `StrapiInventory.skipped`. A child whose
+   * shape is itself empty still counts: it writes one `{}` per item, and how
+   * many items there were is a fact this export does hold.
+   */
   static isEmpty(shape: StrapiShape): boolean {
-    return shape.columns.length === 0 && shape.media.length === 0 && shape.children.length === 0
+    return (
+      shape.columns.length === 0 &&
+      shape.media.length === 0 &&
+      shape.children.every((child) => child.shapes.length === 0)
+    )
   }
 
   /**
@@ -316,7 +329,7 @@ export class StrapiShapes {
     const declared = new Map(
       Object.entries(contentType.attributes)
         .filter(([, attribute]) => !StrapiShapes.Structural.includes(attribute.type))
-        .map(([name, attribute]) => [StrapiShapes.columnName(name), attribute] as const),
+        .map(([name, attribute]) => [StrapiIdentifiers.column(name), attribute] as const),
     )
     return source
       .columns(contentType.table)
@@ -330,11 +343,6 @@ export class StrapiShapes {
         )
         return values ? { ...column, values } : column
       })
-  }
-
-  /** Strapi's attribute names are camelCase and its columns snake_case. */
-  private static columnName(attribute: string): string {
-    return attribute.replace(/([a-z0-9])([A-Z])/g, '$1_$2').toLowerCase()
   }
 
   /** The rows of one component under one field, for `StrapiComponents` to prove a
@@ -355,13 +363,13 @@ export class StrapiShapes {
       .map((row) => row.cmp_id)
   }
 
-  /** The `_cmps` table of a base name, under any spelling Strapi may have
-   *  shortened it to. */
+  /** The `_cmps` table of the first of these base names that has one — a content
+   *  type is reached by both its declared `collectionName` and the table it was
+   *  stored under, and only one of the two need be the join table's stem. */
   private static joinTable(source: StrapiDatabase, tables: readonly string[]): string | null {
     for (const table of new Set(tables)) {
-      for (const spelling of StrapiIdentifiers.spellings(`${table}_cmps`)) {
-        if (source.hasTable(spelling)) return spelling
-      }
+      const join = source.joinTable(table)
+      if (join) return join
     }
     return null
   }

@@ -17,7 +17,78 @@ can be cloned with one command.
 
 ## Where things stand
 
-*Last updated: 2026-09-16 (D67)*
+*Last updated: 2026-09-16 (D68)*
+
+**A content type made only of unresolvable components is skipped, not offered
+(2026-09-16).** `StrapiShapes.isEmpty` counted a shape as non-empty on
+`children.length > 0`, and a component field no table could be proved for is
+still a child — `shapes: []` and a non-empty `unresolved`. So
+`api::pro-quicko-workspace-expertise`, whose one attribute is a repeatable
+component, reached the plan as an importable list: count 1, one entry reported
+written, and the entry was `{ expertise: [] }`, with a note on the panel the only
+thing that said otherwise. A child now counts only where a table was proved for
+at least one of the components it names, which puts such a content type on
+`StrapiInventory.skipped` beside the one with no importable fields at all. That
+is not omission — the panel prints every skipped content type with its reason —
+and the reason names the component uid and the number of entries, because finding
+that component's table is the one thing that makes the content type importable,
+and it is `src/components/*.json` in the Strapi project rather than anything in
+the export. The line is "would this import write anything": a scalar beside the
+same component keeps the list on the plan, where the existing note carries the
+warning. The alternative considered and rejected was defaulting the step's
+`include` to false, which overloads a flag that means "the operator narrowed
+this" and still permits the empty import.
+
+**A Strapi component whose category was renamed now imports its rows
+(2026-09-16).** The importer found a component's table by four matchers over its
+name, and all four assume the uid and the table still share a word. Strapi
+writes a component's `collectionName` when the component is created and never
+again, so renaming its category rewrites every reference and none of the
+storage: in a live `pro-quicko-workspace` export, `nature-of-business.test` is
+stored in `components_test_tests`, nothing proposed that table, and the entry
+imported as `{ expertise: [] }` — no error, one entry reported written, and its
+content gone. `StrapiComponents.byFields` is a fifth tier reached only when the
+name says nothing: it proposes every component table and proves one by the
+fields `StrapiFields` reads from the content-manager configuration, counting a
+field as held when the table has that column, when its `_cmps` names it as a
+child, or when it is a media field and so a column of no table. Every field must
+be accounted for and exactly one table may survive, because this tier is
+name-blind — the ids alone are ambiguous across component tables. An export that
+does not name the fields still resolves to `null`, and the panel still says so.
+
+**The client works in a browser without being handed a `fetch`
+(2026-09-16).** `Transport` stored `options.fetch ?? fetch` and then called it
+as `this.fetchFunction(...)`, a method call that makes `this` the `Transport`.
+A browser enforces the receiver on `fetch` and threw
+`TypeError: Illegal invocation` on every request; Node's undici does not, which
+is why nothing server-side ever saw it, and the admin UI passes a fetch of its
+own so it was unaffected too. The default is now `globalThis.fetch` bound to
+the global, a runtime with no `fetch` at all is refused at construction by
+name, and the call reads the function into a local so it never carries a
+receiver — a caller handing over an unbound `window.fetch` works as well.
+`NetworkError` also puts what `fetch` rejected with in its own message, since
+"the request never reached the server" alone reads as a verdict on the network
+when the fault can be the call.
+
+**Two people can import from Strapi at once, each in their own session
+(2026-09-16, D68).** The importer's panel held one staged database, one plan and
+one history for the whole instance, all in one directory under the system temp
+dir. That read as a queue and was a correctness bug: `POST /imports` re-reads the
+*current* inventory, and a plan is only refused when its list ids are absent — so
+two exports of the same Strapi, which is what a team migrating one has, let an
+operator's plan validate against a colleague's database and import their rows.
+Everything about one import now lives on an `ImportSession` keyed by
+`request.caller.id`, with a staging directory of its own under
+`work_dir/sessions/<key>`: `ImportRuntime` keeps only the settings, the session
+map, the collections in flight and the janitor. The key is the caller's key id
+because a panel's iframe has an opaque origin and no storage to remember a
+session id in, so two people sharing an API key share a session. `RunningTargets`
+holds each `project/env/collection` a run writes and refuses a second run of one
+by name, capped at three imports at once since they all queue on the write lock;
+one at a time still holds per operator. `session_ttl_hours` (default 24) and a
+half-hourly sweep end a session nobody came back to, never one whose import is
+running, and a start adopts what is on disk and clears the flat staging of the
+version before this.
 
 **Everything that resolves the client builds it first (2026-09-16).** The admin
 imports `@org-quicko/silo-client` through the package's `exports`, which name

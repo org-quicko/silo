@@ -11,14 +11,20 @@ import { RouteInput } from './route-input'
  * outlives the dispatch: 367 entries each going through validation and the write
  * lock do not fit in a five-second budget, so a synchronous import would time
  * out, be declared a plugin fault, and take the worker down mid-write.
+ *
+ * A run is the caller's own, and so is the history: `GET /imports` answers what
+ * *this* operator has run. What is shared is only `RunningTargets`, which is the
+ * one thing that has to be — two people may import at once, and not into the
+ * same collection.
  */
 export class ImportRoutes {
   static handlers(): SiloPluginDefinition {
     return {
       'POST /imports'(request: SiloRequest, ctx: SiloContext) {
         const runtime = ImportRuntime.current()
-        const inventory = runtime.inventory(ctx)
-        const staged = runtime.store.require()
+        const session = runtime.session(request)
+        const inventory = session.inventory(ctx)
+        const staged = session.store.require()
 
         let plan
         try {
@@ -28,22 +34,33 @@ export class ImportRoutes {
         }
 
         const job = new ImportJob({
-          id: runtime.nextJobId(),
+          id: session.nextJobId(),
           plan,
           sourcePath: staged.path,
           inventory,
-          uploads: runtime.uploads,
+          uploads: session.uploads,
           ctx,
         })
 
+        // Claimed before the job starts and released however it ends, because
+        // the run outlives the dispatch that asked for it.
+        let release: () => void
         try {
-          runtime.jobs.start(job)
+          release = runtime.targets.claim(job.id, plan)
         } catch (caught: unknown) {
+          return RouteInput.refuse(RouteInput.reason(caught))
+        }
+
+        try {
+          session.jobs.start(job, release)
+        } catch (caught: unknown) {
+          release()
           return RouteInput.refuse(RouteInput.reason(caught))
         }
 
         ctx.log.info('started a Strapi import', {
           job: job.id,
+          session: session.key,
           project: plan.project,
           env: plan.env,
           steps: plan.steps.length,
@@ -51,12 +68,13 @@ export class ImportRoutes {
         return { status: 202, json: job.snapshot() }
       },
 
-      'GET /imports'() {
-        return { json: { items: ImportRuntime.current().jobs.list() } }
+      'GET /imports'(request: SiloRequest) {
+        return { json: { items: ImportRuntime.current().session(request).jobs.list() } }
       },
 
       'GET /imports/:id'(request: SiloRequest) {
-        const job = ImportRuntime.current().jobs.find(request.params.id ?? '')
+        const session = ImportRuntime.current().session(request)
+        const job = session.jobs.find(request.params.id ?? '')
         if (!job) {
           return { status: 404, json: { error: { code: 'no_job', message: 'no such import' } } }
         }
