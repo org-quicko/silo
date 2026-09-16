@@ -19,6 +19,24 @@ can be cloned with one command.
 
 *Last updated: 2026-09-16 (D68)*
 
+**The HTTP API has a machine-readable description (2026-09-16).**
+[docs/openapi.json](docs/openapi.json) is OpenAPI 3.1 over all 83 operations the
+server serves: every route under `/api`, the public `/media/{id}` stream, and the
+single handler every plugin route is matched through. It carries the query
+grammar, the `If-Match` revision fence, the `?variables=` switch, the response
+shapes, and — named per operation — the claim each one asks for, which is the
+half of this API a path table alone cannot tell you. It is **hand-written**.
+Hono registers routes as code and there is no decorator to read them off, so
+nothing generates this and nothing can check it: it is a promise the repo makes,
+which is why `CLAUDE.md` now names it as a mandatory part of any route change,
+`docs/context/repo-map.md` says where it sits and why, and the file itself
+carries an `x-maintenance` field repeating the rule to whoever opens it first.
+Only the canonical `/environments` spelling is described; `/envs` is the same
+handler registered twice, and listing both would double the file to say one
+thing. See [docs/guide/http-api.md](docs/guide/http-api.md) for the page a human
+reads and [docs/design/http-api.md](docs/design/http-api.md) for why each route
+is shaped the way it is.
+
 **A content type made only of unresolvable components is skipped, not offered
 (2026-09-16).** `StrapiShapes.isEmpty` counted a shape as non-empty on
 `children.length > 0`, and a component field no table could be proved for is

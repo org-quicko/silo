@@ -4,6 +4,34 @@
 > The *current* state is [CONTEXT.md](../../CONTEXT.md); this is how it got
 > there.
 
+- **The HTTP API had no machine-readable description (2026-09-16).** Every route
+  was documented three times in prose — `docs/guide/http-api.md` for the shape,
+  `docs/design/http-api.md` for the reason, the handler's own doc comment for the
+  detail — and none of the three could be handed to Swagger UI, Redoc or a client
+  generator. `docs/openapi.json` is OpenAPI 3.1 over all 83 operations: the
+  `/api` surface, the public `/media/{id}` stream outside it, and the one handler
+  `/api/ext/{name}/*` dispatches every plugin route through. What it adds over the
+  existing table is per-operation *structure* — parameters with their types and
+  defaults, request bodies, the `If-Match`/`?rev=` fence, the `?variables=`
+  switch, and 43 named response schemas covering the entry envelope, the media
+  catalog, the two-configuration settings views, the plugin view's five claim
+  lists and the audit event's closed action union. The claim each operation asks
+  for is in its description, because that is the half of this API a path table
+  cannot carry and the half a caller gets wrong. Three decisions shaped it.
+  **Hand-written, and named as such:** Hono registers routes as code, so nothing
+  generates this file and no test can prove it current — it is a promise, so
+  `CLAUDE.md` makes updating it part of any route change and the file carries an
+  `x-maintenance` field saying the same to whoever opens it first, rather than
+  leaving the rule somewhere the reader is not. **One spelling of the
+  environment path:** `/environments` and `/envs` are one handler registered
+  twice, and describing both would double the file to say one thing, so only the
+  canonical form is described and `info.description` says the other exists.
+  **JSON rather than YAML:** it is the form every viewer and generator takes
+  without a parser choice, and there is no comment syntax to tempt anyone into
+  putting the maintenance rule somewhere a tool would drop it. `docs/openapi.json`
+  sits beside `context/`, `design/` and `guide/` rather than inside one, because
+  it is not prose and has no single audience.
+
 - **A content type made only of unresolvable components was offered as an
   importable list (2026-09-16).** `StrapiShapes.isEmpty` asked whether a shape
   had columns, media or children, and a component field whose every named
