@@ -210,6 +210,11 @@
 .compactInput { padding: 8px 11px; font-size: 12.5px; }
 .constructInput { display: flex; align-items: center; color: var(--text-3); }
 .hint { color: var(--text-3); font-size: 11.5px; }
+
+/* A min/max pair shares one label, so the two boxes split the row evenly and
+   neither grows with the digits it holds. */
+.bounds { display: flex; gap: 12px; }
+.bounds > * { min-width: 0; flex: 1; }
 .badHint { color: var(--bad); }
 .removeField { align-self: flex-start; }
 

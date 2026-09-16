@@ -3,6 +3,7 @@ import { Button } from '../../components/buttons/Button'
 import { Toggle } from '../../components/controls/Toggle'
 import type { SchemaField } from '../../schema/schema-field'
 import { EnumValues } from './EnumValues'
+import { FieldConstraints } from './FieldConstraints'
 import { FieldKindSelect } from './FieldKindSelect'
 import { RefTarget } from './RefTarget'
 import styles from './SchemaEditor.module.css'
@@ -72,6 +73,15 @@ export function FieldEditor({ field, collections, locked, onChange, onRemove }: 
           onChange={(refTarget) => onChange({ refTarget })}
         />
       )}
+
+      {/* Under the type, because the type is what decides which of these a
+          field carries at all, and above the description, because they are
+          still statements about the value rather than prose about it. */}
+      <FieldConstraints
+        field={field}
+        locked={locked}
+        onChange={(constraints) => onChange({ constraints })}
+      />
 
       <div className={styles.fieldEditorColumn}>
         <span className={styles.fieldEditorLabel}>Description</span>

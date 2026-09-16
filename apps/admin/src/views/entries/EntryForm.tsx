@@ -236,6 +236,18 @@ export function EntryForm({
               widgets={slateWidgets as any}
               fields={slateFields as any}
               extraErrors={extraErrors}
+              // `minItems` is a rule about what may be saved, not an instruction
+              // to open the form with that many blank rows. RJSF's default seeds
+              // them, which on the chips widget draws an item with no text and
+              // only a remove button, and would save a `null` into the list.
+              experimental_defaultFormStateBehavior={{ arrayMinItems: { populate: 'never' } }}
+              // One error surface, not two. The browser's own validation refuses
+              // a submit with a bubble of its own wording, which reaches neither
+              // the banner nor the field — so a range or a format failed
+              // differently from a length, and differently again from the same
+              // rule refused by the server. Ajv answers all of them here, in the
+              // wording the API would have sent back.
+              noHtml5Validate
               showErrorList="top"
               disabled={!canSave}
               formContext={{ url, apiKey, variables: variableContext }}

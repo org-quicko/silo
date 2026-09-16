@@ -184,6 +184,36 @@ describe('SchemaDraft', () => {
       expect(narrowed.properties.payload).toEqual({ type: 'object' })
     })
 
+    test('validation keywords survive a save that did not touch them', () => {
+      const constrained = {
+        slug: { type: 'string', minLength: 1, maxLength: 120, pattern: '^[a-z0-9-]+$' },
+        email: { type: 'string', format: 'email' },
+        rating: { type: 'number', minimum: 0, maximum: 5, multipleOf: 0.5 },
+        tags: { type: 'array', minItems: 1, maxItems: 8, uniqueItems: true },
+      }
+      const { properties } = save(constrained)
+
+      expect(properties).toEqual(constrained)
+    })
+
+    test('an edited constraint is written back as a number, not as its text', () => {
+      const { properties } = save({ slug: { type: 'string' } }, (fields) => {
+        fields[0].constraints = { ...fields[0].constraints, maxLength: '120' }
+      })
+
+      expect(properties.slug).toEqual({ type: 'string', maxLength: 120 })
+    })
+
+    // Otherwise Code view disagrees with the row above it: the builder shows no
+    // length on an integer, and the document still declares one.
+    test('retyping a field drops the constraints the new kind cannot carry', () => {
+      const { properties } = save({ slug: { type: 'string', maxLength: 120 } }, (fields) => {
+        fields[0].kind = 'integer'
+      })
+
+      expect(properties.slug).toEqual({ type: 'integer' })
+    })
+
     test('an imported collection survives a save that edits one description', () => {
       // The shape `StrapiColumns.schemaFor` writes for every column it imports.
       const imported = {
