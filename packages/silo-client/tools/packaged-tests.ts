@@ -83,11 +83,14 @@ class PackagedTests {
   private static async consumeAsEsm(tarball: string): Promise<void> {
     const source = [
       'import { Silo, Filter, Sort, ConflictError } from "@org-quicko/silo-client";',
-      "const silo = new Silo({ url: \"http://localhost:8090\" });",
+      "let calls = 0;",
+      "const silo = new Silo({ url: \"http://localhost:8090\", cache: { ttlMilliseconds: 1000 }, fetch: async () => { calls += 1; return Response.json({ items: [] }); } });",
       "if (typeof silo.project !== \"function\") throw new Error(\"no project handle\");",
       'if (Filter.field("status").equals("published").toJSON().op !== "eq") throw new Error("filter broken");',
       'if (!String(Sort.recentlyUpdated()).includes("updated_at")) throw new Error("sort broken");',
       'if (!(Object.create(ConflictError.prototype) instanceof Error)) throw new Error("error chain broken");',
+      "await silo.projects.list(); await silo.projects.list(); if (calls !== 1) throw new Error(\"cache did not serve a second GET\");",
+      "silo.cache.clear(); await silo.projects.list(); if (calls !== 2) throw new Error(\"cache clear did not evict\");",
       'console.log("esm ok");',
     ].join("\n");
     await PackagedTests.consume("node ESM", tarball, "consumer.mjs", source, ["node", "consumer.mjs"]);
@@ -96,10 +99,16 @@ class PackagedTests {
   private static async consumeAsCommonJs(tarball: string): Promise<void> {
     const source = [
       'const { Silo, Filter } = require("@org-quicko/silo-client");',
-      "const silo = new Silo({ url: \"http://localhost:8090\" });",
+      "async function main() {",
+      "let calls = 0;",
+      "const silo = new Silo({ url: \"http://localhost:8090\", cache: { ttlMilliseconds: 1000 }, fetch: async () => { calls += 1; return Response.json({ items: [] }); } });",
       "if (typeof silo.project !== \"function\") throw new Error(\"no project handle\");",
       'if (Filter.field("status").equals("published").toJSON().op !== "eq") throw new Error("filter broken");',
+      "await silo.projects.list(); await silo.projects.list(); if (calls !== 1) throw new Error(\"cache did not serve a second GET\");",
+      "silo.cache.clear(); await silo.projects.list(); if (calls !== 2) throw new Error(\"cache clear did not evict\");",
       'console.log("cjs ok");',
+      "}",
+      "main().catch((error) => { console.error(error); process.exitCode = 1; });",
     ].join("\n");
     await PackagedTests.consume("node CommonJS", tarball, "consumer.cjs", source, ["node", "consumer.cjs"]);
   }
@@ -107,8 +116,11 @@ class PackagedTests {
   private static async consumeFromBun(tarball: string): Promise<void> {
     const source = [
       'import { Silo } from "@org-quicko/silo-client";',
-      "const silo = new Silo({ url: \"http://localhost:8090\" });",
+      "let calls = 0;",
+      "const silo = new Silo({ url: \"http://localhost:8090\", cache: { ttlMilliseconds: 1000 }, fetch: async () => { calls += 1; return Response.json({ items: [] }); } });",
       "if (typeof silo.project !== \"function\") throw new Error(\"no project handle\");",
+      "await silo.projects.list(); await silo.projects.list(); if (calls !== 1) throw new Error(\"cache did not serve a second GET\");",
+      "silo.cache.clear(); await silo.projects.list(); if (calls !== 2) throw new Error(\"cache clear did not evict\");",
       'console.log("bun ok");',
     ].join("\n");
     await PackagedTests.consume("bun", tarball, "consumer.ts", source, ["bun", "consumer.ts"]);

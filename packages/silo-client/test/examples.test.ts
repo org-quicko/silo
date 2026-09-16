@@ -3,7 +3,7 @@ import { Filter } from "../src/query/filter";
 import { Sort } from "../src/query/sort";
 import { EnvironmentHandle } from "../src/scope/environment-handle";
 import { ProjectHandle } from "../src/scope/project-handle";
-import { Transport } from "../src/transport/transport";
+import { FetchTransport as Transport } from "../src/transport/fetch-transport";
 import { StubFetch } from "./support/stub-fetch";
 import { StubResponse } from "./support/stub-response";
 

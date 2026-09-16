@@ -17,7 +17,15 @@ can be cloned with one command.
 
 ## Where things stand
 
-*Last updated: 2026-09-16 (D70)*
+*Last updated: 2026-09-16 (D71)*
+
+**silo-client 1.1.1 can cache reads (2026-09-16).**
+`SiloOptions.cache` is opt-in and requires a finite TTL, so an application
+chooses how long a stored GET JSON response remains reusable. `SiloCache` can be shared by clients and is cleared around every
+write; `bypass` and `refresh` name the two per-read choices. Keys include the
+prepared URL and final headers, authorization included, and values are cloned
+at both cache boundaries. A pending read cannot refill a cache a write or
+manual clear has invalidated, and a newer refresh wins over an older one (D71).
 
 **A collection can now say more than "required" (2026-09-16).** The visual
 schema builder wrote `type`, `enum`, `$ref` and a required list and nothing
@@ -504,7 +512,8 @@ accept is meant to be found. One secret, `NPM_TOKEN`.
 
 **silo has a TypeScript client, and it is a package rather than a copy of the
 admin's (2026-09-10).** `packages/silo-client`, published as `@org-quicko/silo-client`,
-with zero runtime dependencies and one bundled artifact per module condition.
+with one bundled artifact per module condition and `@isaacs/ttlcache` as an
+external runtime dependency (D70).
 The path is the object graph: `silo.project("acme").environment("prod")
 .collection<Post>("posts")`, where every handle is a value object that makes no
 request. There is no default scope, because a client that guesses `default/prod`

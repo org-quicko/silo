@@ -1,3 +1,5 @@
+import type { CacheMode } from "../cache/cache-mode.js";
+
 /** One query parameter's value. An object (the `filter` AST) is JSON-encoded
  *  by {@link QueryString}; everything else is stringified. */
 export type TransportQueryValue = string | number | boolean | object | undefined;
@@ -16,4 +18,5 @@ export interface TransportRequest {
   headers?: Record<string, string>;
   signal?: AbortSignal;
   timeoutMilliseconds?: number;
+  cache?: CacheMode;
 }

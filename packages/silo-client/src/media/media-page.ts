@@ -17,6 +17,7 @@ export class MediaPage extends Page<MediaAsset> {
     window: PageWindow,
     private readonly transport: Transport,
     private readonly wireQuery: Record<string, TransportQueryValue>,
+    private readonly requestOptions: RequestOptions | undefined,
   ) {
     super(rows, total, window);
   }
@@ -27,12 +28,12 @@ export class MediaPage extends Page<MediaAsset> {
 
   async next(options?: RequestOptions): Promise<MediaPage | null> {
     const window = this.windowForNext();
-    return window ? MediaPage.loadWindow(this.transport, this.wireQuery, window, options) : null;
+    return window ? MediaPage.loadWindow(this.transport, this.wireQuery, window, { ...this.requestOptions, ...options }) : null;
   }
 
   async previous(options?: RequestOptions): Promise<MediaPage | null> {
     const window = this.window.previous();
-    return window ? MediaPage.loadWindow(this.transport, this.wireQuery, window, options) : null;
+    return window ? MediaPage.loadWindow(this.transport, this.wireQuery, window, { ...this.requestOptions, ...options }) : null;
   }
 
   /** `Media` builds `wireQuery` (already translated onto `q`/`ext`/etc.,
@@ -49,8 +50,9 @@ export class MediaPage extends Page<MediaAsset> {
       query: { ...wireQuery, limit: window.limit, offset: window.offset },
       signal: options?.signal,
       timeoutMilliseconds: options?.timeoutMilliseconds,
+      cache: options?.cache,
     });
     const rows = body.items.map((payload) => new MediaAsset(transport, MediaAssetMapper.toRecord(payload)));
-    return new MediaPage(rows, body.total, new PageWindow(body.limit, body.offset), transport, wireQuery);
+    return new MediaPage(rows, body.total, new PageWindow(body.limit, body.offset), transport, wireQuery, options);
   }
 }
