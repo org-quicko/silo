@@ -33,6 +33,11 @@ export class SetVersion {
    * `import` rather than something `silo --version` prints. Moving it here
    * would churn a library version on every silo patch and make a client fix
    * wait for a binary release to carry it. Its manifest is bumped by hand.
+   *
+   * `packages/silo-client-java` is absent for the same reason, one step
+   * further: its version lives in a `pom.xml` this list of JSON manifests
+   * could not describe anyway, and its release tag is `silo-client-java-v*`.
+   * Its `<version>` is bumped by hand too.
    */
   private static readonly manifests = [
     "package.json",

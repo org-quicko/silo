@@ -4,6 +4,65 @@
 > The *current* state is [CONTEXT.md](../../CONTEXT.md); this is how it got
 > there.
 
+- **A JVM consumer had no client, so it shelled out to the CLI or wrote the
+  address into every call by hand (2026-09-16, D69).** `packages/silo-client-java`
+  is the Java client, published as `in.org.quicko:silo-client`, on OkHttp and
+  Jackson with Java 25. The default was to port D61 and D62 rather than to
+  redesign: their decisions are about this API, not about TypeScript, and a
+  consumer reading both clients should not meet two vocabularies for one
+  service. So the object graph, the immutable handles, the absent default
+  scope, the passed revision, the per-call raw-versus-resolved read, the
+  window-driven pagination, the built filters, the four kinds of failure and
+  `RouteInventory` all cross unchanged, and `RouteInventoryDriftTest` parses
+  `packages/silo-client/src/transport/route-inventory.ts` and holds the two
+  lists equal, so the Java inventory inherits the TypeScript one's check
+  against the server's own route registrations instead of restating it. Three
+  decisions could not cross, and each is a language fact. **An entry is
+  split.** D62's row is the wire's own flat object, `Fields & EntryEnvelope`,
+  and Java cannot name a type that is both the caller's `Post` and an envelope.
+  A `Post` extending a client-supplied base class would be genuinely flat and
+  would make every domain type in the consumer's codebase inherit from this
+  library; a bare `Map<String, Object>` keeps every type out and gives up the
+  typing that is most of the point; `Entry<F>` holding the envelope beside
+  `fields()` gives up flatness and nothing else, so that is what it does, with
+  `EntryMapper` the one place that splits the row and copies every other key
+  across untouched. What D62 was actually protecting is intact: the row carries
+  no transport, so it cannot print the instance's API key the way D61's active
+  record did. Timestamps become `Instant` on the same reasoning, since the
+  wire's strings were kept because a flat row went back out unchanged and this
+  one never does. **Every call blocks.** A `CompletableFuture` twin of every
+  method would double the surface for a concurrency model Java 25 supplies
+  underneath, where a blocking call on a virtual thread costs a continuation;
+  the cost is a caller on an older runtime writing their own executor, and
+  adding the twins later is additive. `CancellationSignal` replaces
+  `AbortSignal`, and it is consulted before the exception type because OkHttp
+  reports a cancelled call as an ordinary `IOException`, indistinguishable by
+  type from a host that was never reachable. **Filters are untyped**, because
+  there is no Java equivalent of `keyof Post` and the shapes that approximate
+  one need generated code from the consumer's own DTOs. Five names differ and
+  every one is a collision rather than a preference: `isEqualTo` (a
+  one-argument `equals` would override `Object.equals`), `CollectionCatalog`
+  (against `java.util.Collections`), `RequestTimeoutException` (against
+  `java.util.concurrent.TimeoutException`), `SiloException` (`Error` means
+  something else in Java) and the `within`/`preview`/`matching` factories (a
+  static and an instance method cannot share a signature with a record's
+  accessor). Exceptions are unchecked, because `Iterator.next` cannot declare
+  one and the paging streams are iterables. The tests run on an OkHttp
+  application interceptor that records the request and answers a queued
+  response without a socket, which is D61's recording stub fetch one layer
+  down, and that suite immediately found a real defect: `TransportRequest`
+  froze its query map with `Map.copyOf`, which answers an **unordered** map, so
+  one call emitted `?rev=3&variables=raw` and `?variables=raw&rev=3` on
+  different runs. Nothing functional depended on the order and everything human
+  did. A `module-info.java` exporting every package but `transport` is written
+  and deferred rather than skipped: `maven-compiler-plugin` reads module
+  descriptors through an ASM that cannot parse a Java 25 class file, and
+  shipping an unverified descriptor is worse than stating that `transport` is
+  public in the Java sense because the other packages need it. Its release tag
+  is `silo-client-java-v*` and it is absent from `tools/set-version.ts`, for the
+  reason `packages/silo-client` is; the workflow behind that tag is not written
+  yet, so the first publish to Maven Central is by hand.
+
 - **The HTTP API had no machine-readable description (2026-09-16).** Every route
   was documented three times in prose — `docs/guide/http-api.md` for the shape,
   `docs/design/http-api.md` for the reason, the handler's own doc comment for the
