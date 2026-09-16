@@ -43,7 +43,7 @@ describe('SchemaConstraints', () => {
 
   describe('apply', () => {
     // The round trip runs on every keystroke and a populated collection's
-    // schema is frozen (D69), so a save that rewrote a keyword it did not
+    // schema is frozen (D70), so a save that rewrote a keyword it did not
     // change would be refused as if a field had been retyped.
     test('returns an untouched property unchanged', () => {
       const property = {

@@ -52,7 +52,7 @@ was typed rather than as numbers, because a keystroke rebuilds the whole
 document and parsing `0.` back to a number would delete the dot somebody is
 still typing; the conversion happens on the way out, where a half-typed value is
 simply a keyword not written yet. Everything here is part of the validating
-shape, so a populated collection freezes it (D69): the editor shows every
+shape, so a populated collection freezes it (D70): the editor shows every
 constraint read-only, and a description-only save still round-trips the document
 unchanged. The builder row and the entry form's hint line both name what a field
 will accept, so a rule is stated before a save is refused for it, and
@@ -513,7 +513,7 @@ accept is meant to be found. One secret, `NPM_TOKEN`.
 **silo has a TypeScript client, and it is a package rather than a copy of the
 admin's (2026-09-10).** `packages/silo-client`, published as `@org-quicko/silo-client`,
 with one bundled artifact per module condition and `@isaacs/ttlcache` as an
-external runtime dependency (D70).
+external runtime dependency (D71).
 The path is the object graph: `silo.project("acme").environment("prod")
 .collection<Post>("posts")`, where every handle is a value object that makes no
 request. There is no default scope, because a client that guesses `default/prod`

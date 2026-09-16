@@ -149,7 +149,7 @@ describe('SchemaDraft', () => {
     /**
      * A bare `enum` is already a complete constraint, so adding `type` to one
      * that never declared it narrows the schema on a save made for some other
-     * reason. Since D69 that matters: a collection's shape is frozen once it
+     * reason. Since D70 that matters: a collection's shape is frozen once it
      * holds entries, and a builder that cannot hand a document back unchanged
      * cannot edit its descriptions either.
      */

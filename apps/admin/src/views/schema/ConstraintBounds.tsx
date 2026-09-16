@@ -9,7 +9,7 @@ interface Props {
    *  negative. Absent leaves the range open, which is what a number field is. */
   minimumAllowed?: number
   step: number | 'any'
-  /** Entries exist, so both keywords are read-only (D69). */
+  /** Entries exist, so both keywords are read-only (D70). */
   locked: boolean
   onMinimum: (value: string) => void
   onMaximum: (value: string) => void

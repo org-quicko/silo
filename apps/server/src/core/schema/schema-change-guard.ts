@@ -6,7 +6,7 @@ import type { Storage } from "../ports/storage";
 
 /**
  * The rule that a collection's constraints are frozen once it holds entries
- * (D69).
+ * (D70).
  *
  * Silo used to validate on write only and let a schema change whenever: an
  * entry stored yesterday could stop satisfying the schema it is filed under,

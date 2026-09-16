@@ -11,7 +11,7 @@
   clear before dispatch and after settlement, and pending-read tickets stop a
   stale response from repopulating after a write, clear or newer refresh.
   `bypass` and `refresh` select the two per-call cache modes. The first runtime
-  dependency, `@isaacs/ttlcache`, remains external in both bundles (D70).
+  dependency, `@isaacs/ttlcache`, remains external in both bundles (D71).
 
 - **A collection can now say more than "required" (2026-09-16).** The visual
   schema builder wrote `type`, `enum`, `$ref` and a required list and nothing
@@ -34,7 +34,7 @@
   the builder has stopped showing; they are held as the **text** that was typed,
   because a keystroke rebuilds the document and parsing `0.` back to a number
   would delete the dot somebody is still typing. All of it is validating shape,
-  so a populated collection freezes it (D69), shows it read-only, and still
+  so a populated collection freezes it (D70), shows it read-only, and still
   round-trips a description-only save unchanged. The builder row and the entry
   form's hint line each name what a field will accept, and `noHtml5Validate` puts
   every refusal in the form's own error list in Ajv's wording — the browser's

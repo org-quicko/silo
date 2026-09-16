@@ -35,7 +35,7 @@ export interface ParsedImport {
 
 export class Importer {
   /**
-   * How many rejected entries an import names individually (D69).
+   * How many rejected entries an import names individually (D70).
    *
    * `rejected` is always the true count; this bounds only the list beside it.
    * An archive exported under a schema the destination has since tightened can
@@ -106,7 +106,7 @@ export class Importer {
     const preview = ScopeCopyPreviewBuilder.from(opts);
 
     const localMeta = await store.meta();
-    // Unconditional since D69. It used to be built only for `opts.validate`,
+    // Unconditional since D70. It used to be built only for `opts.validate`,
     // which defaulted to false everywhere it was offered — so the documented
     // guarantee that entries are validated on the way in had a door in it that
     // every archive and every scope copy came through by default.
@@ -204,7 +204,7 @@ export class Importer {
 
     // Import schemas.
     //
-    // Only the **merge-over-existing** branch is guarded (D69), because it is
+    // Only the **merge-over-existing** branch is guarded (D70), because it is
     // the only one that can leave entries filed under constraints that never
     // judged them. Replace has already emptied the collection in the loop
     // above, and a collection that does not exist yet has nothing to
@@ -275,7 +275,7 @@ export class Importer {
       });
 
       /**
-       * Writes one entry, or records why the schema refused it (D69).
+       * Writes one entry, or records why the schema refused it (D70).
        *
        * Answers false when the entry was rejected, so the caller counts it as
        * neither an add nor an update — the counts stay a description of what

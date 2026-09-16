@@ -11,7 +11,7 @@ import { SiloServer } from "../../src/http/server";
 import { Logger } from "../../src/logging/logger";
 
 /**
- * A collection's constraints are frozen while it holds entries (D69).
+ * A collection's constraints are frozen while it holds entries (D70).
  *
  * The rule is about what *validates*, so the keywords that configure silo
  * rather than judge data stay editable — otherwise publishing a populated

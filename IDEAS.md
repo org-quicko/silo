@@ -84,7 +84,7 @@ Goal: Evaluate execution models for running Silo on serverless compute.
 
 ## 5. Schema change over existing data
 
-Deferred from D69, which froze a collection's validating shape while it holds
+Deferred from D70, which froze a collection's validating shape while it holds
 entries. That decision bought the guarantee cheaply — one count, and no write
 that touches data the author did not ask to touch — and the price is that the
 only migration path today is export, transform, import into a new collection.
@@ -100,7 +100,7 @@ entries** before it runs. Sketch, unvetted.
   in the first place, and are the cheapest thing to unfreeze.
 - **Dry-run the narrowing ones.** Compile the proposed schema and sweep the
   collection with it, answering a count and a sample of the entries that would
-  stop validating. This is the `silo validate` sweep the pre-D69 policy kept on
+  stop validating. This is the `silo validate` sweep the pre-D70 policy kept on
   its roadmap and never built; it is more useful as the *preview of a migration*
   than as a standalone report.
 - **Then one of three outcomes, chosen by the author:** refuse (today's

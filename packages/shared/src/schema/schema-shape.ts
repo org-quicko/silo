@@ -1,6 +1,6 @@
 /**
  * A schema document reduced to the part that decides whether an entry is valid
- * (D69).
+ * (D70).
  *
  * A collection's schema carries two kinds of keyword. Most of it says what a
  * valid entry looks like. The rest — `x-silo-auth`, `x-silo-search`, and JSON

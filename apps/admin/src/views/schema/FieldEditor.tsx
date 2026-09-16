@@ -15,7 +15,7 @@ interface Props {
   collections: readonly { name: string }[]
   /**
    * Entries exist, so everything that decides whether one of them is still
-   * valid is read-only (D69). The description is not one of those things, so it
+   * valid is read-only (D70). The description is not one of those things, so it
    * stays live — it is the only reason this panel opens at all when locked.
    */
   locked: boolean

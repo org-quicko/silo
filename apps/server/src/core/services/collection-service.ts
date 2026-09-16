@@ -139,7 +139,7 @@ export class CollectionService {
     return this.context.withWriteLock(async () => {
       // Under the lock, and immediately before the write: the guard counts
       // entries and then replaces the schema, so a create that won the race
-      // outside it would be filed under a schema that never judged it (D69).
+      // outside it would be filed under a schema that never judged it (D70).
       await SchemaChangeGuard.assert(this.context.store, scope, name, bundledSchema);
 
       const record = await this.context.store.putSchema(scope, name, bundledSchema);
