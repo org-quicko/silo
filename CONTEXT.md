@@ -50,7 +50,12 @@ a collision: `isEqualTo`, `CollectionCatalog`, `RequestTimeoutException`,
 on an OkHttp interceptor rather than a local server, which is the stub fetch
 one layer down, and that suite immediately found `TransportRequest` freezing
 its query map with `Map.copyOf` — an unordered map, so one call emitted its
-parameters in a different order between runs. A `module-info.java` exporting
+parameters in a different order between runs. The package README walks the
+whole surface, and **every example in it is a test**: `ExamplesTest` and
+`MediaExamplesTest` type each block out as the README types it and run it
+against the same interceptor, on the split the TypeScript package already uses,
+so a documented call that stops compiling fails the build rather than the
+reader. A `module-info.java` exporting
 everything but `transport` is written and deferred: the compiler plugin here
 reads module descriptors through an ASM that cannot parse a Java 25 class file,
 and shipping one unverified is worse than saying `transport` is internal by

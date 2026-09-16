@@ -4,6 +4,26 @@
 > The *current* state is [CONTEXT.md](../../CONTEXT.md); this is how it got
 > there.
 
+- **The Java client's README documented the concepts and left whole areas of
+  the API without an example (2026-09-16).** It covered the entry shape, the
+  filters, the pagination rule and the failure taxonomy, and a reader arriving
+  wanting to create a collection, declare a variable, run a search or move a
+  media folder found the classes named and never called. The README now opens
+  with an end-to-end walkthrough — reach an instance, define a collection with
+  its schema, write an entry, read it back, delete it — and gains sections for
+  projects and environments (including a rename previewed and then bound to
+  the record the preview described), collections and schemas, variables,
+  search and a media section covering folders, usages, replace and bulk
+  delete. The error section gains the catch ladder the taxonomy exists for.
+  **Every example is a test.** `ExamplesTest` and `MediaExamplesTest` type each
+  block out as the README types it and run it against the same OkHttp
+  interceptor the rest of the suite uses, which is the split the TypeScript
+  package already had in `examples.test.ts` and `media/media-examples.test.ts`.
+  A documented call that stops compiling now fails the build rather than the
+  reader, and the examples doubled as a check on the surface itself: the
+  getting-started block is the reason the README can claim a `record` works as
+  a field type, because `ExamplesTest` binds one. The suite is 83 tests.
+
 - **A JVM consumer had no client, so it shelled out to the CLI or wrote the
   address into every call by hand (2026-09-16, D69).** `packages/silo-client-java`
   is the Java client, published as `in.org.quicko:silo-client`, on OkHttp and
