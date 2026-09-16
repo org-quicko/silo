@@ -37,7 +37,7 @@ export class Transport {
     this.key = options.key;
     this.headers = options.headers ?? {};
     this.timeoutMilliseconds = options.timeoutMilliseconds;
-    this.fetchFunction = options.fetch ?? fetch;
+    this.fetchFunction = Transport.resolveFetch(options.fetch);
   }
 
   async json<T>(request: TransportRequest): Promise<T> {
@@ -88,9 +88,14 @@ export class Transport {
     const abortSignals = new AbortSignals(request.signal, request.timeoutMilliseconds ?? this.timeoutMilliseconds);
     const url = `${this.url}${request.path}${QueryString.build(request.query)}`;
 
+    // Read into a local so the call carries no receiver. `this.fetchFunction(...)`
+    // is a method call, which would hand the `Transport` to `fetch` as its
+    // `this` — a browser rejects that outright ("Illegal invocation").
+    const sendRequest = this.fetchFunction;
+
     let response: Response;
     try {
-      response = await this.fetchFunction(url, {
+      response = await sendRequest(url, {
         method: request.method,
         headers: this.buildHeaders(request, Boolean(form)),
         body: form ?? (request.body === undefined ? undefined : JSON.stringify(request.body)),
@@ -132,5 +137,16 @@ export class Transport {
 
   private static normalizeUrl(url: string): string {
     return url.replace(/\/+$/, "");
+  }
+
+  /** The caller's own `fetch`, or the runtime's bound to the global. A
+   * browser's `fetch` is a `Window` method and refuses every other receiver,
+   * so the default is stored already bound rather than bare. */
+  private static resolveFetch(fetchFunction: FetchFunction | undefined): FetchFunction {
+    if (fetchFunction) return fetchFunction;
+    if (typeof globalThis.fetch !== "function") {
+      throw new Error("this runtime has no global fetch: pass one as SiloOptions.fetch");
+    }
+    return globalThis.fetch.bind(globalThis);
   }
 }
