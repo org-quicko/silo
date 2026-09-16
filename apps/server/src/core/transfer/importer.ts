@@ -6,6 +6,7 @@ import { x } from "tar";
 import type { Storage } from "../ports/storage";
 import type { BlobStorage } from "../ports/blob-storage";
 import { FsBlobStorage } from "../../adapters/blob/fs-blob-storage";
+import type { Entry } from "../domain/entry";
 import { EntryUtils } from "../domain/entry-utils";
 import type { Meta } from "../domain/meta";
 import { ValidationError } from "@silo/shared/validation-error";
@@ -14,6 +15,7 @@ import { NotFoundError } from "../errors/not-found-error";
 import { MediaRefs } from "../media/media-refs";
 import { SearchText } from "../search/search-text";
 import { ForbiddenError } from "../errors/forbidden-error";
+import { SchemaChangeGuard } from "../schema/schema-change-guard";
 import { SchemaValidator } from "../schema/schema-validator";
 import { FormatVersion } from "./format-version";
 import type { ExportManifest } from "./export-manifest";
@@ -32,6 +34,17 @@ export interface ParsedImport {
 }
 
 export class Importer {
+  /**
+   * How many rejected entries an import names individually (D69).
+   *
+   * `rejected` is always the true count; this bounds only the list beside it.
+   * An archive exported under a schema the destination has since tightened can
+   * fail on every row, and a result carrying a message per entry would be a
+   * response larger than the archive — while the first hundred already say
+   * which collections are affected and why.
+   */
+  static readonly RejectionLimit = 100;
+
   private static async parseImportDir(src: string): Promise<ParsedImport> {
     const manifestPath = path.join(src, "manifest.json");
     const mdata = await fs.readFile(manifestPath, "utf8");
@@ -87,14 +100,17 @@ export class Importer {
       updated: 0,
       deleted: 0,
       skipped: 0,
+      rejected: 0,
+      rejections: [],
     };
     const preview = ScopeCopyPreviewBuilder.from(opts);
 
     const localMeta = await store.meta();
-    let validator: SchemaValidator | undefined;
-    if (opts.validate) {
-      validator = new SchemaValidator(store);
-    }
+    // Unconditional since D69. It used to be built only for `opts.validate`,
+    // which defaulted to false everywhere it was offered — so the documented
+    // guarantee that entries are validated on the way in had a door in it that
+    // every archive and every scope copy came through by default.
+    const validator = new SchemaValidator(store);
 
     // Projects first, and every project the archive names rather than only the
     // ones a scope mentions: a project with no environment is not a scope, so
@@ -130,7 +146,7 @@ export class Importer {
     mode: "merge" | "replace",
     opts: ImportOptions,
     response: ImportResult,
-    validator: SchemaValidator | undefined,
+    validator: SchemaValidator,
     preview?: ScopeCopyPreviewBuilder,
   ): Promise<void> {
     const { scope, schemas, entries } = scoped;
@@ -186,8 +202,30 @@ export class Importer {
       }
     }
 
-    // Import schemas
+    // Import schemas.
+    //
+    // Only the **merge-over-existing** branch is guarded (D69), because it is
+    // the only one that can leave entries filed under constraints that never
+    // judged them. Replace has already emptied the collection in the loop
+    // above, and a collection that does not exist yet has nothing to
+    // invalidate — so guarding either would refuse an import that is safe.
+    //
+    // The guard runs on a dry run too, and that is the point: for merge, the
+    // count it reads is the same one the real run would read, so the dry run
+    // predicts the refusal instead of the operator meeting it at apply time.
+    // Replace is exempt for the same reason in reverse — a dry run deletes
+    // nothing, so a guard there would report a conflict the real run resolves
+    // by emptying the collection first.
     for (const [colName, remoteSchema] of schemas.entries()) {
+      const write = async (guarded: boolean) => {
+        if (guarded) await SchemaChangeGuard.assert(store, scope, colName, remoteSchema);
+        if (opts.dryRun) return;
+        await Importer.createRecord(
+          (id) => store.putSchema(scope, colName, remoteSchema, id),
+          scoped.collectionIds.get(colName)
+        );
+      };
+
       try {
         const localSchema = await store.getSchema(scope, colName);
         if (mode === "merge") {
@@ -196,41 +234,24 @@ export class Importer {
             if (opts.prefer === "local") {
               continue;
             }
-            if (!opts.dryRun) {
-              await Importer.createRecord(
-                (id) => store.putSchema(scope, colName, remoteSchema, id),
-                scoped.collectionIds.get(colName)
-              );
-            }
+            await write(true);
           }
           else preview?.schema(colName, "unchanged");
         } else {
           preview?.schema(colName, "update");
-          if (!opts.dryRun) {
-            await Importer.createRecord(
-              (id) => store.putSchema(scope, colName, remoteSchema, id),
-              scoped.collectionIds.get(colName)
-            );
-          }
+          await write(false);
         }
       } catch (caught: any) {
         if (caught instanceof NotFoundError) {
           preview?.schema(colName, "create");
-          if (!opts.dryRun) {
-            await Importer.createRecord(
-              (id) => store.putSchema(scope, colName, remoteSchema, id),
-              scoped.collectionIds.get(colName)
-            );
-          }
+          await write(false);
         } else {
           throw caught;
         }
       }
     }
 
-    if (validator) {
-      validator.invalidate();
-    }
+    validator.invalidate();
 
     // Import entries
     for (const [colName, remoteEntries] of entries.entries()) {
@@ -252,16 +273,48 @@ export class Importer {
         usages: MediaRefs.extract(data),
         search: isSystem ? null : SearchText.extract(data, colSchema),
       });
+
+      /**
+       * Writes one entry, or records why the schema refused it (D69).
+       *
+       * Answers false when the entry was rejected, so the caller counts it as
+       * neither an add nor an update — the counts stay a description of what
+       * reached the destination, and `rejected` describes the rest.
+       *
+       * A dry run never reaches the validator. The schemas it would have
+       * written are still unwritten, so judging entries against the local ones
+       * would invent failures a real import would not have and miss the ones it
+       * would; a confident wrong answer is worse than no answer.
+       */
+      const write = async (remote: Entry): Promise<boolean> => {
+        if (opts.dryRun) return true;
+        if (colValidator) {
+          try {
+            await colValidator.validateEntry(scope, colName, remote.data);
+          } catch (caught: any) {
+            if (!ValidationError.is(caught)) throw caught;
+            response.rejected++;
+            if (response.rejections.length < Importer.RejectionLimit) {
+              response.rejections.push({
+                project: scope.project,
+                env: scope.env,
+                collection: colName,
+                id: remote.id,
+                reason: caught.message,
+              });
+            }
+            return false;
+          }
+        }
+        await store.put(remote, derived(remote.data));
+        return true;
+      };
+
       for (const remote of remoteEntries) {
         if (mode === "replace") {
+          if (!(await write(remote))) continue;
           response.added++;
           preview?.entriesFor(colName, "added", [remote.id]);
-          if (!opts.dryRun) {
-            if (colValidator) {
-              await colValidator.validateEntry(scope, colName, remote.data);
-            }
-            await store.put(remote, derived(remote.data));
-          }
           continue;
         }
 
@@ -292,28 +345,18 @@ export class Importer {
           }
 
           if (win) {
+            if (!(await write(remote))) continue;
             response.updated++;
             preview?.entriesFor(colName, "updated", [remote.id]);
-            if (!opts.dryRun) {
-              if (colValidator) {
-                await colValidator.validateEntry(scope, colName, remote.data);
-              }
-              await store.put(remote, derived(remote.data));
-            }
           } else {
             response.skipped++;
             preview?.entriesFor(colName, "skipped", [remote.id]);
           }
         } catch (caught: any) {
           if (caught instanceof NotFoundError) {
+            if (!(await write(remote))) continue;
             response.added++;
             preview?.entriesFor(colName, "added", [remote.id]);
-            if (!opts.dryRun) {
-              if (colValidator) {
-                await colValidator.validateEntry(scope, colName, remote.data);
-              }
-              await store.put(remote, derived(remote.data));
-            }
           } else {
             throw caught;
           }

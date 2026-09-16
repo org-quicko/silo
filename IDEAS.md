@@ -82,7 +82,37 @@ Goal: Evaluate execution models for running Silo on serverless compute.
 
 ---
 
-## 5. Plugin System — promoted
+## 5. Schema change over existing data
+
+Deferred from D69, which froze a collection's validating shape while it holds
+entries. That decision bought the guarantee cheaply — one count, and no write
+that touches data the author did not ask to touch — and the price is that the
+only migration path today is export, transform, import into a new collection.
+
+What a later release owes: a schema change that **states what happens to the
+entries** before it runs. Sketch, unvetted.
+
+- **Classify the diff.** `SchemaShape` already separates the annotations from
+  the constraints; a migration needs the next distinction — which constraint
+  changes are *widening* (a new optional field, a relaxed `maxLength`, a member
+  added to an `enum`) and therefore safe to apply with no entry touched at all,
+  and which are narrowing. Widening changes should arguably not have been frozen
+  in the first place, and are the cheapest thing to unfreeze.
+- **Dry-run the narrowing ones.** Compile the proposed schema and sweep the
+  collection with it, answering a count and a sample of the entries that would
+  stop validating. This is the `silo validate` sweep the pre-D69 policy kept on
+  its roadmap and never built; it is more useful as the *preview of a migration*
+  than as a standalone report.
+- **Then one of three outcomes, chosen by the author:** refuse (today's
+  behaviour), apply and leave the failing entries flagged, or apply with a
+  transform — a per-field default, a rename, a cast — recorded so it is
+  reviewable and so an import can replay it.
+
+The open question is where the transform lives. A JSON-to-JSON expression in the
+request is the smallest thing that could work; a hook is the most powerful, and
+inherits D31's ordering problem. Neither is obviously right yet.
+
+## 6. Plugin System — promoted
 
 Explored here, then promoted to **D31** and **§13** of
 [IMPLEMENTATION.md](IMPLEMENTATION.md) once the open questions were resolved:

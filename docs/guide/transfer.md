@@ -51,9 +51,32 @@ model in `collections` and `entries` tables, keyed by scope.
 
 An imported entry keeps its id, its revision, its timestamps and its scope.
 `seq` is reassigned locally, and the importing instance keeps its own
-`instance_id`, so cloning data does not clone identity. Validation is off by
-default, because the source instance already accepted this data, possibly under
-an older schema.
+`instance_id`, so cloning data does not clone identity.
+
+**Every entry is validated against the schema it lands under.** There is no
+option to turn this off. An entry that does not agree with the schema is not
+written. The import continues, and the result counts it as `rejected` and names
+it. Read that count after each import. A source instance can hold data that an
+older schema accepted, and those rows stop at the door.
+
+```json
+{ "added": 120, "updated": 0, "deleted": 0, "skipped": 0, "rejected": 2,
+  "rejections": [
+    { "project": "acme", "env": "prod", "collection": "posts",
+      "id": "01J...", "reason": "validation failed: \"/title\": must be string" }
+  ] }
+```
+
+The list holds a maximum of 100 entries. The `rejected` count is always
+complete. A dry run always reports `rejected: 0`. It does not write the schemas,
+so it has nothing to compare the entries against.
+
+**A collection that holds entries keeps its schema.** If the archive carries a
+different schema for such a collection, `merge` stops with a `409`. Use
+`replace` for that collection, because `replace` deletes the entries before it
+writes the schema. You can also delete the entries first. A change to the
+access setting, the search fields or the labels is always permitted. Use
+`--dry-run` to find this conflict before you import.
 
 Two limits are worth knowing.
 
@@ -111,8 +134,8 @@ Moving data between two environments of one instance needs no archive. Promoting
 `dev` to `staging`, or seeding a fresh environment from `prod`, is one request.
 `POST /api/projects/{project}/envs/{env}/copy` is destination-driven, like
 `/api/copy`: the route names the environment being written, and the body names
-the source. It takes the same `mode`, `prefer`, `validate` and `dry_run` options
-an import takes, and it runs entirely inside the server.
+the source. It takes the same `mode`, `prefer` and `dry_run` options an import
+takes, and it runs entirely inside the server.
 
 ```sh
 curl -X POST http://localhost:8090/api/projects/acme/envs/staging/copy \
@@ -122,7 +145,8 @@ curl -X POST http://localhost:8090/api/projects/acme/envs/staging/copy \
 ```
 
 ```json
-{ "mode": "merge", "dry_run": true, "added": 12, "updated": 0, "deleted": 0, "skipped": 3 }
+{ "mode": "merge", "dry_run": true, "added": 12, "updated": 0, "deleted": 0, "skipped": 3,
+  "rejected": 0, "rejections": [] }
 ```
 
 Unlike the archive routes, this needs **no `transfer:*` claim**. It reaches

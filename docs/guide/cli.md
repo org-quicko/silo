@@ -58,7 +58,6 @@ silo version                       print the version
 | `--dir <path>`, `--out <path>` | `export` | write a directory tree, or a `.tar.gz` |
 | `--with-keys` | `export` | include API key hashes |
 | `--mode <merge\|replace>` | `import` | conflict strategy (default `merge`) |
-| `--validate` | `import` | validate entries against their schema |
 | `--dry-run` | `import` | report what would be written, write nothing |
 | `--prefer <local\|remote>` | `import` | override merge conflict resolution |
 | `--check` | `search reindex` | also report both index integrity checks, and exit non-zero on disagreement |

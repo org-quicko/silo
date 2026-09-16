@@ -27,11 +27,10 @@ export class TransferApi {
     url: string,
     key: string,
     file: File,
-    options: { mode: string; validate: boolean; dryRun: boolean; prefer?: string },
+    options: { mode: string; dryRun: boolean; prefer?: string },
   ): Promise<ImportResult> {
     const params = new QueryParams()
       .set('mode', options.mode)
-      .set('validate', options.validate)
       .set('dry_run', options.dryRun)
       .set('prefer', options.prefer)
 
@@ -83,7 +82,6 @@ export class TransferApi {
         from: { project: options.from.project, env: options.from.env },
         mode: options.mode,
         dry_run: options.dryRun,
-        validate: options.validate,
         prefer: options.prefer || undefined,
         selection: options.selection?.map((item) => ({
           collection: item.collection,

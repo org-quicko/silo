@@ -75,7 +75,6 @@ export:
 
 import:
   --mode s             merge | replace (default merge)
-  --validate           strictly validate entries against schema (default false)
   --dry-run            verify import structure without writing (default false)
   --prefer s           local | remote (override conflict resolution)
 

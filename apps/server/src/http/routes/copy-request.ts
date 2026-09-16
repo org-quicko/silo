@@ -4,6 +4,5 @@ export interface CopyRequest {
   mode?: "merge" | "replace";
   with_keys?: boolean;
   dry_run?: boolean;
-  validate?: boolean;
   prefer?: "local" | "remote";
 }

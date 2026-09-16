@@ -34,7 +34,6 @@ export class CliOptions {
     out: { type: "string" },
     "with-keys": { type: "boolean" },
     mode: { type: "string", default: "merge" },
-    validate: { type: "boolean" },
     "dry-run": { type: "boolean" },
     prefer: { type: "string" },
     detach: { type: "boolean", short: "d" },

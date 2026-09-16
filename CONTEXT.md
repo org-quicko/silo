@@ -17,7 +17,38 @@ can be cloned with one command.
 
 ## Where things stand
 
-*Last updated: 2026-09-16 (D69)*
+*Last updated: 2026-09-16 (D70)*
+
+**JSON Schema became a rule, not just a shape (2026-09-16).** Collections were
+built on JSON Schema, and it drew the forms and described the data, but it did
+not reliably decide what got stored. `EntryService` validated every API write,
+and plugins inherited that because they dispatch through the real routes. The
+importer did not: it built a validator only under `opts.validate`, which
+defaulted to **false** on `silo import --validate`, on `POST /api/import`, and
+on both copy routes. And `putSchema` never looked at the entries under a
+collection at all, so tightening a schema left rows behind that it rejects.
+Three rules now hold (D70). **Data in is always validated** — the flag and every
+surface offering it are gone, and an entry the destination refuses is skipped,
+counted in `ImportResult.rejected` and named in `rejections` (capped at 100,
+count exact) rather than aborting an otherwise good archive. **Data out is never
+validated**, so a tightening cannot make stored entries unreadable. **A schema is
+frozen while entries exist**: `SchemaChangeGuard` compares the incoming bundled
+document against the stored one and answers `409` with the collection name and
+its entry count. Only the *validating shape* is frozen — `SchemaShape` strips
+`x-silo-auth`, `x-silo-search`, `title`, `description` and `$comment` at every
+depth first, so publishing a populated collection or fixing a search path stays
+an ordinary edit, and the strip is schema-aware rather than key-name-aware
+because `title` under `properties` is a field called "title". Replace-mode
+import, a first create and a rename are exempt, each because it has no entries
+to invalidate at the moment it writes. The admin's editor is read-only in both
+representations while entries exist, with the per-field description and the
+privacy toggle the exceptions; `x-silo-search` has no control of its own and so
+is API-only on a populated collection. `SchemaDraft` also stopped adding
+`type: "string"` to an enum that never declared one, which had made such a
+collection unsaveable once frozen. Editing a
+schema over existing data is **deferred, not refused forever** — a later release
+is expected to allow it behind a migration plan that says what happens to those
+entries.
 
 **silo has a Java client, and the three decisions that could not cross are the
 interesting part (2026-09-16, D69).** `packages/silo-client-java`, published as

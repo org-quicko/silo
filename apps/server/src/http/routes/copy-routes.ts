@@ -39,7 +39,6 @@ export class CopyRoutes {
       const result = await service.transfer.importTarGzStream(archive, {
         mode: body.mode,
         dryRun: body.dry_run,
-        validate: body.validate,
         prefer: body.prefer,
         allowKeys: Claims.has(key.claims, Claims.KeysImport),
       });
@@ -75,7 +74,6 @@ export class CopyRoutes {
       const result = await service.transfer.copyScope(from, to, {
         mode,
         dryRun: body.dry_run,
-        validate: body.validate,
         prefer: body.prefer,
         selection: body.selection?.map((item) => ({ collection: item.collection, entryIds: item.entry_ids })),
         scopeCopyPreview,
@@ -112,7 +110,7 @@ export class CopyRoutes {
     if (body.prefer !== undefined && body.prefer !== "local" && body.prefer !== "remote") {
       throw new ValidationError(`invalid copy preference "${body.prefer}"`);
     }
-    for (const field of ["dry_run", "validate"] as const) {
+    for (const field of ["dry_run"] as const) {
       if (body[field] !== undefined && typeof body[field] !== "boolean") {
         throw new ValidationError(`${field} must be a boolean`);
       }
@@ -242,7 +240,7 @@ export class CopyRoutes {
     if (body.prefer !== undefined && body.prefer !== "local" && body.prefer !== "remote") {
       throw new ValidationError(`invalid copy preference "${body.prefer}"`);
     }
-    for (const field of ["with_keys", "dry_run", "validate"] as const) {
+    for (const field of ["with_keys", "dry_run"] as const) {
       if (body[field] !== undefined && typeof body[field] !== "boolean") {
         throw new ValidationError(`${field} must be a boolean`);
       }

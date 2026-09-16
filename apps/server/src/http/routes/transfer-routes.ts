@@ -43,7 +43,6 @@ export class TransferRoutes {
         // Replace clears every blob in the instance before loading.
         RouteAuth.requireClaim(c, Claims.MediaDelete);
       }
-      const validate = c.req.query("validate") === "true";
       const dryRun = c.req.query("dry_run") === "true";
       const prefer = c.req.query("prefer") as "local" | "remote" | undefined;
 
@@ -76,7 +75,6 @@ export class TransferRoutes {
 
       const response = await service.transfer.importTarGzStream(archive, {
         mode,
-        validate,
         dryRun,
         prefer,
         allowKeys: Claims.has(key.claims, Claims.KeysImport),
