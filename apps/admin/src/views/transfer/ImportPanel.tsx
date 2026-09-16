@@ -4,7 +4,7 @@ import { Pill } from '../../components/feedback/Pill'
 import { StatRow } from '../../components/data/StatRow'
 import { StatTile } from '../../components/data/StatTile'
 import { Segmented } from '../../components/controls/Segmented'
-import { Toggle } from '../../components/controls/Toggle'
+import type { ImportRejection } from '../../api/types/import-rejection'
 import type { ArchiveMode, ArchivePrefer, useArchiveTransfer } from './use-archive-transfer'
 import { ArchiveDropzone } from './ArchiveDropzone'
 import { SettingsAlert } from '../settings/parts/SettingsAlert'
@@ -73,14 +73,6 @@ export function ImportPanel({
           </SettingsRow>
         )}
 
-        <SettingsRow
-          label="Validate against schemas"
-          help="Slower, but a malformed entry is refused at the door instead of landing in the collection."
-          inline
-        >
-          <Toggle on={transfer.validate} disabled={!transfer.file} onChange={transfer.changeValidate} />
-        </SettingsRow>
-
         {transfer.error && (
           <SettingsAlert tone="bad" title="Import failed">
             {transfer.error}
@@ -99,7 +91,20 @@ export function ImportPanel({
             <StatTile n={result.updated} label="to update" tone="warn" prefix="~" />
             <StatTile n={result.deleted} label="to delete" tone="bad" />
             <StatTile n={result.skipped} label="unchanged" tone="muted" />
+            {result.rejected > 0 && <StatTile n={result.rejected} label="rejected" tone="bad" />}
           </StatRow>
+        )}
+
+        {/* Only after an apply. A dry run writes no schemas, so it has nothing
+            to judge entries against and always reports zero. */}
+        {result && result.rejected > 0 && (
+          <SettingsAlert
+            tone="bad"
+            title={`${result.rejected} ${result.rejected === 1 ? 'entry' : 'entries'} did not match a schema`}
+          >
+            Not imported; everything else was. Affected:{' '}
+            <span className="mono">{ImportPanel.rejectedCollections(result.rejections)}</span>.
+          </SettingsAlert>
         )}
 
         <div className={ledger.sectionActions}>
@@ -137,4 +142,21 @@ export function ImportPanel({
       </SettingsSection>
     </>
   )
+}
+
+/**
+ * The collections a rejection list touches, with a count each.
+ *
+ * Named rather than listed entry by entry: a schema tightened in one place
+ * rejects every row under it, so the per-entry list is the same sentence a
+ * thousand times. The collection and the count are what an operator acts on,
+ * and the full list is in the API response for anyone who wants it.
+ */
+ImportPanel.rejectedCollections = (rejections: ImportRejection[]): string => {
+  const counts = new Map<string, number>()
+  for (const rejection of rejections) {
+    const key = `${rejection.project}/${rejection.env}/${rejection.collection}`
+    counts.set(key, (counts.get(key) ?? 0) + 1)
+  }
+  return [...counts].map(([name, count]) => `${name} (${count})`).join(', ')
 }

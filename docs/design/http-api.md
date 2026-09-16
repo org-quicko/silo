@@ -31,7 +31,7 @@ Hono web framework on Bun. JSON everywhere. Admin UI served at `/`; API under `/
 | POST | `/api/search/reindex` | rebuild the index; export-level read claims |
 | GET | `/api/export` | streams tar.gz (`transfer:export`; `keys:export` when including keys) |
 | POST | `/api/import?mode=` | streams in a tar.gz — a raw body, or a `multipart/form-data` `file` part (`transfer:import` + `media:create`, plus `media:delete` in replace mode; archives containing keys also require `keys:import`) |
-| POST | `/api/copy` | pulls and imports another silo (`{source_url, source_api_key, mode, with_keys, dry_run, validate, prefer}`; `transfer:copy`) |
+| POST | `/api/copy` | pulls and imports another silo (`{source_url, source_api_key, mode, with_keys, dry_run, prefer}`; `transfer:copy`) |
 | GET / POST | `/api/keys` | list (`keys:read`) / create (`keys:create`); create returns the secret exactly once |
 | PATCH | `/api/keys/{id}` | edit a key's label and/or claims (`keys:create`, **and** the authority to have minted both what it holds and what it is being given — D63) |
 | DELETE | `/api/keys/{id}` | revoke a key (`keys:revoke`, **and** the authority to have minted it — D37) |
@@ -217,10 +217,9 @@ nothing. Both take an ISO-8601 timestamp and are inclusive.
 path, which is what lets a rename leave every entry alone. Extraction is
 **structural**, not schema-driven: `MediaRefs.extract` walks the whole `data`
 value and collects every string that parses as a reference, regardless of what
-the schema says, because §7.2 lets an archive carry `content/<collection>/`
-with no schema at all and validation is off by default on import. A
-schema-driven walk would find nothing there and a missed reference deletes a
-live file. Over-capture (a free-text field holding a literal reference string)
+the schema says. A schema-driven walk would find nothing in a field the schema
+does not declare — and JSON Schema admits undeclared properties unless a schema
+says otherwise — so a missed reference would delete a live file. Over-capture (a free-text field holding a literal reference string)
 blocks a delete: visible and recoverable. Under-capture orphans: silent. Take
 the asymmetry.
 
@@ -241,8 +240,11 @@ remote object store cannot share a transaction:
 A crash between 3 and 4 leaves an asset in `deleting`; startup retries the
 idempotent blob delete and finishes. `Service` refuses to create a *new*
 reference to an asset in `deleting`, so the window cannot be re-entered.
-Import does **not** run that check — §7.2 is fidelity-first and validation is
-opt-in, so an archive is never rejected for naming an asset it also carries.
+Import does **not** run that check: an archive carries its assets alongside the
+entries naming them, so rejecting an entry for pointing at one mid-delete would
+refuse a restore for a state the restore itself resolves. This is the one thing
+§7.2 stayed fidelity-first about after D69 made entry validation unconditional —
+it is about reference *timing*, not about shape.
 
 **The abort.** A blob delete that fails *permanently* — rotated credentials, a
 changed bucket policy — would otherwise strand the asset in `deleting`

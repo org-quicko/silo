@@ -8,6 +8,7 @@ import styles from './SchemaEditor.module.css'
 export function RefTarget({
   target,
   collections,
+  disabled,
   onChange,
   isArray = false,
 }: {
@@ -15,6 +16,8 @@ export function RefTarget({
   /** Ref targets: names only — choosing one writes a `silo://` URL, and
    *  nothing here reads the target's schema. */
   collections: readonly { name: string }[]
+  /** Entries exist: what a reference points at is a constraint on them. */
+  disabled?: boolean
   onChange: (target: string) => void
   isArray?: boolean
 }) {
@@ -33,6 +36,7 @@ export function RefTarget({
         value={mode}
         variant="compact"
         onChange={switchMode}
+        disabled={disabled}
         options={[
           { value: 'local', label: 'Local collection' },
           { value: 'remote', label: 'Remote schema URL' },
@@ -43,6 +47,7 @@ export function RefTarget({
           <select
             className={`input ${styles.compactInput}`}
             value={localName}
+            disabled={disabled}
             onChange={(e) => onChange(e.target.value ? SiloRef.url(e.target.value) : '')}
           >
             <option value="">Choose a collection…</option>
@@ -63,6 +68,8 @@ export function RefTarget({
             className={`input mono ${styles.compactInput}`}
             placeholder="https://example.com/schema.json"
             value={SiloRef.isLocal(target) ? '' : target}
+            readOnly={disabled}
+            disabled={disabled}
             onChange={(e) => onChange(e.target.value.trim())}
           />
           <span className={`${styles.hint} ${remoteBad ? styles.badHint : ''}`}>

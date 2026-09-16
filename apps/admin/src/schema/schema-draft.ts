@@ -230,7 +230,15 @@ export class SchemaDraft {
         // one: `["string", "null"]` beside `["a", "b"]` validates nothing, and
         // an imported column whose rows are half empty would start failing on
         // the first save from this editor.
-        setType('string')
+        //
+        // But only where there is something to agree *with*. A bare `enum` is
+        // already a complete constraint — the members are the permitted values,
+        // and their types with them — so adding `type` to a property that never
+        // declared one narrows the schema on a save the author made for another
+        // reason entirely. Since D69 that is not merely untidy: the collection's
+        // shape is frozen once it holds entries, so a builder that cannot return
+        // a document unchanged cannot edit the description of one either.
+        if (field.nullable || "type" in property) setType("string")
         property.enum = field.nullable ? [...field.enumValues, null] : field.enumValues
         drop('$ref', 'items', MediaField.TypeKeyword)
         return

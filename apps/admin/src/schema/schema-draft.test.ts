@@ -146,6 +146,26 @@ describe('SchemaDraft', () => {
       expect(properties.status).toEqual({ type: ['string', 'null'], enum: ['draft', 'live', null] })
     })
 
+    /**
+     * A bare `enum` is already a complete constraint, so adding `type` to one
+     * that never declared it narrows the schema on a save made for some other
+     * reason. Since D69 that matters: a collection's shape is frozen once it
+     * holds entries, and a builder that cannot hand a document back unchanged
+     * cannot edit its descriptions either.
+     */
+    test('an enum with no declared type does not acquire one', () => {
+      const { properties } = save({ status: { enum: ['draft', 'live'] } }, (fields) => {
+        fields[0].description = 'Publication state'
+      })
+
+      expect(properties.status).toEqual({ enum: ['draft', 'live'], description: 'Publication state' })
+    })
+
+    test('an enum that declared a type keeps it', () => {
+      const { properties } = save({ status: { type: 'string', enum: ['draft', 'live'] } })
+      expect(properties.status).toEqual({ type: 'string', enum: ['draft', 'live'] })
+    })
+
     test('a JSON column stays typeless, rather than narrowing to a string', () => {
       const { properties } = save({ payload: { description: 'Whatever was there' } })
 

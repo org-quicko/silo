@@ -20,10 +20,12 @@ interface Props {
   /** Set when the property carries an advanced construct the builder cannot
    *  draw; the type is then shown, not chosen. */
   construct?: string
+  /** Entries exist, so the type is shown and not chosen. */
+  disabled?: boolean
   onChange: (kind: SchemaFieldKind) => void
 }
 
-export function FieldKindSelect({ kind, construct, onChange }: Props) {
+export function FieldKindSelect({ kind, construct, disabled, onChange }: Props) {
   if (construct) {
     return (
       <div className={`input ${styles.compactInput} ${styles.constructInput}`}>
@@ -36,6 +38,7 @@ export function FieldKindSelect({ kind, construct, onChange }: Props) {
     <select
       className={`input ${styles.compactInput}`}
       value={kind}
+      disabled={disabled}
       onChange={(event) => onChange(event.target.value as SchemaFieldKind)}
     >
       {OPTIONS.map((option) => (

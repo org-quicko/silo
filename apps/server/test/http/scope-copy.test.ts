@@ -84,7 +84,13 @@ describe("Scope copy API", () => {
   test("prefer decides which side wins when both hold the entry", async () => {
     const source = await service.entries.create(prod, "posts", { title: "source wins" });
     await service.scopes.createEnvironment("acme", "staging");
-    await service.collections.putSchema(staging, "posts", { type: "object" });
+    // The same schema as the source: this test is about which side wins an
+    // entry, and since D69 a differing schema over a populated destination is
+    // a conflict that would decide the copy before `prefer` ever applied.
+    await service.collections.putSchema(staging, "posts", {
+      type: "object",
+      properties: { title: { type: "string" } },
+    });
     await store.put({
       ...source,
       project: staging.project,

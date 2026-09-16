@@ -15,12 +15,11 @@ export class ImportCommand {
     }
 
     const mode = values.mode as "merge" | "replace";
-    const validate = !!values.validate;
     const dryRun = !!values["dry-run"];
     const prefer = values.prefer as "local" | "remote";
 
     // Host-level CLI access is trusted and retains the ability to restore keys.
-    const options = { mode, validate, dryRun, prefer, allowKeys: true };
+    const options = { mode, dryRun, prefer, allowKeys: true };
 
     let response;
     const stat = await fs.stat(src);
@@ -39,6 +38,20 @@ export class ImportCommand {
     console.log(`  Updated: ${response.updated}`);
     console.log(`  Deleted: ${response.deleted}`);
     console.log(`  Skipped: ${response.skipped}`);
+
+    // Last, and only when there are any: a clean import should not end on a
+    // zero that invites a search for a problem that is not there.
+    if (response.rejected > 0) {
+      console.log(`  Rejected: ${response.rejected} (did not match the destination's schema)`);
+      for (const rejection of response.rejections) {
+        console.log(
+          `    ${rejection.project}/${rejection.env}/${rejection.collection}/${rejection.id}: ${rejection.reason}`
+        );
+      }
+      if (response.rejections.length < response.rejected) {
+        console.log(`    … and ${response.rejected - response.rejections.length} more`);
+      }
+    }
 
     await store.close();
   }

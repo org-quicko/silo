@@ -27,7 +27,6 @@ export function useArchiveTransfer(
 
   const [mode, setMode] = useState<ArchiveMode>('merge')
   const [prefer, setPrefer] = useState<ArchivePrefer>('')
-  const [validate, setValidate] = useState(false)
 
   const [file, setFile] = useState<File | null>(null)
   const [preview, setPreview] = useState<ImportResult | null>(null)
@@ -57,7 +56,7 @@ export function useArchiveTransfer(
 
   const runPreview = async (
     archive: File,
-    overrides?: { mode?: ArchiveMode; prefer?: ArchivePrefer; validate?: boolean },
+    overrides?: { mode?: ArchiveMode; prefer?: ArchivePrefer },
   ) => {
     setBusy(true)
     setError('')
@@ -68,7 +67,6 @@ export function useArchiveTransfer(
         await api.transfer.importArchive(serverUrl, apiKey, archive, {
           mode: overrides?.mode ?? mode,
           prefer: overrides?.prefer ?? prefer,
-          validate: overrides?.validate ?? validate,
           dryRun: true,
         }),
       )
@@ -87,7 +85,6 @@ export function useArchiveTransfer(
 
     mode,
     prefer,
-    validate,
     file,
     preview,
     applied,
@@ -107,11 +104,6 @@ export function useArchiveTransfer(
       setPrefer(next)
       if (file) runPreview(file, { prefer: next })
     },
-    changeValidate: (next: boolean) => {
-      setValidate(next)
-      if (file) runPreview(file, { validate: next })
-    },
-
     pickFile: (event: ChangeEvent<HTMLInputElement>) => {
       const chosen = event.target.files?.[0]
       if (!chosen) return
@@ -136,7 +128,6 @@ export function useArchiveTransfer(
           await api.transfer.importArchive(serverUrl, apiKey, file, {
             mode,
             prefer,
-            validate,
             dryRun: false,
           }),
         )
