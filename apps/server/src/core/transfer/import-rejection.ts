@@ -1,5 +1,5 @@
 /**
- * One entry an import refused, and why (D69).
+ * One entry an import refused, and why (D70).
  *
  * Reported rather than fatal. An archive is usually mostly good, and a source
  * instance that accepted this data under an older schema is the ordinary case

@@ -7,7 +7,7 @@ interface Props {
   value: string
   minimum?: number
   step: number | 'any'
-  /** Entries exist, so the keyword this writes is read-only (D69). */
+  /** Entries exist, so the keyword this writes is read-only (D70). */
   locked: boolean
   onChange: (value: string) => void
 }

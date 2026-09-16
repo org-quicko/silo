@@ -324,7 +324,7 @@ The admin UI keeps its own `src/api/` for now. The client is shaped so
 `apps/admin` can adopt it, and §14.2's split is what would make that swap
 safe, but it touches around forty view files and is its own change.
 
-### 14.10 Optional read caching (D70)
+### 14.10 Optional read caching (D71)
 
 `SiloOptions.cache` accepts `{ ttlMilliseconds, maxEntries? }` or an existing
 `SiloCache`. Without it, reads go directly through `FetchTransport`; no cache

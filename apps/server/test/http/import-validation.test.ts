@@ -10,7 +10,7 @@ import { Scope } from "../../src/core/domain/scope";
 import type { Entry } from "../../src/core/domain/entry";
 
 /**
- * Import validates every entry, with no flag to turn it off (D69).
+ * Import validates every entry, with no flag to turn it off (D70).
  *
  * It used to be `--validate`, defaulting to false — so the guarantee that data
  * is validated on the way in had a door in it that every archive came through.

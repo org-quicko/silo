@@ -100,7 +100,7 @@ export function SchemaEditorView({
 
   /**
    * Entries were validated against the schema they were written under, so the
-   * fields are frozen while they exist (D69).
+   * fields are frozen while they exist (D70).
    *
    * The schema is read-only in **both** representations. The visual builder
    * locks every control that decides what validates and leaves the per-field

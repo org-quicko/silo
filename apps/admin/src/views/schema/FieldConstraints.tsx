@@ -8,7 +8,7 @@ import styles from './SchemaEditor.module.css'
 interface Props {
   field: SchemaField
   /** Entries exist, so every keyword here is read-only: each one decides
-   *  whether an entry already stored is still valid (D69). */
+   *  whether an entry already stored is still valid (D70). */
   locked: boolean
   onChange: (constraints: SchemaFieldConstraints) => void
 }

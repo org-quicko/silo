@@ -243,7 +243,7 @@ reference to an asset in `deleting`, so the window cannot be re-entered.
 Import does **not** run that check: an archive carries its assets alongside the
 entries naming them, so rejecting an entry for pointing at one mid-delete would
 refuse a restore for a state the restore itself resolves. This is the one thing
-§7.2 stayed fidelity-first about after D69 made entry validation unconditional —
+§7.2 stayed fidelity-first about after D70 made entry validation unconditional —
 it is about reference *timing*, not about shape.
 
 **The abort.** A blob delete that fails *permanently* — rotated credentials, a

@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { SchemaShape } from "../src/schema/schema-shape";
 
 /** The validating projection that decides whether a schema may change while a
- *  collection holds entries (D69). */
+ *  collection holds entries (D70). */
 describe("schema shape", () => {
   const posts = {
     type: "object",

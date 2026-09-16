@@ -9,7 +9,7 @@ export interface ImportResult {
   deleted: number;
   skipped: number;
   /**
-   * Entries the destination's schema refused (D69). Always present, and `0` on
+   * Entries the destination's schema refused (D70). Always present, and `0` on
    * a clean import — a caller checking whether anything was dropped must not
    * have to know the field is sometimes absent.
    */

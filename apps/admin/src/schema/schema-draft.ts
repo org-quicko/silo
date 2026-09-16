@@ -246,7 +246,7 @@ export class SchemaDraft {
         // already a complete constraint — the members are the permitted values,
         // and their types with them — so adding `type` to a property that never
         // declared one narrows the schema on a save the author made for another
-        // reason entirely. Since D69 that is not merely untidy: the collection's
+        // reason entirely. Since D70 that is not merely untidy: the collection's
         // shape is frozen once it holds entries, so a builder that cannot return
         // a document unchanged cannot edit the description of one either.
         if (field.nullable || "type" in property) setType("string")
