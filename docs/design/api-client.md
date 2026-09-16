@@ -207,6 +207,27 @@ layer that knows whether a call was idempotent. For the same reason a
 landed, which is not evidence about what the server did, and the message says
 to reconcile rather than to retry.
 
+The `fetch` the transport calls is **bound at construction and called without a
+receiver.** `options.fetch ?? fetch` held in a field and invoked as
+`this.fetchFunction(...)` is a method call, so `this` inside `fetch` is the
+`Transport`. A browser enforces the receiver on WHATWG `fetch` and throws
+`TypeError: Failed to execute 'fetch' on 'Window': Illegal invocation`; Node's
+undici does not. The client therefore failed *every* request in a browser
+unless the caller passed a fetch of their own, and nothing could see it: the
+server side runs on undici, every unit test passes `StubFetch`, and the admin
+UI passes a wrapper that watches for a 401. The default is now
+`globalThis.fetch` bound to the global, and `execute` reads the field into a
+local before calling it — belt and braces, but the second half is the invariant
+worth stating, since the `Transport` is never a legitimate receiver for a
+caller's function either and an unbound `window.fetch` handed over as
+`SiloOptions.fetch` should work. A runtime with no global `fetch` is refused at
+construction, naming `SiloOptions.fetch`, rather than at the first call.
+
+That bug is also why `NetworkError` puts the cause's message in its own.
+"The request never reached the server" was literally true and read as a verdict
+on the network when the fault was the call; `cause` carried the `TypeError` all
+along, which some consoles print and no log line does.
+
 ### 14.8 Verification is the packed tarball
 
 `bun test` against `src/` cannot establish "runs everywhere". It cannot tell

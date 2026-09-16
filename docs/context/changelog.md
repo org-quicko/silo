@@ -4,6 +4,128 @@
 > The *current* state is [CONTEXT.md](../../CONTEXT.md); this is how it got
 > there.
 
+- **A content type made only of unresolvable components was offered as an
+  importable list (2026-09-16).** `StrapiShapes.isEmpty` asked whether a shape
+  had columns, media or children, and a component field whose every named
+  component failed the table search is still a child: `StrapiShapes.children`
+  pushes one with `shapes: []` and a non-empty `unresolved`, so that the field is
+  carried rather than dropped. `children.length > 0` was therefore true for a
+  content type that could write nothing. The case is
+  `api::pro-quicko-workspace-expertise`, seen on a real export before
+  `StrapiComponents.byFields` landed: exactly one attribute, a repeatable
+  component, unresolvable — so the list appeared on the plan with count 1, the
+  run reported one entry written, and the entry was `{ expertise: [] }`. The only
+  warning was the panel's "No table could be proved for …" note, sitting beside a
+  row that looked like every other row. `isEmpty` now counts a child only where a
+  table was proved for at least one of the components it names, and
+  `StrapiInventory.read` pushes the content type onto `skipped` — the same answer
+  it already gave a content type with no importable fields at all. Three things
+  decided the shape of it. **Skipped is reported, not omitted:** the design note
+  on `StrapiInventory.skipped` warns that a content type vanishing from the plan
+  is the one an operator notices after the import, and the panel renders every
+  skipped entry with its reason, so the note argues for this rather than against
+  it — what it is actually about is the silent loss, which is the empty import.
+  **The reason names the component uid**, via a new `StrapiInventory.emptyReason`
+  branching on `StrapiShapes.unresolved`, because the two skips are different
+  mistakes fixed in different places: relations and bookkeeping are silo's model
+  meeting Strapi's and have no remedy, where an unresolvable component is this
+  export failing to name storage that exists. The count goes in the reason too,
+  since skipping is what takes it off the plan and "1 empty entry" and "3400
+  empty entries" are the same bug and not the same loss. **A shape that is itself
+  empty still counts:** a resolvable component with no scalar columns writes
+  `{}` per item, and how many items there were is a fact the export holds, where
+  an unresolvable one writes `[]` and holds nothing. The third option — keep the
+  list on the plan and default its step's `include` to false — was rejected
+  because `include` already means "the operator narrowed this import"
+  (`ImportStep.include`), so silo's own verdict would be indistinguishable from
+  theirs in a forty-row table, and ticking the box would still import the empty
+  entries. The fixture gains trap 7, a content type whose one field is a
+  component with no table and no content-manager record, so neither the name
+  search nor `byFields` reaches one; `strapi-inventory.test.ts` pins both sides
+  of the line — that content type is skipped with the uid and the count in its
+  reason, and the same content type with one scalar added stays on the plan and
+  imports as `{ headline: 'Direct tax', expertise: [] }` with the note. The two
+  existing `expect(inventory.skipped).toEqual([])` assertions now name that one
+  content type instead, which is what they were asserting anyway.
+
+- **A Strapi component whose category was renamed imported as an empty list
+  (2026-09-16).** `StrapiComponents` searched for a component's table with four
+  matchers over its name — exact, singularised, prefix, and the shortened
+  spelling — and every one of them assumes the uid and the table still share a
+  word. Strapi writes a component's `collectionName` once, when the component is
+  created, and never again: rename its category in the admin and the uid every
+  reference now uses has nothing in common with the table still holding its rows.
+  In a live `pro-quicko-workspace` export, `nature-of-business.test` is stored in
+  `components_test_tests`, and the search returned `null` for it. The failure was
+  not an error. The list appeared on the plan, the import reported one entry
+  written, and the entry was `{ expertise: [] }` — five nature-of-business items
+  and their sixteen nested skills gone, with the panel's "no table could be
+  proved" note the only thing between an operator and content that had not
+  arrived. There is now a **fifth tier**, `StrapiComponents.byFields`, reached
+  only when all four name matchers fail: it proposes *every* component table and
+  proves one by the component's fields, which `StrapiFields` reads from the
+  content-manager configuration — a table accounts for a field when it has a
+  column of that name, when its own `_cmps` table names it as a child, or when it
+  is a media field of that uid, which lives in `files_related_mph` and so is a
+  column of no table at all. Every field must be accounted for and exactly one
+  table may survive, because this tier is name-blind: the `cmp_id`s of the
+  renamed component in the test fixture are held by three other component tables,
+  so the row-containment proof that carries the other four tiers has four answers
+  here and no way to choose. An export with no content-manager configuration
+  still resolves to `null`, which is the answer the search gave before. Two
+  supporting changes: the candidate list now excludes a `components_…_cmps` that
+  is the join table of another candidate — recognised by the table it belongs to
+  rather than by its suffix, since a component named `cmp` would pluralise into
+  one — and `StrapiDatabase.joinTable` is the one place a `_cmps` name is
+  derived, since `StrapiShapes` imports `StrapiComponents` and the two could not
+  share it between themselves. `StrapiIdentifiers.column` is the camelCase →
+  snake_case transform both readers need, moved out of `StrapiShapes`. The
+  fixture gains trap 6 for it, and `strapi-inventory.test.ts` pins both halves:
+  the renamed table resolves and its entry arrives full, and deleting the
+  component's content-manager record puts it back to an honest `unresolved`
+  rather than a guess.
+
+- **`@org-quicko/silo-client` failed every request in a browser unless the
+  caller passed its own `fetch` (2026-09-16).** `Transport` kept
+  `options.fetch ?? fetch` in a field and called it as `this.fetchFunction(...)`,
+  which is a method call, so `this` inside `fetch` was the `Transport`. Browsers
+  enforce the receiver on WHATWG `fetch` and throw
+  `TypeError: Failed to execute 'fetch' on 'Window': Illegal invocation`; Node's
+  undici does not, so the whole server side, every unit test (all of which pass
+  `StubFetch`) and the admin UI (which passes a fetch of its own to catch a 401)
+  were unaffected, and only a browser consumer taking the default ever saw it.
+  The default is now `globalThis.fetch.bind(globalThis)`, and a runtime with no
+  global `fetch` is refused at construction with a message naming
+  `SiloOptions.fetch` rather than crashing on the bind. `execute` reads the
+  function into a local before calling it, so the `Transport` is never the
+  receiver even if a caller hands over an unbound `window.fetch`.
+  `NetworkError`'s message now carries the cause's own message in parentheses:
+  the rejection was reported as "the request never reached the server", which
+  was true and pointed at the network rather than at the call, and a `cause`
+  chain is printed by some consoles and by no log line. Three tests in
+  `test/transport/transport.test.ts` cover the receiver: the default's is the
+  global, a supplied fetch that refuses any receiver but the global still works,
+  and a runtime without `fetch` throws by name.
+
+- **A Strapi import is one operator's, not the instance's (2026-09-16, D68).**
+  The importer's panel kept one staged database, one plan and one job history for
+  everybody, in one staging directory, so a second upload swept the first and
+  `DELETE /files` reached a stranger's run. Worse, `POST /imports` re-reads the
+  current inventory and `ImportSteps.read` only refuses a plan whose list ids are
+  absent: two exports of the same Strapi share every id, so one operator's plan
+  could validate against another's database and import their rows. `ImportSession`
+  (`src/worker/`) now holds the `SourceStore`, `UploadStore`, cached inventory and
+  `ImportJobs` of one caller, under `work_dir/sessions/<key>`, keyed by
+  `request.caller.id` — the only identity a plugin is given, and the only one that
+  outlives a panel reload, since the panel's iframe has an opaque origin and no
+  storage. Two people sharing an API key share a session. `RunningTargets`
+  (`src/import/`) claims every `project/env/collection` a run writes and refuses an
+  overlapping run by name, with at most three imports at once; `ImportJobs` keeps
+  one at a time per operator. New `session_ttl_hours` (default 24) with a
+  half-hourly janitor deletes a session nobody returned to, skipping one whose
+  import is in flight, and activation adopts the sessions on disk and removes the
+  pre-session staging. The panel says the staging is yours and when it goes.
+
 - **The Docker image builds the client, and each stage copies only the
   workspaces it needs (2026-09-16).** `docker build` stopped at the UI stage's
   install: `workspace "@silo/admin" depends on workspace

@@ -29,12 +29,13 @@ export class UploadRoutes {
        * content types that were skipped would be asking for work the import will
        * not use.
        */
-      async 'GET /files'(_request: SiloRequest, ctx: SiloContext) {
+      async 'GET /files'(request: SiloRequest, ctx: SiloContext) {
         const runtime = ImportRuntime.current()
-        const inventory = runtime.inventory(ctx)
-        const staged = await runtime.uploads.index()
+        const session = runtime.session(request)
+        const inventory = session.inventory(ctx)
+        const staged = await session.uploads.index()
 
-        const wanted = runtime.withSource((source) =>
+        const wanted = session.withSource((source) =>
           StrapiMedia.wantedBy(source, StrapiInventory.ownersOf(inventory)),
         )
 
@@ -82,24 +83,24 @@ export class UploadRoutes {
        * what a name may be.
        */
       async 'POST /files'(request: SiloRequest) {
-        const runtime = ImportRuntime.current()
+        const session = ImportRuntime.current().session(request)
         const bytes = RouteInput.bytes(request, 'send the file as the request body')
         try {
           return {
             status: 201,
-            json: await runtime.uploads.put(String(request.query.name ?? ''), bytes),
+            json: await session.uploads.put(String(request.query.name ?? ''), bytes),
           }
         } catch (caught: unknown) {
           return RouteInput.refuse(RouteInput.reason(caught))
         }
       },
 
-      /** Forget every staged upload. Separate from `DELETE /source` on purpose:
+      /** Forget every upload **this caller** staged. Separate from `DELETE /source` on purpose:
        *  Strapi's filenames are content-hashed, so uploads stay valid across a
        *  re-export, and discarding them with the database would make an operator
        *  re-send hundreds of files to fix one row. */
-      async 'DELETE /files'() {
-        await ImportRuntime.current().uploads.clear()
+      async 'DELETE /files'(request: SiloRequest) {
+        await ImportRuntime.current().session(request).uploads.clear()
         return { status: 204 }
       },
     }

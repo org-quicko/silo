@@ -15,7 +15,7 @@
     },
     "apps/admin": {
       "name": "@silo/admin",
-      "version": "1.0.0",
+      "version": "1.1.0",
       "dependencies": {
         "@codemirror/lang-json": "^6.0.2",
         "@org-quicko/silo-client": "workspace:*",
@@ -42,7 +42,7 @@
     },
     "apps/server": {
       "name": "@silo/server",
-      "version": "1.0.0",
+      "version": "1.1.0",
       "dependencies": {
         "@silo/shared": "workspace:*",
         "ajv": "^8.20.0",
@@ -62,7 +62,7 @@
     },
     "packages/create-silo-plugin": {
       "name": "create-silo-plugin",
-      "version": "1.0.0",
+      "version": "1.1.0",
       "bin": {
         "create-silo-plugin": "./dist/cli.js",
       },
@@ -73,11 +73,11 @@
     },
     "packages/shared": {
       "name": "@silo/shared",
-      "version": "1.0.0",
+      "version": "1.1.0",
     },
     "packages/silo-client": {
       "name": "@org-quicko/silo-client",
-      "version": "1.0.1",
+      "version": "1.1.0",
       "devDependencies": {
         "@arethetypeswrong/cli": "^0.18.5",
         "@silo/shared": "workspace:*",
@@ -90,7 +90,7 @@
       "version": "1.0.0",
     },
     "plugins/silo-plugin-strapi-import": {
-      "name": "silo-plugin-strapi-import",
+      "name": "@org-quicko/silo-plugin-strapi-import",
       "version": "1.0.0",
     },
   },
@@ -176,6 +176,8 @@
     "@nodelib/fs.walk": ["@nodelib/fs.walk@1.2.8", "", { "dependencies": { "@nodelib/fs.scandir": "2.1.5", "fastq": "^1.6.0" } }, "sha512-oGB+UxlgWcgQkgwo8GcEGwemoTFt3FIO9ababBmaGwXIoBKZ+GTy0pP185beGg7Llih/NSHSV2XAs1lnznocSg=="],
 
     "@org-quicko/silo-client": ["@org-quicko/silo-client@workspace:packages/silo-client"],
+
+    "@org-quicko/silo-plugin-strapi-import": ["@org-quicko/silo-plugin-strapi-import@workspace:plugins/silo-plugin-strapi-import"],
 
     "@oxc-project/types": ["@oxc-project/types@0.149.0", "", {}, "sha512-Efcc+iF0j3Bf67YjEqIqWXbX5XddXoK/Mw4K1/JuXwRCZ8N16VR7iT23nlCc9XrveFVh/E5Rqs2StT0V8v9LdA=="],
 
@@ -626,8 +628,6 @@
     "signal-exit": ["signal-exit@4.1.0", "", {}, "sha512-bzyZ1e88w9O1iNJbKnOlvYTrWPDl46O1bG0D3XInv+9tkPrxrN8jUUTiFlDkkmKWgn1M6CfIA13SuGqOa9Korw=="],
 
     "silo-plugin-observability": ["silo-plugin-observability@workspace:plugins/silo-plugin-observability"],
-
-    "silo-plugin-strapi-import": ["silo-plugin-strapi-import@workspace:plugins/silo-plugin-strapi-import"],
 
     "skin-tone": ["skin-tone@2.0.0", "", { "dependencies": { "unicode-emoji-modifier-base": "^1.0.0" } }, "sha512-kUMbT1oBJCpgrnKoSr0o6wPtvRWT9W9UKvGLwfJYO2WuahZRHOpEyL1ckyMGgMWh0UdpmaoFqKKD29WTomNEGA=="],
 

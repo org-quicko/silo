@@ -36,6 +36,9 @@ export class PluginSettings {
   readonly version: StrapiVersion
   /** Where the staged `.db` and any supplied uploads are written. */
   readonly workDir: string
+  /** How long one operator's staging survives with no request reaching it.
+   *  `0` keeps it until somebody removes it. */
+  readonly sessionTtlHours: number
 
   private constructor(config: Record<string, unknown>) {
     this.prefix = PluginSettings.text(config.collection_prefix, '')
@@ -44,6 +47,7 @@ export class PluginSettings {
     this.mediaLayout = MediaFolders.isLayout(config.media_layout) ? config.media_layout : 'single'
     this.version = StrapiVersions.isVersion(config.version) ? config.version : 'published'
     this.workDir = PluginSettings.text(config.work_dir, '').trim() || PluginSettings.tempDir()
+    this.sessionTtlHours = PluginSettings.hours(config.session_ttl_hours, 24)
   }
 
   static read(ctx: SiloContext): PluginSettings {
@@ -58,6 +62,14 @@ export class PluginSettings {
    */
   private static text(raw: unknown, fallback: string): string {
     return raw === undefined || raw === null ? fallback : String(raw)
+  }
+
+  /** A configured count of hours, or `fallback` when the key was not set or is
+   *  not a number. Negative is not a lifetime, so it falls back too. */
+  private static hours(raw: unknown, fallback: number): number {
+    if (raw === undefined || raw === null) return fallback
+    const value = Number(raw)
+    return Number.isFinite(value) && value >= 0 ? value : fallback
   }
 
   /** The staging root when `work_dir` is unset. Not under silo's data directory:

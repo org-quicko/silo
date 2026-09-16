@@ -20,12 +20,12 @@ export class PlanRoutes {
        * plan is where a target is chosen, and a configured one would be a second
        * answer the panel could silently disagree with.
        */
-      async 'GET /plan'(_request: SiloRequest, ctx: SiloContext) {
+      async 'GET /plan'(request: SiloRequest, ctx: SiloContext) {
         const runtime = ImportRuntime.current()
         const targets = await SiloTargets.list(ctx)
         return {
           json: {
-            plan: ImportPlans.propose(runtime.inventory(ctx), {
+            plan: ImportPlans.propose(runtime.session(request).inventory(ctx), {
               scope: SiloTargets.defaultOf(targets),
               prefix: runtime.settings.prefix,
               mediaBaseUrl: runtime.settings.mediaBaseUrl,
