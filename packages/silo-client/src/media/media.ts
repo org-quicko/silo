@@ -86,6 +86,7 @@ export class Media {
       path: ApiPath.mediaAsset(id),
       signal: options?.signal,
       timeoutMilliseconds: options?.timeoutMilliseconds,
+      cache: options?.cache,
     });
     return new MediaAsset(this.transport, MediaAssetMapper.toRecord(payload));
   }
@@ -97,6 +98,7 @@ export class Media {
       path: ApiPath.mediaExtensions(),
       signal: options?.signal,
       timeoutMilliseconds: options?.timeoutMilliseconds,
+      cache: options?.cache,
     });
     return body.items;
   }

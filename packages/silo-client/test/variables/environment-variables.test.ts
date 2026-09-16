@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { ScopeReference } from "../../src/scope/scope-reference";
-import { Transport } from "../../src/transport/transport";
+import { FetchTransport as Transport } from "../../src/transport/fetch-transport";
 import { EnvironmentVariables } from "../../src/variables/environment-variables";
 import { StubFetch } from "../support/stub-fetch";
 import { StubResponse } from "../support/stub-response";

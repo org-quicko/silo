@@ -4,6 +4,15 @@
 > The *current* state is [CONTEXT.md](../../CONTEXT.md); this is how it got
 > there.
 
+- **silo-client 1.1.1 can cache reads (2026-09-16).** `SiloCache`
+  caches successful GET JSON responses only when a caller supplies a finite
+  TTL. Its keys use the prepared URL and normalized final headers, including
+  authorization; values are cloned on storage and retrieval. Non-GET calls
+  clear before dispatch and after settlement, and pending-read tickets stop a
+  stale response from repopulating after a write, clear or newer refresh.
+  `bypass` and `refresh` select the two per-call cache modes. The first runtime
+  dependency, `@isaacs/ttlcache`, remains external in both bundles (D70).
+
 - **A collection can now say more than "required" (2026-09-16).** The visual
   schema builder wrote `type`, `enum`, `$ref` and a required list and nothing
   else, so every other rule JSON Schema can state had to be typed into Code

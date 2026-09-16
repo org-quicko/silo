@@ -16,6 +16,7 @@ export class MediaFolders {
       path: ApiPath.mediaFolders(),
       signal: options?.signal,
       timeoutMilliseconds: options?.timeoutMilliseconds,
+      cache: options?.cache,
     });
     return body.items;
   }
