@@ -6,6 +6,10 @@ JSON everywhere, and clean routes under `/api`. There is no URL versioning: a
 breaking change is a release-note event, and the data format carries its own
 version. CORS is enabled for `/api/*`.
 
+[docs/openapi.json](../openapi.json) is the same API as an OpenAPI 3.1
+description. Open it in Swagger UI or Redoc, or give it to a code generator to
+make a client. This page is the short version that you read.
+
 Present a key as `Authorization: Bearer <key>` or `X-Api-Key: <key>`.
 
 | Method | Path | Notes |

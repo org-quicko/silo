@@ -13,4 +13,7 @@ short version. For the reasons behind a design, read `../design/`.
 | [transfer.md](transfer.md) | Export, import, server copy, and the on-disk layout |
 | [deployment.md](deployment.md) | Docker, systemd, and volumes |
 
+[../openapi.json](../openapi.json) is the machine-readable form of the HTTP API.
+Use it with Swagger UI, Redoc, or a client generator.
+
 The admin UI has its own README in [apps/admin/](../../apps/admin/README.md).

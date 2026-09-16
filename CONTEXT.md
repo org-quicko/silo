@@ -17,7 +17,69 @@ can be cloned with one command.
 
 ## Where things stand
 
-*Last updated: 2026-09-16 (D68)*
+*Last updated: 2026-09-16 (D69)*
+
+**silo has a Java client, and the three decisions that could not cross are the
+interesting part (2026-09-16, D69).** `packages/silo-client-java`, published as
+`in.org.quicko:silo-client`, on OkHttp and Jackson with Java 25. It is the same
+client as the TypeScript one on purpose: the same object graph, immutable
+handles, absent default scope, passed revision, per-call raw-versus-resolved
+read, window-driven pagination, built filters, four kinds of failure and
+`RouteInventory`. Those decisions are about this API rather than about
+TypeScript, and a consumer reading both clients should not meet two
+vocabularies for one service; `RouteInventoryDriftTest` parses the TypeScript
+inventory and holds the two lists equal, which inherits that list's own check
+against the server's route registrations. Three things could not carry.
+**An entry is split** into `Entry<F>`: D62's row is the wire's flat object,
+`Fields & EntryEnvelope`, and Java cannot name a type that is both the caller's
+`Post` and an envelope — a `Post` extending a supplied base class would be flat
+and would make every consumer DTO inherit from this library, a bare `Map` keeps
+every type out and gives up the typing, and splitting gives up flatness alone.
+Everything D62 was protecting is intact, since a row still carries no transport
+and therefore cannot print an API key. Timestamps become `Instant` on the same
+reasoning: the wire's strings were kept because a flat row went back out
+unchanged, and this one never does. **Every call blocks**, because a
+`CompletableFuture` twin of every method doubles the surface for a concurrency
+model Java 25 supplies underneath; `CancellationSignal` replaces `AbortSignal`,
+and it is consulted before the exception type because OkHttp reports a
+cancelled call as an ordinary `IOException`. **Filters are untyped**, since
+there is no Java `keyof Post` and the shapes that approximate one need
+generated code from the consumer's own DTOs. Five names differ and every one is
+a collision: `isEqualTo`, `CollectionCatalog`, `RequestTimeoutException`,
+`SiloException`, and the `within`/`preview`/`matching` factories. The tests run
+on an OkHttp interceptor rather than a local server, which is the stub fetch
+one layer down, and that suite immediately found `TransportRequest` freezing
+its query map with `Map.copyOf` — an unordered map, so one call emitted its
+parameters in a different order between runs. The package README walks the
+whole surface, and **every example in it is a test**: `ExamplesTest` and
+`MediaExamplesTest` type each block out as the README types it and run it
+against the same interceptor, on the split the TypeScript package already uses,
+so a documented call that stops compiling fails the build rather than the
+reader. A `module-info.java` exporting
+everything but `transport` is written and deferred: the compiler plugin here
+reads module descriptors through an ASM that cannot parse a Java 25 class file,
+and shipping one unverified is worse than saying `transport` is internal by
+convention. Its release tag is `silo-client-java-v*`, decided and not yet
+wired: `release-silo-client.yml` has no Java counterpart, so the first publish
+to Maven Central is by hand.
+
+**The HTTP API has a machine-readable description (2026-09-16).**
+[docs/openapi.json](docs/openapi.json) is OpenAPI 3.1 over all 83 operations the
+server serves: every route under `/api`, the public `/media/{id}` stream, and the
+single handler every plugin route is matched through. It carries the query
+grammar, the `If-Match` revision fence, the `?variables=` switch, the response
+shapes, and — named per operation — the claim each one asks for, which is the
+half of this API a path table alone cannot tell you. It is **hand-written**.
+Hono registers routes as code and there is no decorator to read them off, so
+nothing generates this and nothing can check it: it is a promise the repo makes,
+which is why `CLAUDE.md` now names it as a mandatory part of any route change,
+`docs/context/repo-map.md` says where it sits and why, and the file itself
+carries an `x-maintenance` field repeating the rule to whoever opens it first.
+Only the canonical `/environments` spelling is described; `/envs` is the same
+handler registered twice, and listing both would double the file to say one
+thing. See [docs/guide/http-api.md](docs/guide/http-api.md) for the page a human
+reads and [docs/design/http-api.md](docs/design/http-api.md) for why each route
+is shaped the way it is.
 
 **A content type made only of unresolvable components is skipped, not offered
 (2026-09-16).** `StrapiShapes.isEmpty` counted a shape as non-empty on
@@ -176,7 +238,8 @@ way out, and it is the only thing that keeps silo in the read path (D59).
 
 There is now a **published TypeScript client** for the data half of the API,
 `packages/silo-client` (D61), and it **releases independently of silo**: its
-own tag, its own version, its own workflow.
+own tag, its own version, its own workflow. A **Java client** sits beside it,
+`packages/silo-client-java` (D69), on the same terms.
 
 An API key is no longer write-once: `PATCH /api/keys/{id}` changes its label,
 its claims, or both, leaving the secret alone, and the admin's key form now does

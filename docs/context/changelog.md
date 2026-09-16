@@ -4,6 +4,113 @@
 > The *current* state is [CONTEXT.md](../../CONTEXT.md); this is how it got
 > there.
 
+- **The Java client's README documented the concepts and left whole areas of
+  the API without an example (2026-09-16).** It covered the entry shape, the
+  filters, the pagination rule and the failure taxonomy, and a reader arriving
+  wanting to create a collection, declare a variable, run a search or move a
+  media folder found the classes named and never called. The README now opens
+  with an end-to-end walkthrough — reach an instance, define a collection with
+  its schema, write an entry, read it back, delete it — and gains sections for
+  projects and environments (including a rename previewed and then bound to
+  the record the preview described), collections and schemas, variables,
+  search and a media section covering folders, usages, replace and bulk
+  delete. The error section gains the catch ladder the taxonomy exists for.
+  **Every example is a test.** `ExamplesTest` and `MediaExamplesTest` type each
+  block out as the README types it and run it against the same OkHttp
+  interceptor the rest of the suite uses, which is the split the TypeScript
+  package already had in `examples.test.ts` and `media/media-examples.test.ts`.
+  A documented call that stops compiling now fails the build rather than the
+  reader, and the examples doubled as a check on the surface itself: the
+  getting-started block is the reason the README can claim a `record` works as
+  a field type, because `ExamplesTest` binds one. The suite is 83 tests.
+
+- **A JVM consumer had no client, so it shelled out to the CLI or wrote the
+  address into every call by hand (2026-09-16, D69).** `packages/silo-client-java`
+  is the Java client, published as `in.org.quicko:silo-client`, on OkHttp and
+  Jackson with Java 25. The default was to port D61 and D62 rather than to
+  redesign: their decisions are about this API, not about TypeScript, and a
+  consumer reading both clients should not meet two vocabularies for one
+  service. So the object graph, the immutable handles, the absent default
+  scope, the passed revision, the per-call raw-versus-resolved read, the
+  window-driven pagination, the built filters, the four kinds of failure and
+  `RouteInventory` all cross unchanged, and `RouteInventoryDriftTest` parses
+  `packages/silo-client/src/transport/route-inventory.ts` and holds the two
+  lists equal, so the Java inventory inherits the TypeScript one's check
+  against the server's own route registrations instead of restating it. Three
+  decisions could not cross, and each is a language fact. **An entry is
+  split.** D62's row is the wire's own flat object, `Fields & EntryEnvelope`,
+  and Java cannot name a type that is both the caller's `Post` and an envelope.
+  A `Post` extending a client-supplied base class would be genuinely flat and
+  would make every domain type in the consumer's codebase inherit from this
+  library; a bare `Map<String, Object>` keeps every type out and gives up the
+  typing that is most of the point; `Entry<F>` holding the envelope beside
+  `fields()` gives up flatness and nothing else, so that is what it does, with
+  `EntryMapper` the one place that splits the row and copies every other key
+  across untouched. What D62 was actually protecting is intact: the row carries
+  no transport, so it cannot print the instance's API key the way D61's active
+  record did. Timestamps become `Instant` on the same reasoning, since the
+  wire's strings were kept because a flat row went back out unchanged and this
+  one never does. **Every call blocks.** A `CompletableFuture` twin of every
+  method would double the surface for a concurrency model Java 25 supplies
+  underneath, where a blocking call on a virtual thread costs a continuation;
+  the cost is a caller on an older runtime writing their own executor, and
+  adding the twins later is additive. `CancellationSignal` replaces
+  `AbortSignal`, and it is consulted before the exception type because OkHttp
+  reports a cancelled call as an ordinary `IOException`, indistinguishable by
+  type from a host that was never reachable. **Filters are untyped**, because
+  there is no Java equivalent of `keyof Post` and the shapes that approximate
+  one need generated code from the consumer's own DTOs. Five names differ and
+  every one is a collision rather than a preference: `isEqualTo` (a
+  one-argument `equals` would override `Object.equals`), `CollectionCatalog`
+  (against `java.util.Collections`), `RequestTimeoutException` (against
+  `java.util.concurrent.TimeoutException`), `SiloException` (`Error` means
+  something else in Java) and the `within`/`preview`/`matching` factories (a
+  static and an instance method cannot share a signature with a record's
+  accessor). Exceptions are unchecked, because `Iterator.next` cannot declare
+  one and the paging streams are iterables. The tests run on an OkHttp
+  application interceptor that records the request and answers a queued
+  response without a socket, which is D61's recording stub fetch one layer
+  down, and that suite immediately found a real defect: `TransportRequest`
+  froze its query map with `Map.copyOf`, which answers an **unordered** map, so
+  one call emitted `?rev=3&variables=raw` and `?variables=raw&rev=3` on
+  different runs. Nothing functional depended on the order and everything human
+  did. A `module-info.java` exporting every package but `transport` is written
+  and deferred rather than skipped: `maven-compiler-plugin` reads module
+  descriptors through an ASM that cannot parse a Java 25 class file, and
+  shipping an unverified descriptor is worse than stating that `transport` is
+  public in the Java sense because the other packages need it. Its release tag
+  is `silo-client-java-v*` and it is absent from `tools/set-version.ts`, for the
+  reason `packages/silo-client` is; the workflow behind that tag is not written
+  yet, so the first publish to Maven Central is by hand.
+
+- **The HTTP API had no machine-readable description (2026-09-16).** Every route
+  was documented three times in prose — `docs/guide/http-api.md` for the shape,
+  `docs/design/http-api.md` for the reason, the handler's own doc comment for the
+  detail — and none of the three could be handed to Swagger UI, Redoc or a client
+  generator. `docs/openapi.json` is OpenAPI 3.1 over all 83 operations: the
+  `/api` surface, the public `/media/{id}` stream outside it, and the one handler
+  `/api/ext/{name}/*` dispatches every plugin route through. What it adds over the
+  existing table is per-operation *structure* — parameters with their types and
+  defaults, request bodies, the `If-Match`/`?rev=` fence, the `?variables=`
+  switch, and 43 named response schemas covering the entry envelope, the media
+  catalog, the two-configuration settings views, the plugin view's five claim
+  lists and the audit event's closed action union. The claim each operation asks
+  for is in its description, because that is the half of this API a path table
+  cannot carry and the half a caller gets wrong. Three decisions shaped it.
+  **Hand-written, and named as such:** Hono registers routes as code, so nothing
+  generates this file and no test can prove it current — it is a promise, so
+  `CLAUDE.md` makes updating it part of any route change and the file carries an
+  `x-maintenance` field saying the same to whoever opens it first, rather than
+  leaving the rule somewhere the reader is not. **One spelling of the
+  environment path:** `/environments` and `/envs` are one handler registered
+  twice, and describing both would double the file to say one thing, so only the
+  canonical form is described and `info.description` says the other exists.
+  **JSON rather than YAML:** it is the form every viewer and generator takes
+  without a parser choice, and there is no comment syntax to tempt anyone into
+  putting the maintenance rule somewhere a tool would drop it. `docs/openapi.json`
+  sits beside `context/`, `design/` and `guide/` rather than inside one, because
+  it is not prose and has no single audience.
+
 - **A content type made only of unresolvable components was offered as an
   importable list (2026-09-16).** `StrapiShapes.isEmpty` asked whether a shape
   had columns, media or children, and a component field whose every named
