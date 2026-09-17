@@ -37,7 +37,7 @@ public final class EntryReader<F> {
     this.fieldsType = fieldsType;
   }
 
-  @Cache(ttl = 30, maxSize = 1024)
+  @Cache()
   public Entry<F> get(String id, EntryReadOptions options) {
     JsonNode row = scope.transport().json(
         TransportRequest.get(ApiPath.entry(scope.project(), scope.environment(), collection, id))
@@ -50,7 +50,7 @@ public final class EntryReader<F> {
 
   /** A shorter ttl than one entry's, because a page turns stale on any write in
    *  the collection and not only on a write to a row it carries. */
-  @Cache(ttl = 15, maxSize = 256)
+  @Cache()
   public EntryPage<F> list(EntryListQuery query, EntryReadOptions options) {
     JsonNode body = scope.transport().json(
         TransportRequest.get(ApiPath.entries(scope.project(), scope.environment(), collection))
