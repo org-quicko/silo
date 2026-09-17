@@ -16,6 +16,13 @@ export class QueryParams {
     return this
   }
 
+  /** For a repeatable parameter — `include` names one rule per occurrence, so
+   *  a rule never has to be escaped against a separator of its own. */
+  append(name: string, value: string): this {
+    if (value) this.params.append(name, value)
+    return this
+  }
+
   json(name: string, value: unknown): this {
     if (value === undefined || value === null) return this
     this.params.set(name, JSON.stringify(value))

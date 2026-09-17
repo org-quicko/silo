@@ -1665,10 +1665,36 @@
                 "tags": [
                     "Transfer"
                 ],
-                "summary": "Export the whole instance as a tar.gz",
-                "description": "Streamed, not buffered — an archive carries the whole media library.\nClaims: `transfer:export`, plus `collections:schema:read` and\n`collections:entries:read` at `*/*/*`. `?with_keys=true` additionally\nrequires `keys:export`.\n",
+                "summary": "Export the instance, or a named part of it, as a tar.gz",
+                "description": "Produced as it is walked, so the response begins immediately and peak\nmemory is one entry rather than the whole media library. A storage or\nblob failure therefore truncates the body instead of becoming an error\nstatus; a truncated archive fails its own gzip check at the far end and\nextracts nothing.\n\nClaims: `transfer:export`, plus `collections:schema:read` and\n`collections:entries:read`. With no `include` those are needed at\n`*/*/*`; with one, only at what each rule names. `?with_keys=true`\nadditionally requires `keys:export` and instance-wide read, because keys\nare instance-global however narrow the content selection is.\n",
                 "operationId": "exportArchive",
                 "parameters": [
+                    {
+                        "name": "include",
+                        "in": "query",
+                        "style": "form",
+                        "explode": true,
+                        "schema": {
+                            "type": "array",
+                            "items": {
+                                "type": "string"
+                            }
+                        },
+                        "description": "Repeatable. One `project`, `project/env` or `project/env/collection` rule per occurrence; omit for the whole instance. A system collection can never be named."
+                    },
+                    {
+                        "name": "media",
+                        "in": "query",
+                        "schema": {
+                            "type": "string",
+                            "enum": [
+                                "all",
+                                "referenced",
+                                "none"
+                            ]
+                        },
+                        "description": "What to do about media bytes. Defaults to `all` with no `include`, and `referenced` once one narrows the transfer."
+                    },
                     {
                         "name": "with_keys",
                         "in": "query",
@@ -1711,7 +1737,7 @@
                     "Transfer"
                 ],
                 "summary": "Import a tar.gz archive",
-                "description": "The body is either the raw archive or a `multipart/form-data` `file`\npart. Both are streamed. Claims: `transfer:import`, `media:create`, and\n`collections:*` write permissions at `*/*/*`. `?mode=replace` adds\n`collections:delete`, `entries:delete` and `media:delete`. An archive\ncarrying keys additionally needs `keys:import`, and loads without them\nwhen the caller does not hold it.\n",
+                "description": "The body is either the raw archive or a `multipart/form-data` `file`\npart. Both are streamed. Claims: `transfer:import` and `collections:*`\nwrite permissions — at `*/*/*` with no `include`, at what each rule names\nwith one. `media:create` is needed unless `media=none`. `?mode=replace`\nadds `collections:delete` and `entries:delete` at the same reach, plus\n`media:delete` unless `media=none`. An archive carrying keys additionally\nneeds `keys:import`, and loads without them when the caller does not hold\nit.\n\nSend `Accept: application/x-ndjson` to be answered with a progress stream\ninstead of one JSON body. The status is then sent before the work begins,\nso the outcome is the **last line** rather than the status code.\n",
                 "operationId": "importArchive",
                 "parameters": [
                     {
@@ -1726,15 +1752,6 @@
                             "default": "merge"
                         },
                         "description": "`replace` drops each archived collection before writing it back."
-                    },
-                    {
-                        "name": "validate",
-                        "in": "query",
-                        "schema": {
-                            "type": "boolean",
-                            "default": false
-                        },
-                        "description": "Validate every entry against its schema as it loads."
                     },
                     {
                         "name": "dry_run",
@@ -1755,6 +1772,32 @@
                             ]
                         },
                         "description": "Which side wins on a conflict."
+                    },
+                    {
+                        "name": "include",
+                        "in": "query",
+                        "style": "form",
+                        "explode": true,
+                        "schema": {
+                            "type": "array",
+                            "items": {
+                                "type": "string"
+                            }
+                        },
+                        "description": "Repeatable. One `project`, `project/env` or `project/env/collection` rule per occurrence; omit for the whole instance. A system collection can never be named."
+                    },
+                    {
+                        "name": "media",
+                        "in": "query",
+                        "schema": {
+                            "type": "string",
+                            "enum": [
+                                "all",
+                                "referenced",
+                                "none"
+                            ]
+                        },
+                        "description": "What to do about media bytes. Defaults to `all` with no `include`, and `referenced` once one narrows the transfer."
                     }
                 ],
                 "requestBody": {
@@ -1784,11 +1827,16 @@
                 },
                 "responses": {
                     "200": {
-                        "description": "What the import did.",
+                        "description": "What the import did, or — when `Accept: application/x-ndjson` asked for one — a line-delimited progress stream whose last line carries it.",
                         "content": {
                             "application/json": {
                                 "schema": {
                                     "$ref": "#/components/schemas/ImportResult"
+                                }
+                            },
+                            "application/x-ndjson": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/TransferProgressLine"
                                 }
                             }
                         }
@@ -1808,7 +1856,7 @@
                     "Transfer"
                 ],
                 "summary": "Pull another silo's archive and import it",
-                "description": "Streamed end to end: the source streams its export and this loads from\nthat stream. Claims: `transfer:copy`, `media:create` and instance-wide\nwrite permissions; `replace` mode and `with_keys` add the same claims\n`POST /api/import` asks for.\n",
+                "description": "Streamed end to end: the source streams its export and this loads from\nthat stream. An `include` in the body is forwarded to the source's own\n`/api/export`, so the source never walks what this would discard.\n\nClaims: `transfer:copy` and the write permissions `POST /api/import`\nasks for, at the reach `include` names; `media:create` unless\n`media: none`; `replace` mode and `with_keys` add the same claims that\nroute adds.\n\nSend `Accept: application/x-ndjson` for a progress stream. A copy's\nconnection is idle for the whole pull, which makes it the operation a\nquiet-connection timeout kills most reliably.\n",
                 "operationId": "copyInstance",
                 "requestBody": {
                     "required": true,
@@ -1822,11 +1870,16 @@
                 },
                 "responses": {
                     "200": {
-                        "description": "What the copy did.",
+                        "description": "What the copy did, or — when `Accept: application/x-ndjson` asked for one — a line-delimited progress stream whose last line carries it.",
                         "content": {
                             "application/json": {
                                 "schema": {
                                     "$ref": "#/components/schemas/ImportResult"
+                                }
+                            },
+                            "application/x-ndjson": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/TransferProgressLine"
                                 }
                             }
                         }
@@ -4649,7 +4702,9 @@
                     "added",
                     "updated",
                     "deleted",
-                    "skipped"
+                    "skipped",
+                    "rejected",
+                    "rejections"
                 ],
                 "properties": {
                     "mode": {
@@ -4669,6 +4724,35 @@
                     },
                     "skipped": {
                         "type": "integer"
+                    },
+                    "rejected": {
+                        "type": "integer",
+                        "description": "Entries the destination's schema refused (D70). Always present, and `0` on a clean import. A dry run reports `0`: the schemas it would write are unwritten, so it cannot judge entries yet."
+                    },
+                    "rejections": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/ImportRejection"
+                        },
+                        "description": "Which ones, capped at 100. `rejected` stays exact."
+                    },
+                    "media": {
+                        "type": "object",
+                        "description": "What the run did about media bytes. Absent for a scope copy, which touches none.",
+                        "required": [
+                            "files",
+                            "cleared"
+                        ],
+                        "properties": {
+                            "files": {
+                                "type": "integer",
+                                "description": "Blobs written. `0` on a dry run and under `media=none`."
+                            },
+                            "cleared": {
+                                "type": "boolean",
+                                "description": "Whether the destination library was emptied before loading. True only for a replace of an archive that is authoritative for the whole library: no selection, and `media: all`."
+                            }
+                        }
                     },
                     "scope_copy": {
                         "$ref": "#/components/schemas/ScopeCopyPreview"
@@ -4875,16 +4959,28 @@
                         "type": "boolean",
                         "default": false
                     },
-                    "validate": {
-                        "type": "boolean",
-                        "default": false
-                    },
                     "prefer": {
                         "type": "string",
                         "enum": [
                             "local",
                             "remote"
                         ]
+                    },
+                    "include": {
+                        "type": "array",
+                        "items": {
+                            "type": "string"
+                        },
+                        "description": "`project[/env[/collection]]` rules, as `GET /api/export?include=` spells them. Omit for the whole instance."
+                    },
+                    "media": {
+                        "type": "string",
+                        "enum": [
+                            "all",
+                            "referenced",
+                            "none"
+                        ],
+                        "description": "Defaults to `all` with no `include`, `referenced` with one."
                     }
                 }
             },
@@ -6352,6 +6448,79 @@
                             },
                             "details": {
                                 "description": "Validation pointers, the referrers of a refused media delete, or\nthe plugin and the remedy for a plugin failure.\n"
+                            }
+                        }
+                    }
+                }
+            },
+            "ImportRejection": {
+                "type": "object",
+                "description": "One entry the destination's schema refused (D70).",
+                "required": [
+                    "project",
+                    "env",
+                    "collection",
+                    "id",
+                    "reason"
+                ],
+                "properties": {
+                    "project": {
+                        "type": "string"
+                    },
+                    "env": {
+                        "type": "string"
+                    },
+                    "collection": {
+                        "type": "string"
+                    },
+                    "id": {
+                        "type": "string"
+                    },
+                    "reason": {
+                        "type": "string"
+                    }
+                }
+            },
+            "TransferProgressLine": {
+                "type": "object",
+                "description": "One line of a transfer's progress stream. The response status is sent before the work begins, so the outcome is the last line: `result` on success, `error` otherwise. A `progress` line with no `result` is a bare heartbeat.",
+                "required": [
+                    "type"
+                ],
+                "properties": {
+                    "type": {
+                        "type": "string",
+                        "enum": [
+                            "progress",
+                            "result",
+                            "error"
+                        ]
+                    },
+                    "phase": {
+                        "type": "string",
+                        "enum": [
+                            "extract",
+                            "entries",
+                            "media",
+                            "working"
+                        ],
+                        "description": "`progress` lines only."
+                    },
+                    "result": {
+                        "$ref": "#/components/schemas/ImportResult"
+                    },
+                    "status": {
+                        "type": "integer",
+                        "description": "`error` lines only: the status this would have been."
+                    },
+                    "error": {
+                        "type": "object",
+                        "properties": {
+                            "code": {
+                                "type": "string"
+                            },
+                            "message": {
+                                "type": "string"
                             }
                         }
                     }

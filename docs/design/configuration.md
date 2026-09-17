@@ -16,6 +16,9 @@ API is what creates it.
 # silo.toml — every key optional
 listen = ":8090"
 
+[http]
+idle_timeout = 120          # seconds a connection may go quiet; 0 disables, 255 is the ceiling
+
 [storage]
 driver = "sqlite"           # "sqlite" | "fs"
 path   = "./silo_data"      # dir; sqlite file lives at <path>/silo.db
@@ -176,3 +179,29 @@ able to switch off the authentication protecting it is a lock whose key opens
 itself; the tightening direction stays open, since an instance running with auth
 off is one where every caller is already root and turning it back on is a repair.
 
+### 10.3 `[http] idle_timeout` (D72)
+
+The runtime closes a connection that has gone quiet, and its own default is
+**10 seconds** — shorter than a whole-instance export took to say anything
+before §7.1, and shorter than a large import or a server-to-server copy takes
+to finish. Silo passes an explicit value instead, defaulting to 120 seconds.
+
+It is worth a setting, and worth this paragraph, because of how the failure
+presents. The socket closes mid-response, so a reverse proxy in front reports
+*its* view — `upstream prematurely closed connection while reading response
+header`, and a 502 or a 503 — and every symptom points at the proxy. Nothing in
+silo's log says anything went wrong: the handler runs to completion and records
+its own `200`, for a client that left a minute earlier. Behind no proxy at all
+the same thing reaches the caller as an empty reply. It was found by lining up
+three logs that each looked fine on their own.
+
+The runtime refuses a value above 255. A config that is merely too generous
+should not stop a server from starting, so `HttpDefaults.idleTimeout` **clamps**
+rather than refuses. `0` is kept as given: it is how the guard is switched off,
+which is a different answer from "unset". A change takes effect at the next
+start, since the value is read once at the bind.
+
+Raising it is not the fix for a slow transfer, and is deliberately not offered
+as one. §7.1 makes an export answer immediately and §7.8 makes an import and a
+copy keep talking while they work; this setting covers what those two do not,
+and is what an operator reaches for when a transfer still outlives it.

@@ -19,19 +19,15 @@ import { SchemaChangeGuard } from "../schema/schema-change-guard";
 import { SchemaValidator } from "../schema/schema-validator";
 import { FormatVersion } from "./format-version";
 import type { ExportManifest } from "./export-manifest";
-import { ImportWalker, type ImportedProject, type ScopedImport } from "./import-walker";
+import { ImportAuthority } from "./import-authority";
+import { ImportFilter } from "./import-filter";
+import { ImportWalker, type ScopedImport } from "./import-walker";
+import { ImportMedia } from "./import-media";
+import type { ParsedImport } from "./parsed-import";
 import { KeyUtils } from "../keys/key-utils";
 import type { ImportOptions } from "./import-options";
 import type { ImportResult } from "./import-result";
 import { ScopeCopyPreviewBuilder } from "./scope-copy-preview-builder";
-
-export interface ParsedImport {
-  manifest: ExportManifest;
-  scopes: ScopedImport[];
-  /** Projects the archive names, so one holding no environment survives the
-   *  round trip (D51). Absent when the caller built the unit in memory. */
-  projects?: ImportedProject[];
-}
 
 export class Importer {
   /**
@@ -44,6 +40,11 @@ export class Importer {
    * which collections are affected and why.
    */
   static readonly RejectionLimit = 100;
+
+  /** Entries between progress reports. Often enough that a caller watching a
+   *  long import never waits a second for a sign of life, rare enough that the
+   *  reporting is not itself the work. */
+  static readonly ProgressInterval = 200;
 
   private static async parseImportDir(src: string): Promise<ParsedImport> {
     const manifestPath = path.join(src, "manifest.json");
@@ -127,6 +128,7 @@ export class Importer {
 
     for (const scoped of pi.scopes) {
       await Importer.executeScopedImport(store, scoped, pi.manifest, localMeta, mode, opts, response, validator, preview);
+      opts.onProgress?.({ phase: "entries", result: response });
     }
 
     if (preview) response.scope_copy = preview.result();
@@ -160,7 +162,12 @@ export class Importer {
     }
 
     if (mode === "replace") {
-      const replaceCollections = new Set([...schemas.keys(), ...entries.keys()]);
+      // Only what this archive is authoritative for. A partial archive empties
+      // the content collections it names and nothing in `_system`, where its
+      // rows are a subset rather than the whole (§7.7).
+      const replaceCollections = [...new Set([...schemas.keys(), ...entries.keys()])].filter(
+        (colName) => ImportAuthority.replaces(scope, colName, manifest, opts)
+      );
       for (const colName of replaceCollections) {
         try {
           const { total } = await store.list(scope, colName, { limit: 1, offset: 0 });
@@ -310,7 +317,12 @@ export class Importer {
         return true;
       };
 
+      let sinceReport = 0;
       for (const remote of remoteEntries) {
+        if (++sinceReport >= Importer.ProgressInterval) {
+          sinceReport = 0;
+          opts.onProgress?.({ phase: "entries", result: response });
+        }
         if (mode === "replace") {
           if (!(await write(remote))) continue;
           response.added++;
@@ -371,7 +383,9 @@ export class Importer {
     opts: ImportOptions,
     blobStorage?: BlobStorage | string
   ): Promise<ImportResult> {
-    const pi = await Importer.parseImportDir(src);
+    // Narrowed before the keys check, so a selection that leaves `_keys`
+    // behind is judged on what it actually loads.
+    const pi = ImportFilter.apply(await Importer.parseImportDir(src), opts.include);
     const hasKeys = pi.scopes.some((s) => s.entries.has(KeyUtils.KeysCollection));
     if (hasKeys && opts.allowKeys !== true) {
       throw new ForbiddenError(
@@ -380,36 +394,18 @@ export class Importer {
     }
     const response = await Importer.executeImport(store, pi, opts);
 
-    if (blobStorage && !opts.dryRun) {
-      const bStore: BlobStorage =
-        typeof blobStorage === "string" ? new FsBlobStorage(blobStorage) : blobStorage;
-      const srcMediaDir = path.join(src, "media");
-      try {
-        const stat = await fs.stat(srcMediaDir);
-        if (stat.isDirectory()) {
-          if (opts.mode === "replace") {
-            const existingBlobs = await bStore.list();
-            for (const item of existingBlobs) {
-              await bStore.delete(item.key);
-            }
-          }
-
-          const files = await fs.readdir(srcMediaDir);
-          for (const file of files) {
-            if (!file.startsWith(".")) {
-              const srcFile = path.join(srcMediaDir, file);
-              if (opts.mode !== "replace") {
-                const exists = await bStore.exists(file);
-                if (exists) continue;
-              }
-              const fileData = await fs.readFile(srcFile);
-              await bStore.put(file, new Uint8Array(fileData));
-            }
-          }
-        }
-      } catch (caught: any) {
-        if (caught.code !== "ENOENT") throw caught;
-      }
+    if (blobStorage) {
+      opts.onProgress?.({ phase: "media", result: response });
+      response.media = {
+        files: await ImportMedia.load({
+          source: src,
+          blobStorage:
+            typeof blobStorage === "string" ? new FsBlobStorage(blobStorage) : blobStorage,
+          manifest: pi.manifest,
+          options: opts,
+        }),
+        cleared: ImportAuthority.clearsLibrary(pi.manifest, opts),
+      };
     }
 
     return response;
@@ -433,13 +429,44 @@ export class Importer {
     opts: ImportOptions,
     blobStorage?: BlobStorage | string
   ): Promise<ImportResult> {
-    const tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), "silo-import-"));
+    const tmpDir = await Importer.staging(opts, "silo-import-");
     try {
+      opts.onProgress?.({ phase: "extract", result: Importer.emptyResult(opts) });
       await Importer.extractStream(archive, tmpDir);
       return await Importer.importDir(store, tmpDir, opts, blobStorage);
     } finally {
       await fs.rm(tmpDir, { recursive: true, force: true });
     }
+  }
+
+  /**
+   * A directory to unpack into.
+   *
+   * `stagingDirectory` is honoured when the caller named one, because the
+   * platform temp directory is often not the disk the operator thinks it is —
+   * a unit with `PrivateTmp` puts it on a RAM-backed tmpfs, where extracting
+   * an archive costs memory rather than the disk the data already sits on.
+   */
+  private static async staging(opts: ImportOptions, prefix: string): Promise<string> {
+    const root = opts.stagingDirectory;
+    if (!root) return fs.mkdtemp(path.join(os.tmpdir(), prefix));
+    await fs.mkdir(root, { recursive: true });
+    return fs.mkdtemp(path.join(root, prefix));
+  }
+
+  /** A zeroed result, so the first progress line has the same shape as the
+   *  rest before any counting has happened. */
+  private static emptyResult(opts: ImportOptions): ImportResult {
+    return {
+      mode: opts.mode || "merge",
+      dry_run: !!opts.dryRun,
+      added: 0,
+      updated: 0,
+      deleted: 0,
+      skipped: 0,
+      rejected: 0,
+      rejections: [],
+    };
   }
 
   /**

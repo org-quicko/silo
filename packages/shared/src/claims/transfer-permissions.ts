@@ -2,14 +2,17 @@ import { ClaimVocabulary } from "./claim-vocabulary";
 import type { CollectionPermission } from "./collection-permission";
 
 /**
- * The collection permissions an instance-wide export or import exercises.
+ * The collection permissions an export or import exercises.
  *
- * An archive spans every project and environment at once, and the `transfer:*`
- * claims are fixed — they carry no scope of their own. Holding one is therefore
- * necessary but not sufficient: the caller must also hold these at `*`/`*`/`*`,
- * which is exactly the authority the archive confers. Without that,
+ * The `transfer:*` claims are fixed — they carry no scope of their own — so
+ * holding one is necessary and not sufficient: the caller must also hold these
+ * at the reach the transfer actually has. An **unselected** archive spans every
+ * project and environment at once, so that reach is `*`/`*`/`*`; without it,
  * `transfer:export` would let a key confined to one project read every other
- * one. Stated here so the route guard and the UI's affordances cannot disagree.
+ * one. A transfer narrowed by `include` (D74/§7.6) asks for them only at what
+ * each rule names, which is what lets a project-scoped key export its own
+ * project. Stated here so the route guard and the UI's affordances cannot
+ * disagree.
  */
 export class TransferPermissions {
   static readonly Read: readonly CollectionPermission[] = [
