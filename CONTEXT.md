@@ -17,7 +17,7 @@ can be cloned with one command.
 
 ## Where things stand
 
-*Last updated: 2026-09-17 (D75)*
+*Last updated: 2026-09-17 (D78)*
 
 **A transfer now says what it covers, and export answers immediately
 (2026-09-17).** `GET /api/export` had been failing behind a reverse proxy with a
@@ -43,6 +43,20 @@ staging time. The cost is stated: a blob failure truncates the body rather than
 becoming an error status, and a truncated archive fails its own gzip check and
 extracts nothing. Import keeps a temp tree, staged under `<data>/transfer/`
 because a hardened unit puts `/tmp` on a RAM-backed tmpfs.
+
+**Export holds a flat 147 MB whatever the library weighs** (D76). D73's claim
+that it already did was measured and was wrong, and the cause was below the
+walk: the web `CompressionStream` accepts every chunk it is offered and holds
+the result. `GzipStream` (`node:zlib`) replaces it, and the file path flushes
+its sink on a byte budget instead of trusting a `write` that answers a count.
+**The receiving end is flat too, in two steps.** `ImportEntries` replaced the
+`Entry[]` the walker handed over with a directory opened one file at a time
+(D77), and the upload is spooled to one file and extracted from that rather than
+fed to `tar.x` as a stream, which absorbed the archive as fast as the socket
+delivered it (D78). A 750 MB copy went from **2.0 GB** of private memory on the
+destination to **516 MB**, against a baseline near 390 MB. Media goes to the
+store the instance is configured with, never a directory derived from the data
+path; it already did, and four tests now hold it there.
 
 **Export, import and copy share one selection vocabulary and three media modes**
 (D74). `include` is repeatable and names a `project`, a `project/env` or a

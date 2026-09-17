@@ -4,6 +4,60 @@
 > The *current* state is [CONTEXT.md](../../CONTEXT.md); this is how it got
 > there.
 
+- **The receiving end of a transfer is memory-flat too (2026-09-17).** A
+  destination taking a 750 MB copy peaked at **2.0 GB** of private memory, which
+  is the side of a transfer a small instance is least able to absorb. Two
+  causes, found by bisecting rather than guessing. `ImportWalker` handed the
+  importer an `Entry[]` per collection, so the whole archive's content was
+  parsed before a single row landed — `ImportEntries` replaces the array with a
+  directory recorded and opened one file at a time, and because the importer
+  already worked one collection and one entry at a time, only the shape it was
+  handed changed (D77). That took it to 1.0 GB. A **dry run** then peaked
+  identically while writing nothing, which ruled out the entry writes, the media
+  load and SQLite in one pass and left extraction: `tar.x` with no `file` is a
+  writable parser that keeps accepting entries while it writes them out, so it
+  absorbed the archive as fast as the socket delivered it. The upload is now
+  spooled to one file and extracted from that, where tar pulls at its own pace
+  (D78). **516 MB private for the same copy**, against a runtime baseline near
+  390 MB, and still verified faithful: 6,000 entries and 150 media files, every
+  count matching.
+
+  The trade is stated rather than hidden: an intermediate `.tar.gz` is written
+  again, which D73 was pleased to remove on the export side. It is the right
+  trade here and the wrong one there, because an export has a reader waiting on
+  a first byte and an import has nobody waiting, and a small host has more disk
+  than memory.
+
+  Separately pinned: a transfer's media goes to the store the **instance** is
+  configured with, never to a directory derived from the data path. It already
+  did; every entry point takes `BlobStorage | string` and builds an
+  `FsBlobStorage` for the string, so one caller passing a path would have sent
+  an import's media to local disk on an S3 instance with nothing to say so.
+  Four tests hand the destination a recording store and assert the local
+  directory stays empty.
+
+- **Export is memory-flat, and the reason it was not is three layers down
+  (2026-09-17).** D73 claimed peak memory was one entry rather than one media
+  library. Measured, it was not: a 500 MB library exported at a 500 MB peak, and
+  a t3.micro would not have survived it. Bisecting the pipeline took four
+  runs — the tar writer alone held **67 MB** for the same bytes, the same bytes
+  through the web `CompressionStream` held **583 MB**, `node:zlib` held
+  **116 MB**, and `Bun.serve` pulling a response body eagerly held **2.1 GB**
+  when nothing upstream paced it. So `GzipStream` (`node:zlib`) replaces
+  `CompressionStream`, and `exportTarGz` flushes its `FileSink` on an 8 MB
+  budget rather than trusting `write`, which answers a count and not a promise.
+  A 500 MB archive now exports at a **147 MB** peak, over HTTP and to disk both,
+  with the first byte still at 0.04s (D76). One self-inflicted bug fell out on
+  the way: `GzipStream.write` attached three `once` listeners per backpressured
+  write and removed none of them, which `MaxListenersExceededWarning` announced
+  at eleven and a long export turned into thousands.
+
+  Verified at size rather than argued: 6,000 entries and 150 media files copied
+  between two instances over `POST /api/copy`, every collection count and the
+  media count matching. **The import side is not fixed**: a destination still
+  peaks at roughly twice the archive, because `ImportWalker` reads every entry
+  of every collection into memory before the importer writes any of them.
+
 - **Data transfer is granular, and export no longer times out (2026-09-17).**
   `GET /api/export` closed under a reverse proxy with a `503` and nothing in
   silo's log to show for it. Three facts had to be lined up to see why:
