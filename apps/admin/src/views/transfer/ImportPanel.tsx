@@ -5,6 +5,8 @@ import { StatRow } from '../../components/data/StatRow'
 import { StatTile } from '../../components/data/StatTile'
 import { Segmented } from '../../components/controls/Segmented'
 import type { ImportRejection } from '../../api/types/import-rejection'
+import type { TransferProgress } from '../../api/transport/progress-reader'
+import { MediaModeRow } from './MediaModeRow'
 import type { ArchiveMode, ArchivePrefer, useArchiveTransfer } from './use-archive-transfer'
 import { ArchiveDropzone } from './ArchiveDropzone'
 import { SettingsAlert } from '../settings/parts/SettingsAlert'
@@ -58,6 +60,13 @@ export function ImportPanel({
           />
         </SettingsRow>
 
+        <MediaModeRow
+          label="Media files in the archive"
+          value={transfer.importMedia}
+          onChange={transfer.changeImportMedia}
+          disabled={!transfer.file}
+        />
+
         {transfer.mode === 'merge' && (
           <SettingsRow label="When both sides changed an entry" help="Compared on updated_at.">
             <select
@@ -79,9 +88,9 @@ export function ImportPanel({
           </SettingsAlert>
         )}
 
-        {transfer.busy && !result && (
+        {transfer.busy && (
           <div className={ledger.status}>
-            <RefreshCw size={14} className="spin" /> Analyzing archive…
+            <RefreshCw size={14} className="spin" /> {ImportPanel.status(transfer.progress)}
           </div>
         )}
 
@@ -91,12 +100,19 @@ export function ImportPanel({
             <StatTile n={result.updated} label="to update" tone="warn" prefix="~" />
             <StatTile n={result.deleted} label="to delete" tone="bad" />
             <StatTile n={result.skipped} label="unchanged" tone="muted" />
+            {result.media && <StatTile n={result.media.files} label="media files" tone="muted" />}
             {result.rejected > 0 && <StatTile n={result.rejected} label="rejected" tone="bad" />}
           </StatRow>
         )}
 
         {/* Only after an apply. A dry run writes no schemas, so it has nothing
             to judge entries against and always reports zero. */}
+        {result?.media?.cleared && (
+          <SettingsAlert tone="warn" title="The media library was replaced">
+            This archive covers the whole library, so replace mode emptied it before loading.
+          </SettingsAlert>
+        )}
+
         {result && result.rejected > 0 && (
           <SettingsAlert
             tone="bad"
@@ -159,4 +175,20 @@ ImportPanel.rejectedCollections = (rejections: ImportRejection[]): string => {
     counts.set(key, (counts.get(key) ?? 0) + 1)
   }
   return [...counts].map(([name, count]) => `${name} (${count})`).join(', ')
+}
+
+/**
+ * What to say while an import runs.
+ *
+ * A dry run of a large archive and a real one both spend their time in the same
+ * two places, and the progress stream is what turns that silence into a line
+ * that keeps changing (§7.8).
+ */
+ImportPanel.status = (progress: TransferProgress | null): string => {
+  if (!progress) return 'Analyzing archive…'
+  if (progress.phase === 'extract') return 'Unpacking the archive…'
+  if (progress.phase === 'media') return 'Loading media files…'
+  const counted = progress.result
+  if (!counted) return 'Working…'
+  return `Reading entries: ${counted.added} to create, ${counted.updated} to update, ${counted.skipped} unchanged`
 }

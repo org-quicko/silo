@@ -10,6 +10,11 @@ import passwordStyles from '../../components/controls/PasswordInput.module.css'
 import { Claims } from '@silo/shared/claims'
 import { api } from '../../api/silo-api'
 import type { ImportResult } from '../../api/types/import-result'
+import type { MediaMode } from '../../api/types/media-mode'
+import type { TransferProgress } from '../../api/transport/progress-reader'
+import { MediaModeRow } from './MediaModeRow'
+import { TransferScopePicker } from './TransferScopePicker'
+import { useTransferTree } from './use-transfer-tree'
 import { SettingsAlert } from '../settings/parts/SettingsAlert'
 import { SettingsRow } from '../settings/parts/SettingsRow'
 import { SettingsSection } from '../settings/parts/SettingsSection'
@@ -46,10 +51,23 @@ export function CopyServerPanel({
   const [mode, setMode] = useState<Mode>('merge')
   const [prefer, setPrefer] = useState<Prefer>('')
   const [withKeys, setWithKeys] = useState(false)
+  const [include, setInclude] = useState<string[]>([])
+  const [media, setMedia] = useState<MediaMode>('all')
+  // The source tree is read from the source, so it is only worth asking for
+  // once the operator says they want to narrow this. Otherwise every keystroke
+  // in the URL field would be a request to a server that is not there yet.
+  const [browsing, setBrowsing] = useState(false)
   const [preview, setPreview] = useState<ImportResult | null>(null)
   const [applied, setApplied] = useState<ImportResult | null>(null)
   const [busy, setBusy] = useState(false)
+  const [progress, setProgress] = useState<TransferProgress | null>(null)
   const [error, setError] = useState('')
+
+  const sourceTree = useTransferTree(
+    sourceUrl.trim(),
+    sourceApiKey.trim(),
+    browsing && !!sourceUrl.trim() && !!sourceApiKey.trim(),
+  )
 
   const invalidatePreview = () => {
     setPreview(null)
@@ -79,6 +97,9 @@ export function CopyServerPanel({
         prefer,
         withKeys,
         dryRun,
+        include,
+        media,
+        onProgress: setProgress,
       })
       if (dryRun) {
         setPreview(result)
@@ -95,6 +116,7 @@ export function CopyServerPanel({
       setError(caught.message || (dryRun ? 'Copy preview failed' : 'Copy failed'))
     } finally {
       setBusy(false)
+      setProgress(null)
     }
   }
 
@@ -187,6 +209,48 @@ export function CopyServerPanel({
         )}
 
         <SettingsRow
+          label="What to copy"
+          help="Narrowing it narrows the source's own walk, so it builds less."
+        >
+          <Segmented
+            variant="fit"
+            value={browsing ? 'some' : 'all'}
+            disabled={busy}
+            onChange={(next) => {
+              setBrowsing(next === 'some')
+              if (next === 'all') setInclude([])
+              invalidatePreview()
+            }}
+            options={[
+              { value: 'all', label: 'Everything' },
+              { value: 'some', label: 'Choose' },
+            ]}
+          />
+        </SettingsRow>
+
+        {browsing && (
+          <TransferScopePicker
+            tree={sourceTree}
+            rules={include}
+            onChange={(next) => {
+              setInclude(next)
+              if (media === 'all' && next.length > 0) setMedia('referenced')
+              invalidatePreview()
+            }}
+            disabled={busy}
+          />
+        )}
+
+        <MediaModeRow
+          value={media}
+          onChange={(next) => {
+            setMedia(next)
+            invalidatePreview()
+          }}
+          disabled={busy}
+        />
+
+        <SettingsRow
           label={withKeys ? 'Data + API keys' : 'Data only'}
           help={
             canImportKeys
@@ -220,9 +284,9 @@ export function CopyServerPanel({
           </SettingsAlert>
         )}
 
-        {busy && !result && (
+        {busy && (
           <div className={ledger.status}>
-            <RefreshCw size={14} className="spin" /> {preview ? 'Copying…' : 'Reading and comparing source…'}
+            <RefreshCw size={14} className="spin" /> {CopyServerPanel.status(progress, !!preview)}
           </div>
         )}
 
@@ -232,6 +296,7 @@ export function CopyServerPanel({
             <StatTile n={result.updated} label="to update" tone="warn" prefix="~" />
             <StatTile n={result.deleted} label="to delete" tone="bad" />
             <StatTile n={result.skipped} label="unchanged" tone="muted" />
+            {result.media && <StatTile n={result.media.files} label="media files" tone="muted" />}
           </StatRow>
         )}
 
@@ -270,4 +335,20 @@ export function CopyServerPanel({
       </SettingsSection>
     </>
   )
+}
+
+/**
+ * What to say while a copy runs.
+ *
+ * The line keeps moving because the progress stream keeps arriving, which is
+ * the point of it: a copy that says nothing for two minutes is
+ * indistinguishable from one that has died.
+ */
+CopyServerPanel.status = (progress: TransferProgress | null, applying: boolean): string => {
+  if (!progress) return applying ? 'Copying…' : 'Reading and comparing source…'
+  if (progress.phase === 'extract') return 'Reading the source archive…'
+  if (progress.phase === 'media') return 'Copying media files…'
+  const counted = progress.result
+  if (!counted) return 'Working…'
+  return `Loading entries: ${counted.added} created, ${counted.updated} updated, ${counted.skipped} unchanged`
 }

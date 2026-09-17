@@ -79,6 +79,24 @@ export class ConfigSections {
       ],
     },
     {
+      table: "http",
+      title: "Connections",
+      summary: "How long a connection may go quiet before the server closes it.",
+      writable: true,
+      fields: [
+        {
+          key: "idle_timeout",
+          type: "number",
+          min: 0,
+          zeroMeans: "never close an idle connection",
+          env: "SILO_HTTP_IDLE_TIMEOUT",
+          restart: true,
+          label: "Idle timeout",
+          help: "Seconds, up to 255. Raise it where a transfer of a large instance runs long; a closed socket reaches the caller as a proxy error, not as silo's.",
+        },
+      ],
+    },
+    {
       table: "search",
       title: "Search",
       summary: "The full-text index, and the budget for instances running without one.",

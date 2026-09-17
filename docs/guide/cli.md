@@ -57,6 +57,8 @@ silo version                       print the version
 | `--project <id>`, `--env <id>` | `keys create` | scope the preset targets (default `*`, all) |
 | `--dir <path>`, `--out <path>` | `export` | write a directory tree, or a `.tar.gz` |
 | `--with-keys` | `export` | include API key hashes |
+| `--include <rule>` | `export`, `import` | repeatable: `project`, `project/env` or `project/env/collection`. Omit for everything |
+| `--media <all\|referenced\|none>` | `export`, `import` | what to do about media files. Defaults to `all`, or `referenced` once `--include` narrows it |
 | `--mode <merge\|replace>` | `import` | conflict strategy (default `merge`) |
 | `--dry-run` | `import` | report what would be written, write nothing |
 | `--prefer <local\|remote>` | `import` | override merge conflict resolution |
