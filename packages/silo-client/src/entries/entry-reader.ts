@@ -1,8 +1,12 @@
+import type { TTLCache } from "@isaacs/ttlcache";
+import { Cache, CACHE_MAP_KEY } from "@org-quicko/core/cache";
 import { PageWindow } from "../pagination/page-window.js";
 import type { RowLoader } from "../pagination/row-stream.js";
 import type { ScopeReference } from "../scope/scope-reference.js";
 import { ApiPath } from "../transport/api-path.js";
 import { PagePayload } from "../transport/page-payload.js";
+import { QueryString } from "../transport/query-string.js";
+import type { TransportRequest } from "../transport/transport-request.js";
 import type { Entry } from "./entry.js";
 import type { EntryListQuery } from "./entry-list-query.js";
 import { EntryPage, type EntryPageLoader } from "./entry-page.js";
@@ -19,19 +23,33 @@ import { EntryStream } from "./entry-stream.js";
  * the one place `variables` is turned into a query parameter.
  */
 export class EntryReader<Fields> {
+  readonly [CACHE_MAP_KEY]: TTLCache<string, unknown> | undefined;
+
   constructor(
     private readonly scope: ScopeReference,
     private readonly collection: string,
-  ) {}
+  ) {
+    this[CACHE_MAP_KEY] = scope.siloContext.cache;
+  }
 
   get(id: string, options: EntryReadOptions = {}): Promise<Entry<Fields>> {
     const { variables, ...request } = options;
-    return this.scope.transport.json<Entry<Fields>>({
+    return this.fetchData({
       method: "GET",
       path: ApiPath.entry(this.scope.project, this.scope.environment, this.collection, id),
       query: { variables },
       ...request,
-    });
+    }) as Promise<Entry<Fields>>;
+  }
+
+  @Cache({
+    key(request: TransportRequest & { method: "GET" }) {
+      return `${request.path}${QueryString.build(request.query)}`;
+    },
+    unless: (body: unknown) => body === null,
+  })
+  private fetchData(request: TransportRequest & { method: "GET" }): Promise<Record<string, unknown>> {
+    return this.scope.siloContext.transport.json<Record<string, unknown>>(request);
   }
 
   async list(query: EntryListQuery = {}, options: EntryReadOptions = {}): Promise<EntryPage<Entry<Fields>>> {
@@ -39,7 +57,7 @@ export class EntryReader<Fields> {
     const loader: EntryPageLoader<Entry<Fields>> = (window) =>
       this.list({ ...query, limit: window.limit, offset: window.offset }, options);
 
-    const body = await this.scope.transport.json<Record<string, unknown>>({
+    const body = await this.fetchData({
       method: "GET",
       path: ApiPath.entries(this.scope.project, this.scope.environment, this.collection),
       query: {

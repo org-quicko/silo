@@ -326,45 +326,34 @@ safe, but it touches around forty view files and is its own change.
 
 ### 14.10 Optional read caching (D71)
 
-`SiloOptions.cache` accepts `{ ttlMilliseconds, maxEntries? }` or an existing
-`SiloCache`. Without it, reads go directly through `FetchTransport`; no cache
-store, timer, key or clone is created. `silo.cache` still provides `enabled`,
-`size` and `clear()`. `withKey()` and `withUrl()` share that facade.
+Revised on 2026-09-17 to replace the transport cache with core's method decorator.
 
-The TTL is a required positive finite safe integer, measured from storage,
-not extended by hits. `maxEntries` is a positive safe integer or `Infinity`;
-omitting it leaves the count unlimited. The soonest-expiring entry is evicted
-first. `@isaacs/ttlcache` 2.1.5 stays external in both bundles. Infinite TTLs
-are rejected because that version cannot safely evict or clear immortal
-entries. Expiry is checked on retrieval as well as by the library's timer.
+`SiloOptions.cache` accepts `{ ttl, max? }`. Each client constructs a `SiloContext`
+holding its transport and optional `TTLCache<string, unknown>`. `ttl` is a required
+positive integer in milliseconds or `Infinity`, validated by `@isaacs/ttlcache`.
+`max` is optional and has no Silo
+default. `checkAgeOnGet: true` checks expiration even if a timer was delayed.
+`withKey()` and `withUrl()` create independent caches with the same settings.
 
-`CachingTransport` wraps the transport interface used by every handle. It
-caches successful GET calls through `json()`, including a decoded `undefined`
-from a 204. Other transport methods pass through. The URL (including query)
-and normalized `Headers` are prepared once, then used for both the key and
-fetch. Authorization is included; duplicate header names keep their combined
-value order. A custom fetch that changes authentication or routing must keep
-that context in the client's URL/headers, or bypass the cache.
+`@Cache` from `@org-quicko/core/cache` decorates the payload fetch methods in
+`EntryReader`. Search methods do not participate in caching.
+`Silo` passes `siloContext` through `ProjectHandle` and `ScopeReference` to readers.
+Only `EntryReader` attaches the cache under core's `CACHE_MAP_KEY` Symbol.
+`Transport` handles only HTTP requests. Decorator keys concatenate the path
+already built by `ApiPath` with
+`QueryString.build(request.query)`. The transport uses the same path and query,
+prefixed by its base URL. Headers are copied at construction; path-and-query
+keys rely on fixed authentication and routing within a client's independent cache.
 
-Responses are cloned before storage and on each hit. The public facade uses
-runtime-private storage; it offers no keys or body access. An already-aborted
-cacheable read raises `RequestAbortedError`; a hit has no network timeout.
+The decorator stores fulfilled decoded JSON, skipping `null` and `undefined`.
+The transport throws on non-2xx responses. Core clones values on insertion and
+retrieval; page objects with navigation callbacks are constructed afterward.
+Cache hits return stored data without checking the abort signal; network requests
+use the transport's cancellation handling.
+Health, schemas, metadata, all searches and writes remain uncached.
 
-`bypass` skips lookup and storage. `refresh` skips lookup and stores a
-successful response; failure leaves an existing cached response unchanged.
-Both modes are ignored on writes or when caching is disabled. `health()`
-always bypasses. `MediaAsset.refresh()` defaults to refresh and honors an
-explicit bypass. Pagination keeps the mode unless the caller overrides it.
-
-Every non-GET clears the shared store before dispatch and in `finally` after
-settlement, including failed or partially successful writes. This removes
-reads cached while a write was pending. Manual `clear()` also invalidates
-pending reads. Each cacheable network read gets a unique per-key ticket;
-only the current ticket may store, and completion removes it. Clearing the
-tickets prevents old reads from repopulating the cache. Starting a newer
-read prevents an older one from overwriting its result, even if the newer
-read fails. Callers still receive their own network responses.
-
-The store is local to a tab, worker or process, with no coalescing, retries,
-persistence or scoped invalidation. Node and Bun unref the expiry timer;
-Deno may stay alive until expiry, so `clear()` releases the timer when done.
+`clearCache()` removes stored responses. Writes do not invalidate them, and
+pending reads can refill the cache after a clear. Concurrent misses are
+independent, without coalescing or ordering guarantees. There are no per-request
+cache modes or shared application registry. See the
+[usage documentation](../../packages/silo-client/README.md#optional-collection-caching).

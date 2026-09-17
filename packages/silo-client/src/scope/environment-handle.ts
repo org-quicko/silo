@@ -36,7 +36,7 @@ export class EnvironmentHandle {
 
   /** Every schema in the scope, in one request. */
   async schemas(options: RequestOptions = {}): Promise<CollectionDefinition[]> {
-    const body = await this.scope.transport.json<{ items: CollectionDefinition[] }>({
+    const body = await this.scope.siloContext.transport.json<{ items: CollectionDefinition[] }>({
       method: "GET",
       path: ApiPath.schemas(this.scope.project, this.scope.environment),
       ...options,
@@ -46,13 +46,13 @@ export class EnvironmentHandle {
 
   async search(query: SearchQuery, options: RequestOptions = {}): Promise<SearchPage> {
     return new Search(
-      this.scope.transport,
+      this.scope.siloContext.transport,
       SearchReach.environment(this.scope.project, this.scope.environment),
     ).run(query, options);
   }
 
   async rename(name: string, options: RenameOptions = {}): Promise<RenameReport> {
-    const payload = await this.scope.transport.json<RenamePreviewPayload>({
+    const payload = await this.scope.siloContext.transport.json<RenamePreviewPayload>({
       method: "PATCH",
       path: ApiPath.environment(this.scope.project, this.scope.environment),
       query: { dry_run: options.dryRun || undefined, expected_id: options.expectedId },
@@ -64,7 +64,7 @@ export class EnvironmentHandle {
   }
 
   async delete(options: DeleteOptions = {}): Promise<void> {
-    await this.scope.transport.empty({
+    await this.scope.siloContext.transport.empty({
       method: "DELETE",
       path: ApiPath.environment(this.scope.project, this.scope.environment),
       query: { force: options.force || undefined },

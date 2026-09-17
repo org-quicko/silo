@@ -1,3 +1,4 @@
+import { SiloContext } from "../../src/SiloContext";
 import { describe, expect, test } from "bun:test";
 import { CollectionHandle } from "../../src/collections/collection-handle";
 import { ConflictError } from "../../src/errors/conflict-error";
@@ -12,7 +13,7 @@ interface Post {
 }
 
 const scopeOf = (stubFetch: StubFetch): ScopeReference =>
-  new ScopeReference(new Transport({ url: "http://localhost:8090", fetch: stubFetch.fetch }), "acme", "prod");
+  new ScopeReference(new SiloContext(new Transport({ url: "http://localhost:8090", fetch: stubFetch.fetch })), "acme", "prod");
 
 const entryPayload = (overrides: Partial<Post> & { rev?: number } = {}) => ({
   id: "01J8 x",

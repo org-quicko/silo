@@ -15,7 +15,7 @@ export class CollectionSchema {
   ) {}
 
   async get(options: RequestOptions = {}): Promise<CollectionDefinition> {
-    return this.scope.transport.json<CollectionDefinition>({
+    return this.scope.siloContext.transport.json<CollectionDefinition>({
       method: "GET",
       path: ApiPath.collectionSchema(this.scope.project, this.scope.environment, this.name),
       ...options,
@@ -23,7 +23,7 @@ export class CollectionSchema {
   }
 
   async put(schema: JsonSchema, options: RequestOptions = {}): Promise<CollectionDefinition> {
-    return this.scope.transport.json<CollectionDefinition>({
+    return this.scope.siloContext.transport.json<CollectionDefinition>({
       method: "PUT",
       path: ApiPath.collectionSchema(this.scope.project, this.scope.environment, this.name),
       body: schema,
@@ -32,7 +32,7 @@ export class CollectionSchema {
   }
 
   async delete(options: DeleteOptions = {}): Promise<void> {
-    await this.scope.transport.empty({
+    await this.scope.siloContext.transport.empty({
       method: "DELETE",
       path: ApiPath.collectionSchema(this.scope.project, this.scope.environment, this.name),
       query: { force: options.force || undefined },

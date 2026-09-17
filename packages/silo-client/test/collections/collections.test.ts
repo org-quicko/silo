@@ -1,3 +1,4 @@
+import { SiloContext } from "../../src/SiloContext";
 import { describe, expect, test } from "bun:test";
 import { Collections } from "../../src/collections/collections";
 import { ValidationFailedError } from "../../src/errors/validation-failed-error";
@@ -7,7 +8,7 @@ import { StubFetch } from "../support/stub-fetch";
 import { StubResponse } from "../support/stub-response";
 
 const scopeOf = (stubFetch: StubFetch): ScopeReference =>
-  new ScopeReference(new Transport({ url: "http://localhost:8090", fetch: stubFetch.fetch }), "acme", "prod");
+  new ScopeReference(new SiloContext(new Transport({ url: "http://localhost:8090", fetch: stubFetch.fetch })), "acme", "prod");
 
 describe("Collections.list", () => {
   test("GETs the collection list and maps summaries, camel-casing only known metadata", async () => {
