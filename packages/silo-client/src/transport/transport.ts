@@ -35,7 +35,7 @@ export class Transport {
   constructor(options: TransportOptions) {
     this.url = Transport.normalizeUrl(options.url);
     this.key = options.key;
-    this.headers = options.headers ?? {};
+    this.headers = { ...options.headers };
     this.timeoutMilliseconds = options.timeoutMilliseconds;
     this.fetchFunction = Transport.resolveFetch(options.fetch);
   }

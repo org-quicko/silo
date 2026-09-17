@@ -4,6 +4,19 @@
 > The *current* state is [CONTEXT.md](../../CONTEXT.md); this is how it got
 > there.
 
+- **Node collection caching uses core's decorator (2026-09-17).** Replaces the
+  D71 transport cache with `@Cache` and a per-client Symbol-attached TTL cache.
+  Only collection entry GETs are cached, with the API path and query as the key.
+  Search methods remain uncached. Options
+  are `{ ttl, max? }`, with no default capacity. Derived clients have independent
+  caches. `clearCache()` clears current entries; writes do not invalidate them.
+  Entry reads call the decorated fetch directly; cache hits do not check abort signals.
+  One `SiloContext` holds the transport and optional cache for each client.
+  Project handles and scopes carry `siloContext`; only readers use `CACHE_MAP_KEY`.
+  Cache options use `@isaacs/ttlcache` validation, including support for `ttl: Infinity`.
+  `packages/silo-client/tools/verifyCache.mjs` checks caching against a live collection
+  using GET requests and HTTP request-count assertions.
+
 - **silo-client 1.1.1 can cache reads (2026-09-16).** `SiloCache`
   caches successful GET JSON responses only when a caller supplies a finite
   TTL. Its keys use the prepared URL and normalized final headers, including

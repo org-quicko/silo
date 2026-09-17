@@ -49,6 +49,10 @@
     "typecheck": "tsc --noEmit -p tsconfig.json && tsc --noEmit -p tsconfig.test.json",
     "prepublishOnly": "bun run build"
   },
+  "dependencies": {
+    "@isaacs/ttlcache": "^2.1.5",
+    "@org-quicko/core": "2.1.0-alpha"
+  },
   "devDependencies": {
     "@arethetypeswrong/cli": "^0.18.5",
     "@silo/shared": "workspace:*",

@@ -1,3 +1,4 @@
+import { SiloContext } from "../../src/SiloContext";
 import { describe, expect, test } from "bun:test";
 import { CollectionSchema } from "../../src/collections/collection-schema";
 import { ScopeReference } from "../../src/scope/scope-reference";
@@ -6,7 +7,7 @@ import { StubFetch } from "../support/stub-fetch";
 import { StubResponse } from "../support/stub-response";
 
 const scopeOf = (stubFetch: StubFetch): ScopeReference =>
-  new ScopeReference(new Transport({ url: "http://localhost:8090", fetch: stubFetch.fetch }), "acme", "prod");
+  new ScopeReference(new SiloContext(new Transport({ url: "http://localhost:8090", fetch: stubFetch.fetch })), "acme", "prod");
 
 describe("CollectionSchema", () => {
   test("get() reads the bundled schema", async () => {

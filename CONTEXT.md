@@ -17,15 +17,27 @@ can be cloned with one command.
 
 ## Where things stand
 
-*Last updated: 2026-09-16 (D71)*
+*Last updated: 2026-09-17 (Node client collection caching)*
 
-**silo-client 1.1.1 can cache reads (2026-09-16).**
-`SiloOptions.cache` is opt-in and requires a finite TTL, so an application
-chooses how long a stored GET JSON response remains reusable. `SiloCache` can be shared by clients and is cleared around every
-write; `bypass` and `refresh` name the two per-read choices. Keys include the
-prepared URL and final headers, authorization included, and values are cloned
-at both cache boundaries. A pending read cannot refill a cache a write or
-manual clear has invalidated, and a newer refresh wins over an older one (D71).
+**The Node client caches collection data with core's decorator (2026-09-17).**
+This replaces the D71 transport cache. `SiloOptions.cache` accepts `{ ttl, max? }`;
+TTL is required and validated by `@isaacs/ttlcache`; `Infinity` disables expiry.
+An omitted `max` has no capacity default.
+Each client creates one `SiloContext` holding its transport and optional `TTLCache`.
+Project handles and `ScopeReference` share it through `siloContext`. Only `EntryReader`
+attaches the cache under core's `CACHE_MAP_KEY` Symbol for the decorator.
+`@Cache` from `@org-quicko/core/cache` wraps only the plain
+JSON fetches used for entries. Keys combine the `ApiPath` path and
+`QueryString.build()` query parameters within each client's independent cache.
+Errors and empty results are skipped,
+values are cloned, and pagination objects are rebuilt. Cache hits return stored
+data without checking the abort signal. Health, metadata and
+all searches stay uncached. `withKey()` and `withUrl()` create independent
+caches. `clearCache()` removes stored responses; writes do not invalidate them
+and pending reads may refill after a clear. See the
+[client README](packages/silo-client/README.md#optional-collection-caching).
+The client tool `tools/verifyCache.mjs` verifies the built package against a live
+collection by counting actual HTTP requests.
 
 **A collection can now say more than "required" (2026-09-16).** The visual
 schema builder wrote `type`, `enum`, `$ref` and a required list and nothing
@@ -512,8 +524,8 @@ accept is meant to be found. One secret, `NPM_TOKEN`.
 
 **silo has a TypeScript client, and it is a package rather than a copy of the
 admin's (2026-09-10).** `packages/silo-client`, published as `@org-quicko/silo-client`,
-with one bundled artifact per module condition and `@isaacs/ttlcache` as an
-external runtime dependency (D71).
+with one bundled artifact per module condition. Collection caching uses
+`@org-quicko/core/cache` and `@isaacs/ttlcache`.
 The path is the object graph: `silo.project("acme").environment("prod")
 .collection<Post>("posts")`, where every handle is a value object that makes no
 request. There is no default scope, because a client that guesses `default/prod`

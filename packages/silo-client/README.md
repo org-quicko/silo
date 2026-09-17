@@ -8,7 +8,7 @@ an environment holds collections, and a collection holds entries.
 npm install @org-quicko/silo-client
 ```
 
-Runs on Node 18+, Bun, Deno, browsers and workers. It has no dependencies.
+Runs on Node 18+, Bun, Deno, browsers and workers.
 
 The examples below build moviespace, a small film database.
 
@@ -29,6 +29,54 @@ for (const movie of page.entries) {
 
 `silo.project("moviespace").environment("prod")` sends no request. It only
 builds the path, so nothing needs an `await` until the read.
+
+## Optional collection caching
+
+```ts
+const silo = new Silo({
+  url: "http://localhost:8090",
+  key: process.env.SILO_KEY,
+  cache: { ttl: 10 * 60 * 1000 },
+})
+
+// After changing data, explicitly discard this client's cached responses.
+silo.clearCache()
+```
+
+Omit `cache` to disable caching. `ttl` is required and validated by `@isaacs/ttlcache`:
+a positive integer in milliseconds or `Infinity` for no expiry. The lifetime is
+measured from insertion; hits do not extend it. Set `max`
+inside `cache` to limit the number of stored responses; omitting `max` leaves
+the count unlimited. Expiry is checked on retrieval as well as by a timer.
+
+Only collection entry reads are cached. `list()`,
+`all()` and `pages()` reuse cached page data and create fresh pagination objects.
+Health, schemas, other metadata, all searches and writes remain uncached.
+Keys use the path built by `ApiPath` followed by `QueryString.build()` for
+query parameters. The base URL is fixed within each client's separate cache.
+Different filters, sort orders, page windows and raw/resolved reads have
+different keys. Each client owns its cache; `withKey()` and `withUrl()` create
+independent caches. Constructor headers are copied. A custom `fetch` must keep
+its routing and authentication context stable for the lifetime of that client.
+
+The `@Cache` decorator from `@org-quicko/core/cache` stores decoded successful
+JSON responses. Errors, `null` and `undefined` are not cached. Stored data and
+cache hits are cloned so callers can modify returned entries independently.
+Cache hits return stored data without checking the abort signal. Concurrent
+misses make independent requests.
+
+Writes do not invalidate cached reads. Changes become visible after TTL expiry
+or `clearCache()`. Clearing removes current entries; a pending successful read
+can populate the cache afterward. This is an in-memory cache local to one
+process, worker or tab.
+
+To verify caching against a running Silo instance, build this package and run
+`node tools/verifyCache.mjs` from the package directory. The script uses real GET
+requests and asserts the HTTP request count for hits, expiry, clearing and client
+isolation. It defaults to the production GST state-code collection; override
+`SILO_BASE_URL`, `SILO_PROJECT`, `SILO_ENVIRONMENT` and
+`SILO_GST_STATE_CODE_COLLECTION` as needed. The script reads public collections
+without an API key.
 
 ## Entries
 

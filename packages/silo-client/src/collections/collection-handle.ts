@@ -80,7 +80,7 @@ export class CollectionHandle<Fields = Record<string, unknown>> {
   }
 
   async delete(id: string, rev: number, options: RequestOptions = {}): Promise<void> {
-    await this.scope.transport.empty({
+    await this.scope.siloContext.transport.empty({
       method: "DELETE",
       path: ApiPath.entry(this.scope.project, this.scope.environment, this.name, id),
       query: { rev },
@@ -90,13 +90,13 @@ export class CollectionHandle<Fields = Record<string, unknown>> {
 
   search(query: SearchQuery, options: RequestOptions = {}): Promise<SearchPage> {
     return new Search(
-      this.scope.transport,
+      this.scope.siloContext.transport,
       SearchReach.collection(this.scope.project, this.scope.environment, this.name),
     ).run(query, options);
   }
 
   async rename(name: string, options: RenameOptions = {}): Promise<RenameReport> {
-    const payload = await this.scope.transport.json<RenamePreviewPayload>({
+    const payload = await this.scope.siloContext.transport.json<RenamePreviewPayload>({
       method: "PATCH",
       path: ApiPath.collection(this.scope.project, this.scope.environment, this.name),
       query: { dry_run: options.dryRun || undefined, expected_id: options.expectedId },
@@ -116,7 +116,7 @@ export class CollectionHandle<Fields = Record<string, unknown>> {
     rev: number | undefined,
     options: RequestOptions,
   ): Promise<Entry<Fields>> {
-    return this.scope.transport.json<Entry<Fields>>({
+    return this.scope.siloContext.transport.json<Entry<Fields>>({
       method,
       path,
       query: { rev, variables: "raw" },
