@@ -53,9 +53,19 @@
   rather than the status code, and that is exactly why it is opt-in. The admin
   uses it, so a long import or copy reports what it is doing.
 
-  The admin's Data Transfer page gains a three-level scope picker (every box
-  checked by default, because an empty selection *is* everything) and a media
-  control on all three tabs. The stale `?validate=` parameter D70 removed, and
+  The admin's Data Transfer page gains a scope picker and a media control on all
+  three tabs. The picker is the **server manager's own column browser**, lifted
+  into `components/browser/` rather than copied: projects, then environments,
+  then collections, one pane per level, with a checkbox on each row and every
+  box checked by default because an empty selection *is* everything. The panes
+  are a fixed height and their lists scroll, which they could not do until
+  `.column` and `.columnList` were allowed to shrink below their content. What
+  a narrowed archive covers is stated as the projects it touches, with a sheet
+  behind it, since a fact row ellipsises and forty-six rules on one line says
+  nothing; `FactList` gained the end-of-row `action` that link sits in. An
+  archive now downloads stamped to the second in UTC, so a directory of them
+  sorts into the order they were taken. The tab strip stopped clipping a label
+  longer than its fixed 120px. The stale `?validate=` parameter D70 removed, and
   the `rejected`/`rejections` fields it added, are finally correct in
   `docs/openapi.json`.
 

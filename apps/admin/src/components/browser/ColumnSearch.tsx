@@ -1,6 +1,6 @@
 import { Search, X } from 'lucide-react'
 import { useRef } from 'react'
-import styles from './ServerManager.module.css'
+import styles from './ScopeBrowser.module.css'
 
 interface Props {
   label: string

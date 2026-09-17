@@ -1,6 +1,6 @@
 import { ChevronRight } from 'lucide-react'
 import type { ReactNode } from 'react'
-import styles from './ServerManager.module.css'
+import styles from './ScopeBrowser.module.css'
 
 interface Props {
   title: string
@@ -11,6 +11,9 @@ interface Props {
   chevron?: boolean
   onSelect: () => void
   onActivate?: () => void
+  /** A control before the name — a checkbox where the browser chooses rather
+   *  than navigates. It handles its own clicks; the row still selects. */
+  lead?: ReactNode
   /** A control on the right of the row, before the chevron. */
   action?: ReactNode
 }
@@ -24,6 +27,7 @@ export function ColumnItem({
   chevron,
   onSelect,
   onActivate,
+  lead,
   action,
 }: Props) {
   return (
@@ -33,6 +37,7 @@ export function ColumnItem({
       onDoubleClick={onActivate}
       style={{ animationDelay: `${index * 25}ms` }}
     >
+      {lead}
       <div className={styles.itemMain}>
         <span className={styles.itemTitle}>{title}</span>
         {subtitle && <span className={styles.itemSubtitle}>{subtitle}</span>}

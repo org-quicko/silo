@@ -1,3 +1,4 @@
+import { useState } from 'react'
 import { Download } from 'lucide-react'
 import { Button } from '../../components/buttons/Button'
 import { Toggle } from '../../components/controls/Toggle'
@@ -5,6 +6,7 @@ import { Claims } from '@silo/shared/claims'
 import type { useArchiveTransfer } from './use-archive-transfer'
 import { ArchiveName } from './archive-name'
 import { MediaModeRow } from './MediaModeRow'
+import { TransferCoverageSheet } from './TransferCoverageSheet'
 import { TransferScopePicker } from './TransferScopePicker'
 import { TransferTrees } from './transfer-tree'
 import { useTransferTree } from './use-transfer-tree'
@@ -31,26 +33,45 @@ export function ExportPanel({
   canExportKeys: boolean
 }) {
   const tree = useTransferTree(server.url, server.apiKey, true)
-  const whole = transfer.exportInclude.length === 0
-  const plural = (n: number, one: string, many = `${one}s`) => (n === 1 ? one : many)
+  const [showingCoverage, setShowingCoverage] = useState(false)
+  const rules = transfer.exportInclude
+  const whole = rules.length === 0
+  const plural = (count: number, one: string, many = `${one}s`) =>
+    `${count} ${count === 1 ? one : many}`
 
   const facts: Fact[] = tree
     ? [
         {
           key: 'Covering',
+          // A count and the projects, never the whole list: the row ellipsises,
+          // so forty-six rules on one line says nothing at all. The sheet
+          // beside it is where they are read.
           value: whole
-            ? `The whole instance, ${TransferTrees.scopes(tree)} ${plural(TransferTrees.scopes(tree), 'environment')}`
-            : transfer.exportInclude.join(', '),
+            ? `The whole instance, ${plural(TransferTrees.scopes(tree), 'environment')}`
+            : ExportPanel.coverage(rules),
           plain: true,
+          action: whole ? undefined : (
+            <button
+              type="button"
+              className={ledger.factLink}
+              onClick={() => setShowingCoverage(true)}
+            >
+              Show all
+            </button>
+          ),
         },
         {
           key: 'Collections',
           value: whole
-            ? `${TransferTrees.collectionNames(tree).length}: ${TransferTrees.collectionNames(tree).join(', ')}`
-            : `${transfer.exportInclude.length} ${plural(transfer.exportInclude.length, 'selection')}`,
+            ? plural(TransferTrees.collectionNames(tree).length, 'collection')
+            : plural(rules.length, 'selection'),
           plain: true,
         },
-        { key: 'Entries', value: whole ? String(TransferTrees.entries(tree)) : 'Counted on export', plain: true },
+        {
+          key: 'Entries',
+          value: whole ? String(TransferTrees.entries(tree)) : 'Counted on export',
+          plain: true,
+        },
         {
           key: 'Media',
           value:
@@ -58,10 +79,10 @@ export function ExportPanel({
               ? 'Catalog only, no files'
               : transfer.exportMedia === 'referenced'
                 ? 'Only files the exported entries use'
-                : `${tree.media} ${plural(tree.media, 'file')}`,
+                : plural(tree.media, 'file'),
           plain: true,
         },
-        { key: 'Archive', value: ArchiveName.of() },
+        { key: 'Archive', value: ArchiveName.Pattern, plain: true },
       ]
     : [{ key: 'Covering', value: 'Counting…', plain: true }]
 
@@ -70,19 +91,20 @@ export function ExportPanel({
       <SettingsSection title="What to export" divider={false}>
         <SettingsRow
           label="Scope"
-          help="Everything is checked by default. Uncheck to move only part of the instance."
+          help={
+            whole
+              ? 'Everything is checked. Uncheck to move only part of the instance.'
+              : `${plural(rules.length, 'selection')}. Check everything to move the whole instance.`
+          }
+          stack
         >
-          <span className={ledger.sectionNote}>
-            {whole ? 'The whole instance' : `${transfer.exportInclude.length} selected`}
-          </span>
+          <TransferScopePicker
+            tree={tree}
+            rules={rules}
+            onChange={transfer.setExportInclude}
+            disabled={transfer.exporting}
+          />
         </SettingsRow>
-
-        <TransferScopePicker
-          tree={tree}
-          rules={transfer.exportInclude}
-          onChange={transfer.setExportInclude}
-          disabled={transfer.exporting}
-        />
 
         <MediaModeRow
           value={transfer.exportMedia}
@@ -128,6 +150,24 @@ export function ExportPanel({
           </Button>
         </div>
       </SettingsSection>
+
+      {showingCoverage && (
+        <TransferCoverageSheet rules={rules} onClose={() => setShowingCoverage(false)} />
+      )}
     </>
   )
+}
+
+/**
+ * The one line a narrowed selection gets before the sheet takes over.
+ *
+ * The projects it touches rather than the rules themselves, capped at three: a
+ * reader checks "did I pick the right projects" long before they check the
+ * forty-six rules underneath them.
+ */
+ExportPanel.coverage = (rules: string[]): string => {
+  const projects = [...new Set(rules.map((rule) => rule.split('/')[0]!))].sort()
+  const shown = projects.slice(0, 3).join(', ')
+  const rest = projects.length - 3
+  return rest > 0 ? `${shown} and ${rest} more` : shown
 }

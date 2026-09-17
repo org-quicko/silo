@@ -1,11 +1,11 @@
 import { Folder, Search } from 'lucide-react'
 import { useState } from 'react'
-import { BrowserColumn } from './BrowserColumn'
-import { ColumnItem } from './ColumnItem'
-import { ColumnPlaceholder } from './ColumnPlaceholder'
-import { ColumnSearch } from './ColumnSearch'
+import { BrowserColumn } from '../../components/browser/BrowserColumn'
+import { ColumnItem } from '../../components/browser/ColumnItem'
+import { ColumnPlaceholder } from '../../components/browser/ColumnPlaceholder'
+import { ColumnSearch } from '../../components/browser/ColumnSearch'
 import { InlineNameForm } from './InlineNameForm'
-import styles from './ServerManager.module.css'
+import styles from '../../components/browser/ScopeBrowser.module.css'
 
 interface Props {
   /** Null until a server is chosen — the column is inert until then. */

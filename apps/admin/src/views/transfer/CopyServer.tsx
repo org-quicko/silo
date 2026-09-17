@@ -229,16 +229,26 @@ export function CopyServerPanel({
         </SettingsRow>
 
         {browsing && (
-          <TransferScopePicker
-            tree={sourceTree}
-            rules={include}
-            onChange={(next) => {
-              setInclude(next)
-              if (media === 'all' && next.length > 0) setMedia('referenced')
-              invalidatePreview()
-            }}
-            disabled={busy}
-          />
+          <SettingsRow
+            label="Source scope"
+            help={
+              include.length === 0
+                ? 'Everything is checked. Uncheck to copy only part of the source.'
+                : `${include.length} selected.`
+            }
+            stack
+          >
+            <TransferScopePicker
+              tree={sourceTree}
+              rules={include}
+              onChange={(next) => {
+                setInclude(next)
+                if (media === 'all' && next.length > 0) setMedia('referenced')
+                invalidatePreview()
+              }}
+              disabled={busy}
+            />
+          </SettingsRow>
         )}
 
         <MediaModeRow
