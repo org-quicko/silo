@@ -1,5 +1,6 @@
 package in.org.quicko.silo.client;
 
+import in.org.quicko.silo.client.cache.ResponseCache;
 import in.org.quicko.silo.client.instance.HealthReport;
 import in.org.quicko.silo.client.media.Media;
 import in.org.quicko.silo.client.scope.EnvironmentHandle;
@@ -42,7 +43,8 @@ public final class Silo {
         options.headers(),
         options.timeout(),
         options.httpClient(),
-        options.objectMapper()));
+        options.objectMapper(),
+        options.cache()));
     this.projects = new Projects(transport);
     this.media = new Media(transport);
   }
@@ -64,6 +66,15 @@ public final class Silo {
   /** The media catalog. Media is instance-global, so it takes no scope. */
   public Media media() {
     return media;
+  }
+
+  /**
+   * What this client is holding, when {@code SiloOptions.cache} turned the cache
+   * on. {@code clear()} is the escape hatch after a write made somewhere else,
+   * which nothing here can be told about.
+   */
+  public ResponseCache cache() {
+    return transport.cache();
   }
 
   /** One project, by the name every path addresses it with. */

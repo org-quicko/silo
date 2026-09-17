@@ -4,6 +4,60 @@
 > The *current* state is [CONTEXT.md](../../CONTEXT.md); this is how it got
 > there.
 
+- **A JVM consumer reading one entry on every request paid a round trip for
+  each of them (2026-09-17, D70).** The Java client gains a Caffeine response
+  cache, declared by `@Cache` — Spring's `@Cacheable` by the name a Java
+  consumer already has, and deliberately not Spring's mechanism. There is no
+  container here, every handle is `final` and none implements an interface, so
+  a proxy had nothing to stand in front of: interfaces plus `Proxy` would have
+  doubled the surface and broken D69's promise that the object graph is the
+  TypeScript client's, ByteBuddy would have cost `final`, a bytecode dependency
+  and Spring's own self-invocation footgun, and a processor would have needed
+  something non-final to decorate anyway. **The annotation is read, not woven.**
+  `EntryReader` resolves each `@Cache` once into a `CachePolicy` constant, hands
+  it to the request it builds, and `Transport` — already the one place a request
+  is made — consults the cache before sending; `CachePolicy.declaredOn` throws
+  off the stack, and both its numbers are optional — what a read states wins,
+  what it leaves out comes from `CacheOptions` on `SiloOptions`, and a number
+  neither names is refused rather than invented. A read calls `.cache()` with no argument and
+  `declaredOnCaller` takes the `@Cache` off exactly the method that called it,
+  memoised per method. That is what makes the annotation decide **whether**
+  caching happens — delete it and the read raises, where an earlier draft with a
+  resolved constant would have compiled and quietly cached nothing.
+  **`@Cache(ttl = 30, maxSize = 1024)` is the whole annotation.** This is a
+  published client, so both are defaults and not impositions: `CacheOptions`
+  replaces either for every cache (`ttl`, `maxSize`), with `inForce` where
+  declared meets chosen. **Nothing names a cache.** A read needs a Caffeine
+  instance of its own only because both bounds are per-instance and neither is
+  per-entry, so the instances are keyed by the `CachePolicy` itself.
+  **The key is composed from the request, the way a CDN composes one.**
+  `Transport` sees a built method, path and query and never a caller's
+  arguments, so Spring's `key = "#id"` has nothing to evaluate against here —
+  and that is also the right answer, because `#id` alone would serve `01ABC` of
+  `acme/prod/posts` to a read of `01ABC` in `beta/staging/posts`. The path
+  carries the scope, and `CacheKey` takes the method, the path and **every**
+  query parameter: there is nothing to declare and nothing to leave out,
+  because a parameter left out of a key is two different responses sharing one
+  entry. It sorts the parameters so two callers who built one read differently
+  still meet one entry, percent-encodes the values so a filter holding an `&`
+  cannot forge the key of a read carrying one more parameter, and drops a
+  parameter that was never sent rather than rendering it as null.
+  Taking the query in is what makes a raw read and a
+  resolved read of one entry two entries and two windows of one filter two more,
+  and why `all()` and `pages()` are cached without declaring anything — they page
+  through `list()`. A write declares what it invalidated rather than being
+  inspected for it: `evicts` carries the collection's path, `Transport` drops
+  everything stored at or below it on a successful response, and a boundary
+  check on the prefix keeps a write to `posts` off `posts-archive`. **Only
+  entries, and only when asked.** Schemas, searches, variables and media reach
+  the server every time, and the whole cache is off until `SiloOptions.cache`
+  turns it on — a cached read hands back the `rev` it was stored with, and the
+  write carrying a stale one raises a `ConflictException` the caller did nothing
+  to cause, which is the absent-default-scope reasoning one layer down. A cache
+  belongs to one transport, so `withKey` and `withUrl` start empty. D7 is
+  untouched: that is the server's storage layer, not a client holding what it
+  already fetched. `CacheTest` is 30 cases and the README's block is one more in
+  `ExamplesTest`; the suite is 114.
 - **The Java client's README documented the concepts and left whole areas of
   the API without an example (2026-09-16).** It covered the entry shape, the
   filters, the pagination rule and the failure taxonomy, and a reader arriving

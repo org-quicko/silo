@@ -481,6 +481,98 @@ Silo silo = new Silo(SiloOptions.of(url, key)
     .headers(Map.of("X-Trace-Id", traceId)));
 ```
 
+## Caching reads
+
+```java
+Silo silo = new Silo(SiloOptions.of(url, key).cache(CacheOptions.on()));
+
+CollectionHandle<Post> posts = silo.scope("acme", "prod").collection("posts", Post.class);
+posts.get("01ABC");   // reaches the server
+posts.get("01ABC");   // served from the cache
+
+posts.replace("01ABC", 3, edited);  // drops what it made stale
+posts.get("01ABC");                 // reaches the server again
+
+silo.cache().clear();                 // after a write made somewhere else
+silo.cache().statistics().hitRate();
+```
+
+**Off unless you ask for it.** A cached read hands back the `rev` it was stored
+with, and a write carrying a stale one fails with `ConflictException` — so this
+is a decision the caller makes, for the same reason there is no default project
+or environment.
+
+### What is cached, and for how long
+
+| Read | Holds | ttl | Bound |
+|------|-------|-----|-------|
+| `get` | one entry, by id | 30s | 1024 |
+| `list` | one page of entries | 15s | 256 |
+
+`all()` and `pages()` page through `list()`, so they are held with it. Nothing
+else is cached — a schema, a search, a variable and a media listing all reach
+the server every time.
+
+### Setting the numbers
+
+Two places can name a ttl and a bound, and **`@Cache` wins**:
+
+```java
+@Cache(ttl = 30, maxSize = 1024)        // on the read — ttl in seconds
+public Entry<F> get(String id, EntryReadOptions options) { ... }
+```
+
+```java
+CacheOptions.on(Duration.ofMinutes(5), 10_000)    // under every read
+
+CacheOptions.on()
+    .ttl(Duration.ofMinutes(5))
+    .maxSize(10_000);
+```
+
+A read states what it knows about its own staleness; `CacheOptions` is the
+baseline beneath it. Either number may be left out on either side, and what is
+left out on the read is taken from the options:
+
+| `@Cache` on the read | `CacheOptions` | In force |
+|----------------------|----------------|----------|
+| `@Cache(ttl = 30, maxSize = 1024)` | anything | 30s, 1024 |
+| `@Cache(ttl = 30)` | `.maxSize(10_000)` | 30s, 10 000 |
+| `@Cache` | `.on(ttl, maxSize)` | both from the options |
+| `@Cache` | `.on()` | refused — no number to use |
+
+The last row raises rather than picking a default, because a ttl this library
+invented is one you did not choose. The reads above ship with both numbers set,
+so changing `CacheOptions` alone will not move them — edit the annotation, or
+leave it bare and drive everything from `SiloOptions`.
+
+`@Cache` is required even when it carries nothing: it is what marks a read
+cacheable, and a read that calls for the cache without one raises at the first
+call rather than quietly not caching.
+
+### The cache key
+
+The key is the request: **the method, the path and every query parameter**, the
+way a CDN composes one. `Transport` is the only layer that sees a built request,
+and a key made of a method's arguments could not tell `01ABC` in `acme/prod`
+from `01ABC` in `beta/staging` — the path carries the project, the environment
+and the collection, and the arguments do not.
+
+Taking every parameter is what makes a raw read and a resolved read of one entry
+two entries, and two windows of one filter two more. Parameters are sorted into
+the key, so two callers who built one read in a different order still meet one
+entry, and values are percent-encoded so a filter holding an `&` cannot forge
+the key of a read carrying one more parameter.
+
+### Invalidation
+
+Every write this client makes to a collection drops that collection's rows and
+pages — the path stays the prefix of every key, so one sweep catches both. A
+write made anywhere else is not something the client can be told about, which is
+what the ttl is for, and `cache().clear()` when you know better.
+
+A cache belongs to one client: `withKey` and `withUrl` start empty, because one
+key's reads are not another key's to serve.
 ## What this client does not reach
 
 Keys, claims, plugins, transfer, settings, audit, observability, search reindex,

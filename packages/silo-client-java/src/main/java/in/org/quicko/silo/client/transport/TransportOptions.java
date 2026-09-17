@@ -1,6 +1,7 @@
 package in.org.quicko.silo.client.transport;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import in.org.quicko.silo.client.cache.CacheOptions;
 import java.time.Duration;
 import java.util.Map;
 import okhttp3.OkHttpClient;
@@ -15,13 +16,14 @@ public record TransportOptions(
     Map<String, String> headers,
     Duration timeout,
     OkHttpClient httpClient,
-    ObjectMapper objectMapper) {
+    ObjectMapper objectMapper,
+    CacheOptions cache) {
 
   public TransportOptions withKey(String value) {
-    return new TransportOptions(url, value, headers, timeout, httpClient, objectMapper);
+    return new TransportOptions(url, value, headers, timeout, httpClient, objectMapper, cache);
   }
 
   public TransportOptions withUrl(String value) {
-    return new TransportOptions(value, key, headers, timeout, httpClient, objectMapper);
+    return new TransportOptions(value, key, headers, timeout, httpClient, objectMapper, cache);
   }
 }
