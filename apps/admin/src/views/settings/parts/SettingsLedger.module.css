@@ -420,6 +420,32 @@
   letter-spacing: 0;
 }
 
+/* The end-of-row control on a fact whose value does not fit one line. A link
+   rather than a button: it opens a reading surface, it does not commit
+   anything, and a filled button at the end of every such row would read as the
+   row's own action. */
+.factLink {
+  flex: none;
+  padding: 2px 4px;
+  border: 0;
+  border-radius: var(--r-1);
+  background: none;
+  color: var(--accent);
+  cursor: pointer;
+  font: inherit;
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.factLink:hover {
+  background: var(--accent-soft);
+}
+
+.factLink:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
 .copyMark {
   display: flex;
   flex: none;
