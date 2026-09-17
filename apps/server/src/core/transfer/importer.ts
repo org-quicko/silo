@@ -46,6 +46,14 @@ export class Importer {
    *  reporting is not itself the work. */
   static readonly ProgressInterval = 200;
 
+  /** How much of a spooled upload may sit in the sink before it is flushed. */
+  static readonly SpoolFlushBytes = 8 * 1024 * 1024;
+
+  /** The spooled upload's name inside the staging directory. Removed before
+   *  the walk, and never mistaken for content: the walk reads `projects/`,
+   *  `media/` and `manifest.json` and nothing else. */
+  static readonly SpoolName = ".silo-upload.tar.gz";
+
   private static async parseImportDir(src: string): Promise<ParsedImport> {
     const manifestPath = path.join(src, "manifest.json");
     const mdata = await fs.readFile(manifestPath, "utf8");
@@ -318,7 +326,7 @@ export class Importer {
       };
 
       let sinceReport = 0;
-      for (const remote of remoteEntries) {
+      for await (const remote of remoteEntries) {
         if (++sinceReport >= Importer.ProgressInterval) {
           sinceReport = 0;
           opts.onProgress?.({ phase: "entries", result: response });
@@ -440,6 +448,40 @@ export class Importer {
   }
 
   /**
+   * The upload spooled to one file, with backpressure the tar parser does not
+   * give.
+   *
+   * `Unpack.write` answers `false` only for its own small buffer and keeps
+   * accepting entries while it writes them out, so feeding it a stream as fast
+   * as the stream arrives held the whole archive: a 750 MB copy peaked at
+   * 2.0 GB of private memory on the destination, measured, with the same number
+   * on a dry run that writes nothing. Spooling costs the archive's size in
+   * **disk**, which a small host has and which the extracted tree was going to
+   * need beside it anyway, and holds one flush budget in memory.
+   */
+  private static async spool(archive: ReadableStream<Uint8Array>, destination: string): Promise<void> {
+    const file = Bun.file(destination).writer();
+    const reader = archive.getReader();
+    let pending = 0;
+    try {
+      for (;;) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        await file.write(value);
+        pending += value.byteLength;
+        if (pending >= Importer.SpoolFlushBytes) {
+          await file.flush();
+          pending = 0;
+        }
+      }
+      await file.flush();
+    } finally {
+      await reader.cancel().catch(() => {});
+      file.end();
+    }
+  }
+
+  /**
    * A directory to unpack into.
    *
    * `stagingDirectory` is honoured when the caller named one, because the
@@ -470,50 +512,27 @@ export class Importer {
   }
 
   /**
-   * Extract a streamed tarball into `dest`.
+   * Spool the upload, then extract it from disk.
    *
-   * `tar.x` with no `file` is a writable parser, so this is a pump: write each
-   * chunk, wait for `drain` when it asks, and finish on the `end` it emits
-   * only once the input has ended *and* every file it opened has been written
-   * (its own pending-write count is what guarantees that, so the walk that
-   * follows never sees a half-extracted tree).
+   * Feeding `tar.x` the stream directly is what the shape of the code invites
+   * and it does not hold: `Unpack` keeps accepting entries while it writes them
+   * out, so the parser absorbed the archive as fast as it arrived. Reading from
+   * a file instead lets tar pull at its own pace, which is the backpressure the
+   * writable form never offered.
    *
-   * A tar-level failure is recorded rather than raced as a rejection: the pump
-   * stops at the next chunk and rethrows it, so a truncated or corrupt upload
-   * surfaces as that error instead of an unhandled one.
+   * The spool is removed before the walk, so the archive and the tree it
+   * expands to are not both on disk while the entries are loaded.
    */
   private static async extractStream(
     archive: ReadableStream<Uint8Array>,
     dest: string
   ): Promise<void> {
-    const unpack = x({ cwd: dest });
-
-    let failure: unknown;
-    const finished = new Promise<void>((resolve) => {
-      unpack.on("end", () => resolve());
-      unpack.on("error", (error: unknown) => {
-        failure = error;
-        resolve();
-      });
-    });
-
-    const reader = archive.getReader();
+    const spooled = path.join(dest, Importer.SpoolName);
     try {
-      for (;;) {
-        if (failure) throw failure;
-        const { done, value } = await reader.read();
-        if (done) break;
-        if (!unpack.write(value)) {
-          await new Promise<void>((resolve) => unpack.once("drain", () => resolve()));
-        }
-      }
-      unpack.end();
-      await finished;
-      if (failure) throw failure;
+      await Importer.spool(archive, spooled);
+      await x({ file: spooled, cwd: dest });
     } finally {
-      // A partial read leaves the source open; the extracted tree is the
-      // caller's to remove either way.
-      await reader.cancel().catch(() => {});
+      await fs.rm(spooled, { force: true });
     }
   }
 

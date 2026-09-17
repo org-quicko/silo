@@ -13,6 +13,7 @@ import { MediaModes } from "./media-mode";
 import { DirectoryExportSink } from "./sink/directory-export-sink";
 import type { ExportSink } from "./sink/export-sink";
 import { TarExportSink } from "./sink/tar-export-sink";
+import { GzipStream } from "./tar/gzip-stream";
 import { TarWriter } from "./tar/tar-writer";
 import { TransferSelection } from "./transfer-selection";
 
@@ -27,6 +28,11 @@ import { TransferSelection } from "./transfer-selection";
  * what was actually written rather than what was expected to be.
  */
 export class Exporter {
+  /** How many bytes may sit in a file destination's buffer before it is
+   *  flushed, so writing an archive to disk costs a budget rather than its
+   *  own size. */
+  static readonly FlushBytes = 8 * 1024 * 1024;
+
   /** The walk, against any sink. Answers the manifest it wrote. */
   static async export(
     store: Storage,
@@ -111,25 +117,25 @@ export class Exporter {
     blobStorage?: BlobStorage | string
   ): ReadableStream<Uint8Array> {
     const exportedAt = options.exportedAt || EntryUtils.now();
-    const { readable, writable } = new TransformStream<Uint8Array, Uint8Array>();
-    const writer = writable.getWriter();
-    // `writer.write` resolves only when the chunk is taken, so awaiting it is
-    // what carries the consumer's backpressure back into the walk.
-    const tar = new TarWriter((chunk) => writer.write(chunk), exportedAt);
+    // `GzipStream` rather than the web `CompressionStream`, which accepts every
+    // chunk it is offered and so held the whole media library in memory however
+    // carefully the walk above it was paced.
+    const gzip = new GzipStream();
+    const tar = new TarWriter((chunk) => gzip.write(chunk), exportedAt);
 
     void (async () => {
       try {
         await Exporter.export(store, new TarExportSink(tar), { ...options, exportedAt }, blobStorage);
         await tar.finish();
-        await writer.close();
+        gzip.end();
       } catch (caught) {
-        // Aborting errors the readable, so a consumer sees the failure rather
-        // than a stream that simply stops.
-        await writer.abort(caught).catch(() => {});
+        // Tearing the stream down is what makes a consumer see the failure
+        // rather than a body that simply stops.
+        gzip.fail(caught);
       }
     })();
 
-    return readable.pipeThrough(new CompressionStream("gzip"));
+    return gzip.readable;
   }
 
   /**
@@ -157,10 +163,21 @@ export class Exporter {
 
     const reader = Exporter.exportTarGzStream(store, options, blobStorage).getReader();
     try {
+      // Flushed on a byte budget rather than trusted to `write`, which answers
+      // a count and not a promise until it decides to flush on its own: without
+      // this the loop reads the whole archive into the sink's buffer as fast as
+      // gzip can produce it, and a file destination costs what the archive
+      // weighs (§7.1).
+      let pending = 0;
       for (;;) {
         const { done, value } = await reader.read();
         if (done) break;
         await sink.write(value);
+        pending += value.byteLength;
+        if (pending >= Exporter.FlushBytes && file) {
+          await file.flush();
+          pending = 0;
+        }
       }
     } finally {
       await reader.cancel().catch(() => {});
