@@ -11,6 +11,9 @@ import in.org.quicko.silo.client.entries.EntryPageStream;
 import in.org.quicko.silo.client.entries.EntryReadOptions;
 import in.org.quicko.silo.client.entries.EntryReader;
 import in.org.quicko.silo.client.entries.EntryStream;
+import in.org.quicko.silo.client.pagination.PageWindow;
+import in.org.quicko.silo.client.pagination.RowBatch;
+import in.org.quicko.silo.client.pagination.RowLoader;
 import in.org.quicko.silo.client.scope.RenameOptions;
 import in.org.quicko.silo.client.scope.RenameReport;
 import in.org.quicko.silo.client.scope.ScopeReference;
@@ -19,7 +22,9 @@ import in.org.quicko.silo.client.search.SearchPage;
 import in.org.quicko.silo.client.search.SearchQuery;
 import in.org.quicko.silo.client.search.SearchReach;
 import in.org.quicko.silo.client.transport.ApiPath;
+import in.org.quicko.silo.client.transport.PagePayload;
 import in.org.quicko.silo.client.transport.TransportRequest;
+import java.util.List;
 import java.util.Map;
 
 /**
@@ -36,14 +41,14 @@ public final class CollectionHandle<F> {
   private final ScopeReference scope;
   private final String name;
   private final JavaType fieldsType;
-  private final EntryReader<F> reader;
+  private final EntryReader reader;
   private final CollectionSchema schema;
 
   public CollectionHandle(ScopeReference scope, String name, JavaType fieldsType) {
     this.scope = scope;
     this.name = name;
     this.fieldsType = fieldsType;
-    this.reader = new EntryReader<>(scope, name, fieldsType);
+    this.reader = scope.cache().wrap(new EntryReader(scope, name));
     this.schema = new CollectionSchema(scope, name);
   }
 
@@ -57,49 +62,67 @@ public final class CollectionHandle<F> {
   }
 
   public Entry<F> get(String id) {
-    return reader.get(id, EntryReadOptions.none());
+    return get(id, EntryReadOptions.none());
   }
 
   public Entry<F> get(String id, EntryReadOptions options) {
-    return reader.get(id, options);
+    String path = ApiPath.entry(scope.project(), scope.environment(), name, id);
+    options.request().throwIfCancelled("GET", path);
+    JsonNode row = scope.transport().codec().tree(reader.get(id, options));
+    options.request().throwIfCancelled("GET", path);
+    return EntryMapper.read(row, fieldsType, scope.transport().codec());
   }
 
   public EntryPage<F> list() {
-    return reader.list(EntryListQuery.all(), EntryReadOptions.none());
+    return list(EntryListQuery.all(), EntryReadOptions.none());
   }
 
   public EntryPage<F> list(EntryListQuery query) {
-    return reader.list(query, EntryReadOptions.none());
+    return list(query, EntryReadOptions.none());
   }
 
   public EntryPage<F> list(EntryListQuery query, EntryReadOptions options) {
-    return reader.list(query, options);
+    String path = ApiPath.entries(scope.project(), scope.environment(), name);
+    options.request().throwIfCancelled("GET", path);
+    PagePayload payload = PagePayload.read(scope.transport().codec().tree(reader.list(query, options)));
+    options.request().throwIfCancelled("GET", path);
+    PageWindow window = new PageWindow(
+        payload.limit() == null ? query.limitOrDefault() : payload.limit(),
+        payload.offset() == null ? query.offsetOrDefault() : payload.offset());
+    List<Entry<F>> entries = payload.rows().stream()
+        .map(row -> EntryMapper.<F>read(row, fieldsType, scope.transport().codec())).toList();
+    return new EntryPage<>(entries, payload.total(), window,
+        next -> list(query.limit(next.limit()).offset(next.offset()), options));
   }
 
   /** Every matching entry, paged lazily. */
   public EntryStream<F> all() {
-    return reader.all(EntryListQuery.all(), EntryReadOptions.none());
+    return all(EntryListQuery.all(), EntryReadOptions.none());
   }
 
   public EntryStream<F> all(EntryListQuery query) {
-    return reader.all(query, EntryReadOptions.none());
+    return all(query, EntryReadOptions.none());
   }
 
   public EntryStream<F> all(EntryListQuery query, EntryReadOptions options) {
-    return reader.all(query, options);
+    RowLoader<Entry<F>> loader = window -> {
+      EntryPage<F> page = list(query.limit(window.limit()).offset(window.offset()), options);
+      return new RowBatch<>(page.entries(), new PageWindow(page.limit(), page.offset()));
+    };
+    return new EntryStream<>(loader, query.limitOrDefault(), options.request());
   }
 
   /** Every matching page, one at a time. */
   public EntryPageStream<F> pages() {
-    return reader.pages(EntryListQuery.all(), EntryReadOptions.none());
+    return pages(EntryListQuery.all(), EntryReadOptions.none());
   }
 
   public EntryPageStream<F> pages(EntryListQuery query) {
-    return reader.pages(query, EntryReadOptions.none());
+    return pages(query, EntryReadOptions.none());
   }
 
   public EntryPageStream<F> pages(EntryListQuery query, EntryReadOptions options) {
-    return reader.pages(query, options);
+    return new EntryPageStream<>(() -> list(query, options), options.request());
   }
 
   public Entry<F> create(F fields) {
@@ -144,7 +167,7 @@ public final class CollectionHandle<F> {
   public SearchPage search(SearchQuery query, RequestOptions options) {
     return new Search(
             scope.transport(),
-            SearchReach.collection(scope.project(), scope.environment(), name))
+            SearchReach.collection(scope.project(), scope.environment(), name), reader)
         .run(query, options);
   }
 

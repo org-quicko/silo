@@ -4,6 +4,15 @@
 > The *current* state is [CONTEXT.md](../../CONTEXT.md); this is how it got
 > there.
 
+- **Java collection reads can use an instance-owned cache (2026-09-17, D72).**
+  Added the Silo builder, optional caching with a required TTL, Caffeine and
+  Spring `@Cacheable` on the collection reader. Health remains uncached. Cached
+  JSON is decoded for each caller, and pagination keeps its own request options.
+  Clearing replaces the cache to prevent an older pending read from refilling
+  it. Derived clients get independent caches. Spring dependencies are optional
+  and are loaded only when caching is enabled. Regression tests cover the public
+  API over local HTTP and uncached use without Spring on the classpath.
+
 - **silo-client 1.1.1 can cache reads (2026-09-16).** `SiloCache`
   caches successful GET JSON responses only when a caller supplies a finite
   TTL. Its keys use the prepared URL and normalized final headers, including

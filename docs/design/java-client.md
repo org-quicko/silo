@@ -8,7 +8,8 @@
 `packages/silo-client-java`, published to Maven Central as
 `in.org.quicko:silo-client`. The same surface §14 describes, for the data half
 of the API: projects, environments, collections, schemas, entries, queries,
-variables, search and media. Java 25, OkHttp and Jackson, and nothing else.
+variables, search and media. Java 25, OkHttp, Jackson and Caffeine. Collection
+caching optionally uses Spring Framework; see §15.8.
 
 It is flat under `packages/` because §14 said the second language client would
 be, and because the Bun workspace globs `packages/*` — a directory with no
@@ -142,17 +143,14 @@ than leaving it to be discovered.
 client validates nothing locally and hands a schema through exactly as given,
 so a typed model here would be a second copy of a rule silo owns.
 
-### 15.6 Verification without a socket
+### 15.6 Verification
 
 The tests run on an OkHttp application interceptor that records the request it
 was handed and answers the next queued response, never opening a connection.
 That is the same shape as the TypeScript package's recording stub fetch, and it
 is what lets a test assert on the request the client actually built.
 
-A local `HttpServer` was the first attempt and is the wrong tool twice over: it
-adds a way for the suite to fail that has nothing to do with the client, and a
-build host that refuses a loopback socket cannot run it at all. The interceptor
-also makes the failure mapping directly testable, since it can throw the
+The interceptor also makes the failure mapping directly testable, since it can throw the
 `SocketTimeoutException` or `ConnectException` a runtime would.
 
 One bug came out of that suite immediately, and it is the kind only a
@@ -197,3 +195,57 @@ the signing half: Central requires a detached GPG signature on every artifact,
 so it takes a key and a passphrase as secrets on top of the account token, and
 the `release` profile is where the `maven-gpg-plugin` joins the sources and
 javadoc jars it already attaches.
+
+### 15.8 Optional collection caching (D72)
+
+`Silo.builder().cache(...)` enables a private Caffeine cache with a required
+positive TTL and a positive response-count limit, defaulting to 1,000. Existing
+constructors remain uncached. `withKey`, `withUrl` and `toBuilder().build()`
+preserve configuration but create independent caches.
+
+The Java client caches collection reads only: entry get/list, the pages used
+by all/pages, collection schema reads and collection search pages. Health and
+other reads keep their HTTP behavior. This differs deliberately from the
+TypeScript transport cache in D71.
+
+`EntryReader` has Spring `@Cacheable` annotations on its four JSON read
+methods. `CollectionCache` creates a `CacheProxyFactoryBean` with an explicit
+per-client `CaffeineCacheManager` and `AnnotationCacheOperationSource`. It
+initializes both lifecycle callbacks itself; no Spring application context
+is involved. The Spring implementation is loaded only when enabled. The
+optional Framework dependencies can be supplied by the consuming application's
+`spring-boot-starter-cache`; the SDK does not depend on Spring Boot.
+
+The cache key uses the transport's URL construction, including the encoded
+path and every query parameter. Public collection calls keep credentials and
+headers fixed per client. Callers using interceptors that change identity must
+use separate clients, since those interceptor changes cannot be represented by
+the URL. Filter JSON is not semantically normalized, so equivalent spellings
+may occupy different entries.
+
+Cached values are JSON strings. Collection handles decode fresh fields and
+pages for each call, so a shared URL can be read with different field types
+without sharing mutable DTOs or another call's cancellation callbacks. Page
+navigation calls the proxied reader again instead of bypassing Spring through
+self-invocation. Misses pay for JSON serialization and reparsing in addition
+to the existing transport parse. Errors, empty bodies and JSON null are not
+stored; successful JSON is not validated against a caller's field type before
+admission, so a later DTO conversion error does not evict it.
+
+The TTL uses `expireAfterWrite`. Concurrent misses remain independent to
+preserve each caller's cancellation and timeout; the last completed successful
+read can replace the value and restart its TTL. `clearCache()` replaces the
+registered Caffeine cache. A pending Spring invocation retains its old cache,
+so its completion cannot refill the replacement.
+
+Writes do not automatically invalidate cached reads. Applications that require
+fresh data after an entry, schema, scope or variable write must clear the cache.
+External writes and permission changes remain subject to TTL or explicit
+clearing. Automatic invalidation, per-request refresh/bypass, HTTP cache header
+processing and distributed invalidation are outside this change.
+
+Cache regression tests exercise the public Silo API against OkHttp's
+`MockWebServer`, including a blocked read completing after a clear. They require
+a loopback socket. The original interceptor tests remain in place. A separate
+classpath test verifies uncached use without Spring libraries. Spring Framework
+7.0.9 is the dependency baseline used for this change.

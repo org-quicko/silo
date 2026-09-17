@@ -4,8 +4,10 @@ A typed, object-oriented Java client for [silo](../../README.md)'s HTTP API:
 projects, environments, collections, schemas, entries, queries, variables,
 search and media.
 
-Two runtime dependencies, OkHttp and Jackson. Java 25 or newer. Every call
-blocks, so run it on virtual threads.
+Java 25 or newer, with OkHttp, Jackson and Caffeine. Every call blocks, so run
+it on virtual threads. Optional collection caching also requires Spring's
+cache libraries, supplied by the consuming application's
+`spring-boot-starter-cache`.
 
 ```xml
 <dependency>
@@ -73,6 +75,86 @@ posts.delete(published.id(), published.rev());
 A record works as the field type, and so does a plain class with public fields
 or getters and setters. Jackson reads it, so whatever Jackson can bind, this
 client can carry.
+
+## Optional collection caching
+
+Configure caching once through the builder. Omitting `cache(...)` leaves it
+disabled. The existing `Silo.at(...)` and `new Silo(SiloOptions...)` constructors
+remain available and create uncached clients.
+
+```java
+import in.org.quicko.silo.client.Silo;
+import java.time.Duration;
+
+Silo silo = Silo.builder()
+    .baseUrl("https://silo.example.com")
+    .apiKey(System.getenv("SILO_KEY"))
+    .cache(cache -> cache
+        .ttl(Duration.ofMinutes(10))
+        .maximumSize(1_000))
+    .build();
+
+var states = silo.scope("acme", "dev").collection("gst-state-code");
+var first = states.get("01");
+var second = states.get("01"); // Reuses the response while it is cached.
+silo.clearCache();
+var fresh = states.get("01"); // Makes another HTTP request.
+```
+
+The TTL is required and must be positive. It expires after insertion, so hits
+do not extend it. `maximumSize` is a positive response-count limit, defaulting
+to 1,000; it does not limit bytes. Both settings apply to every collection
+read on that Silo instance.
+
+| Read | Cached when enabled |
+| --- | --- |
+| Collection `get`, `list` | Yes |
+| Collection `all`, `pages`, and page navigation | Each requested page |
+| Collection `schema().get()` | Yes |
+| Collection `search` and search page navigation | Each requested page |
+| Health, project/environment catalogs, variables, media, other search reaches | No |
+
+Keys contain the base URL, encoded path and all query parameters, including
+filters, sort, pagination and variable resolution. Headers and credentials
+are fixed for each client; a custom OkHttp interceptor must not vary response
+identity behind the same client. Use separate clients for different identities.
+Each client owns its cache. `withKey`, `withUrl` and `toBuilder().build()` copy
+configuration and start with an empty cache. Use `toBuilder().disableCache()`
+to build an uncached copy.
+
+Successful JSON responses are stored as immutable strings. Every call decodes
+its own fields, schema and page callbacks, including when another handle uses
+a different Java field type for the same URL. Errors, empty responses and JSON
+null are not cached. Cancellation still applies to a cache hit. Concurrent
+misses make independent requests, so one caller's cancellation or timeout does
+not control another's request; the last successful completion can replace the
+cached response and restart its TTL.
+
+Writes always reach the server and do not automatically invalidate this cache.
+Call `clearCache()` after writes when the next read must see the change,
+including writes to variables used by resolved collection data. Clearing
+replaces the cache, so an older in-flight response cannot refill it. Changes
+made through other clients, and changes to access permissions, become visible
+after expiry or an explicit clear. The cache does not interpret HTTP cache
+headers or revalidate with ETags.
+
+The consuming Spring Boot application supplies:
+
+```xml
+<dependency>
+  <groupId>org.springframework.boot</groupId>
+  <artifactId>spring-boot-starter-cache</artifactId>
+</dependency>
+```
+
+Silo declares `spring-context` and `spring-context-support` as optional Maven
+dependencies. Caching uses Spring Framework 7.0 APIs and is tested with 7.0.9;
+let the application's compatible Spring Boot BOM manage its Spring versions.
+Silo uses `@Cacheable` on its internal collection reader and creates the proxy
+itself. No Silo beans, application context or `@EnableCaching` are required.
+Its private Caffeine cache uses the builder settings rather than the
+application's `CacheManager` or `spring.cache.*` configuration. With caching
+disabled, the client can run without Spring.
 
 ## The path is the object graph
 

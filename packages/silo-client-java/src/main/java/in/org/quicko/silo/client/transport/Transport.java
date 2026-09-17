@@ -54,6 +54,11 @@ public final class Transport {
     return codec;
   }
 
+  /** The same encoded URL is used for dispatch and collection cache keys. */
+  public String getRequestUrl(TransportRequest request) {
+    return url + request.path() + QueryString.build(request.query());
+  }
+
   /** A route documented to answer JSON. A body of any other type is refused. */
   public JsonNode json(TransportRequest request) {
     RawResponse response = execute(request, null);
@@ -152,7 +157,7 @@ public final class Transport {
 
   private Request buildRequest(TransportRequest request, RequestBody multipart) {
     Request.Builder builder =
-        new Request.Builder().url(url + request.path() + QueryString.build(request.query()));
+        new Request.Builder().url(getRequestUrl(request));
 
     for (Map.Entry<String, String> header : options.headers().entrySet()) {
       builder.header(header.getKey(), header.getValue());

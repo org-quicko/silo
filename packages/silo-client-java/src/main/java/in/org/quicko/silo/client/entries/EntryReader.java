@@ -1,91 +1,94 @@
 package in.org.quicko.silo.client.entries;
 
-import com.fasterxml.jackson.databind.JavaType;
 import com.fasterxml.jackson.databind.JsonNode;
-import in.org.quicko.silo.client.pagination.PageWindow;
-import in.org.quicko.silo.client.pagination.RowBatch;
-import in.org.quicko.silo.client.pagination.RowLoader;
+import in.org.quicko.silo.client.RequestOptions;
 import in.org.quicko.silo.client.scope.ScopeReference;
+import in.org.quicko.silo.client.search.Search;
+import in.org.quicko.silo.client.search.SearchQuery;
+import in.org.quicko.silo.client.search.SearchReach;
 import in.org.quicko.silo.client.transport.ApiPath;
-import in.org.quicko.silo.client.transport.JsonCodec;
-import in.org.quicko.silo.client.transport.PagePayload;
 import in.org.quicko.silo.client.transport.TransportRequest;
-import java.util.ArrayList;
-import java.util.List;
+import org.springframework.cache.annotation.Cacheable;
 
-/**
- * The four reads of one collection: one entry, one page, every entry, every page.
- *
- * <p>What this class owns is the paging the four share and the one place
- * {@code variables} becomes a query parameter. Nothing else is mapped on the way
- * through: {@link EntryMapper} splits the envelope off and copies the rest.
- */
-public final class EntryReader<F> {
+/** Internal collection reads. Cached JSON is decoded afresh for each caller. */
+public class EntryReader {
   private final ScopeReference scope;
   private final String collection;
-  private final JavaType fieldsType;
+  private final Search search;
 
-  public EntryReader(ScopeReference scope, String collection, JavaType fieldsType) {
+  public EntryReader(ScopeReference scope, String collection) {
     this.scope = scope;
     this.collection = collection;
-    this.fieldsType = fieldsType;
+    this.search = new Search(scope.transport(),
+        SearchReach.collection(scope.project(), scope.environment(), collection));
   }
 
-  public Entry<F> get(String id, EntryReadOptions options) {
-    JsonNode row = scope.transport().json(
-        TransportRequest.get(ApiPath.entry(scope.project(), scope.environment(), collection, id))
-            .query("variables", options.variables().wireValue())
-            .options(options.request())
-            .build());
-    return EntryMapper.read(row, fieldsType, codec());
+  @Cacheable(cacheNames = "silo-collections", key = "#root.target.getEntryUrl(#p0, #p1)",
+      unless = "#result == null")
+  public String get(String id, EntryReadOptions options) {
+    return readJson(buildEntryRequest(id, options));
   }
 
-  public EntryPage<F> list(EntryListQuery query, EntryReadOptions options) {
-    JsonNode body = scope.transport().json(
-        TransportRequest.get(ApiPath.entries(scope.project(), scope.environment(), collection))
-            .query("limit", query.limit())
-            .query("offset", query.offset())
-            .query("filter", query.where() == null ? null : query.where().toJson(codec()))
-            .query("sort", query.sort())
-            .query("variables", options.variables().wireValue())
-            .options(options.request())
-            .build());
-
-    PagePayload payload = PagePayload.read(body);
-    PageWindow window = new PageWindow(
-        payload.limit() == null ? query.limitOrDefault() : payload.limit(),
-        payload.offset() == null ? query.offsetOrDefault() : payload.offset());
-
-    return new EntryPage<>(
-        toEntries(payload.rows()),
-        payload.total(),
-        window,
-        next -> list(query.limit(next.limit()).offset(next.offset()), options));
+  @Cacheable(cacheNames = "silo-collections", key = "#root.target.getListUrl(#p0, #p1)",
+      unless = "#result == null")
+  public String list(EntryListQuery query, EntryReadOptions options) {
+    return readJson(buildListRequest(query, options));
   }
 
-  /** Every matching entry, one at a time, a page of rows per request. */
-  public EntryStream<F> all(EntryListQuery query, EntryReadOptions options) {
-    RowLoader<Entry<F>> loader = window -> {
-      EntryPage<F> page = list(query.limit(window.limit()).offset(window.offset()), options);
-      return new RowBatch<>(page.entries(), new PageWindow(page.limit(), page.offset()));
-    };
-    return new EntryStream<>(loader, query.limitOrDefault(), options.request());
+  @Cacheable(cacheNames = "silo-collections", key = "#root.target.getSchemaUrl(#p0)",
+      unless = "#result == null")
+  public String getSchema(RequestOptions options) {
+    return readJson(buildSchemaRequest(options));
   }
 
-  /** Every matching page, one at a time. */
-  public EntryPageStream<F> pages(EntryListQuery query, EntryReadOptions options) {
-    return new EntryPageStream<>(() -> list(query, options), options.request());
+  @Cacheable(cacheNames = "silo-collections", key = "#root.target.getSearchUrl(#p0, #p1)",
+      unless = "#result == null")
+  public String search(SearchQuery query, RequestOptions options) {
+    return readJson(search.buildRequest(query, options));
   }
 
-  private List<Entry<F>> toEntries(List<JsonNode> rows) {
-    List<Entry<F>> entries = new ArrayList<>(rows.size());
-    for (JsonNode row : rows) {
-      entries.add(EntryMapper.read(row, fieldsType, codec()));
-    }
-    return entries;
+  public String getSearchUrl(SearchQuery query, RequestOptions options) {
+    return scope.transport().getRequestUrl(search.buildRequest(query, options));
   }
 
-  private JsonCodec codec() {
-    return scope.transport().codec();
+  public String getSchemaUrl(RequestOptions options) {
+    return scope.transport().getRequestUrl(buildSchemaRequest(options));
+  }
+
+  public String getEntryUrl(String id, EntryReadOptions options) {
+    return scope.transport().getRequestUrl(buildEntryRequest(id, options));
+  }
+
+  public String getListUrl(EntryListQuery query, EntryReadOptions options) {
+    return scope.transport().getRequestUrl(buildListRequest(query, options));
+  }
+
+  private TransportRequest buildEntryRequest(String id, EntryReadOptions options) {
+    return TransportRequest.get(ApiPath.entry(scope.project(), scope.environment(), collection, id))
+        .query("variables", options.variables().wireValue())
+        .options(options.request())
+        .build();
+  }
+
+  private TransportRequest buildListRequest(EntryListQuery query, EntryReadOptions options) {
+    return TransportRequest.get(ApiPath.entries(scope.project(), scope.environment(), collection))
+        .query("limit", query.limit())
+        .query("offset", query.offset())
+        .query("filter", query.where() == null ? null : query.where().toJson(scope.transport().codec()))
+        .query("sort", query.sort())
+        .query("variables", options.variables().wireValue())
+        .options(options.request())
+        .build();
+  }
+
+  private String readJson(TransportRequest request) {
+    JsonNode body = scope.transport().json(request);
+    request.options().throwIfCancelled(request.method(), request.path());
+    return body == null || body.isNull() ? null : body.toString();
+  }
+
+  private TransportRequest buildSchemaRequest(RequestOptions options) {
+    return TransportRequest.get(ApiPath.collectionSchema(scope.project(), scope.environment(), collection))
+        .options(options).build();
   }
 }

@@ -1,5 +1,6 @@
 package in.org.quicko.silo.client;
 
+import in.org.quicko.silo.client.collections.CollectionCache;
 import in.org.quicko.silo.client.instance.HealthReport;
 import in.org.quicko.silo.client.media.Media;
 import in.org.quicko.silo.client.scope.EnvironmentHandle;
@@ -33,9 +34,17 @@ public final class Silo {
   private final Transport transport;
   private final Projects projects;
   private final Media media;
+  private final CacheOptions cacheOptions;
+  private final CollectionCache cache;
 
   public Silo(SiloOptions options) {
+    this(options, null);
+  }
+
+  Silo(SiloOptions options, CacheOptions cacheOptions) {
     this.options = options;
+    this.cacheOptions = cacheOptions;
+    this.cache = new CollectionCache(cacheOptions);
     this.transport = new Transport(new TransportOptions(
         options.url(),
         options.key(),
@@ -56,6 +65,20 @@ public final class Silo {
     return new Silo(SiloOptions.of(url, key));
   }
 
+  public static SiloBuilder builder() {
+    return new SiloBuilder();
+  }
+
+  /** Copies configuration only; a subsequent build starts with an empty cache. */
+  public SiloBuilder toBuilder() {
+    return new SiloBuilder(options, cacheOptions);
+  }
+
+  /** Clears this client's collection responses. Pending reads cannot repopulate them. */
+  public void clearCache() {
+    cache.clear();
+  }
+
   /** The projects this key can see, and creating one. */
   public Projects projects() {
     return projects;
@@ -68,7 +91,7 @@ public final class Silo {
 
   /** One project, by the name every path addresses it with. */
   public ProjectHandle project(String name) {
-    return new ProjectHandle(transport, name);
+    return new ProjectHandle(transport, name, cache);
   }
 
   /** {@code project(p).environment(e)} in one call. Still takes both names. */
@@ -101,11 +124,11 @@ public final class Silo {
 
   /** The same instance read with a different key. */
   public Silo withKey(String key) {
-    return new Silo(options.key(key));
+    return new Silo(options.key(key), cacheOptions);
   }
 
   /** The same options pointed at a different server. */
   public Silo withUrl(String url) {
-    return new Silo(options.url(url));
+    return new Silo(options.url(url), cacheOptions);
   }
 }

@@ -1,5 +1,6 @@
 package in.org.quicko.silo.client.scope;
 
+import in.org.quicko.silo.client.collections.CollectionCache;
 import in.org.quicko.silo.client.transport.ApiPath;
 import in.org.quicko.silo.client.transport.Transport;
 import in.org.quicko.silo.client.transport.TransportRequest;
@@ -20,9 +21,15 @@ public final class ProjectHandle {
   private final String name;
   private final Environments environments;
   private final ProjectVariables variables;
+  private final CollectionCache cache;
 
   public ProjectHandle(Transport transport, String name) {
+    this(transport, name, new CollectionCache(null));
+  }
+
+  public ProjectHandle(Transport transport, String name, CollectionCache cache) {
     this.transport = transport;
+    this.cache = cache;
     this.name = name;
     this.environments = new Environments(transport, name);
     this.variables = new ProjectVariables(transport, name);
@@ -43,7 +50,7 @@ public final class ProjectHandle {
   }
 
   public EnvironmentHandle environment(String environmentName) {
-    return new EnvironmentHandle(new ScopeReference(transport, name, environmentName));
+    return new EnvironmentHandle(new ScopeReference(transport, name, environmentName, cache));
   }
 
   public RenameReport rename(String newName) {

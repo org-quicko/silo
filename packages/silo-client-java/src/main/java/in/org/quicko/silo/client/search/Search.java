@@ -6,6 +6,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 import in.org.quicko.silo.client.RequestOptions;
 import in.org.quicko.silo.client.entries.Entry;
 import in.org.quicko.silo.client.entries.EntryMapper;
+import in.org.quicko.silo.client.entries.EntryReader;
 import in.org.quicko.silo.client.pagination.PageWindow;
 import in.org.quicko.silo.client.transport.JsonValues;
 import in.org.quicko.silo.client.transport.PagePayload;
@@ -23,22 +24,25 @@ import java.util.Map;
 public final class Search {
   private final Transport transport;
   private final SearchReach reach;
+  private final EntryReader collectionReader;
 
   public Search(Transport transport, SearchReach reach) {
+    this(transport, reach, null);
+  }
+
+  public Search(Transport transport, SearchReach reach, EntryReader collectionReader) {
     this.transport = transport;
     this.reach = reach;
+    this.collectionReader = collectionReader;
   }
 
   public SearchPage run(SearchQuery query, RequestOptions options) {
-    JsonNode body = transport.json(
-        TransportRequest.get(reach.path())
-            .query("q", query.text())
-            .query("filter", query.where() == null ? null : query.where().toJson(transport.codec()))
-            .query("sort", query.sort())
-            .query("limit", query.limit())
-            .query("offset", query.offset())
-            .options(options)
-            .build());
+    if (options == null) return run(query, RequestOptions.none());
+    options.throwIfCancelled("GET", reach.path());
+    JsonNode body = collectionReader == null
+        ? transport.json(buildRequest(query, options))
+        : transport.codec().tree(collectionReader.search(query, options));
+    options.throwIfCancelled("GET", reach.path());
 
     PagePayload payload = PagePayload.read(body);
     PageWindow window = new PageWindow(
@@ -57,6 +61,18 @@ public final class Search {
         body.path("truncated").asBoolean(false),
         SearchEngine.of(body.path("engine").asText("scan")),
         next -> run(query.limit(next.limit()).offset(next.offset()), options));
+  }
+
+  /** Shared by HTTP dispatch and the collection reader's cache key. */
+  public TransportRequest buildRequest(SearchQuery query, RequestOptions options) {
+    return TransportRequest.get(reach.path())
+        .query("q", query.text())
+        .query("filter", query.where() == null ? null : query.where().toJson(transport.codec()))
+        .query("sort", query.sort())
+        .query("limit", query.limit())
+        .query("offset", query.offset())
+        .options(options)
+        .build();
   }
 
   /**

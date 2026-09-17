@@ -1,5 +1,6 @@
 package in.org.quicko.silo.client;
 
+import in.org.quicko.silo.client.errors.RequestAbortedException;
 import java.time.Duration;
 
 /**
@@ -39,5 +40,10 @@ public record RequestOptions(Duration timeout, CancellationSignal cancellation) 
    *  sent at all so a cancelled batch stops rather than issuing one more call. */
   public boolean isCancelled() {
     return cancellation != null && cancellation.isCancelled();
+  }
+
+  /** Checks cancellation before a read, including one satisfied from memory. */
+  public void throwIfCancelled(String method, String path) {
+    if (isCancelled()) throw new RequestAbortedException(method, path);
   }
 }

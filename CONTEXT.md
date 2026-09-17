@@ -17,7 +17,18 @@ can be cloned with one command.
 
 ## Where things stand
 
-*Last updated: 2026-09-16 (D71)*
+*Last updated: 2026-09-17 (D72)*
+
+**The Java client can cache collection reads (2026-09-17).**
+`Silo.builder().cache(...)` opts one client into Caffeine with a required TTL
+and a response-count limit. Spring `@Cacheable` applies to entry get/list,
+collection schema and collection search reads; pagination reuses those methods.
+Health and other reads remain uncached. The client owns the cache and proxy
+setup, while consuming Boot applications supply the optional Spring libraries
+through `spring-boot-starter-cache`. Uncached use works without Spring.
+Cached JSON is decoded separately for each caller. `clearCache()` replaces the
+cache so older in-flight reads cannot refill it. Writes require an explicit
+clear when immediate freshness is needed. See [§15.8](docs/design/java-client.md#158-optional-collection-caching-d72).
 
 **silo-client 1.1.1 can cache reads (2026-09-16).**
 `SiloOptions.cache` is opt-in and requires a finite TTL, so an application
