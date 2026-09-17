@@ -10,7 +10,7 @@ export class EnvironmentVariables {
   constructor(private readonly scope: ScopeReference) {}
 
   async list(options: RequestOptions = {}): Promise<Variable[]> {
-    const body = await this.scope.siloContext.transport.json<{ items: VariableDeclaration[] }>({
+    const body = await this.scope.transport.json<{ items: VariableDeclaration[] }>({
       method: "GET",
       path: ApiPath.environmentVariables(this.scope.project, this.scope.environment),
       ...options,
@@ -19,7 +19,7 @@ export class EnvironmentVariables {
   }
 
   async set(name: string, value: string, options: RequestOptions = {}): Promise<Variable> {
-    const payload = await this.scope.siloContext.transport.json<VariableDeclaration>({
+    const payload = await this.scope.transport.json<VariableDeclaration>({
       method: "PUT",
       path: ApiPath.environmentVariable(this.scope.project, this.scope.environment, name),
       body: { value },
@@ -31,7 +31,7 @@ export class EnvironmentVariables {
   /** Clears this environment's value, leaving the name declared — the server
    *  answers the updated declaration rather than `204`. */
   async unset(name: string, options: RequestOptions = {}): Promise<Variable> {
-    const payload = await this.scope.siloContext.transport.json<VariableDeclaration>({
+    const payload = await this.scope.transport.json<VariableDeclaration>({
       method: "DELETE",
       path: ApiPath.environmentVariable(this.scope.project, this.scope.environment, name),
       ...options,

@@ -1,4 +1,4 @@
-import type { SiloContext } from "../SiloContext.js";
+import type { Transport } from "../transport/transport.js";
 import { ApiPath } from "../transport/api-path.js";
 import { ProjectVariables } from "../variables/project-variables.js";
 import type { DeleteOptions } from "./delete-options.js";
@@ -18,19 +18,19 @@ export class ProjectHandle {
   readonly variables: ProjectVariables;
 
   constructor(
-    private readonly siloContext: SiloContext,
+    private readonly transport: Transport,
     readonly name: string,
   ) {
-    this.environments = new Environments(siloContext.transport, name);
-    this.variables = new ProjectVariables(siloContext.transport, name);
+    this.environments = new Environments(transport, name);
+    this.variables = new ProjectVariables(transport, name);
   }
 
   environment(name: string): EnvironmentHandle {
-    return new EnvironmentHandle(new ScopeReference(this.siloContext, this.name, name));
+    return new EnvironmentHandle(new ScopeReference(this.transport, this.name, name));
   }
 
   async rename(name: string, options: RenameOptions = {}): Promise<RenameReport> {
-    const payload = await this.siloContext.transport.json<RenamePreviewPayload>({
+    const payload = await this.transport.json<RenamePreviewPayload>({
       method: "PATCH",
       path: ApiPath.project(this.name),
       query: { dry_run: options.dryRun || undefined, expected_id: options.expectedId },
@@ -42,7 +42,7 @@ export class ProjectHandle {
   }
 
   async delete(options: DeleteOptions = {}): Promise<void> {
-    await this.siloContext.transport.empty({
+    await this.transport.empty({
       method: "DELETE",
       path: ApiPath.project(this.name),
       query: { force: options.force || undefined },

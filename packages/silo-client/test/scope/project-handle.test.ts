@@ -1,4 +1,3 @@
-import { SiloContext } from "../../src/SiloContext";
 import { describe, expect, test } from "bun:test";
 import { EnvironmentHandle } from "../../src/scope/environment-handle";
 import { ProjectHandle } from "../../src/scope/project-handle";
@@ -8,7 +7,7 @@ import { StubResponse } from "../support/stub-response";
 
 const handleOf = (stubFetch: StubFetch): ProjectHandle => {
   const transport = new Transport({ url: "http://localhost:8090", fetch: stubFetch.fetch });
-  return new ProjectHandle(new SiloContext(transport), "acme");
+  return new ProjectHandle(transport, "acme");
 };
 
 describe("ProjectHandle", () => {

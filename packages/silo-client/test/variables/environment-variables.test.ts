@@ -1,4 +1,3 @@
-import { SiloContext } from "../../src/SiloContext";
 import { describe, expect, test } from "bun:test";
 import { ScopeReference } from "../../src/scope/scope-reference";
 import { Transport } from "../../src/transport/transport";
@@ -7,7 +6,7 @@ import { StubFetch } from "../support/stub-fetch";
 import { StubResponse } from "../support/stub-response";
 
 const scopeOf = (stubFetch: StubFetch): ScopeReference =>
-  new ScopeReference(new SiloContext(new Transport({ url: "http://localhost:8090", fetch: stubFetch.fetch })), "acme", "prod");
+  new ScopeReference(new Transport({ url: "http://localhost:8090", fetch: stubFetch.fetch }), "acme", "prod");
 
 const declarationOf = (overrides: Record<string, unknown> = {}) => ({
   name: "API_URL",

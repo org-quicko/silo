@@ -1,11 +1,11 @@
-import type { SiloContext } from "../SiloContext.js";
+import type { Transport } from "../transport/transport.js";
 
 /**
- * The client context and scope names shared by handles within one environment.
+ * The transport and scope names shared by handles within one environment.
  */
 export class ScopeReference {
   constructor(
-    readonly siloContext: SiloContext,
+    readonly transport: Transport,
     readonly project: string,
     readonly environment: string,
   ) {}

@@ -19,15 +19,38 @@ describe("Collection data caching", () => {
   afterEach(() => server.stop(true));
 
   test("reuses a collection entry across handles only when this client enables caching", async () => {
-    const cached = new Silo({ url, cache: { ttl: 60_000 } });
+    const cached = new Silo({ url, cache: { enabled: true, ttl: 60_000, maxSize: 100 } });
     const uncached = new Silo({ url });
+    const disabled = new Silo({ url, cache: { enabled: false } });
 
     expect((await cached.scope("acme", "dev").collection("posts").get("first")).title).toBe("Original");
     expect((await uncached.scope("acme", "dev").collection("posts").get("first")).title).toBe("Original");
+    expect((await disabled.scope("acme", "dev").collection("posts").get("first")).title).toBe("Original");
     respond = () => Response.json({ id: "first", rev: 2, title: "Changed" });
 
     expect((await cached.scope("acme", "dev").collection("posts").get("first")).title).toBe("Original");
     expect((await uncached.scope("acme", "dev").collection("posts").get("first")).title).toBe("Changed");
+    expect((await disabled.scope("acme", "dev").collection("posts").get("first")).title).toBe("Changed");
+    expect(disabled.cache().statistics()).toMatchObject({ hits: 0, misses: 0, evictions: 0, size: 0 });
+  });
+
+  test.each([{ ttl: 60_000 }, { maxSize: 100 }, {}])("requires both cache settings for collection reads: %j", async (settings) => {
+    const silo = new Silo({ url, cache: { enabled: true, ...settings } });
+    const posts = silo.scope("acme", "dev").collection("posts");
+    await expect(posts.get("first")).rejects.toThrow("Caching requires ttl and maxSize");
+    await expect(silo.health()).resolves.toMatchObject({ title: "Original" });
+  });
+
+  test("isolates nested entry data on both cache insertion and retrieval", async () => {
+    respond = () => Response.json({ id: "first", rev: 1, author: { name: "Original" } });
+    const posts = new Silo({ url, cache: { enabled: true, ttl: 60_000, maxSize: 100 } })
+      .scope("acme", "dev").collection<{ author: { name: string } }>("posts");
+    const first = await posts.get("first");
+    first.author.name = "Changed after fetch";
+    const second = await posts.get("first");
+    expect(second.author.name).toBe("Original");
+    second.author.name = "Changed after cache hit";
+    expect((await posts.get("first")).author.name).toBe("Original");
   });
 
   test("caches page data while keeping navigation, streams and returned entries independent", async () => {
@@ -38,7 +61,7 @@ describe("Collection data caching", () => {
         total: 2, limit: 1, offset,
       });
     };
-    const posts = new Silo({ url, cache: { ttl: 60_000 } }).scope("acme", "dev").collection("posts");
+    const posts = new Silo({ url, cache: { enabled: true, ttl: 60_000, maxSize: 100 } }).scope("acme", "dev").collection("posts");
     const first = await posts.list({ limit: 1, offset: 0 });
     expect((await first.next())?.entries[0]?.id).toBe("second");
     await posts.list({ limit: 1, offset: 2 });
@@ -65,7 +88,7 @@ describe("Collection data caching", () => {
         total: 2, limit: 1, offset, truncated: false, engine: "fts5",
       });
     };
-    const silo = new Silo({ url, cache: { ttl: 60_000 } });
+    const silo = new Silo({ url, cache: { enabled: true, ttl: 60_000, maxSize: 100 } });
     const environment = silo.scope("acme", "dev");
     const posts = environment.collection("posts");
     const query = { query: "hello", limit: 1, offset: 0 };
@@ -84,20 +107,48 @@ describe("Collection data caching", () => {
   });
 
   test("clears this client's cached data for its existing handles", async () => {
-    const silo = new Silo({ url, cache: { ttl: 60_000 } });
+    const silo = new Silo({ url, cache: { enabled: true, ttl: 60_000, maxSize: 100 } });
     const posts = silo.scope("acme", "dev").collection("posts");
     await posts.get("first");
     respond = () => Response.json({ id: "first", rev: 2, title: "Changed" });
-    silo.clearCache();
+    silo.cache().clear();
 
     expect((await posts.get("first")).title).toBe("Changed");
-    expect(() => new Silo({ url }).clearCache()).not.toThrow();
+    expect(() => new Silo({ url }).cache().clear()).not.toThrow();
+  });
+
+  test("reports cache hits, misses and evictions without resetting counts on clear", async () => {
+    const clock = spyOn(performance, "now").mockReturnValue(1_000);
+    try {
+      const silo = new Silo({ url, cache: { enabled: true, ttl: 1_000, maxSize: 1 } });
+      const posts = silo.scope("acme", "dev").collection("posts");
+      await silo.health();
+      expect(silo.cache().statistics().requests()).toBe(0);
+      expect(silo.cache().statistics().hitRate()).toBe(0);
+      await posts.get("first");
+      await posts.get("first");
+      await posts.get("second");
+
+      const snapshot = silo.cache().statistics();
+      expect(snapshot).toMatchObject({ hits: 1, misses: 2, evictions: 1, size: 1 });
+      expect(snapshot.requests()).toBe(3);
+      expect(snapshot.hitRate()).toBeCloseTo(1 / 3);
+      clock.mockReturnValue(2_001);
+      await posts.get("second");
+      expect(silo.cache().statistics()).toMatchObject({ hits: 1, misses: 3, evictions: 2, size: 1 });
+
+      silo.cache().clear();
+      expect(silo.cache().statistics()).toMatchObject({ hits: 1, misses: 3, evictions: 2, size: 0 });
+      expect(snapshot).toMatchObject({ hits: 1, misses: 2, evictions: 1, size: 1 });
+    } finally {
+      clock.mockRestore();
+    }
   });
 
   test("expires at the configured TTL even when eviction timers have not run", async () => {
     const clock = spyOn(performance, "now").mockReturnValue(1_000);
     try {
-      const posts = new Silo({ url, cache: { ttl: 60_000 } }).scope("acme", "dev").collection("posts");
+      const posts = new Silo({ url, cache: { enabled: true, ttl: 60_000, maxSize: 100 } }).scope("acme", "dev").collection("posts");
       await posts.get("first");
       respond = () => Response.json({ id: "first", rev: 2, title: "Changed" });
       clock.mockReturnValue(60_999);
@@ -109,22 +160,22 @@ describe("Collection data caching", () => {
     }
   });
 
-  test.each([undefined, 1])("applies max only when supplied: %s", async (max) => {
-    const posts = new Silo({ url, cache: { ttl: 60_000, ...(max === undefined ? {} : { max }) } })
+  test.each([Infinity, 1])("applies the configured maximum size: %s", async (maxSize) => {
+    const posts = new Silo({ url, cache: { enabled: true, ttl: 60_000, maxSize } })
       .scope("acme", "dev").collection("posts");
     await posts.get("first");
-    for (let index = 0; index < (max === undefined ? 1001 : 1); index += 1) {
+    for (let index = 0; index < (maxSize === Infinity ? 1001 : 1); index += 1) {
       await posts.get(`other-${index}`);
     }
     respond = () => Response.json({ id: "first", rev: 2, title: "Changed" });
 
-    expect((await posts.get("first")).title).toBe(max === undefined ? "Original" : "Changed");
+    expect((await posts.get("first")).title).toBe(maxSize === Infinity ? "Original" : "Changed");
   });
 
   test("keeps the client's headers fixed so URL-only cache keys remain valid", async () => {
     respond = (request) => Response.json({ id: "first", rev: 1, title: request.headers.get("X-Tenant") });
     const headers = { "X-Tenant": "initial" };
-    const silo = new Silo({ url, headers, cache: { ttl: 60_000 } });
+    const silo = new Silo({ url, headers, cache: { enabled: true, ttl: 60_000, maxSize: 100 } });
     const posts = silo.scope("acme", "dev").collection("posts");
     await posts.get("first");
     headers["X-Tenant"] = "changed";
@@ -135,7 +186,7 @@ describe("Collection data caching", () => {
   });
 
   test("separates entries by project, environment, collection, id and query parameters", async () => {
-    const silo = new Silo({ url, cache: { ttl: 60_000 } });
+    const silo = new Silo({ url, cache: { enabled: true, ttl: 60_000, maxSize: 100 } });
     const posts = silo.scope("acme", "dev").collection("posts");
     const reads = [
       { title: "Resolved", read: () => posts.get("first") },
@@ -154,7 +205,7 @@ describe("Collection data caching", () => {
   });
 
   test("gives new clients, withKey and withUrl independent caches", async () => {
-    const options = { url, key: "first-key", cache: { ttl: 60_000 } };
+    const options = { url, key: "first-key", cache: { enabled: true, ttl: 60_000, maxSize: 100 } };
     const silo = new Silo(options);
     const posts = silo.scope("acme", "dev").collection("posts");
     await posts.get("first");
@@ -162,26 +213,33 @@ describe("Collection data caching", () => {
 
     for (const other of [new Silo(options), silo.withKey("second-key"), silo.withUrl(url)]) {
       expect((await other.scope("acme", "dev").collection("posts").get("first")).title).toBe("Changed");
-      other.clearCache();
+      other.cache().clear();
     }
     expect((await posts.get("first")).title).toBe("Original");
   });
 
-  test.each([200, 204, 404, 503])("does not cache an empty or failed response with status %s", async (status) => {
-    const posts = new Silo({ url, cache: { ttl: 60_000 } }).scope("acme", "dev").collection("posts");
+  test("caches a successful null response", async () => {
+    const posts = new Silo({ url, cache: { enabled: true, ttl: 60_000, maxSize: 100 } }).scope("acme", "dev").collection("posts");
+    respond = () => Response.json(null);
+    expect(await posts.get("first")).toBeNull();
+    respond = () => Response.json({ id: "first", rev: 1, title: "Changed" });
+    expect(await posts.get("first")).toBeNull();
+  });
+
+  test.each([204, 404, 503])("does not cache an empty or failed response with status %s", async (status) => {
+    const posts = new Silo({ url, cache: { enabled: true, ttl: 60_000, maxSize: 100 } }).scope("acme", "dev").collection("posts");
     respond = () => status === 204 ? new Response(null, { status }) : Response.json(null, { status });
     if (status >= 400) await expect(posts.get("first")).rejects.toBeInstanceOf(Error);
-    else if (status === 204) expect(await posts.get("first")).toBeUndefined();
-    else expect(await posts.get("first")).toBeNull();
+    else expect(await posts.get("first")).toBeUndefined();
     respond = () => Response.json({ id: "first", rev: 1, title: "Recovered" });
 
     expect((await posts.get("first")).title).toBe("Recovered");
   });
 
-  test("keeps health, schema and writes fresh without invalidating cached entries", async () => {
+  test("keeps health, schema and writes fresh and invalidates entries after a successful write", async () => {
     let title = "Original";
     respond = () => Response.json({ id: "first", rev: 1, title, name: title, version: title, status: "ok" });
-    const silo = new Silo({ url, cache: { ttl: 60_000 } });
+    const silo = new Silo({ url, cache: { enabled: true, ttl: 60_000, maxSize: 100 } });
     const posts = silo.scope("acme", "dev").collection("posts");
     await silo.health();
     await posts.schema.get();
@@ -192,7 +250,17 @@ describe("Collection data caching", () => {
     expect((await silo.health()).version).toBe("Changed");
     expect((await posts.schema.get()).name).toBe("Changed");
     expect((await posts.create({ title: "New post" })).title).toBe("Changed");
+    expect((await posts.get("first")).title).toBe("Changed");
+  });
+
+  test("preserves cached entries when a write fails", async () => {
+    const silo = new Silo({ url, cache: { enabled: true, ttl: 60_000, maxSize: 100 } });
+    const posts = silo.scope("acme", "dev").collection("posts");
+    await posts.get("first");
+    respond = () => Response.json({ error: "conflict", message: "stale revision" }, { status: 409 });
+    await expect(posts.replace("first", 1, { title: "New" })).rejects.toBeInstanceOf(Error);
     expect((await posts.get("first")).title).toBe("Original");
+    expect(silo.cache().statistics()).toMatchObject({ hits: 1, misses: 1, evictions: 0, size: 1 });
   });
 
   test("preserves the base path and JSON query encoding for distinct cached filters", async () => {
@@ -203,7 +271,7 @@ describe("Collection data caching", () => {
         total: 1, limit: 10, offset: 0,
       });
     };
-    const posts = new Silo({ url: `${url}gateway/`, cache: { ttl: 60_000 } })
+    const posts = new Silo({ url: `${url}gateway/`, cache: { enabled: true, ttl: 60_000, maxSize: 100 } })
       .scope("acme", "dev").collection("posts");
     const firstQuery = { where: Filter.raw({ op: "eq", path: "$.data.title", value: "A + B & C / café" }), limit: 10 };
     const secondQuery = { where: Filter.raw({ op: "eq", path: "$.data.title", value: "Different" }), limit: 10 };
@@ -217,4 +285,49 @@ describe("Collection data caching", () => {
     expect((await posts.list(firstQuery)).entries).toEqual(first.entries);
     expect((await posts.list(secondQuery)).entries).toEqual(second.entries);
   });
+
+  test.each(["create", "replace", "delete", "rename", "delete schema"])(
+    "%s invalidates all collection entries and pages while preserving sibling collections",
+    async (operation) => {
+      const clock = spyOn(performance, "now").mockReturnValue(1_000);
+      try {
+        let title = "Original";
+        respond = (request) => {
+          if (request.method === "DELETE") return new Response(null, { status: 204 });
+          if (request.method === "PATCH") return Response.json({
+            id: "collection-id", from: "posts", to: "renamed", rewritten_claims: [], pattern_affected_claims: [],
+          });
+          const entry = { id: "first", rev: 1, title };
+          return Response.json(new URL(request.url).pathname.endsWith("/posts")
+            ? { data: [entry], total: 2, limit: 1, offset: 0 }
+            : entry);
+        };
+        const silo = new Silo({ url, cache: { enabled: true, ttl: 60_000, maxSize: 100 } });
+        const posts = silo.scope("acme", "dev").collection("posts");
+        const archive = silo.scope("acme", "dev").collection("posts-archive");
+        await posts.get("first");
+        await posts.get("first", { variables: "raw" });
+        await posts.list({ limit: 1, offset: 0 });
+        await posts.list({ limit: 1, offset: 1 });
+        await archive.get("first");
+
+        switch (operation) {
+          case "create": await posts.create({ title: "New" }); break;
+          case "replace": await posts.replace("first", 1, { title: "New" }); break;
+          case "delete": await posts.delete("first", 1); break;
+          case "rename": await posts.rename("renamed"); break;
+          case "delete schema": await posts.schema.delete(); break;
+        }
+        title = "Changed";
+        expect((await posts.get("first")).title).toBe("Changed");
+        expect((await posts.get("first", { variables: "raw" })).title).toBe("Changed");
+        expect((await posts.list({ limit: 1, offset: 0 })).entries[0]?.title).toBe("Changed");
+        expect((await posts.list({ limit: 1, offset: 1 })).entries[0]?.title).toBe("Changed");
+        expect((await archive.get("first")).title).toBe("Original");
+        expect(silo.cache().statistics().evictions).toBe(0);
+      } finally {
+        clock.mockRestore();
+      }
+    },
+  );
 });

@@ -2,6 +2,7 @@ import type { RequestOptions } from "../request-options.js";
 import type { DeleteOptions } from "../scope/delete-options.js";
 import type { ScopeReference } from "../scope/scope-reference.js";
 import { ApiPath } from "../transport/api-path.js";
+import { TransportRequest } from "../transport/transport-request.js";
 import type { CollectionDefinition } from "./collection-definition.js";
 import type { JsonSchema } from "./json-schema.js";
 
@@ -15,7 +16,7 @@ export class CollectionSchema {
   ) {}
 
   async get(options: RequestOptions = {}): Promise<CollectionDefinition> {
-    return this.scope.siloContext.transport.json<CollectionDefinition>({
+    return this.scope.transport.json<CollectionDefinition>({
       method: "GET",
       path: ApiPath.collectionSchema(this.scope.project, this.scope.environment, this.name),
       ...options,
@@ -23,7 +24,7 @@ export class CollectionSchema {
   }
 
   async put(schema: JsonSchema, options: RequestOptions = {}): Promise<CollectionDefinition> {
-    return this.scope.siloContext.transport.json<CollectionDefinition>({
+    return this.scope.transport.json<CollectionDefinition>({
       method: "PUT",
       path: ApiPath.collectionSchema(this.scope.project, this.scope.environment, this.name),
       body: schema,
@@ -32,12 +33,12 @@ export class CollectionSchema {
   }
 
   async delete(options: DeleteOptions = {}): Promise<void> {
-    await this.scope.siloContext.transport.empty({
-      method: "DELETE",
-      path: ApiPath.collectionSchema(this.scope.project, this.scope.environment, this.name),
-      query: { force: options.force || undefined },
-      signal: options.signal,
-      timeoutMilliseconds: options.timeoutMilliseconds,
-    });
+    await this.scope.transport.empty(
+      TransportRequest.of("DELETE", ApiPath.collectionSchema(this.scope.project, this.scope.environment, this.name))
+        .query("force", options.force || undefined)
+        .options(options)
+        .evicts(ApiPath.entries(this.scope.project, this.scope.environment, this.name))
+        .build(),
+    );
   }
 }

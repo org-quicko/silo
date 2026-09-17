@@ -19,25 +19,24 @@ can be cloned with one command.
 
 *Last updated: 2026-09-17 (Node client collection caching)*
 
-**The Node client caches collection data with core's decorator (2026-09-17).**
-This replaces the D71 transport cache. `SiloOptions.cache` accepts `{ ttl, max? }`;
-TTL is required and validated by `@isaacs/ttlcache`; `Infinity` disables expiry.
-An omitted `max` has no capacity default.
-Each client creates one `SiloContext` holding its transport and optional `TTLCache`.
-Project handles and `ScopeReference` share it through `siloContext`. Only `EntryReader`
-attaches the cache under core's `CACHE_MAP_KEY` Symbol for the decorator.
-`@Cache` from `@org-quicko/core/cache` wraps only the plain
-JSON fetches used for entries. Keys combine the `ApiPath` path and
-`QueryString.build()` query parameters within each client's independent cache.
-Errors and empty results are skipped,
-values are cloned, and pagination objects are rebuilt. Cache hits return stored
-data without checking the abort signal. Health, metadata and
-all searches stay uncached. `withKey()` and `withUrl()` create independent
-caches. `clearCache()` removes stored responses; writes do not invalidate them
-and pending reads may refill after a clear. See the
-[client README](packages/silo-client/README.md#optional-collection-caching).
-The client tool `tools/verifyCache.mjs` verifies the built package against a live
-collection by counting actual HTTP requests.
+**Node collection caching now follows the Java client (2026-09-17).**
+The baseline is `feature/java-client` at `3ad9c83`. Local `@Cache()` decorators
+mark `EntryReader.get()` and `list()`. The request builder reads their
+`method.cachePolicy` property through `.cache(this.get)` or `.cache(this.list)`.
+Each `Transport` owns a `ResponseCache`; handles carry only their existing
+transport. `SiloContext` and the `@org-quicko/core` dependency are removed.
+`SiloOptions.cache` accepts `{ enabled, ttl, maxSize }`, with TTL in milliseconds.
+Both settings must resolve from the decorator or client options; Silo supplies
+no TTL or capacity defaults. Omitted or disabled caching makes ordinary requests.
+Successful collection create, replace, delete, rename and schema deletion
+invalidate that collection's cached entry and page responses. Health, searches,
+schemas and other metadata remain uncached. `silo.cache().clear()` and
+`statistics()` expose cache management. Derived clients have independent caches.
+The implementation uses standard decorators, function properties and TTLCache,
+with no Node-only execution context. See the
+[client design](docs/design/api-client.md#1410-optional-read-caching-d71) for the
+Java differences and concurrency limits, and the
+[client README](packages/silo-client/README.md#optional-collection-caching) for usage.
 
 **A collection can now say more than "required" (2026-09-16).** The visual
 schema builder wrote `type`, `enum`, `$ref` and a required list and nothing

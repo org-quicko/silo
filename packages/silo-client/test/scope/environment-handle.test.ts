@@ -1,4 +1,3 @@
-import { SiloContext } from "../../src/SiloContext";
 import { describe, expect, test } from "bun:test";
 import { CollectionHandle } from "../../src/collections/collection-handle";
 import { EnvironmentHandle } from "../../src/scope/environment-handle";
@@ -12,7 +11,7 @@ interface Post {
 }
 
 const handleOf = (stubFetch: StubFetch): EnvironmentHandle => {
-  const scope = new ScopeReference(new SiloContext(new Transport({ url: "http://localhost:8090", fetch: stubFetch.fetch })), "acme", "prod");
+  const scope = new ScopeReference(new Transport({ url: "http://localhost:8090", fetch: stubFetch.fetch }), "acme", "prod");
   return new EnvironmentHandle(scope);
 };
 

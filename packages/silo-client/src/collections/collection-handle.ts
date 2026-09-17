@@ -15,6 +15,7 @@ import type { SearchPage } from "../search/search-page.js";
 import type { SearchQuery } from "../search/search-query.js";
 import { SearchReach } from "../search/search-reach.js";
 import { ApiPath } from "../transport/api-path.js";
+import { TransportRequest } from "../transport/transport-request.js";
 import { CollectionSchema } from "./collection-schema.js";
 
 /**
@@ -80,30 +81,32 @@ export class CollectionHandle<Fields = Record<string, unknown>> {
   }
 
   async delete(id: string, rev: number, options: RequestOptions = {}): Promise<void> {
-    await this.scope.siloContext.transport.empty({
-      method: "DELETE",
-      path: ApiPath.entry(this.scope.project, this.scope.environment, this.name, id),
-      query: { rev },
-      ...options,
-    });
+    await this.scope.transport.empty(
+      TransportRequest.of("DELETE", ApiPath.entry(this.scope.project, this.scope.environment, this.name, id))
+        .query("rev", rev)
+        .options(options)
+        .evicts(this.entries())
+        .build(),
+    );
   }
 
   search(query: SearchQuery, options: RequestOptions = {}): Promise<SearchPage> {
     return new Search(
-      this.scope.siloContext.transport,
+      this.scope.transport,
       SearchReach.collection(this.scope.project, this.scope.environment, this.name),
     ).run(query, options);
   }
 
   async rename(name: string, options: RenameOptions = {}): Promise<RenameReport> {
-    const payload = await this.scope.siloContext.transport.json<RenamePreviewPayload>({
-      method: "PATCH",
-      path: ApiPath.collection(this.scope.project, this.scope.environment, this.name),
-      query: { dry_run: options.dryRun || undefined, expected_id: options.expectedId },
-      body: { name },
-      signal: options.signal,
-      timeoutMilliseconds: options.timeoutMilliseconds,
-    });
+    const payload = await this.scope.transport.json<RenamePreviewPayload>(
+      TransportRequest.of("PATCH", ApiPath.collection(this.scope.project, this.scope.environment, this.name))
+        .query("dry_run", options.dryRun || undefined)
+        .query("expected_id", options.expectedId)
+        .body({ name })
+        .options(options)
+        .evicts(this.entries())
+        .build(),
+    );
     return RenameReport.fromWire(payload);
   }
 
@@ -116,12 +119,18 @@ export class CollectionHandle<Fields = Record<string, unknown>> {
     rev: number | undefined,
     options: RequestOptions,
   ): Promise<Entry<Fields>> {
-    return this.scope.siloContext.transport.json<Entry<Fields>>({
-      method,
-      path,
-      query: { rev, variables: "raw" },
-      body: fields,
-      ...options,
-    });
+    return this.scope.transport.json<Entry<Fields>>(
+      TransportRequest.of(method, path)
+        .query("rev", rev)
+        .query("variables", "raw")
+        .body(fields)
+        .options(options)
+        .evicts(this.entries())
+        .build(),
+    );
+  }
+
+  private entries(): string {
+    return ApiPath.entries(this.scope.project, this.scope.environment, this.name);
   }
 }

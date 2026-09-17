@@ -1,3 +1,5 @@
+import type { CacheOptions } from "../cache/CacheOptions.js";
+import { ResponseCache } from "../cache/ResponseCache.js";
 import { ErrorFactory } from "../errors/error-factory.js";
 import { NetworkError } from "../errors/network-error.js";
 import { RequestAbortedError } from "../errors/request-aborted-error.js";
@@ -15,6 +17,7 @@ export interface TransportOptions {
   headers?: Record<string, string>;
   timeoutMilliseconds?: number;
   fetch?: FetchFunction;
+  cache?: CacheOptions;
 }
 
 /**
@@ -26,6 +29,8 @@ export interface TransportOptions {
  * apart.
  */
 export class Transport {
+  readonly cache: ResponseCache;
+  private readonly cacheOptions: CacheOptions | undefined;
   private readonly url: string;
   private readonly key: string | undefined;
   private readonly headers: Record<string, string>;
@@ -38,9 +43,18 @@ export class Transport {
     this.headers = { ...options.headers };
     this.timeoutMilliseconds = options.timeoutMilliseconds;
     this.fetchFunction = Transport.resolveFetch(options.fetch);
+    this.cacheOptions = options.cache ? { ...options.cache } : undefined;
+    this.cache = new ResponseCache(this.cacheOptions);
   }
 
   async json<T>(request: TransportRequest): Promise<T> {
+    if (request.method === "GET" && request.cachePolicy && this.cache.isEnabled()) {
+      return this.cache.get(request.cachePolicy, request.method, request.path, request.query, () => this.fetchJson<T>(request));
+    }
+    return this.fetchJson<T>(request);
+  }
+
+  private async fetchJson<T>(request: TransportRequest): Promise<T> {
     const response = await this.execute(request);
     return (await ResponseDecoder.decode(response, request, true)) as T;
   }
@@ -81,6 +95,7 @@ export class Transport {
       headers: this.headers,
       timeoutMilliseconds: this.timeoutMilliseconds,
       fetch: this.fetchFunction,
+      cache: this.cacheOptions,
     };
   }
 
@@ -110,6 +125,7 @@ export class Transport {
     if (!response.ok) {
       throw ErrorFactory.fromResponseBody(response.status, request.method, request.path, await response.text());
     }
+    this.cache.invalidate(request.evicts);
     return response;
   }
 

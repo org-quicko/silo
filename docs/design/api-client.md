@@ -326,34 +326,57 @@ safe, but it touches around forty view files and is its own change.
 
 ### 14.10 Optional read caching (D71)
 
-Revised on 2026-09-17 to replace the transport cache with core's method decorator.
+Revised on 2026-09-17 to match `feature/java-client` at `3ad9c83`.
 
-`SiloOptions.cache` accepts `{ ttl, max? }`. Each client constructs a `SiloContext`
-holding its transport and optional `TTLCache<string, unknown>`. `ttl` is a required
-positive integer in milliseconds or `Infinity`, validated by `@isaacs/ttlcache`.
-`max` is optional and has no Silo
-default. `checkAgeOnGet: true` checks expiration even if a timer was delayed.
-`withKey()` and `withUrl()` create independent caches with the same settings.
+`SiloOptions.cache` accepts `{ enabled, ttl, maxSize }`. Omitted or disabled
+options make normal requests. Both TTL and capacity must resolve from the method
+or instance configuration before a cacheable read. There are no implicit TTL or
+capacity defaults. Annotation values override instance values. TTL is in
+milliseconds in TypeScript, seconds in Java's annotation. TTLCache validates the
+numeric values. Finite TTLs are recommended: TTLCache 2.1.5 cannot enforce a finite
+capacity safely for immortal entries. Silo adds no separate numeric validator.
 
-`@Cache` from `@org-quicko/core/cache` decorates the payload fetch methods in
-`EntryReader`. Search methods do not participate in caching.
-`Silo` passes `siloContext` through `ProjectHandle` and `ScopeReference` to readers.
-Only `EntryReader` attaches the cache under core's `CACHE_MAP_KEY` Symbol.
-`Transport` handles only HTTP requests. Decorator keys concatenate the path
-already built by `ApiPath` with
-`QueryString.build(request.query)`. The transport uses the same path and query,
-prefixed by its base URL. Headers are copied at construction; path-and-query
-keys rely on fixed authentication and routing within a client's independent cache.
+The local `@Cache()` decorator marks `EntryReader.get()` and `list()`. It only
+assigns a `CachePolicy` to the method's `cachePolicy` property. `TransportRequest`
+provides a builder whose `.cache(this.get)` or `.cache(this.list)` reads that
+property; no method wrapper or global cache registry is needed. Java's `.cache()`
+uses StackWalker, which cannot be ported to browser JavaScript. The explicit
+function reference is the TypeScript adaptation. It carries no cache instance or
+configuration through collection method arguments. A missing decorator is an
+error, preventing accidental opt-in by an unmarked method.
 
-The decorator stores fulfilled decoded JSON, skipping `null` and `undefined`.
-The transport throws on non-2xx responses. Core clones values on insertion and
-retrieval; page objects with navigation callbacks are constructed afterward.
-Cache hits return stored data without checking the abort signal; network requests
-use the transport's cancellation handling.
-Health, schemas, metadata, all searches and writes remain uncached.
+`Transport` owns `ResponseCache`, with one TTLCache per resolved TTL/capacity pair.
+A stable string identifies equal policy values because JavaScript Map keys compare
+objects by identity, unlike Java record keys. All scopes share the transport that
+already handles their requests. `SiloContext`, reader Symbol properties and the
+core decorator dependency are removed. `withKey()` and `withUrl()` create
+independent caches. The builder remains structurally compatible with existing
+plain request objects so unrelated endpoints need no conversion.
 
-`clearCache()` removes stored responses. Writes do not invalidate them, and
-pending reads can refill the cache after a clear. Concurrent misses are
-independent, without coalescing or ordering guarantees. There are no per-request
-cache modes or shared application registry. See the
+Only GET requests carrying a policy are cached. Keys use method, API path and
+sorted top-level query names, with the existing QueryString encoding for values.
+Nested filter JSON is not reordered. The base URL and copied headers are fixed
+within a transport; custom fetch implementations must keep authentication and
+routing stable. Health, schemas, metadata, searches and writes remain uncached.
+`all()` and `pages()` pass through `list()` and share its cached payloads.
+
+The cache stores successfully decoded responses, including null, and skips
+undefined and rejected loads. TypeScript clones JSON on insertion and retrieval;
+Java maps cached JSON into new entry values instead. Pagination objects are built
+after lookup. TTLCache owns expiry and capacity removal, with expiry purged before
+lookup so stale entries count as evictions. Its capacity eviction order differs
+from Caffeine's policy. `silo.cache().statistics()` returns hits, misses, evictions,
+size, requests() and hitRate(); clear and explicit invalidation preserve counters.
+
+Collection create, replace, delete, rename and schema deletion declare
+`.evicts(collectionPath)`. Transport applies it after HTTP success, before body
+decoding, matching Java. Invalidation removes every cached entry/page at that path
+across policy buckets and distinguishes sibling names such as posts-archive.
+Other writes, including variable and scope changes, do not invalidate collection
+reads automatically. `silo.cache().clear()` is the explicit escape hatch.
+
+Concurrent misses remain independent. Pending reads may repopulate after
+invalidation or clear, as in the Java baseline. Cache hits do not check abort
+signals; network requests use the existing transport cancellation handling.
+There are no bypass/refresh modes or in-flight request coalescing. See the
 [usage documentation](../../packages/silo-client/README.md#optional-collection-caching).

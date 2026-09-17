@@ -4,6 +4,19 @@
 > The *current* state is [CONTEXT.md](../../CONTEXT.md); this is how it got
 > there.
 
+- **Node caching follows the Java client (2026-09-17).** Local metadata-only
+  `@Cache()` decorators mark individual entry reads. `.cache(this.get)` reads
+  `method.cachePolicy` directly, using a string property instead of a Symbol.
+  Transport owns the TTL caches; `SiloContext` and `@org-quicko/core` are removed.
+  Options are `{ enabled, ttl, maxSize }` with no TTL/capacity defaults, and
+  `silo.cache().clear()` replaces `clearCache()`. Cache statistics and collection
+  write invalidation match Java's behavior. The explicit method reference replaces
+  StackWalker so the same implementation runs in browsers and Node.
+
+- **Node caching no longer uses result filtering (2026-09-17).** Core's `@Cache`
+  accepts only a key; the `unless` option is removed. Successful `null` responses
+  are cached. Rejected requests and `undefined` remain uncached.
+
 - **Node collection caching uses core's decorator (2026-09-17).** Replaces the
   D71 transport cache with `@Cache` and a per-client Symbol-attached TTL cache.
   Only collection entry GETs are cached, with the API path and query as the key.

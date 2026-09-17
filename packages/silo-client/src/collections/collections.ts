@@ -20,7 +20,7 @@ export class Collections {
   constructor(private readonly scope: ScopeReference) {}
 
   async list(options: RequestOptions = {}): Promise<CollectionSummary[]> {
-    const body = await this.scope.siloContext.transport.json<{ items: CollectionSummaryPayload[] }>({
+    const body = await this.scope.transport.json<{ items: CollectionSummaryPayload[] }>({
       method: "GET",
       path: ApiPath.collections(this.scope.project, this.scope.environment),
       ...options,
@@ -32,7 +32,7 @@ export class Collections {
    * `updated_at` is refused by the server with a `ValidationFailedError`
    * naming it, so there is nothing to warn about here (D62). */
   async create(name: string, schema: JsonSchema, options: RequestOptions = {}): Promise<CollectionDefinition> {
-    return this.scope.siloContext.transport.json<CollectionDefinition>({
+    return this.scope.transport.json<CollectionDefinition>({
       method: "POST",
       path: ApiPath.collections(this.scope.project, this.scope.environment),
       body: { name, schema },

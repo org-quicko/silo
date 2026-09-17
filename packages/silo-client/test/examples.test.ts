@@ -1,4 +1,3 @@
-import { SiloContext } from "../src/SiloContext";
 import { describe, expect, test } from "bun:test";
 import { Filter } from "../src/query/filter";
 import { Sort } from "../src/query/sort";
@@ -32,7 +31,7 @@ describe("Projects and environments", () => {
     );
     stubFetch.enqueue(StubResponse.empty());
 
-    const moviespace = new ProjectHandle(new SiloContext(new Transport({ url: "http://localhost:8090", fetch: stubFetch.fetch })), "moviespace");
+    const moviespace = new ProjectHandle(new Transport({ url: "http://localhost:8090", fetch: stubFetch.fetch }), "moviespace");
 
     const preview = await moviespace.rename("movie-space", { dryRun: true });
     preview.id;
@@ -58,7 +57,7 @@ describe("Collections and schemas", () => {
     stubFetch.enqueue(StubResponse.json({ id: "01J8", name: "movies", schema }));
 
     const transport = new Transport({ url: "http://localhost:8090", fetch: stubFetch.fetch });
-    const environment = new ProjectHandle(new SiloContext(transport), "moviespace").environment("prod");
+    const environment = new ProjectHandle(transport, "moviespace").environment("prod");
 
     await environment.collections.create("movies", schema);
     const movies = environment.collection<Movie>("movies");
@@ -72,7 +71,7 @@ describe("Collections and schemas", () => {
 describe("Entries: reading, editing, writing, listing", () => {
   const environmentOf = (stubFetch: StubFetch): EnvironmentHandle => {
     const transport = new Transport({ url: "http://localhost:8090", fetch: stubFetch.fetch });
-    return new ProjectHandle(new SiloContext(transport), "moviespace").environment("prod");
+    return new ProjectHandle(transport, "moviespace").environment("prod");
   };
 
   test("a read answers a flat row, and writes take its id and rev", async () => {
@@ -269,7 +268,7 @@ describe("Variables", () => {
     stubFetch.enqueue(StubResponse.json(declaration({ value: null, set_in: 0 })));
 
     const transport = new Transport({ url: "http://localhost:8090", fetch: stubFetch.fetch });
-    const moviespace = new ProjectHandle(new SiloContext(transport), "moviespace");
+    const moviespace = new ProjectHandle(transport, "moviespace");
 
     await moviespace.variables.declare("CDN_URL", { description: "Public asset root", environment: "prod", value: "https://cdn.moviespace.com" });
     await moviespace.variables.rename("CDN_URL", "PUBLIC_CDN_URL");
@@ -292,7 +291,7 @@ describe("Search", () => {
     stubFetch.enqueue(StubResponse.json({ data: [], total: 0, limit: 50, offset: 0, truncated: false, engine: "scan" }));
 
     const transport = new Transport({ url: "http://localhost:8090", fetch: stubFetch.fetch });
-    const environment = new ProjectHandle(new SiloContext(transport), "moviespace").environment("prod");
+    const environment = new ProjectHandle(transport, "moviespace").environment("prod");
     const movies = environment.collection<Movie>("movies");
 
     await movies.search({ query: "arrival" });

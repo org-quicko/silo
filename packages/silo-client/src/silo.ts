@@ -1,4 +1,4 @@
-import { TTLCache } from "@isaacs/ttlcache";
+import type { ResponseCache } from "./cache/ResponseCache.js";
 import type { HealthReport } from "./instance/health-report.js";
 import { Media } from "./media/media.js";
 import type { RequestOptions } from "./request-options.js";
@@ -10,7 +10,6 @@ import type { SearchPage } from "./search/search-page.js";
 import type { SearchQuery } from "./search/search-query.js";
 import { SearchReach } from "./search/search-reach.js";
 import type { SiloOptions } from "./silo-options.js";
-import { SiloContext } from "./SiloContext.js";
 import { ApiPath } from "./transport/api-path.js";
 import { Transport } from "./transport/transport.js";
 
@@ -29,7 +28,7 @@ export class Silo {
   readonly media: Media;
 
   private readonly options: SiloOptions;
-  private readonly siloContext: SiloContext;
+  private readonly transport: Transport;
 
   constructor(options: SiloOptions) {
     this.options = {
@@ -37,25 +36,14 @@ export class Silo {
       headers: options.headers ? { ...options.headers } : undefined,
       cache: options.cache ? { ...options.cache } : undefined,
     };
-    this.siloContext = new SiloContext(
-      new Transport({
-        url: options.url,
-        key: options.key,
-        headers: options.headers,
-        timeoutMilliseconds: options.timeoutMilliseconds,
-        fetch: options.fetch,
-      }),
-      options.cache
-        ? new TTLCache<string, unknown>({ ...options.cache, checkAgeOnGet: true })
-        : undefined,
-    );
-    this.projects = new Projects(this.siloContext.transport);
-    this.media = new Media(this.siloContext.transport);
+    this.transport = new Transport(this.options);
+    this.projects = new Projects(this.transport);
+    this.media = new Media(this.transport);
   }
 
   /** One project, by the name every path addresses it with. */
   project(name: string): ProjectHandle {
-    return new ProjectHandle(this.siloContext, name);
+    return new ProjectHandle(this.transport, name);
   }
 
   /** `silo.project(p).environment(e)` in one call. Still takes both names. */
@@ -69,12 +57,12 @@ export class Silo {
    * the receiver and never an argument that could be forgotten.
    */
   search(query: SearchQuery, options?: RequestOptions): Promise<SearchPage> {
-    return new Search(this.siloContext.transport, SearchReach.instance()).run(query, options);
+    return new Search(this.transport, SearchReach.instance()).run(query, options);
   }
 
   /** Liveness and version. The one route that is never authenticated. */
   health(options?: RequestOptions): Promise<HealthReport> {
-    return this.siloContext.transport.json<HealthReport>({
+    return this.transport.json<HealthReport>({
       method: "GET",
       path: ApiPath.health(),
       signal: options?.signal,
@@ -92,8 +80,8 @@ export class Silo {
     return new Silo({ ...this.options, url });
   }
 
-  /** Removes stored responses. Pending reads may populate the cache after this call. */
-  clearCache(): void {
-    this.siloContext.cache?.clear();
+  /** The cache owned by this client's transport. */
+  cache(): ResponseCache {
+    return this.transport.cache;
   }
 }

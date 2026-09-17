@@ -36,47 +36,58 @@ builds the path, so nothing needs an `await` until the read.
 const silo = new Silo({
   url: "http://localhost:8090",
   key: process.env.SILO_KEY,
-  cache: { ttl: 10 * 60 * 1000 },
+  cache: { enabled: true, ttl: 10 * 60 * 1000, maxSize: 1_000 },
 })
 
-// After changing data, explicitly discard this client's cached responses.
-silo.clearCache()
+const statistics = silo.cache().statistics()
+console.log(statistics.hits, statistics.misses, statistics.evictions, statistics.size)
+console.log(statistics.requests(), statistics.hitRate())
+
+// Discard this client's cached responses after changes made by another client.
+silo.cache().clear()
 ```
 
-Omit `cache` to disable caching. `ttl` is required and validated by `@isaacs/ttlcache`:
-a positive integer in milliseconds or `Infinity` for no expiry. The lifetime is
-measured from insertion; hits do not extend it. Set `max`
-inside `cache` to limit the number of stored responses; omitting `max` leaves
-the count unlimited. Expiry is checked on retrieval as well as by a timer.
+Omit `cache` or set `{ enabled: false }` to disable caching. When enabled, `ttl`
+and `maxSize` must be supplied unless a method's decorator supplies them.
+The built-in entry reads use `@Cache()` without overrides, so both settings are
+required in the client options. Silo supplies no TTL or capacity defaults.
+`ttl` is in milliseconds, measured from insertion; hits do not extend it.
+`maxSize` limits responses per resolved policy. Equal TTL and capacity settings
+share a cache within that client. Numeric validation belongs to `@isaacs/ttlcache`.
+Use a finite positive TTL: upstream TTLCache 2.1.5 cannot safely enforce a finite
+capacity with `ttl: Infinity`. `maxSize: Infinity` is supported with a finite TTL.
 
-Only collection entry reads are cached. `list()`,
-`all()` and `pages()` reuse cached page data and create fresh pagination objects.
-Health, schemas, other metadata, all searches and writes remain uncached.
-Keys use the path built by `ApiPath` followed by `QueryString.build()` for
-query parameters. The base URL is fixed within each client's separate cache.
-Different filters, sort orders, page windows and raw/resolved reads have
-different keys. Each client owns its cache; `withKey()` and `withUrl()` create
-independent caches. Constructor headers are copied. A custom `fetch` must keep
-its routing and authentication context stable for the lifetime of that client.
+Only collection entry reads are cached. `get()` and `list()` declare `@Cache()`;
+`all()` and `pages()` reuse `list()`. The cache holds decoded JSON and creates
+fresh pagination objects with working navigation methods. Health, schemas, other
+metadata, searches and writes remain uncached. Successful `null` responses are
+cached; errors and `undefined` are not. Stored data and cache hits are cloned so
+callers can modify returned entries independently.
 
-The `@Cache` decorator from `@org-quicko/core/cache` stores decoded successful
-JSON responses. Errors, `null` and `undefined` are not cached. Stored data and
-cache hits are cloned so callers can modify returned entries independently.
-Cache hits return stored data without checking the abort signal. Concurrent
-misses make independent requests.
+Keys combine the HTTP method, the path built by `ApiPath`, and sorted top-level
+query parameters encoded by `QueryString`. Different filters, sort orders, page
+windows and raw/resolved reads have different keys. Each client owns its cache;
+`withKey()` and `withUrl()` create independent caches. Constructor headers are
+copied. A custom `fetch` must keep its routing and authentication stable for that
+client's lifetime.
 
-Writes do not invalidate cached reads. Changes become visible after TTL expiry
-or `clearCache()`. Clearing removes current entries; a pending successful read
-can populate the cache afterward. This is an in-memory cache local to one
-process, worker or tab.
+Successful collection `create()`, `replace()`, `delete()`, `rename()` and
+`schema.delete()` invalidate the affected collection's entries and pages. Failed
+writes preserve cached data. Other writes, including variable, project and
+environment changes, do not trigger automatic invalidation. Use `clear()` after
+those changes when a fresh collection read is needed. Clearing and invalidation
+do not reset statistics; `evictions` counts expiry and capacity removal only.
 
-To verify caching against a running Silo instance, build this package and run
-`node tools/verifyCache.mjs` from the package directory. The script uses real GET
-requests and asserts the HTTP request count for hits, expiry, clearing and client
-isolation. It defaults to the production GST state-code collection; override
-`SILO_BASE_URL`, `SILO_PROJECT`, `SILO_ENVIRONMENT` and
-`SILO_GST_STATE_CODE_COLLECTION` as needed. The script reads public collections
-without an API key.
+Concurrent misses make independent requests. A pending read can refill the cache
+after a write or clear, matching the Java client's behavior. Cache hits return
+stored data without checking the abort signal. This is an in-memory cache local
+to one process, worker or browser tab.
+
+The internal decorator only assigns `method.cachePolicy`. Calls use
+`.cache(this.get)` or `.cache(this.list)` on the request builder, which reads that
+metadata. This explicit method reference works in both browsers and Node without
+caller inspection or an async execution context. Consumers use the built package
+and do not need decorator or reflection configuration.
 
 ## Entries
 
