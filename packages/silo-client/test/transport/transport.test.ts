@@ -4,7 +4,7 @@ import { NotFoundError } from "../../src/errors/not-found-error";
 import { RequestAbortedError } from "../../src/errors/request-aborted-error";
 import { TimeoutError } from "../../src/errors/timeout-error";
 import type { FetchFunction } from "../../src/transport/fetch-function";
-import { FetchTransport as Transport } from "../../src/transport/fetch-transport";
+import { Transport } from "../../src/transport/transport";
 import { StubFetch } from "../support/stub-fetch";
 import { StubResponse } from "../support/stub-response";
 
