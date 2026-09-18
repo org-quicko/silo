@@ -87,4 +87,6 @@ jobs:
         with:
           context: .
           push: true
-          tags: ghcr.io/org-quicko/silo:${{ needs.version.outputs.version }}
+          tags: |
+            ghcr.io/org-quicko/silo:${{ needs.version.outputs.version }}
+            ghcr.io/org-quicko/silo:latest
