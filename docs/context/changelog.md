@@ -4,6 +4,13 @@
 > The *current* state is [CONTEXT.md](../../CONTEXT.md); this is how it got
 > there.
 
+- **Node client option handling is simpler (2026-09-18).** Silo, Transport and
+  ResponseCache use the supplied options directly. Removed defensive copies and
+  the test for mutation protection; callers treat configuration as immutable.
+  Transport reads options without duplicate fields or a snapshot helper. The
+  request builder now lives inside `transport-request.ts`, corresponding to
+  Java's nested `TransportRequest.Builder`; the separate builder file is removed.
+
 - **Node caching follows the Java client (2026-09-17).** Local metadata-only
   `@Cache()` decorators mark individual entry reads. `.cache(this.get)` reads
   `method.cachePolicy` directly, using a string property instead of a Symbol.

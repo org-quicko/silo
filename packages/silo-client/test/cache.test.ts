@@ -172,19 +172,6 @@ describe("Collection data caching", () => {
     expect((await posts.get("first")).title).toBe(maxSize === Infinity ? "Original" : "Changed");
   });
 
-  test("keeps the client's headers fixed so URL-only cache keys remain valid", async () => {
-    respond = (request) => Response.json({ id: "first", rev: 1, title: request.headers.get("X-Tenant") });
-    const headers = { "X-Tenant": "initial" };
-    const silo = new Silo({ url, headers, cache: { enabled: true, ttl: 60_000, maxSize: 100 } });
-    const posts = silo.scope("acme", "dev").collection("posts");
-    await posts.get("first");
-    headers["X-Tenant"] = "changed";
-
-    expect((await posts.get("second")).title).toBe("initial");
-    expect((await silo.withKey("another-key").scope("acme", "dev").collection("posts").get("first")).title)
-      .toBe("initial");
-  });
-
   test("separates entries by project, environment, collection, id and query parameters", async () => {
     const silo = new Silo({ url, cache: { enabled: true, ttl: 60_000, maxSize: 100 } });
     const posts = silo.scope("acme", "dev").collection("posts");

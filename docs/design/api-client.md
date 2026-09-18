@@ -339,7 +339,9 @@ capacity safely for immortal entries. Silo adds no separate numeric validator.
 The local `@Cache()` decorator marks `EntryReader.get()` and `list()`. It only
 assigns a `CachePolicy` to the method's `cachePolicy` property. `TransportRequest`
 provides a builder whose `.cache(this.get)` or `.cache(this.list)` reads that
-property; no method wrapper or global cache registry is needed. Java's `.cache()`
+property. The builder is a module-private class in `transport-request.ts`,
+corresponding to Java's nested `TransportRequest.Builder`, with no separate
+builder file. No method wrapper or global cache registry is needed. Java's `.cache()`
 uses StackWalker, which cannot be ported to browser JavaScript. The explicit
 function reference is the TypeScript adaptation. It carries no cache instance or
 configuration through collection method arguments. A missing decorator is an
@@ -355,9 +357,12 @@ plain request objects so unrelated endpoints need no conversion.
 
 Only GET requests carrying a policy are cached. Keys use method, API path and
 sorted top-level query names, with the existing QueryString encoding for values.
-Nested filter JSON is not reordered. The base URL and copied headers are fixed
-within a transport; custom fetch implementations must keep authentication and
-routing stable. Health, schemas, metadata, searches and writes remain uncached.
+Nested filter JSON is not reordered. Constructor options are used directly and
+are expected to remain unchanged for the client's lifetime. Transport reads its
+settings from the options object rather than duplicating fields and reconstructing
+a snapshot for derived clients. Custom fetch
+implementations must keep authentication and routing stable.
+Health, schemas, metadata, searches and writes remain uncached.
 `all()` and `pages()` pass through `list()` and share its cached payloads.
 
 The cache stores successfully decoded responses, including null, and skips

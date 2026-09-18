@@ -1,5 +1,5 @@
-import type { CachePolicy } from "../cache/CachePolicy.js";
-import { TransportRequestBuilder } from "./TransportRequestBuilder.js";
+import { CachePolicy } from "../cache/CachePolicy.js";
+import type { RequestOptions } from "../request-options.js";
 
 /** One query parameter's value. An object (the `filter` AST) is JSON-encoded
  *  by {@link QueryString}; everything else is stringified. */
@@ -25,11 +25,51 @@ export class TransportRequest {
   cachePolicy?: CachePolicy;
   evicts?: string;
 
-  static get(path: string): TransportRequestBuilder {
+  static get(path: string): Builder {
     return TransportRequest.of("GET", path);
   }
 
-  static of(method: string, path: string): TransportRequestBuilder {
-    return new TransportRequestBuilder(method, path);
+  static of(method: string, path: string): Builder {
+    return new Builder(method, path);
+  }
+}
+
+/** The request's internal builder, corresponding to Java's TransportRequest.Builder. */
+class Builder {
+  private readonly request: TransportRequest;
+
+  constructor(method: string, path: string) {
+    this.request = { method, path };
+  }
+
+  query(name: string, value: TransportQueryValue): this {
+    this.request.query = { ...this.request.query, [name]: value };
+    return this;
+  }
+
+  body(value: unknown): this {
+    this.request.body = value;
+    return this;
+  }
+
+  options(options: RequestOptions): this {
+    this.request.signal = options.signal;
+    this.request.timeoutMilliseconds = options.timeoutMilliseconds;
+    return this;
+  }
+
+  /** Reads the decorated method explicitly; browsers have no Java-style caller discovery. */
+  cache(method: object & { cachePolicy?: CachePolicy }): this {
+    this.request.cachePolicy = CachePolicy.declaredOn(method);
+    return this;
+  }
+
+  evicts(pathPrefix: string): this {
+    this.request.evicts = pathPrefix;
+    return this;
+  }
+
+  build(): TransportRequest {
+    return { ...this.request };
   }
 }

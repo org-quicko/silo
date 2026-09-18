@@ -67,9 +67,9 @@ callers can modify returned entries independently.
 Keys combine the HTTP method, the path built by `ApiPath`, and sorted top-level
 query parameters encoded by `QueryString`. Different filters, sort orders, page
 windows and raw/resolved reads have different keys. Each client owns its cache;
-`withKey()` and `withUrl()` create independent caches. Constructor headers are
-copied. A custom `fetch` must keep its routing and authentication stable for that
-client's lifetime.
+`withKey()` and `withUrl()` create independent caches. Constructor options are
+used directly; treat them as immutable for the client's lifetime. A custom
+`fetch` must keep its routing and authentication stable for that client.
 
 Successful collection `create()`, `replace()`, `delete()`, `rename()` and
 `schema.delete()` invalidate the affected collection's entries and pages. Failed

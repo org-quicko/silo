@@ -31,12 +31,8 @@ export class Silo {
   private readonly transport: Transport;
 
   constructor(options: SiloOptions) {
-    this.options = {
-      ...options,
-      headers: options.headers ? { ...options.headers } : undefined,
-      cache: options.cache ? { ...options.cache } : undefined,
-    };
-    this.transport = new Transport(this.options);
+    this.options = options;
+    this.transport = new Transport(options);
     this.projects = new Projects(this.transport);
     this.media = new Media(this.transport);
   }

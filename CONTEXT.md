@@ -17,7 +17,7 @@ can be cloned with one command.
 
 ## Where things stand
 
-*Last updated: 2026-09-17 (Node client collection caching)*
+*Last updated: 2026-09-18 (Node client option handling)*
 
 **Node collection caching now follows the Java client (2026-09-17).**
 The baseline is `feature/java-client` at `3ad9c83`. Local `@Cache()` decorators
@@ -28,6 +28,11 @@ transport. `SiloContext` and the `@org-quicko/core` dependency are removed.
 `SiloOptions.cache` accepts `{ enabled, ttl, maxSize }`, with TTL in milliseconds.
 Both settings must resolve from the decorator or client options; Silo supplies
 no TTL or capacity defaults. Omitted or disabled caching makes ordinary requests.
+Constructor options are used directly, without defensive copies; callers treat
+them as immutable for the client's lifetime.
+Transport reads its settings from those options without duplicate fields or a
+snapshot helper. The request builder is internal to `transport-request.ts`,
+corresponding to Java's nested `TransportRequest.Builder`.
 Successful collection create, replace, delete, rename and schema deletion
 invalidate that collection's cached entry and page responses. Health, searches,
 schemas and other metadata remain uncached. `silo.cache().clear()` and

@@ -30,21 +30,13 @@ export interface TransportOptions {
  */
 export class Transport {
   readonly cache: ResponseCache;
-  private readonly cacheOptions: CacheOptions | undefined;
   private readonly url: string;
-  private readonly key: string | undefined;
-  private readonly headers: Record<string, string>;
-  private readonly timeoutMilliseconds: number | undefined;
   private readonly fetchFunction: FetchFunction;
 
-  constructor(options: TransportOptions) {
+  constructor(private readonly options: TransportOptions) {
     this.url = Transport.normalizeUrl(options.url);
-    this.key = options.key;
-    this.headers = { ...options.headers };
-    this.timeoutMilliseconds = options.timeoutMilliseconds;
     this.fetchFunction = Transport.resolveFetch(options.fetch);
-    this.cacheOptions = options.cache ? { ...options.cache } : undefined;
-    this.cache = new ResponseCache(this.cacheOptions);
+    this.cache = new ResponseCache(options.cache);
   }
 
   async json<T>(request: TransportRequest): Promise<T> {
@@ -79,28 +71,17 @@ export class Transport {
 
   /** A new `Transport` reading a different key, sharing everything else. */
   withKey(key: string | undefined): Transport {
-    return new Transport({ ...this.snapshot(), key });
+    return new Transport({ ...this.options, key });
   }
 
   /** A new `Transport` reading a different base URL, sharing everything
    * else. */
   withUrl(url: string): Transport {
-    return new Transport({ ...this.snapshot(), url });
-  }
-
-  private snapshot(): TransportOptions {
-    return {
-      url: this.url,
-      key: this.key,
-      headers: this.headers,
-      timeoutMilliseconds: this.timeoutMilliseconds,
-      fetch: this.fetchFunction,
-      cache: this.cacheOptions,
-    };
+    return new Transport({ ...this.options, url });
   }
 
   private async execute(request: TransportRequest, form?: FormData): Promise<Response> {
-    const abortSignals = new AbortSignals(request.signal, request.timeoutMilliseconds ?? this.timeoutMilliseconds);
+    const abortSignals = new AbortSignals(request.signal, request.timeoutMilliseconds ?? this.options.timeoutMilliseconds);
     const url = `${this.url}${request.path}${QueryString.build(request.query)}`;
 
     // Read into a local so the call carries no receiver. `this.fetchFunction(...)`
@@ -134,7 +115,7 @@ export class Transport {
   private transportFailure(request: TransportRequest, abortSignals: AbortSignals, caught: unknown): Error {
     const firedBy = abortSignals.firedBy();
     if (firedBy === "timeout") {
-      return new TimeoutError(request.method, request.path, request.timeoutMilliseconds ?? this.timeoutMilliseconds ?? 0);
+      return new TimeoutError(request.method, request.path, request.timeoutMilliseconds ?? this.options.timeoutMilliseconds ?? 0);
     }
     if (firedBy === "caller") {
       return new RequestAbortedError(request.method, request.path);
@@ -143,8 +124,8 @@ export class Transport {
   }
 
   private buildHeaders(request: TransportRequest, isUpload: boolean): Record<string, string> {
-    const headers: Record<string, string> = { ...this.headers, ...request.headers };
-    if (this.key) headers["Authorization"] = `Bearer ${this.key}`;
+    const headers: Record<string, string> = { ...this.options.headers, ...request.headers };
+    if (this.options.key) headers["Authorization"] = `Bearer ${this.options.key}`;
     if (!isUpload && request.body !== undefined && !("Content-Type" in headers)) {
       headers["Content-Type"] = "application/json";
     }

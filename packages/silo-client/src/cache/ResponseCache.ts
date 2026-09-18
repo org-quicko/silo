@@ -14,7 +14,7 @@ export class ResponseCache {
   private evictions = 0;
 
   constructor(options?: CacheOptions) {
-    this.options = options ? { ...options } : { enabled: false };
+    this.options = options ?? { enabled: false };
   }
 
   isEnabled(): boolean {
