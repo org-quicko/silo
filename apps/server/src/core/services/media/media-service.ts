@@ -2,6 +2,8 @@ import type { Entry } from "../../domain/entry";
 import type { MediaAssetView } from "../../media/media-asset-view";
 import type { MediaLinks } from "../../media/media-links";
 import type { MediaBytes } from "../../media/media-bytes";
+import type { MediaStream } from "../../media/media-stream";
+import type { ByteRangeRequest } from "../../media/byte-range";
 import type { MediaQuery } from "../../media/media-query";
 import type { MediaReconcileResult } from "../../media/media-reconcile-result";
 import type { MediaUsage } from "../../media/media-usage";
@@ -97,13 +99,10 @@ export class MediaService {
     return this.assets.usages(id, page, visibility);
   }
 
-  save(
-    originalName: string,
-    fileData: Uint8Array,
-    mimeType?: string,
-    folder?: string
-  ): Promise<MediaAssetView> {
-    return this.assets.save(originalName, fileData, mimeType, folder);
+  /** Stores a new asset. Its content type is read off the filename's
+   *  extension, never off what an upload declared (D83). */
+  save(originalName: string, fileData: Uint8Array, folder?: string): Promise<MediaAssetView> {
+    return this.assets.save(originalName, fileData, folder);
   }
 
   update(id: string, patch: MediaAssetPatchInput): Promise<MediaAssetView> {
@@ -113,17 +112,17 @@ export class MediaService {
   /** Swaps an asset's bytes, keeping its id and every reference to it (D67).
    *  The blob key and the extension stay put — see
    *  `MediaAssetService.replaceContent`. */
-  replaceContent(
-    id: string,
-    originalName: string,
-    fileData: Uint8Array,
-    mimeType?: string
-  ): Promise<MediaAssetView> {
-    return this.assets.replaceContent(id, originalName, fileData, mimeType);
+  replaceContent(id: string, originalName: string, fileData: Uint8Array): Promise<MediaAssetView> {
+    return this.assets.replaceContent(id, originalName, fileData);
   }
 
   bytes(idOrKey: string): Promise<MediaBytes | null> {
     return this.delivery.bytes(idOrKey);
+  }
+
+  /** The asset as a body to send, whole or a range of it, never held whole (D80). */
+  open(idOrKey: string, range: ByteRangeRequest | null): Promise<MediaStream | null> {
+    return this.delivery.open(idOrKey, range);
   }
 
   /** `force` skips the usage check and deletes over a live reference (D48). */

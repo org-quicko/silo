@@ -116,12 +116,14 @@ describe("audit trail (D38)", () => {
       expect(replaced[0].detail.reason).toBe("replaced by a newly granted key");
 
       // And a refused grant takes back the key it minted on the way out.
-      await expect(
-        service.plugins.grant("acme", ["media:create"], {
-          actor: AuditUtils.cli(),
-          expectedRev: 99,
-        })
-      ).rejects.toThrow(/rev mismatch/);
+      // Settled before `expect`: the grant reads through the storage worker,
+      // and bun test's `.rejects` wait drops such replies (code-design.md, Tests).
+      const refused = service.plugins.grant("acme", ["media:create"], {
+        actor: AuditUtils.cli(),
+        expectedRev: 99,
+      });
+      await refused.catch(() => {});
+      await expect(refused).rejects.toThrow(/rev mismatch/);
 
       const created = (await service.audit.list({ limit: 200 })).items.filter(
         (e) => e.action === "key.create" && e.detail.label === "plugin:acme"

@@ -5,6 +5,7 @@ import { ValidationError } from "@silo/shared/validation-error";
 import { HttpSiloClient } from "../../adapters/http/http-silo-client";
 import { Scope } from "../../core/domain/scope";
 import { EntryUtils } from "../../core/domain/entry-utils";
+import { ImportGrants } from "../../core/transfer/import-grants";
 import { MediaModes } from "../../core/transfer/media-mode";
 import { TransferSelection } from "../../core/transfer/transfer-selection";
 import type { ImportProgress } from "../../core/transfer/import-progress";
@@ -59,7 +60,7 @@ export class CopyRoutes {
           include,
           media,
           onProgress,
-          allowKeys: Claims.has(key.claims, Claims.KeysImport),
+          grants: ImportGrants.fromClaims(key.claims),
         });
       };
 

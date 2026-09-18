@@ -17,7 +17,81 @@ can be cloned with one command.
 
 ## Where things stand
 
-*Last updated: 2026-09-17 (D78)*
+*Last updated: 2026-09-18 (D85)*
+
+**All five critical findings and the first six high findings of the
+2026-09-18 adversarial audit are fixed (2026-09-18, D79–D85).** The audit
+report itself is not in the repo; high findings H7–H15 and the mediums are not
+yet addressed. **H1, H2, served bytes rendering on the admin's origin (D83):**
+an SVG uploaded with a `write`-preset key ran its script on the origin that
+holds every saved API key, and a public plugin route answering HTML was the
+same door. `ResponseSandbox` puts `nosniff` and a `Content-Security-Policy` on
+every `/media/{id}` answer (`sandbox`) and every `/api/ext/{name}/*` answer
+(`default-src 'none'; sandbox`); `MediaDisposition` sends an SVG and any
+non-media type as an attachment; `content_type` is read off the extension and
+never off what an upload declared; `svg` is out of the default allowlist. **H3,
+import wrote any `_system` row (D84):** `ImportSystemGate` judges the rows
+against `ImportGrants` — `_keys` on `keys:import`, the media catalog on
+`media:create` and `media:delete`, `_variables` on `create` plus
+`entries:update` over their project — and refuses `_audit`, `_plugins`,
+`_scope_renames` and unknown names outright; the routes derive the grants from
+claims, the CLI is trusted. **H4–H6, import unbounded, lock held across the
+upload, replace emptied first (D85):** `[transfer] max_archive_size_mb` and
+`max_extracted_size_mb` bound a streamed archive (`ArchiveExtractor` spends the
+second from tar's headers before anything is written, `413 archive_too_large`),
+`TransferService` unpacks before taking the write lock, and replace writes the
+archive's rows over what is there and prunes the rest, so an interruption leaves
+extra rows, never missing ones. **C3, media read whole into
+memory (D80):** `/media/{id}` read every asset into memory and copied it once
+more per request, with `GET /api/media?sort=-size` telling an anonymous caller
+which asset to ask for. `BlobStorage` gains an optional `stream(key, range?)`;
+the fs store answers with `FileByteStream`, a hand-written 64 KB pull reader,
+because every runtime file body was measured to buffer the file or mis-slice a
+range on Bun 1.3.14; the S3 store answers with the object handle's stream. A
+`Range` is honoured as `206` with `Content-Range`, `416` past the end,
+`Accept-Ranges: bytes` always. Measured: six concurrent 60 MB downloads grew
+the process by 24 MB where the old path held about 720 MB. **C4, scans on the
+event loop (D81):** a filter over a public collection blocked the one JS thread
+for the length of the scan — 12 s for a 49-way `or` on 200,000 rows — so entry
+lists and searches now run their statements on `SqliteReadThread`, the one
+`Worker` per process holding a second connection per database (WAL,
+`query_only`, `data:` URL source, unref'd), through a per-store
+`SqliteReadWorker` handle with a queue of 64 that sheds as `503 busy`;
+`MaxFilterLeaves` (16) caps what one filter may cost. Measured on a real listener: `/api/health` stayed at 3 ms while four
+1.4 s scans ran, 240 concurrent filtered lists all completed, a flood of 120
+was shed as 88 × 503. One test-runner caution came out of it and is in
+`code-design.md` (Tests): under `bun test` the thread is off by default
+(`SqliteStore.readThreadDefault`, `SILO_READ_THREAD=on|off`), because the
+runner's `expect(...).rejects` wait does not deliver a worker's replies once it
+has answered twice; the thread's own test opts in and awaits plainly. **C5, the run-file guard (D82):** it
+trusted a pid, so a crashed Docker instance (always pid 1) refused itself
+forever. `RunFile.liveness` decides by identity — not this process, same boot
+(`BootId`), pid present, refreshed within two minutes by a 30 s heartbeat —
+and `serve` now catches uncaught errors and unhandled rejections to remove the
+record and exit 1. **C1, data
+loss in the fs adapter:** `FsCollectionStore.delete` removed the content
+directory with `fs.rm` and no `recursive`, which never removes a directory, and
+swallowed the error, so every collection delete left an empty
+`content/<name>/` behind; `moveIfPresent` then read an existing destination as
+"this move already landed" and `rm -rf`'d the source. Renaming a live
+collection onto a name that had been deleted earlier silently erased every
+entry of the renamed collection — reproduced, and now pinned by
+`RenameOntoAPreviouslyDeletedNameKeepsTheContent` in the conformance suite.
+`delete` now refuses while entry files remain, as SQLite does, and removes the
+directory whole; the content move treats an existing destination as a leftover
+to remove or as content to refuse, never as a reason to discard the source; and
+`rename` refuses a destination whose content directory holds entries even when
+no marker claims it. **C2, no request body ceiling (D79):** `Bun.serve` got no
+`maxRequestBodySize`, and the runtime buffers a body whether or not a handler
+reads it, so eight concurrent unread 120 MB bodies took a probe server to a
+1.4 GB peak with no key and no valid route. Two ceilings now, by route class:
+`[http] max_body_size_mb` (default 128) is the listener's cap and bounds the
+four upload routes and plugin routes; `[http] max_json_body_size_mb` (default
+4) bounds everything else through `BodyLimitMiddleware`, before auth, as
+`413 payload_too_large`. Both are on **Settings > Configuration > Connections**
+beside the idle timeout. `POST /api/projects` and environment create ask for a
+key before reading the body; `ExtRequest` bounds a plugin route's body from the
+header and while reading.
 
 **A transfer now says what it covers, and export answers immediately
 (2026-09-17).** `GET /api/export` had been failing behind a reverse proxy with a

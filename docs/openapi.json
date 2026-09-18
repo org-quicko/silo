@@ -265,6 +265,9 @@
                     },
                     "409": {
                         "$ref": "#/components/responses/Conflict"
+                    },
+                    "413": {
+                        "$ref": "#/components/responses/PayloadTooLarge"
                     }
                 }
             }
@@ -330,6 +333,9 @@
                     },
                     "409": {
                         "$ref": "#/components/responses/Conflict"
+                    },
+                    "413": {
+                        "$ref": "#/components/responses/PayloadTooLarge"
                     }
                 }
             },
@@ -445,6 +451,9 @@
                     },
                     "409": {
                         "$ref": "#/components/responses/Conflict"
+                    },
+                    "413": {
+                        "$ref": "#/components/responses/PayloadTooLarge"
                     }
                 }
             }
@@ -513,6 +522,9 @@
                     },
                     "409": {
                         "$ref": "#/components/responses/Conflict"
+                    },
+                    "413": {
+                        "$ref": "#/components/responses/PayloadTooLarge"
                     }
                 }
             },
@@ -589,6 +601,9 @@
                     },
                     "404": {
                         "$ref": "#/components/responses/NotFound"
+                    },
+                    "413": {
+                        "$ref": "#/components/responses/PayloadTooLarge"
                     }
                 }
             }
@@ -657,6 +672,9 @@
                     },
                     "409": {
                         "$ref": "#/components/responses/Conflict"
+                    },
+                    "413": {
+                        "$ref": "#/components/responses/PayloadTooLarge"
                     }
                 }
             }
@@ -725,6 +743,9 @@
                     },
                     "404": {
                         "$ref": "#/components/responses/NotFound"
+                    },
+                    "413": {
+                        "$ref": "#/components/responses/PayloadTooLarge"
                     }
                 }
             },
@@ -862,6 +883,9 @@
                     },
                     "404": {
                         "$ref": "#/components/responses/NotFound"
+                    },
+                    "413": {
+                        "$ref": "#/components/responses/PayloadTooLarge"
                     }
                 }
             },
@@ -980,6 +1004,9 @@
                     },
                     "409": {
                         "$ref": "#/components/responses/Conflict"
+                    },
+                    "413": {
+                        "$ref": "#/components/responses/PayloadTooLarge"
                     }
                 }
             }
@@ -1083,6 +1110,9 @@
                     },
                     "404": {
                         "$ref": "#/components/responses/NotFound"
+                    },
+                    "503": {
+                        "$ref": "#/components/responses/Busy"
                     }
                 }
             },
@@ -1129,6 +1159,9 @@
                     },
                     "404": {
                         "$ref": "#/components/responses/NotFound"
+                    },
+                    "413": {
+                        "$ref": "#/components/responses/PayloadTooLarge"
                     }
                 }
             },
@@ -1187,6 +1220,9 @@
                     },
                     "409": {
                         "$ref": "#/components/responses/Conflict"
+                    },
+                    "413": {
+                        "$ref": "#/components/responses/PayloadTooLarge"
                     }
                 }
             }
@@ -1268,6 +1304,9 @@
                     },
                     "404": {
                         "$ref": "#/components/responses/NotFound"
+                    },
+                    "413": {
+                        "$ref": "#/components/responses/PayloadTooLarge"
                     }
                 }
             },
@@ -1411,6 +1450,9 @@
                                 }
                             }
                         }
+                    },
+                    "413": {
+                        "$ref": "#/components/responses/PayloadTooLarge"
                     }
                 }
             },
@@ -1492,6 +1534,9 @@
                     },
                     "403": {
                         "$ref": "#/components/responses/Forbidden"
+                    },
+                    "503": {
+                        "$ref": "#/components/responses/Busy"
                     }
                 }
             }
@@ -1547,6 +1592,9 @@
                     },
                     "403": {
                         "$ref": "#/components/responses/Forbidden"
+                    },
+                    "503": {
+                        "$ref": "#/components/responses/Busy"
                     }
                 }
             }
@@ -1605,6 +1653,9 @@
                     },
                     "403": {
                         "$ref": "#/components/responses/Forbidden"
+                    },
+                    "503": {
+                        "$ref": "#/components/responses/Busy"
                     }
                 }
             }
@@ -1737,7 +1788,7 @@
                     "Transfer"
                 ],
                 "summary": "Import a tar.gz archive",
-                "description": "The body is either the raw archive or a `multipart/form-data` `file`\npart. Both are streamed. Claims: `transfer:import` and `collections:*`\nwrite permissions — at `*/*/*` with no `include`, at what each rule names\nwith one. `media:create` is needed unless `media=none`. `?mode=replace`\nadds `collections:delete` and `entries:delete` at the same reach, plus\n`media:delete` unless `media=none`. An archive carrying keys additionally\nneeds `keys:import`, and loads without them when the caller does not hold\nit.\n\nSend `Accept: application/x-ndjson` to be answered with a progress stream\ninstead of one JSON body. The status is then sent before the work begins,\nso the outcome is the **last line** rather than the status code.\n",
+                "description": "The body is either the raw archive or a `multipart/form-data` `file`\npart. Both are streamed. Claims: `transfer:import` and `collections:*`\nwrite permissions — at `*/*/*` with no `include`, at what each rule names\nwith one. `media:create` is needed unless `media=none`. `?mode=replace`\nadds `collections:delete` and `entries:delete` at the same reach, plus\n`media:delete` unless `media=none`.\n\nThe archive's `_system` half is judged once it is unpacked, against the\nsame claims its own routes ask for (D84): `_keys` needs `keys:import`;\nthe media catalog needs `media:create` even with `media=none`, and\n`media:delete` when a replace would empty it; `_variables` need `create`\nand `entries:update` over each project they belong to. `_audit`,\n`_plugins` and `_scope_renames` never import and are a `400`. A missing\nclaim is a `403` naming the records.\n\nThe archive is held to `[transfer] max_archive_size_mb` as it arrives and\nto `max_extracted_size_mb` as it unpacks (D85); past either it is\n`413 archive_too_large`, naming the setting. It is unpacked before the\nwrite lock is taken, so a slow upload holds up nothing else.\n\nSend `Accept: application/x-ndjson` to be answered with a progress stream\ninstead of one JSON body. The status is then sent before the work begins,\nso the outcome is the **last line** rather than the status code.\n",
                 "operationId": "importArchive",
                 "parameters": [
                     {
@@ -1751,7 +1802,7 @@
                             ],
                             "default": "merge"
                         },
-                        "description": "`replace` drops each archived collection before writing it back."
+                        "description": "`replace` brings each archived collection to the archive's content: rows it carries are written over what is there, rows it does not carry are removed after (D85). It never empties a collection first."
                     },
                     {
                         "name": "dry_run",
@@ -1846,6 +1897,9 @@
                     },
                     "403": {
                         "$ref": "#/components/responses/Forbidden"
+                    },
+                    "413": {
+                        "$ref": "#/components/responses/PayloadTooLarge"
                     }
                 }
             }
@@ -1856,7 +1910,7 @@
                     "Transfer"
                 ],
                 "summary": "Pull another silo's archive and import it",
-                "description": "Streamed end to end: the source streams its export and this loads from\nthat stream. An `include` in the body is forwarded to the source's own\n`/api/export`, so the source never walks what this would discard.\n\nClaims: `transfer:copy` and the write permissions `POST /api/import`\nasks for, at the reach `include` names; `media:create` unless\n`media: none`; `replace` mode and `with_keys` add the same claims that\nroute adds.\n\nSend `Accept: application/x-ndjson` for a progress stream. A copy's\nconnection is idle for the whole pull, which makes it the operation a\nquiet-connection timeout kills most reliably.\n",
+                "description": "Streamed end to end: the source streams its export and this loads from\nthat stream. An `include` in the body is forwarded to the source's own\n`/api/export`, so the source never walks what this would discard.\n\nClaims: `transfer:copy` and the write permissions `POST /api/import`\nasks for, at the reach `include` names; `media:create` unless\n`media: none`; `replace` mode and `with_keys` add the same claims that\nroute adds. The archive's `_system` half is judged once it is unpacked,\nexactly as `POST /api/import` judges it (D84), and the pulled archive is\nheld to `[transfer] max_archive_size_mb` and `max_extracted_size_mb`\n(D85) — its only size ceilings, since a copy has no request body.\n\nSend `Accept: application/x-ndjson` for a progress stream. A copy's\nconnection is idle for the whole pull, which makes it the operation a\nquiet-connection timeout kills most reliably.\n",
                 "operationId": "copyInstance",
                 "requestBody": {
                     "required": true,
@@ -1889,6 +1943,9 @@
                     },
                     "403": {
                         "$ref": "#/components/responses/Forbidden"
+                    },
+                    "413": {
+                        "$ref": "#/components/responses/PayloadTooLarge"
                     }
                 }
             }
@@ -1995,6 +2052,9 @@
                     },
                     "403": {
                         "$ref": "#/components/responses/Forbidden"
+                    },
+                    "413": {
+                        "$ref": "#/components/responses/PayloadTooLarge"
                     }
                 }
             }
@@ -2058,6 +2118,9 @@
                     },
                     "404": {
                         "$ref": "#/components/responses/NotFound"
+                    },
+                    "413": {
+                        "$ref": "#/components/responses/PayloadTooLarge"
                     }
                 }
             },
@@ -2263,6 +2326,9 @@
                     },
                     "403": {
                         "$ref": "#/components/responses/Forbidden"
+                    },
+                    "413": {
+                        "$ref": "#/components/responses/PayloadTooLarge"
                     }
                 }
             }
@@ -2320,6 +2386,9 @@
                     },
                     "403": {
                         "$ref": "#/components/responses/Forbidden"
+                    },
+                    "413": {
+                        "$ref": "#/components/responses/PayloadTooLarge"
                     }
                 }
             }
@@ -2385,6 +2454,9 @@
                     },
                     "403": {
                         "$ref": "#/components/responses/Forbidden"
+                    },
+                    "413": {
+                        "$ref": "#/components/responses/PayloadTooLarge"
                     }
                 }
             }
@@ -2526,6 +2598,9 @@
                     },
                     "409": {
                         "$ref": "#/components/responses/Conflict"
+                    },
+                    "413": {
+                        "$ref": "#/components/responses/PayloadTooLarge"
                     }
                 }
             },
@@ -2593,6 +2668,9 @@
                     },
                     "409": {
                         "$ref": "#/components/responses/Conflict"
+                    },
+                    "413": {
+                        "$ref": "#/components/responses/PayloadTooLarge"
                     }
                 }
             },
@@ -2723,6 +2801,9 @@
                     },
                     "403": {
                         "$ref": "#/components/responses/Forbidden"
+                    },
+                    "413": {
+                        "$ref": "#/components/responses/PayloadTooLarge"
                     }
                 }
             }
@@ -2797,6 +2878,9 @@
                     },
                     "403": {
                         "$ref": "#/components/responses/Forbidden"
+                    },
+                    "413": {
+                        "$ref": "#/components/responses/PayloadTooLarge"
                     }
                 }
             }
@@ -2880,6 +2964,9 @@
                     },
                     "404": {
                         "$ref": "#/components/responses/NotFound"
+                    },
+                    "413": {
+                        "$ref": "#/components/responses/PayloadTooLarge"
                     }
                 }
             },
@@ -3043,6 +3130,9 @@
                     },
                     "404": {
                         "$ref": "#/components/responses/NotFound"
+                    },
+                    "413": {
+                        "$ref": "#/components/responses/PayloadTooLarge"
                     }
                 }
             }
@@ -3064,7 +3154,7 @@
                     "Media"
                 ],
                 "summary": "Stream an asset's bytes",
-                "description": "Outside `/api`, outside the auth middleware, and not authenticated.\nCarries an `ETag` of the content hash and answers `304` to a matching\n`If-None-Match`. Cached for an hour and deliberately not `immutable`,\nbecause what an id points at can be replaced.\n",
+                "description": "Outside `/api`, outside the auth middleware, and not authenticated.\nCarries an `ETag` of the content hash and answers `304` to a matching\n`If-None-Match`. Cached for an hour and deliberately not `immutable`,\nbecause what an id points at can be replaced.\n\nSince D80 the body is read from the store as it is sent and never held\nwhole, and a single `Range: bytes=...` is honoured with a `206`. A whole\nanswer is sent with chunked transfer encoding and no `Content-Length`; a\nranged answer states the object's size in `Content-Range`.\n\nSince D83 every answer carries `X-Content-Type-Options: nosniff` and\n`Content-Security-Policy: sandbox`, because this origin also serves the\nadmin and its saved keys. Images, video, audio and PDF are `inline`; an\nSVG, and any other type, is an `attachment`, so a browser downloads it\nrather than rendering it here. An `<img>` still draws it. The content\ntype is the one recorded at upload, read off the filename's extension.\n",
                 "operationId": "streamMedia",
                 "security": [],
                 "parameters": [
@@ -3074,6 +3164,14 @@
                         "schema": {
                             "type": "string"
                         }
+                    },
+                    {
+                        "name": "Range",
+                        "in": "header",
+                        "schema": {
+                            "type": "string"
+                        },
+                        "description": "One `bytes=` range: `bytes=0-499`, `bytes=500-`, or `bytes=-500`. Several ranges, another unit or a malformed value are ignored and the whole object is sent."
                     }
                 ],
                 "responses": {
@@ -3090,7 +3188,50 @@
                                     "type": "string"
                                 }
                             },
+                            "Accept-Ranges": {
+                                "schema": {
+                                    "type": "string"
+                                },
+                                "description": "`bytes`."
+                            },
                             "Content-Disposition": {
+                                "schema": {
+                                    "type": "string"
+                                },
+                                "description": "`inline` for an image, video, audio or PDF; `attachment` for an SVG and for anything else (D83). Always names the file."
+                            },
+                            "X-Content-Type-Options": {
+                                "schema": {
+                                    "type": "string"
+                                },
+                                "description": "`nosniff`."
+                            },
+                            "Content-Security-Policy": {
+                                "schema": {
+                                    "type": "string"
+                                },
+                                "description": "`sandbox`: whatever a browser renders from this URL gets an opaque origin and no script."
+                            }
+                        },
+                        "content": {
+                            "application/octet-stream": {
+                                "schema": {
+                                    "type": "string",
+                                    "format": "binary"
+                                }
+                            }
+                        }
+                    },
+                    "206": {
+                        "description": "The requested span, clamped to the object.",
+                        "headers": {
+                            "Content-Range": {
+                                "schema": {
+                                    "type": "string"
+                                },
+                                "description": "`bytes <start>-<end>/<size>`."
+                            },
+                            "ETag": {
                                 "schema": {
                                     "type": "string"
                                 }
@@ -3113,6 +3254,9 @@
                     },
                     "404": {
                         "description": "No such asset."
+                    },
+                    "416": {
+                        "description": "The range lies wholly outside the object. `Content-Range: bytes */<size>` names the size."
                     }
                 }
             }
@@ -3196,6 +3340,9 @@
                     },
                     "403": {
                         "$ref": "#/components/responses/Forbidden"
+                    },
+                    "413": {
+                        "$ref": "#/components/responses/PayloadTooLarge"
                     }
                 }
             }
@@ -3331,6 +3478,9 @@
                     },
                     "403": {
                         "$ref": "#/components/responses/Forbidden"
+                    },
+                    "413": {
+                        "$ref": "#/components/responses/PayloadTooLarge"
                     },
                     "500": {
                         "description": "The package on disk cannot start.",
@@ -3582,6 +3732,9 @@
                     },
                     "409": {
                         "$ref": "#/components/responses/Conflict"
+                    },
+                    "413": {
+                        "$ref": "#/components/responses/PayloadTooLarge"
                     }
                 }
             },
@@ -3771,6 +3924,9 @@
                     },
                     "409": {
                         "$ref": "#/components/responses/Conflict"
+                    },
+                    "413": {
+                        "$ref": "#/components/responses/PayloadTooLarge"
                     }
                 }
             },
@@ -3849,7 +4005,7 @@
             }
         },
         "/api/ext/{name}/{path}": {
-            "description": "One handler matches every plugin route (D36). A plugin's routes are data\nthe host interprets rather than patterns it registers, so a plugin can\nneither shadow nor reorder anything in this file, and the set is resolved\nper request — enable, disable, revoke and rescan apply to routes as they\ndo to hooks.\n\n**A handler runs with the plugin's authority, not the caller's.** That is\nwhy exposure is a claim (`http:route`) and why a route declaring\n`auth: \"public\"` is called out separately: it publishes whatever the\nplugin was granted at a URL anyone can reach. The caller's\n`Authorization`, `X-Api-Key` and `Cookie` are withheld from the handler,\nwhich receives an id, a label and claims instead.\n\nStatus, headers and body are the plugin's. A thrown validation or\nauthorization error maps to 400 or 403 through the same handler as\neverything else, and a body past the route's declared limit is refused\nrather than truncated.\n",
+            "description": "One handler matches every plugin route (D36). A plugin's routes are data\nthe host interprets rather than patterns it registers, so a plugin can\nneither shadow nor reorder anything in this file, and the set is resolved\nper request — enable, disable, revoke and rescan apply to routes as they\ndo to hooks.\n\n**A handler runs with the plugin's authority, not the caller's.** That is\nwhy exposure is a claim (`http:route`) and why a route declaring\n`auth: \"public\"` is called out separately: it publishes whatever the\nplugin was granted at a URL anyone can reach. The caller's\n`Authorization`, `X-Api-Key` and `Cookie` are withheld from the handler,\nwhich receives an id, a label and claims instead.\n\nStatus, headers and body are the plugin's. A thrown validation or\nauthorization error maps to 400 or 403 through the same handler as\neverything else, and a body past the route's declared limit is refused\nrather than truncated.\n\nTwo headers are silo's, not the plugin's (D83): every answer leaves with\n`X-Content-Type-Options: nosniff` and `Content-Security-Policy:\ndefault-src 'none'; sandbox`, whatever type the plugin declared and\nreplacing its own spelling of either. A plugin route is an API answer and\nnever a page, since this origin also holds the admin's saved keys.\n",
             "parameters": [
                 {
                     "$ref": "#/components/parameters/PluginName"
@@ -3891,6 +4047,9 @@
                     }
                 },
                 "responses": {
+                    "413": {
+                        "$ref": "#/components/responses/PayloadTooLarge"
+                    },
                     "default": {
                         "$ref": "#/components/responses/PluginRouteResponse"
                     }
@@ -3911,6 +4070,9 @@
                     }
                 },
                 "responses": {
+                    "413": {
+                        "$ref": "#/components/responses/PayloadTooLarge"
+                    },
                     "default": {
                         "$ref": "#/components/responses/PluginRouteResponse"
                     }
@@ -3931,6 +4093,9 @@
                     }
                 },
                 "responses": {
+                    "413": {
+                        "$ref": "#/components/responses/PayloadTooLarge"
+                    },
                     "default": {
                         "$ref": "#/components/responses/PluginRouteResponse"
                     }
@@ -4290,10 +4455,52 @@
                 }
             },
             "PluginRouteResponse": {
-                "description": "Whatever the plugin answers, plus the host's own refusals: 403 when\n`http:route` is not granted, 404 when no plugin serves this path (which\nis also the answer for a plugin that is absent, ungranted or disabled —\nthat is the operator's business, not a caller's), 405 when it serves the\npath but not this method, and 504 when the worker did not answer inside\nits `timeout_ms`, naming `POST /api/plugins/{name}/restart` as the\nremedy.\n",
+                "description": "Whatever the plugin answers, plus the host's own refusals: 403 when\n`http:route` is not granted, 404 when no plugin serves this path (which\nis also the answer for a plugin that is absent, ungranted or disabled —\nthat is the operator's business, not a caller's), 405 when it serves the\npath but not this method, and 504 when the worker did not answer inside\nits `timeout_ms`, naming `POST /api/plugins/{name}/restart` as the\nremedy. Every answer carries `nosniff` and a `default-src 'none';\nsandbox` policy (D83).\n",
+                "headers": {
+                    "X-Content-Type-Options": {
+                        "schema": {
+                            "type": "string"
+                        },
+                        "description": "`nosniff`."
+                    },
+                    "Content-Security-Policy": {
+                        "schema": {
+                            "type": "string"
+                        },
+                        "description": "`default-src 'none'; sandbox`, replacing the plugin's own."
+                    }
+                },
                 "content": {
                     "*/*": {
                         "schema": {}
+                    }
+                }
+            },
+            "PayloadTooLarge": {
+                "description": "The request body is larger than this route accepts: [http] max_json_body_size_mb for a route that takes a JSON document (default 4 MB), [http] max_body_size_mb for the media upload, media replace, import and plugin install routes (default 128 MB). Answered from the headers, before the route or the key check runs. On `/api/import` and `/api/copy` the code is `archive_too_large` instead when the archive, or the tree it unpacks to, is past `[transfer] max_archive_size_mb` or `max_extracted_size_mb` (D85); the message names the setting.",
+                "content": {
+                    "application/json": {
+                        "schema": {
+                            "$ref": "#/components/schemas/Error"
+                        }
+                    }
+                }
+            },
+            "Busy": {
+                "description": "Too many reads are already waiting on storage. A filter or a sort over entry data scans the collection on a read worker with a bounded queue; past it the request is refused with `Retry-After: 1` rather than queued behind a flood.",
+                "headers": {
+                    "Retry-After": {
+                        "schema": {
+                            "type": "string"
+                        },
+                        "description": "Seconds."
+                    }
+                },
+                "content": {
+                    "application/json": {
+                        "schema": {
+                            "$ref": "#/components/schemas/Error"
+                        }
                     }
                 }
             }
@@ -6440,7 +6647,10 @@
                                     "plugin_start_failed",
                                     "plugin_unavailable",
                                     "method_not_allowed",
-                                    "internal"
+                                    "internal",
+                                    "payload_too_large",
+                                    "archive_too_large",
+                                    "busy"
                                 ]
                             },
                             "message": {
