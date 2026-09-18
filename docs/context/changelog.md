@@ -4,6 +4,12 @@
 > The *current* state is [CONTEXT.md](../../CONTEXT.md); this is how it got
 > there.
 
+- **Live Node cache verification (2026-09-18).** `tools/verifyCache.mjs` and
+  `npm run verify:cache` exercise the built client against the public production
+  GST state-code collection. GET request counts verify hits, expiry, capacity,
+  clearing, client isolation and uncached health reads without changing data.
+  Target URL, project, environment and collection can be set through environment variables.
+
 - **Node client option handling is simpler (2026-09-18).** Silo, Transport and
   ResponseCache use the supplied options directly. Removed defensive copies and
   the test for mutation protection; callers treat configuration as immutable.

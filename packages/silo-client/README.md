@@ -89,6 +89,27 @@ metadata. This explicit method reference works in both browsers and Node without
 caller inspection or an async execution context. Consumers use the built package
 and do not need decorator or reflection configuration.
 
+To verify caching against real data, run these commands from `packages/silo-client`:
+
+```sh
+npx --yes bun run build
+npm run verify:cache
+```
+
+`tools/verifyCache.mjs` uses the built client against the public production
+`in-co-sandbox-gst-state-code` collection in project `in-co-sandbox-gst`.
+It needs no API key and sends only GET requests. Each check asserts the number
+of HTTP requests, so a fast server response cannot be mistaken for a cache hit.
+It checks entry/page caching, distinct queries, shared handles, independent
+clients, disabled caching, uncached health checks, clearing, expiry and capacity.
+Write invalidation remains covered by the local test suite.
+
+Override `SILO_BASE_URL`, `SILO_PROJECT`, `SILO_ENVIRONMENT` and
+`SILO_GST_STATE_CODE_COLLECTION` to use another public, nonempty collection.
+The defaults are `https://api.silo.quicko.company`, `in-co-sandbox-gst`, `prod`
+and `in-co-sandbox-gst-state-code`. A failed assertion or request exits with
+status 1; a passing run prints each check, cache statistics and the HTTP total.
+
 ## Entries
 
 Describe your fields and the collection becomes typed.

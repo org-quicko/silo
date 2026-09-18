@@ -17,7 +17,7 @@ can be cloned with one command.
 
 ## Where things stand
 
-*Last updated: 2026-09-18 (Node client option handling)*
+*Last updated: 2026-09-18 (Node client live cache verification)*
 
 **Node collection caching now follows the Java client (2026-09-17).**
 The baseline is `feature/java-client` at `3ad9c83`. Local `@Cache()` decorators
@@ -42,6 +42,10 @@ with no Node-only execution context. See the
 [client design](docs/design/api-client.md#1410-optional-read-caching-d71) for the
 Java differences and concurrency limits, and the
 [client README](packages/silo-client/README.md#optional-collection-caching) for usage.
+`packages/silo-client/tools/verifyCache.mjs` verifies the built client against a
+real public collection with GET requests and HTTP request-count assertions.
+Run `npm run verify:cache` from the client package after building; it defaults
+to the production GST state-code collection and requires no API key.
 
 **A collection can now say more than "required" (2026-09-16).** The visual
 schema builder wrote `type`, `enum`, `$ref` and a required list and nothing
