@@ -1,16 +1,3 @@
-# Publishes a Docker image for non-prod testing, for tags like
-# v1.2.0-alpha.1. Unlike release.yml, this never builds the per-platform
-# binaries, never builds the RPM, and never creates a GitHub Release -- none
-# of that is needed for a Docker image, which builds straight from the
-# Dockerfile on its own. version and verify are otherwise unchanged from
-# release.yml.
-#
-# Triggered by pushing an alpha tag:
-#
-#     git tag -a v0.2.0-alpha.1 -m "v0.2.0-alpha.1" && git push origin v0.2.0-alpha.1
-#
-# `workflow_dispatch` runs verify only and publishes nothing, which is how to
-# rehearse a release without burning a version number.
 name: release-snapshot
 
 on:
@@ -23,23 +10,17 @@ on:
         required: true
         type: string
 
-# Read-only by default; the job that needs more asks for it itself.
 permissions:
   contents: read
 
 env:
-  # Keep in step with the Dockerfile's BUN_VERSION: the binary users install and
-  # the image they deploy should not be built by different runtimes.
   BUN_VERSION: "1.4.0"
 
-# A second tag pushed while the first is mid-release would race it to the registry.
 concurrency:
   group: release-snapshot-${{ github.ref }}
   cancel-in-progress: false
 
 jobs:
-  # One place that decides what version this run is building, so nothing
-  # downstream has to re-derive it from a ref and get it subtly different.
   version:
     runs-on: ubuntu-24.04
     outputs:
@@ -60,19 +41,11 @@ jobs:
             *) echo "::error::'$version' is not a semantic version" && exit 1 ;;
           esac
 
-          # A version with a pre-release suffix (1.0.0-rc.1) is published as a
-          # GitHub pre-release and never reaches the tap: `brew install silo`
-          # must not hand someone a release candidate.
           case "$version" in
             *-*) prerelease=true ;;
             *) prerelease=false ;;
           esac
 
-          # package.json is the single source of truth (D28); the tag is a
-          # request to publish what it already says. When the two disagree the
-          # tag is wrong or the bump was forgotten, and either way the artifacts
-          # would be named for one version and built from a tree that believes
-          # in another. `bun run set-version <v>` is what keeps them together.
           declared=$(jq -r .version package.json)
           if [ "$declared" != "$version" ]; then
             if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
@@ -97,18 +70,11 @@ jobs:
       - run: bun install --frozen-lockfile
       - name: Type-check
         run: bunx tsc -b
-      # The admin suites import @org-quicko/silo-client, whose exports point at
-      # its gitignored dist/, so a fresh checkout has nothing to resolve until
-      # the client is built.
       - name: Build silo-client
         run: bun run --cwd packages/silo-client build
       - name: Test
         run: bun test
 
-  # Builds the Docker image straight from the Dockerfile and pushes it to
-  # GitHub Container Registry, tagged with the exact version this run
-  # resolved. Gated to real tag pushes, same as release.yml gates its
-  # `release` job -- workflow_dispatch is a rehearsal and publishes nothing.
   ghcr:
     needs: [version, verify]
     if: startsWith(github.ref, 'refs/tags/')
