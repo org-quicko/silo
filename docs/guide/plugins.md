@@ -342,6 +342,13 @@ each as a function named the same way, and silo serves them under
 Declaring routes asks for `http:route` on the plugin's behalf, so there is no
 need to list it.
 
+A route answers data, not a web page. silo adds `X-Content-Type-Options:
+nosniff` and `Content-Security-Policy: default-src 'none'; sandbox` to every
+answer, whatever `Content-Type` you set, and replaces your own value for either
+header. A browser that opens the URL directly gets a page that can run no script
+and load nothing. Serve a page from your own host, or use the admin panel
+(`contributes.ui`), which is built for it.
+
 ```ts
 export default defineSiloPlugin({
   "GET /health"() {

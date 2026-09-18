@@ -115,6 +115,45 @@ export class RenameSuite {
         expect((await store.findCollection(scope, "posts"))?.id).toBe(posts.id);
       });
 
+      test("RenameOntoAPreviouslyDeletedNameKeepsTheContent", async () => {
+        const store = await getFreshStore();
+        const scope = Scope.of("acme", "dev");
+
+        // `articles` lived, held an entry, and was deleted the way the service
+        // does it: entries first, then the record. Whatever the adapter keeps
+        // on disk for a name it once knew must not be mistaken for a live
+        // destination — a filesystem directory left behind is exactly that.
+        const doomed = await putEntry(store, scope, "articles", 1, { title: "old" });
+        await store.delete(scope, "articles", doomed.id);
+        await store.deleteSchema(scope, "articles");
+
+        const posts = await store.putSchema(scope, "posts", { type: "object" });
+        const kept = [
+          await putEntry(store, scope, "posts", 1, { title: "a" }),
+          await putEntry(store, scope, "posts", 2, { title: "b" }),
+          await putEntry(store, scope, "posts", 3, { title: "c" }),
+        ];
+
+        await store.renameCollection(posts.id, "articles");
+
+        expect((await store.findCollection(scope, "articles"))?.id).toBe(posts.id);
+        expect(await store.findCollection(scope, "posts")).toBeNull();
+        const page = await store.list(scope, "articles", { limit: 10, offset: 0 });
+        expect(page.total).toBe(3);
+        for (const entry of kept) {
+          expect((await store.get(scope, "articles", entry.id)).data.title).toBe(entry.data.title);
+        }
+      });
+
+      test("DeleteRefusesACollectionThatStillHoldsEntries", async () => {
+        const store = await getFreshStore();
+        const scope = Scope.of("acme", "dev");
+        await putEntry(store, scope, "posts", 1, { title: "a" });
+
+        await expect(store.deleteSchema(scope, "posts")).rejects.toThrow(/still holds/);
+        expect((await store.list(scope, "posts", { limit: 10, offset: 0 })).total).toBe(1);
+      });
+
       test("RenameToTheSameNameIsANoOp", async () => {
         const store = await getFreshStore();
         const project = await store.createProject("acme");

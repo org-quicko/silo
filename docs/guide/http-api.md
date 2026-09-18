@@ -67,7 +67,7 @@ Present a key as `Authorization: Bearer <key>` or `X-Api-Key: <key>`.
 | `GET` | `/api/projects/{project}/envs/{env}/search` | search one environment |
 | `GET` | `/api/search` | search everything the key can read |
 | `POST` | `/api/search/reindex` | rebuild the search index |
-| `GET` | `/media/{filename}` | public asset streaming, with immutable cache headers |
+| `GET` | `/media/{id}` | public asset streaming. The file is read from the store as it is sent, never held whole. A single `Range: bytes=...` header answers `206` with `Content-Range`; a range past the end answers `416`. A whole answer has no `Content-Length`. Every answer carries `X-Content-Type-Options: nosniff` and `Content-Security-Policy: sandbox`. Images, video, audio and PDF are sent `inline`; an SVG and any other type is sent as an `attachment`, so a browser downloads it instead of showing it as a page. An `<img>` tag still displays it |
 
 `/environments` is accepted anywhere `/envs` appears. Collection, entry and
 environment-copy routes are scoped to a `(project, environment)` pair.
@@ -184,8 +184,25 @@ admin tabs from overwriting each other in silence.
 ```
 
 The codes are `validation_failed` (400), `unauthorized` (401), `forbidden`
-(403), `not_found` (404), `conflict` (409) and `internal` (500). Validation
+(403), `not_found` (404), `conflict` (409), `payload_too_large` (413),
+`archive_too_large` (413), `internal` (500) and `busy` (503). Validation
 details carry JSON Pointer paths from the validator.
+
+A `503 busy` comes from an entry list or a search. A filter or a sort over
+entry data scans the collection. Those scans run on a separate storage thread
+with a queue of 64. When the queue is full the request is refused with
+`Retry-After: 1` instead of waiting. A filter may test at most 16 fields; more
+is a `400`.
+
+A `413` means the request body is larger than the route accepts. Routes that
+take a JSON document accept `[http] max_json_body_size_mb` (default 4 MB). The
+media upload, media replace, import and plugin install routes accept up to
+`[http] max_body_size_mb` (default 128 MB). See
+[configuration.md](configuration.md).
+
+A `413` with the code `archive_too_large` comes from an import or a copy. The
+archive is larger than `[transfer] max_archive_size_mb`, or it would unpack to
+more than `[transfer] max_extracted_size_mb`. The message names the setting.
 
 Every write is validated against the collection's schema. A read is not.
 

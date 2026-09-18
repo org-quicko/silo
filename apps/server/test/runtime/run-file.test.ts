@@ -73,10 +73,105 @@ describe("RunFile", () => {
     expect(await RunFile.readLive(dir)).toBeNull();
   });
 
+  /** A process that is certainly alive for the length of a test, and not us. */
+  const livePid = (): { pid: number; stop: () => void } => {
+    const child = Bun.spawn(["sleep", "30"], { stdout: "ignore", stderr: "ignore" });
+    return { pid: child.pid, stop: () => child.kill("SIGKILL") };
+  };
+
+  /** A record a live server would have written a moment ago. */
+  const fresh = (over: Partial<RunState> = {}): RunState =>
+    state({ heartbeat_at: new Date().toISOString(), ...over });
+
   test("a live pid reads as live, and blocks a second server", async () => {
-    await RunFile.write(dir, state());
-    expect(await RunFile.readLive(dir)).toMatchObject({ pid: process.pid });
-    await expect(RunFile.assertNotRunning(dir)).rejects.toThrow(/already running/);
+    const other = livePid();
+    try {
+      await RunFile.write(dir, fresh({ pid: other.pid }));
+      expect(await RunFile.readLive(dir)).toMatchObject({ pid: other.pid });
+      await expect(RunFile.assertNotRunning(dir)).rejects.toThrow(/already running/);
+    } finally {
+      other.stop();
+    }
+  });
+
+  test("a record naming this very process is a predecessor's, not a live server (D82)", async () => {
+    // Under Docker the server is pid 1 every time, so after a crash the new
+    // process found its own pid in the record, asked the kernel whether pid 1
+    // was alive, and refused to start — forever, until a human removed the file.
+    await RunFile.write(dir, fresh({ pid: process.pid }));
+    expect(RunFile.liveness((await RunFile.read(dir))!)).toMatchObject({ live: false });
+    expect(await RunFile.readLive(dir)).toBeNull();
+    // The stale record is handed back so the start can say what it replaced.
+    expect(await RunFile.assertNotRunning(dir)).toMatchObject({ pid: process.pid });
+  });
+
+  test("a record from another boot is stale whatever its pid points at (D82)", () => {
+    const other = livePid();
+    try {
+      const record = fresh({ pid: other.pid, boot_id: "boot-before-the-reboot" });
+      expect(RunFile.liveness(record, { bootId: "boot-after-the-reboot" })).toMatchObject({
+        live: false,
+        reason: expect.stringContaining("reboot"),
+      });
+      // Same boot: the pid decides, and it is alive.
+      expect(RunFile.liveness(record, { bootId: "boot-before-the-reboot" })).toEqual({ live: true });
+      // No boot id on either side: the test is skipped, not failed.
+      expect(RunFile.liveness(fresh({ pid: other.pid }), { bootId: undefined })).toEqual({ live: true });
+    } finally {
+      other.stop();
+    }
+  });
+
+  test("a record no server has refreshed for StaleAfterMs is stale even with a live pid (D82)", () => {
+    const other = livePid();
+    try {
+      const long = new Date(Date.now() - RunFile.StaleAfterMs - 60_000).toISOString();
+      const stale = state({ pid: other.pid, heartbeat_at: long });
+      expect(RunFile.liveness(stale)).toMatchObject({
+        live: false,
+        reason: expect.stringContaining("refreshed"),
+      });
+      // Within the window it is live: a beat can be a little late.
+      const recent = new Date(Date.now() - RunFile.HeartbeatMs).toISOString();
+      expect(RunFile.liveness(state({ pid: other.pid, heartbeat_at: recent }))).toEqual({ live: true });
+    } finally {
+      other.stop();
+    }
+  });
+
+  test("a record from an older version, with no heartbeat, is judged by its pid alone", () => {
+    // Otherwise a new binary started beside an old server that has run for
+    // more than two minutes would take it for dead and start over it.
+    const other = livePid();
+    try {
+      const legacy = state({ pid: other.pid, started_at: new Date(2020, 0, 1).toISOString() });
+      expect(legacy.heartbeat_at).toBeUndefined();
+      expect(RunFile.liveness(legacy)).toEqual({ live: true });
+    } finally {
+      other.stop();
+    }
+  });
+
+  test("heartbeat rewrites the record with a fresh time and nothing else changed", async () => {
+    const other = livePid();
+    try {
+      const long = new Date(Date.now() - RunFile.StaleAfterMs - 60_000).toISOString();
+      const written = state({ pid: other.pid, heartbeat_at: long, log: path.join(dir, "silo.log") });
+      await RunFile.write(dir, written);
+      expect(await RunFile.readLive(dir)).toBeNull();
+
+      const refreshed = await RunFile.heartbeat(dir, written);
+      expect(Date.parse(refreshed.heartbeat_at!)).toBeGreaterThan(Date.parse(long));
+      expect({ ...refreshed, heartbeat_at: undefined }).toEqual({ ...written, heartbeat_at: undefined });
+      expect(await RunFile.readLive(dir)).toMatchObject({ pid: other.pid });
+    } finally {
+      other.stop();
+    }
+  });
+
+  test("a write leaves no temporary file behind", async () => {
+    await RunFile.write(dir, fresh());
+    expect((await fs.readdir(dir)).sort()).toEqual([RunFile.Name]);
   });
 
   test("a dead pid is stale: readable, not live, and no longer blocking", async () => {
@@ -91,9 +186,14 @@ describe("RunFile", () => {
   });
 
   test("the refusal names the port and the way out", async () => {
-    await RunFile.write(dir, state({ listen: "127.0.0.1:9123" }));
-    await expect(RunFile.assertNotRunning(dir)).rejects.toThrow(/127\.0\.0\.1:9123/);
-    await expect(RunFile.assertNotRunning(dir)).rejects.toThrow(/silo stop/);
+    const other = livePid();
+    try {
+      await RunFile.write(dir, fresh({ pid: other.pid, listen: "127.0.0.1:9123" }));
+      await expect(RunFile.assertNotRunning(dir)).rejects.toThrow(/127\.0\.0\.1:9123/);
+      await expect(RunFile.assertNotRunning(dir)).rejects.toThrow(/silo stop/);
+    } finally {
+      other.stop();
+    }
   });
 
   test("remove is idempotent", async () => {

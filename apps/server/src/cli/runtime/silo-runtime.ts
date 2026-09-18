@@ -239,6 +239,9 @@ export class SiloRuntime {
       // RAM-backed tmpfs while the data directory is the disk provisioned for
       // exactly this much content (§7.2).
       stagingDir: path.join(config.storage.path, "transfer"),
+      // What a streamed archive may weigh and expand to (D85); a file named on
+      // the command line is the operator's and is not held to it.
+      transfer: config.transfer,
       scan: {
         visitLimit: config.search.scan_limit,
         timeBudgetMs: config.search.scan_time_budget_ms,

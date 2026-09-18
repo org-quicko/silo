@@ -1,5 +1,6 @@
 import type { Context } from "hono";
 import { ValidationError } from "@silo/shared/validation-error";
+import { ArchiveTooLargeError } from "../../core/errors/archive-too-large-error";
 import { ConflictError } from "../../core/errors/conflict-error";
 import { ForbiddenError } from "../../core/errors/forbidden-error";
 import { UnauthorizedError } from "../../core/errors/unauthorized-error";
@@ -103,6 +104,7 @@ export class ProgressStream {
     if (caught instanceof ConflictError) return at(409, "conflict");
     if (caught instanceof ForbiddenError) return at(403, "forbidden");
     if (caught instanceof UnauthorizedError) return at(401, "unauthorized");
+    if (caught instanceof ArchiveTooLargeError) return at(413, "archive_too_large");
     return {
       type: "error",
       status: 500,

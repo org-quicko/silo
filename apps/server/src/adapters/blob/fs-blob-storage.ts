@@ -1,8 +1,16 @@
 import crypto from "crypto";
 import fs from "fs/promises";
 import path from "path";
-import type { BlobStorage, BlobItem, BlobPutOptions, BlobGetResult } from "../../core/ports/blob-storage";
+import type {
+  BlobStorage,
+  BlobItem,
+  BlobPutOptions,
+  BlobGetResult,
+  BlobRange,
+  BlobStream,
+} from "../../core/ports/blob-storage";
 import { MimeUtils } from "../../core/media/mime-utils";
+import { FileByteStream } from "./file-byte-stream";
 
 export class FsBlobStorage implements BlobStorage {
   private baseDir: string;
@@ -65,6 +73,27 @@ export class FsBlobStorage implements BlobStorage {
         data: new Uint8Array(buffer),
         contentType: MimeUtils.lookup(key),
         size: stats.size,
+      };
+    } catch (error: any) {
+      if (error.code === "ENOENT") return null;
+      throw error;
+    }
+  }
+
+  /**
+   * The file, or a range of it, read from disk in fixed chunks as it is sent
+   * (D80) — see `FileByteStream` for why the runtime's own file bodies are not
+   * used. The size comes from the `stat` this already does.
+   */
+  async stream(key: string, range?: BlobRange): Promise<BlobStream | null> {
+    const filePath = this.resolvePath(key);
+    try {
+      const stats = await fs.stat(filePath);
+      if (!stats.isFile()) return null;
+      return {
+        body: FileByteStream.open(filePath, range?.start ?? 0, range?.end ?? stats.size - 1),
+        size: stats.size,
+        contentType: MimeUtils.lookup(key),
       };
     } catch (error: any) {
       if (error.code === "ENOENT") return null;

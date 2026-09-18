@@ -2,6 +2,7 @@ import type { Context } from "hono";
 import { Claims } from "@silo/shared/claims";
 import type { SiloService } from "../../core/services/silo-service";
 import { ValidationError } from "@silo/shared/validation-error";
+import { ImportGrants } from "../../core/transfer/import-grants";
 import type { ImportProgress } from "../../core/transfer/import-progress";
 import { MediaModes } from "../../core/transfer/media-mode";
 import { RouteAuth } from "../auth/route-auth";
@@ -50,7 +51,11 @@ export class TransferRoutes {
       const media = TransferQuery.media(c, selection);
       TransferAuth.require(c, "import", selection, Claims.TransferWritePermissions);
       // Nothing is created in the library when the archive's bytes are being
-      // ignored, so the claim is asked for only when they are not.
+      // ignored, so the claim is asked for up front only when they are not.
+      // The archive's `_system` half is judged once it is unpacked, against
+      // the same claims (`ImportSystemGate`, D84): catalog rows still need
+      // `media:create` with `media=none`, and variables need the reach their
+      // own routes ask for.
       if (media !== MediaModes.None) RouteAuth.requireClaim(c, Claims.MediaCreate);
       // `replace` drops each archived collection — entries and schema — before
       // writing it back, which `merge` never does, so its two extra
@@ -101,7 +106,7 @@ export class TransferRoutes {
           include: selection,
           media,
           onProgress,
-          allowKeys: Claims.has(key.claims, Claims.KeysImport),
+          grants: ImportGrants.fromClaims(key.claims),
         });
 
       // An import says nothing while it extracts and writes, which on a

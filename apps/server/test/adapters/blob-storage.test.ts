@@ -38,6 +38,28 @@ describe("FsBlobStorage", () => {
     expect(response).toBeNull();
   });
 
+  test("stream hands back the file as a stream, whole or a range of it (D80)", async () => {
+    await store.put("clip.bin", new TextEncoder().encode("0123456789"));
+
+    const whole = await store.stream("clip.bin");
+    expect(whole).not.toBeNull();
+    expect(whole!.size).toBe(10);
+    // A stream, not the file handle: a response over the handle was measured
+    // to read the file whole per request.
+    expect(whole!.body).toBeInstanceOf(ReadableStream);
+    expect(await new Response(whole!.body).text()).toBe("0123456789");
+
+    const part = await store.stream("clip.bin", { start: 2, end: 5 });
+    expect(await new Response(part!.body).text()).toBe("2345");
+    // The whole object's size, not the slice's: the caller builds
+    // `Content-Range` from it.
+    expect(part!.size).toBe(10);
+  });
+
+  test("stream of a missing key is null, not a body that fails on read", async () => {
+    expect(await store.stream("absent.bin")).toBeNull();
+  });
+
   test("delete blob", async () => {
     const data = new TextEncoder().encode("delete me");
     await store.put("delete.txt", data);
@@ -133,6 +155,22 @@ describe("S3BlobStorage (against a mock S3 server)", () => {
     const store = openStore();
     await store.put("01ARZ3.png", new Uint8Array([1]), { contentType: "image/png" });
     expect((await store.get("01ARZ3.png"))!.contentType).toBe("image/png");
+  });
+
+  test("stream reads a range as one ranged GetObject and nothing else (D80)", async () => {
+    const store = openStore();
+    await store.put("clip.bin", new TextEncoder().encode("0123456789"));
+
+    const part = await store.stream("clip.bin", { start: 3, end: 6 });
+    expect(await new Response(part!.body).text()).toBe("3456");
+    // No HEAD was made: the size is deliberately unknown here (the catalog has
+    // it), and the range GET is the only request the read costs.
+    expect(part!.size).toBeUndefined();
+    const forClip = s3.requests.filter((line) => line.includes("clip.bin"));
+    expect(forClip.filter((line) => line.startsWith("HEAD "))).toHaveLength(0);
+    const ranged = forClip.filter((line) => line.startsWith("GET "));
+    expect(ranged).toHaveLength(1);
+    expect(ranged[0]).toContain("range=bytes=3-6");
   });
 
   test("get of a missing key is null, not a throw", async () => {

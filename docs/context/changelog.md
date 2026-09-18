@@ -4,6 +4,141 @@
 > The *current* state is [CONTEXT.md](../../CONTEXT.md); this is how it got
 > there.
 
+- **A streamed import is bounded, locks only its load, and never empties a
+  collection before it fills it (2026-09-18, D85).** A 128 MB `.tar.gz` could
+  inflate to over a hundred gigabytes onto the data disk with nothing but
+  `ENOSPC` to stop it; the write lock was held from the upload's first byte,
+  so a slow sender held every write on the instance; and replace mode deleted
+  a collection and then refilled it, so a failure between the two left it
+  empty. Now `[transfer] max_archive_size_mb` (default 1024) is enforced as
+  the spool arrives and `max_extracted_size_mb` (default 4096) as tar hands
+  each header to `ArchiveExtractor`'s filter, every entry costing at least a
+  4 KB block, with the first overspend aborting the parser before the entry
+  is written — `413 archive_too_large`, naming the setting; both take
+  `SILO_TRANSFER_*` overrides and sit on **Settings > Configuration >
+  Transfers**; a file named on the command line is not bounded.
+  `TransferService` unpacks with `Importer.stage` before taking the lock and
+  holds it for `importDir` alone. Replace writes every row the archive carries
+  over what is there and then `prune`s the rows it did not carry, so an
+  interruption leaves extra rows, never missing ones; the counts read as
+  before. Found by the 2026-09-18 audit (H4, H5, H6).
+
+- **An archive's `_system` half is gated per collection (2026-09-18, D84).**
+  Only `_keys` was gated; a key with `transfer:import` and write on one
+  collection could plant `_variables` for any project, forge `_audit` events,
+  or empty the audit trail with a whole-instance replace. `ImportSystemGate`
+  now judges the rows after the filter and before anything is written, against
+  `ImportGrants`: `_keys` needs `keys:import`; the media catalog needs
+  `media:create` even with `media=none`, and `media:delete` when a replace
+  would empty it; `_variables` need `create` and `entries:update` over the
+  whole project they belong to, by the archive's own project markers.
+  `_audit`, `_plugins`, `_scope_renames` and any unknown `_system` name are a
+  `400` whoever asks. The routes derive the grants from the caller's claims;
+  the CLI passes `ImportGrants.Trusted`, which is also the default; `allowKeys`
+  is gone. Found by the 2026-09-18 audit (H3).
+
+- **Nothing silo did not write may render as a page on silo's origin
+  (2026-09-18, D83).** An SVG uploaded with a `write`-preset key was served
+  inline from the origin the admin lives on, and one click ran its script with
+  every saved API key in `localStorage` in reach; a public plugin route
+  answering HTML was the same door with no upload. `ResponseSandbox` now puts
+  `X-Content-Type-Options: nosniff` and a `Content-Security-Policy` on every
+  `/media/{id}` answer (`sandbox`) and every `/api/ext/{name}/*` answer
+  (`default-src 'none'; sandbox`, the panel route's policy), replacing a
+  plugin's own. `MediaDisposition` sends images, video, audio and PDF inline
+  and everything else — an SVG first — as an attachment; an `<img>` still
+  draws it. An asset's `content_type` comes from its extension and never from
+  what the upload declared, so `MediaService.save` and `replaceContent` lost
+  that parameter and `MimeUtils` learnt `avif`, `mov`, `m4a` and the office
+  types. `svg` is out of the default allowlist; add it back where every
+  uploader is trusted. Measured on a Chromium browser first: a PDF renders
+  under `sandbox`, and an iframe `sandbox` attribute blanks it, which is why
+  the admin's PDF preview relies on the header. Found by the 2026-09-18 audit
+  (H1, H2).
+
+- **A run record is live by identity, not by pid (2026-09-18, D82).** The
+  guard asked the kernel whether the recorded pid existed. Under Docker the
+  server is pid 1 every time, so after an OOM kill the restarted container
+  found "itself" alive and refused to start until a human deleted
+  `silo.run.json`; after an unclean reboot a root-owned early service read as
+  alive too, and `silo stop` on one instance could SIGTERM another on a shared
+  box. `RunFile.liveness` now applies four tests: the record names this very
+  process; it carries a `boot_id` from another boot (`BootId`, Linux); its pid
+  is gone; or no server has refreshed its `heartbeat_at` for two minutes,
+  where `serve` refreshes it every 30 s. `stop` and `status` say which. The
+  record is written atomically, and `serve` catches uncaught errors and
+  unhandled rejections to remove the record and exit 1 rather than leave it
+  behind. Records from older versions, with no heartbeat, are judged by pid as
+  before. Found by the 2026-09-18 audit (C5).
+
+- **Entry lists and searches scan on a storage read worker, not on the event
+  loop (2026-09-18, D81).** `bun:sqlite` is synchronous and every filter or
+  sort over entry data is a full scan of the collection, so on 200,000 rows
+  one `contains` held the one JS thread for 0.6 s and a 49-way `or` for 12 s,
+  `/api/health` included — anonymously, on any public collection.
+  `SqliteReadThread` is one `Worker` per process holding one connection per
+  database path (WAL, `query_only`, source as a `data:` URL like the plugin
+  host's, unref'd), and `SqliteReadWorker` a store's handle on it;
+  `SqliteEntryStore.list` and `SqliteSearcher.search` await their statements
+  from it. One thread rather than one per store because the first cut spawned
+  539 workers across a full test run and crashed Bun at 11 GB. Off under
+  `bun test` unless a store asks (`SqliteStore.readThreadDefault`,
+  `SILO_READ_THREAD=on|off`), because the runner's `expect(...).rejects` wait
+  does not deliver a worker's replies once it has answered twice; the thread's
+  own test opts in. Reads queue to 64 and
+  the next is `503 busy` with `Retry-After: 1`. A filter may name at most
+  `MaxFilterLeaves` (16) field tests. `close` waits for the worker to release
+  its handle before terminating, which the conformance suite caught as `EBUSY`
+  on the first run without it. An in-memory database reads as before. Found by
+  the 2026-09-18 audit (C4).
+
+- **Media is read from the store as it is sent, and a `Range` is honoured
+  (2026-09-18, D80).** `/media/{id}` read every asset whole and copied it once
+  more per request, with the largest asset one anonymous `?sort=-size` away.
+  `BlobStorage` gains an optional `stream(key, range?)`; the fs store answers
+  it with `FileByteStream`, a hand-written 64 KB pull reader over a file
+  handle, because every runtime file body was measured to buffer the file or
+  mis-slice a range on Bun 1.3.14; the S3 store answers with the object
+  handle's stream, whose slice is a ranged `GetObject`. `MediaDelivery.open`
+  resolves a `Range` against the catalog's size (`ByteRange`), the route
+  answers `206` with `Content-Range`, `416` past the end, and always
+  `Accept-Ranges: bytes`. Measured against a real listener: six concurrent
+  60 MB downloads grew the process by 24 MB where the old path held about
+  720 MB. A whole answer is chunked, since the runtime drops a `Content-Length`
+  on a stream body. Found by the 2026-09-18 audit (C3).
+
+- **Every request body has a ceiling, by route class (2026-09-18, D79).** The
+  listener passed no `maxRequestBodySize`, and the runtime buffers a body
+  whether or not a handler reads it: eight concurrent unread 120 MB bodies took
+  a probe server from 50 MB to a 1.4 GB peak, with no key and no valid route.
+  `[http] max_body_size_mb` (default 128, the runtime's own) is now passed to
+  `Bun.serve` and bounds the four upload routes and plugin routes;
+  `[http] max_json_body_size_mb` (default 4) bounds every other `/api` route
+  through the new `BodyLimitMiddleware`, installed before auth, answering
+  `413 payload_too_large` from `Content-Length` or by counting a chunked body.
+  Both are on the Connections settings page with `SILO_HTTP_*` overrides.
+  `POST /api/projects` and environment create ask for a key before reading the
+  body; `ExtRequest` checks a plugin route's `max_bytes` against the header
+  first and while reading, not after buffering. Found by the 2026-09-18 audit
+  (C2). The runtime facts — a `Content-Length` over the cap is refused up
+  front, an unread chunked body is cut at the cap, a consumed chunked stream is
+  not bounded — were measured, and are why the import route is exempt rather
+  than wrapped.
+
+- **The fs adapter no longer loses a collection on rename (2026-09-18).**
+  `FsCollectionStore.delete` removed the content directory with `fs.rm` and no
+  `recursive`, which never removes a directory, and swallowed the error; every
+  collection delete left an empty `content/<name>/` behind. `moveIfPresent`
+  then read an existing destination as "this move already landed" and removed
+  the source. Renaming a live collection onto a name deleted earlier erased
+  every entry of the renamed collection, silently — reproduced from the
+  2026-09-18 audit (C1). `delete` now refuses while entry files remain, as the
+  SQLite adapter does, and removes the directory whole; the content move
+  removes an empty leftover, refuses a destination that holds entries, and
+  never discards the source; `rename` refuses a destination whose content
+  directory holds entries even without a marker. Two conformance tests pin it
+  for both adapters.
+
 - **The receiving end of a transfer is memory-flat too (2026-09-17).** A
   destination taking a 750 MB copy peaked at **2.0 GB** of private memory, which
   is the side of a transfer a small instance is least able to absorb. Two
