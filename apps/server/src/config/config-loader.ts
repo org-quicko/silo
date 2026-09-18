@@ -2,6 +2,7 @@ import fs from "fs/promises";
 import path from "path";
 import { TOML } from "bun";
 import type { Config } from "./config";
+import { HttpDefaults } from "./http-defaults";
 import { MediaDefaults } from "./media-defaults";
 import { MediaTable } from "./media-table";
 import type { PluginConfig } from "./plugin-config";
@@ -10,6 +11,9 @@ export class ConfigLoader {
   static defaultConfig(): Config {
     return {
       listen: ":8090",
+      http: {
+        idle_timeout: HttpDefaults.IdleTimeout,
+      },
       default_project: "default",
       default_env: "prod",
       storage: {
@@ -113,6 +117,11 @@ export class ConfigLoader {
         if (parsed) {
           if (typeof parsed.listen === "string") {
             config.listen = parsed.listen;
+          }
+          if (parsed.http && typeof parsed.http === "object") {
+            if (typeof parsed.http.idle_timeout === "number") {
+              config.http.idle_timeout = HttpDefaults.idleTimeout(parsed.http.idle_timeout);
+            }
           }
           if (typeof parsed.default_project === "string") {
             config.default_project = parsed.default_project;
@@ -222,6 +231,9 @@ export class ConfigLoader {
     // Environment overrides
     if (process.env.SILO_LISTEN) {
       config.listen = process.env.SILO_LISTEN;
+    }
+    if (process.env.SILO_HTTP_IDLE_TIMEOUT) {
+      config.http.idle_timeout = HttpDefaults.idleTimeout(Number(process.env.SILO_HTTP_IDLE_TIMEOUT));
     }
     if (process.env.SILO_DEFAULT_PROJECT) {
       config.default_project = process.env.SILO_DEFAULT_PROJECT;

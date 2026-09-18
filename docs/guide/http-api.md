@@ -32,8 +32,8 @@ Present a key as `Authorization: Bearer <key>` or `X-Api-Key: <key>`.
 | `GET` / `PUT` / `DELETE` | `/api/projects/{project}/envs/{env}/collections/{name}/schema` | fetch / update / delete a schema |
 | `GET` / `POST` | `/api/projects/{project}/envs/{env}/collections/{name}` | list entries (filter, sort, paginate) / create |
 | `GET` / `PUT` / `DELETE` | `/api/projects/{project}/envs/{env}/collections/{name}/{id}` | read / full replace / delete |
-| `GET` | `/api/export` | stream a `tar.gz` archive |
-| `POST` | `/api/import?mode=` | accept a `tar.gz` archive |
+| `GET` | `/api/export?include=&media=` | stream a `tar.gz` archive, whole or narrowed |
+| `POST` | `/api/import?mode=&include=&media=` | accept a `tar.gz` archive |
 | `POST` | `/api/copy` | pull and import another running silo |
 | `GET` / `POST` | `/api/keys` | list keys / create one. The secret is returned exactly once |
 | `DELETE` | `/api/keys/{id}` | revoke a key, and everything descended from it |
@@ -186,6 +186,18 @@ admin tabs from overwriting each other in silence.
 The codes are `validation_failed` (400), `unauthorized` (401), `forbidden`
 (403), `not_found` (404), `conflict` (409) and `internal` (500). Validation
 details carry JSON Pointer paths from the validator.
+
+Every write is validated against the collection's schema. A read is not.
+
+A `PUT` to `/collections/{name}/schema` answers `409` if the collection holds
+entries and the new schema changes which entries are valid. The message gives
+the collection name and the entry count. A change to `x-silo-auth`,
+`x-silo-search`, `title`, `description`, `$comment` or `$schema` is always
+permitted, because those do not change what is valid.
+
+The admin UI makes the schema read-only while entries exist. It keeps the field
+descriptions and the privacy toggle editable. To change `x-silo-search` on such
+a collection, use this endpoint.
 
 Two failures have codes of their own, because they are neither a refusal nor a
 bug and a caller can act on them: `media_delete_stalled` (500) and

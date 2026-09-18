@@ -2,13 +2,20 @@ import type { Context } from "hono";
 import { Claims } from "@silo/shared/claims";
 import type { SiloService } from "../../core/services/silo-service";
 import { ValidationError } from "@silo/shared/validation-error";
+import type { ImportProgress } from "../../core/transfer/import-progress";
+import { MediaModes } from "../../core/transfer/media-mode";
 import { RouteAuth } from "../auth/route-auth";
+import { TransferAuth } from "../auth/transfer-auth";
+import { ProgressStream } from "./progress-stream";
+import { TransferQuery } from "./transfer-query";
 
 export class TransferRoutes {
   static register(app: any, service: SiloService) {
     app.get("/api/export", async (c: Context) => {
       RouteAuth.requireClaim(c, Claims.TransferExport);
-      RouteAuth.requireInstanceWide(c, "export", Claims.TransferReadPermissions);
+      const selection = TransferQuery.selection(c);
+      const media = TransferQuery.media(c, selection);
+      TransferAuth.require(c, "export", selection, Claims.TransferReadPermissions);
       // D24 additionally required `media:read` here, on the rule that an
       // archive carries the media library and the caller must independently
       // hold what the operation exercises. D58 retired that claim: reading the
@@ -16,13 +23,20 @@ export class TransferRoutes {
       // archive discloses about media is what `GET /api/media` already
       // discloses to anyone who asks.
       const withKeys = c.req.query("with_keys") === "true";
-      if (withKeys) RouteAuth.requireClaim(c, Claims.KeysExport);
-      // Streamed rather than read into a Buffer: an archive carries the whole
-      // media library, so buffering it made the response cost as much memory
-      // as the instance holds and failed on a small host instead of merely
-      // being slow. The export walk is awaited inside, so a storage or blob
-      // error still becomes an error response rather than a truncated body.
-      const archive = await service.transfer.exportTarGzStream({ withKeys });
+      if (withKeys) {
+        RouteAuth.requireClaim(c, Claims.KeysExport);
+        // Keys are instance-global, so an archive carrying them confers
+        // instance-wide authority however narrow its content selection is.
+        RouteAuth.requireInstanceWide(c, "an export with keys", Claims.TransferReadPermissions);
+      }
+
+      // Produced as it is walked: the response begins immediately, rather than
+      // after a walk that on a real library takes longer than a connection is
+      // allowed to stay quiet (§7.1, §10.3). The cost is that a storage or blob
+      // failure now truncates the body instead of becoming an error status —
+      // and a truncated archive fails its own gzip check at the far end, so it
+      // cannot half-import.
+      const archive = service.transfer.exportTarGzStream({ withKeys, include: selection, media });
 
       c.header("Content-Type", "application/gzip");
       c.header("Content-Disposition", 'attachment; filename="silo-export.tar.gz"');
@@ -32,18 +46,23 @@ export class TransferRoutes {
     app.post("/api/import", async (c: Context) => {
       const key = RouteAuth.requireClaim(c, Claims.TransferImport);
       const mode = c.req.query("mode") as "merge" | "replace" | undefined;
-      RouteAuth.requireInstanceWide(c, "import", Claims.TransferWritePermissions);
-      RouteAuth.requireClaim(c, Claims.MediaCreate);
+      const selection = TransferQuery.selection(c);
+      const media = TransferQuery.media(c, selection);
+      TransferAuth.require(c, "import", selection, Claims.TransferWritePermissions);
+      // Nothing is created in the library when the archive's bytes are being
+      // ignored, so the claim is asked for only when they are not.
+      if (media !== MediaModes.None) RouteAuth.requireClaim(c, Claims.MediaCreate);
       // `replace` drops each archived collection — entries and schema — before
       // writing it back, which `merge` never does, so its two extra
       // permissions are asked for only when it is the mode. An unrecognised
       // mode is not `replace`; `Importer.executeImport` rejects it as a 400.
       if (mode === "replace") {
-        RouteAuth.requireInstanceWide(c, 'an import in "replace" mode', Claims.TransferReplacePermissions);
-        // Replace clears every blob in the instance before loading.
-        RouteAuth.requireClaim(c, Claims.MediaDelete);
+        TransferAuth.require(c, 'an import in "replace" mode', selection, Claims.TransferReplacePermissions);
+        // Replace clears the blobs an archive is authoritative for. Only a
+        // whole-library archive is authoritative for all of them (§7.7), but
+        // the claim is asked for whenever any blob may be removed.
+        if (media !== MediaModes.None) RouteAuth.requireClaim(c, Claims.MediaDelete);
       }
-      const validate = c.req.query("validate") === "true";
       const dryRun = c.req.query("dry_run") === "true";
       const prefer = c.req.query("prefer") as "local" | "remote" | undefined;
 
@@ -74,15 +93,23 @@ export class TransferRoutes {
         archive = raw;
       }
 
-      const response = await service.transfer.importTarGzStream(archive, {
-        mode,
-        validate,
-        dryRun,
-        prefer,
-        allowKeys: Claims.has(key.claims, Claims.KeysImport),
-      });
+      const load = (onProgress?: (progress: ImportProgress) => void) =>
+        service.transfer.importTarGzStream(archive, {
+          mode,
+          dryRun,
+          prefer,
+          include: selection,
+          media,
+          onProgress,
+          allowKeys: Claims.has(key.claims, Claims.KeysImport),
+        });
 
-      return c.json(response);
+      // An import says nothing while it extracts and writes, which on a
+      // connection that closes when it goes quiet is exactly how a succeeding
+      // import looks like a failing one (§7.8). Opt-in, so nothing already
+      // reading the JSON body has to change.
+      if (ProgressStream.wanted(c)) return ProgressStream.respond(c, load);
+      return c.json(await load());
     });
   }
 }

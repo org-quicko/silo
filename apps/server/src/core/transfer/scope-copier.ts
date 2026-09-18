@@ -1,5 +1,6 @@
 import type { Storage } from "../ports/storage";
 import type { Entry } from "../domain/entry";
+import { ImportEntries } from "./import-entries";
 import { Scope } from "../domain/scope";
 import { ValidationError } from "@silo/shared/validation-error";
 import { FormatVersion } from "./format-version";
@@ -124,9 +125,14 @@ export class ScopeCopier {
 
     const names = [...schemas.keys()].sort();
 
-    const entries = new Map<string, Entry[]>();
+    const entries = new Map<string, ImportEntries>();
     for (const name of names) {
-      entries.set(name, await ScopeCopier.readEntries(store, from, to, name, selected.get(name)));
+      // Already in hand: a scope copy reads from storage rather than from an
+      // archive, so there is no directory to defer.
+      entries.set(
+        name,
+        ImportEntries.of(await ScopeCopier.readEntries(store, from, to, name, selected.get(name)))
+      );
     }
     // No ids: a copy into another scope of the same instance creates new
     // collection records there rather than carrying the source's identity, the

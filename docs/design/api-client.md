@@ -8,8 +8,8 @@
 `packages/silo-client`, published to npm as `@org-quicko/silo-client`. A typed,
 object-oriented client for the data half of silo's HTTP API: projects,
 environments, collections, schemas, entries, queries, variables, search and
-media. Zero runtime dependencies, ESM and CJS, Node 18+ / Bun / Deno /
-browsers / workers.
+media. ESM and CJS, Node 18+ / Bun / Deno / browsers / workers. Its one runtime
+dependency supports an optional in-memory read cache.
 
 It is flat under `packages/` rather than nested at `packages/api-client/typescript/`
 for one mechanical reason: the root `package.json` declares
@@ -218,7 +218,7 @@ server side runs on undici, every unit test passes `StubFetch`, and the admin
 UI passes a wrapper that watches for a 401. The default is now
 `globalThis.fetch` bound to the global, and `execute` reads the field into a
 local before calling it — belt and braces, but the second half is the invariant
-worth stating, since the `Transport` is never a legitimate receiver for a
+worth stating, since `FetchTransport` is never a legitimate receiver for a
 caller's function either and an unbound `window.fetch` handed over as
 `SiloOptions.fetch` should work. A runtime with no global `fetch` is refused at
 construction, naming `SiloOptions.fetch`, rather than at the first call.
@@ -317,10 +317,54 @@ is also no generic `request()` escape hatch: without one, a route the client
 does not cover is a client change, which is the point of `RouteInventory`.
 
 An enveloped entry response — the thing that would let a field be named `rev`
-— is a server change and is not attempted here. Neither is caching, retries,
-or a framework adapter: the client stays framework-neutral so a React or Nuxt
-package can wrap it without forking it.
+— is a server change and is not attempted here. Retries and framework adapters
+remain outside the client. Optional read caching is described in §14.10.
 
 The admin UI keeps its own `src/api/` for now. The client is shaped so
 `apps/admin` can adopt it, and §14.2's split is what would make that swap
 safe, but it touches around forty view files and is its own change.
+
+### 14.10 Optional read caching (D71)
+
+`SiloOptions.cache` accepts `{ ttlMilliseconds, maxEntries? }` or an existing
+`SiloCache`. Without it, reads go directly through `FetchTransport`; no cache
+store, timer, key or clone is created. `silo.cache` still provides `enabled`,
+`size` and `clear()`. `withKey()` and `withUrl()` share that facade.
+
+The TTL is a required positive finite safe integer, measured from storage,
+not extended by hits. `maxEntries` is a positive safe integer or `Infinity`;
+omitting it leaves the count unlimited. The soonest-expiring entry is evicted
+first. `@isaacs/ttlcache` 2.1.5 stays external in both bundles. Infinite TTLs
+are rejected because that version cannot safely evict or clear immortal
+entries. Expiry is checked on retrieval as well as by the library's timer.
+
+`CachingTransport` wraps the transport interface used by every handle. It
+caches successful GET calls through `json()`, including a decoded `undefined`
+from a 204. Other transport methods pass through. The URL (including query)
+and normalized `Headers` are prepared once, then used for both the key and
+fetch. Authorization is included; duplicate header names keep their combined
+value order. A custom fetch that changes authentication or routing must keep
+that context in the client's URL/headers, or bypass the cache.
+
+Responses are cloned before storage and on each hit. The public facade uses
+runtime-private storage; it offers no keys or body access. An already-aborted
+cacheable read raises `RequestAbortedError`; a hit has no network timeout.
+
+`bypass` skips lookup and storage. `refresh` skips lookup and stores a
+successful response; failure leaves an existing cached response unchanged.
+Both modes are ignored on writes or when caching is disabled. `health()`
+always bypasses. `MediaAsset.refresh()` defaults to refresh and honors an
+explicit bypass. Pagination keeps the mode unless the caller overrides it.
+
+Every non-GET clears the shared store before dispatch and in `finally` after
+settlement, including failed or partially successful writes. This removes
+reads cached while a write was pending. Manual `clear()` also invalidates
+pending reads. Each cacheable network read gets a unique per-key ticket;
+only the current ticket may store, and completion removes it. Clearing the
+tickets prevents old reads from repopulating the cache. Starting a newer
+read prevents an older one from overwriting its result, even if the newer
+read fails. Callers still receive their own network responses.
+
+The store is local to a tab, worker or process, with no coalescing, retries,
+persistence or scoped invalidation. Node and Bun unref the expiry timer;
+Deno may stay alive until expiry, so `clear()` releases the timer when done.

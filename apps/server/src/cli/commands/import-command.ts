@@ -1,5 +1,7 @@
 import fs from "fs/promises";
 import { SiloService } from "../../core/services/silo-service";
+import { MediaModes } from "../../core/transfer/media-mode";
+import { TransferSelection } from "../../core/transfer/transfer-selection";
 
 export class ImportCommand {
   static async run(
@@ -15,12 +17,16 @@ export class ImportCommand {
     }
 
     const mode = values.mode as "merge" | "replace";
-    const validate = !!values.validate;
     const dryRun = !!values["dry-run"];
     const prefer = values.prefer as "local" | "remote";
 
+    const include = TransferSelection.parse(
+      Array.isArray(values.include) ? values.include : values.include ? [values.include] : []
+    );
+    const media = MediaModes.parse(values.media, !include.isEverything);
+
     // Host-level CLI access is trusted and retains the ability to restore keys.
-    const options = { mode, validate, dryRun, prefer, allowKeys: true };
+    const options = { mode, dryRun, prefer, include, media, allowKeys: true };
 
     let response;
     const stat = await fs.stat(src);
@@ -39,6 +45,25 @@ export class ImportCommand {
     console.log(`  Updated: ${response.updated}`);
     console.log(`  Deleted: ${response.deleted}`);
     console.log(`  Skipped: ${response.skipped}`);
+    if (response.media) {
+      console.log(
+        `  Media:   ${response.media.files} file(s)${response.media.cleared ? " (library cleared first)" : ""}`
+      );
+    }
+
+    // Last, and only when there are any: a clean import should not end on a
+    // zero that invites a search for a problem that is not there.
+    if (response.rejected > 0) {
+      console.log(`  Rejected: ${response.rejected} (did not match the destination's schema)`);
+      for (const rejection of response.rejections) {
+        console.log(
+          `    ${rejection.project}/${rejection.env}/${rejection.collection}/${rejection.id}: ${rejection.reason}`
+        );
+      }
+      if (response.rejections.length < response.rejected) {
+        console.log(`    … and ${response.rejected - response.rejections.length} more`);
+      }
+    }
 
     await store.close();
   }

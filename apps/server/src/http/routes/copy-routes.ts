@@ -5,7 +5,12 @@ import { ValidationError } from "@silo/shared/validation-error";
 import { HttpSiloClient } from "../../adapters/http/http-silo-client";
 import { Scope } from "../../core/domain/scope";
 import { EntryUtils } from "../../core/domain/entry-utils";
+import { MediaModes } from "../../core/transfer/media-mode";
+import { TransferSelection } from "../../core/transfer/transfer-selection";
+import type { ImportProgress } from "../../core/transfer/import-progress";
 import { RouteAuth } from "../auth/route-auth";
+import { TransferAuth } from "../auth/transfer-auth";
+import { ProgressStream } from "./progress-stream";
 import type { CopyRequest } from "./copy-request";
 import type { ScopeCopyRequest } from "./scope-copy-request";
 import type { ScopeCopySelection } from "../routes/scope-copy-request";
@@ -16,35 +21,53 @@ export class CopyRoutes {
 
     app.post("/api/copy", async (c: Context) => {
       const key = RouteAuth.requireClaim(c, Claims.TransferCopy);
-      // A copy is an import of a remote instance's full archive, so it needs
-      // the same instance-wide write authority a local import does.
-      RouteAuth.requireInstanceWide(c, "copy", Claims.TransferWritePermissions);
-      // D24: a whole-instance copy pulls and loads the source's media, so it
-      // needs the media claims a local import needs. The scoped copy below
-      // does not — it touches no media at all (D22).
-      RouteAuth.requireClaim(c, Claims.MediaCreate);
       const body = await CopyRoutes.readBody(c);
       CopyRoutes.validateOptions(body);
+      const include = TransferSelection.parse(body.include ?? []);
+      const media = MediaModes.parse(body.media, !include.isEverything);
+
+      // A copy is an import of a remote instance's archive, so it needs the
+      // same write authority a local import of that archive does — narrowed
+      // to what the selection names, exactly as `/api/import` is (§7.6).
+      TransferAuth.require(c, "copy", include, Claims.TransferWritePermissions);
+      // D24: a copy that pulls media bytes loads them into the library, so it
+      // needs the media claims a local import needs. The scoped copy below
+      // never does — it touches no media at all (D22).
+      if (media !== MediaModes.None) RouteAuth.requireClaim(c, Claims.MediaCreate);
       if (body.mode === "replace") {
-        RouteAuth.requireInstanceWide(c, 'a copy in "replace" mode', Claims.TransferReplacePermissions);
-        RouteAuth.requireClaim(c, Claims.MediaDelete);
+        TransferAuth.require(c, 'a copy in "replace" mode', include, Claims.TransferReplacePermissions);
+        if (media !== MediaModes.None) RouteAuth.requireClaim(c, Claims.MediaDelete);
       }
       if (body.with_keys === true) RouteAuth.requireClaim(c, Claims.KeysImport);
 
       const source = new HttpSiloClient(body.source_url, body.source_api_key);
-      // Streamed end to end: the source streams its export, and this loads
-      // from that stream rather than reading it whole first, so a copy costs
-      // one chunk of memory instead of the source's whole media library.
-      const archive = await source.exportArchiveStream(body.with_keys === true);
-      const result = await service.transfer.importTarGzStream(archive, {
-        mode: body.mode,
-        dryRun: body.dry_run,
-        validate: body.validate,
-        prefer: body.prefer,
-        allowKeys: Claims.has(key.claims, Claims.KeysImport),
-      });
+      const run = async (onProgress?: (progress: ImportProgress) => void) => {
+        // Streamed end to end: the source streams its export, and this loads
+        // from that stream rather than reading it whole first, so a copy costs
+        // one chunk of memory instead of the source's whole media library. The
+        // selection goes out with the request, so the source never walks what
+        // this would discard.
+        const archive = await source.exportArchiveStream({
+          withKeys: body.with_keys === true,
+          include: include.describe(),
+          media,
+        });
+        return service.transfer.importTarGzStream(archive, {
+          mode: body.mode,
+          dryRun: body.dry_run,
+          prefer: body.prefer,
+          include,
+          media,
+          onProgress,
+          allowKeys: Claims.has(key.claims, Claims.KeysImport),
+        });
+      };
 
-      return c.json(result);
+      // The destination's connection is idle for the whole pull, which makes
+      // this the operation a quiet-connection timeout kills most reliably
+      // (§7.8).
+      if (ProgressStream.wanted(c)) return ProgressStream.respond(c, run);
+      return c.json(await run());
     });
   }
 
@@ -75,7 +98,6 @@ export class CopyRoutes {
       const result = await service.transfer.copyScope(from, to, {
         mode,
         dryRun: body.dry_run,
-        validate: body.validate,
         prefer: body.prefer,
         selection: body.selection?.map((item) => ({ collection: item.collection, entryIds: item.entry_ids })),
         scopeCopyPreview,
@@ -112,7 +134,7 @@ export class CopyRoutes {
     if (body.prefer !== undefined && body.prefer !== "local" && body.prefer !== "remote") {
       throw new ValidationError(`invalid copy preference "${body.prefer}"`);
     }
-    for (const field of ["dry_run", "validate"] as const) {
+    for (const field of ["dry_run"] as const) {
       if (body[field] !== undefined && typeof body[field] !== "boolean") {
         throw new ValidationError(`${field} must be a boolean`);
       }
@@ -242,10 +264,13 @@ export class CopyRoutes {
     if (body.prefer !== undefined && body.prefer !== "local" && body.prefer !== "remote") {
       throw new ValidationError(`invalid copy preference "${body.prefer}"`);
     }
-    for (const field of ["with_keys", "dry_run", "validate"] as const) {
+    for (const field of ["with_keys", "dry_run"] as const) {
       if (body[field] !== undefined && typeof body[field] !== "boolean") {
         throw new ValidationError(`${field} must be a boolean`);
       }
+    }
+    if (body.include !== undefined && !Array.isArray(body.include)) {
+      throw new ValidationError("include must be an array of project[/env[/collection]] rules");
     }
   }
 }

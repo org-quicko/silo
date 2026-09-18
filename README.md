@@ -97,10 +97,17 @@ Projects and environments are plain string containers with no metadata of their
 own. All three of projects, environments and collections are keyed records, so
 you can rename any of them, and the claims that name them follow.
 
-Entries are documents. silo does not map a schema to tables. It validates a
-schema on write only, so a schema change never rewrites or blocks the entries
-that already exist. The admin UI marks an entry that predates the change when
-you open it.
+Entries are documents. silo does not map a schema to tables. Every write is
+validated against the collection's schema, and there is no way to turn that
+off. A read is not validated, so a schema can never make stored data
+unreadable.
+
+A collection keeps its schema while it holds entries. To change the fields,
+delete the entries first, or export them and import them into a new collection.
+The access setting, the search fields and the labels stay editable at any time,
+because they do not decide whether an entry is valid. A later release will allow
+a schema change over existing data, with a plan that states what happens to
+those entries.
 
 Names that start with `_` belong to silo. API keys, for example, live in the
 reserved `_system/_system` scope as a `_keys` collection. silo stores them
@@ -141,10 +148,12 @@ engine handle them with no special code.
   in each environment, and silo puts the value into each `{{NAME}}` on the way
   out.
 - **Portable data.** One command exports every project, environment, schema,
-  entry, and media file, and one command imports it again. The filesystem
-  driver's on-disk layout is the export format, so an fs-backed instance is a
-  live backup you can copy with `cp`, replicate with `rsync`, or review in git.
-  You can also pull an export straight from another running silo.
+  entry, and media file, and one command imports it again. Name a project, an
+  environment or a single collection to move only that, and choose whether the
+  media files travel with it. The filesystem driver's on-disk layout is the
+  export format, so an fs-backed instance is a live backup you can copy with
+  `cp`, replicate with `rsync`, or review in git. You can also pull an export
+  straight from another running silo.
 - **Replaceable parts.** Storage is SQLite, flat files, or your own driver.
   Media is local disk or any S3-compatible bucket (AWS S3, MinIO, Cloudflare R2,
   DigitalOcean Spaces). The admin UI is an ordinary client of the public API, so

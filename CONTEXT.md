@@ -17,12 +17,12 @@ can be cloned with one command.
 
 ## Where things stand
 
-*Last updated: 2026-09-17 (D70)*
+*Last updated: 2026-09-17 (D79)*
 
 **The Java client caches entry reads, and `@Cache` decorates rather than
-intercepts (2026-09-17, D70).** Caffeine holds one entry and one page of
+intercepts (2026-09-17, D79).** Caffeine holds one entry and one page of
 entries. **`@Cache(ttl = 30, maxSize = 1024)` is the whole annotation**, and
-and both are optional: what a read states **wins**, and what it leaves out is
+both are optional: what a read states **wins**, and what it leaves out is
 taken from `CacheOptions`, which a consumer sets on `SiloOptions`. A number
 neither side names is refused rather than invented. The name is Spring's
 `@Cacheable` shortened, and the mechanism is not Spring's, because it could not
@@ -57,6 +57,153 @@ absent-default-scope reasoning one layer down. Schemas, searches, variables and
 media reach the server every time. A cache belongs to one transport, so
 `withKey` and `withUrl` start empty. D7 is untouched: that is the server's
 storage layer, not a client holding what it already fetched. The suite is 114.
+
+**A transfer now says what it covers, and export answers immediately
+(2026-09-17).** `GET /api/export` had been failing behind a reverse proxy with a
+`503` that named the proxy. Three things were true at once: `Bun.serve` was
+started with no `idleTimeout`, so the runtime's own **10 seconds** applied;
+`Exporter` staged the entire archive in a temp tree before the first byte, which
+on the deployment that found this meant 1,619 media objects pulled from a bucket
+and 68 seconds of silence; and the handler then finished normally and logged its
+own `200` for a client that had left a minute earlier.
+
+**The listener has `[http] idle_timeout`** (default 120s,
+`SILO_HTTP_IDLE_TIMEOUT`, settable from **Settings > Configuration >
+Connections**), clamped to the runtime's 255 rather than refused, since a config
+that is only too generous must not be what stops a server starting (D72).
+
+**The archive is produced as it is walked** (D73). The walk writes through an
+`ExportSink` — a directory for `--dir`, a tar stream over silo's own
+`TarWriter` for everything else — so the first byte leaves in milliseconds and
+peak memory is one entry rather than one media library. Reading an archive is
+still `tar.x`; only the writer is ours. Archives are reproducible for real now,
+every entry carrying the export's own `exported_at` instead of the clock at
+staging time. The cost is stated: a blob failure truncates the body rather than
+becoming an error status, and a truncated archive fails its own gzip check and
+extracts nothing. Import keeps a temp tree, staged under `<data>/transfer/`
+because a hardened unit puts `/tmp` on a RAM-backed tmpfs.
+
+**Export holds a flat 147 MB whatever the library weighs** (D76). D73's claim
+that it already did was measured and was wrong, and the cause was below the
+walk: the web `CompressionStream` accepts every chunk it is offered and holds
+the result. `GzipStream` (`node:zlib`) replaces it, and the file path flushes
+its sink on a byte budget instead of trusting a `write` that answers a count.
+**The receiving end is flat too, in two steps.** `ImportEntries` replaced the
+`Entry[]` the walker handed over with a directory opened one file at a time
+(D77), and the upload is spooled to one file and extracted from that rather than
+fed to `tar.x` as a stream, which absorbed the archive as fast as the socket
+delivered it (D78). A 750 MB copy went from **2.0 GB** of private memory on the
+destination to **516 MB**, against a baseline near 390 MB. Media goes to the
+store the instance is configured with, never a directory derived from the data
+path; it already did, and four tests now hold it there.
+
+**Export, import and copy share one selection vocabulary and three media modes**
+(D74). `include` is repeatable and names a `project`, a `project/env` or a
+`project/env/collection`; empty is the whole instance. `media` is
+`all|referenced|none` and decides the catalog subset with the bytes, defaulting
+to `all` for a whole transfer and `referenced` for a narrowed one — so "export
+everything" stays lossless and "export one collection" does not carry the whole
+library. `none` carries the catalog and no bytes, for two instances on one
+bucket. A copy forwards its selection to the source's own export. Claims follow
+the reach, which is D22's rule applied to the archive routes. **This forced a
+data-loss fix**: replace mode used to clear every blob in the destination
+whenever an archive had a `media/` directory, and to empty `_media` because the
+collection was in the archive; `ImportAuthority` now scopes replace to what the
+archive is actually authoritative for.
+
+**Import and copy can stream progress** (D75). `Accept: application/x-ndjson`
+answers with one JSON object per line and a heartbeat every second, because
+those two have nothing to send until they are done and a quiet connection is a
+closed one. The status goes out before the work, so the outcome is the last
+line; the admin reads it, and a long run reports what it is doing. The admin's
+Data Transfer page gains a three-level scope picker, every box checked by
+default because an empty selection *is* everything.
+
+**silo-client 1.1.1 can cache reads (2026-09-16).**
+`SiloOptions.cache` is opt-in and requires a finite TTL, so an application
+chooses how long a stored GET JSON response remains reusable. `SiloCache` can be shared by clients and is cleared around every
+write; `bypass` and `refresh` name the two per-read choices. Keys include the
+prepared URL and final headers, authorization included, and values are cloned
+at both cache boundaries. A pending read cannot refill a cache a write or
+manual clear has invalidated, and a newer refresh wins over an older one (D71).
+
+**A collection can now say more than "required" (2026-09-16).** The visual
+schema builder wrote `type`, `enum`, `$ref` and a required list and nothing
+else, so every other rule JSON Schema can state had to be typed into Code
+view — and the entry form, which already knows how to draw those rules, had
+nothing to draw. `SchemaConstraints` (`apps/admin/src/schema/`) is the set the
+builder now reads and writes: `format`, `minLength`, `maxLength` and `pattern`
+on a string, `minimum`, `maximum` and `multipleOf` on a number or integer, and
+`minItems`, `maxItems` and `uniqueItems` on a list — a reference list included,
+since that is an array too. Each keyword earns its place twice, because the
+server asserts it *and* RJSF already renders it: a `format` picks the entry
+form's control outright (`date` a date picker, `date-time` a datetime-local,
+`email` and `uri` their typed inputs), and a range becomes the number input's
+`min`/`max`/`step` through RJSF's own `getInputProps`, which `BaseInputTemplate`
+now calls rather than deriving the type by hand. Only formats `ajv-formats`
+asserts on **both** sides are offered, which is why `color` and `data-url` are
+not: RJSF's validator registers those and silo's server does not, so the form
+would accept a value the authority then stored unchecked. The keywords are
+written as a **set** on every save — `SchemaDraft` rewrites them from the field
+rather than letting the `raw` spread carry them through — so a string retyped as
+a boolean does not keep a `maxLength` the builder has stopped showing, and Code
+view cannot disagree with the row above it. They are held as the **text** that
+was typed rather than as numbers, because a keystroke rebuilds the whole
+document and parsing `0.` back to a number would delete the dot somebody is
+still typing; the conversion happens on the way out, where a half-typed value is
+simply a keyword not written yet. Everything here is part of the validating
+shape, so a populated collection freezes it (D70): the editor shows every
+constraint read-only, and a description-only save still round-trips the document
+unchanged. The builder row and the entry form's hint line both name what a field
+will accept, so a rule is stated before a save is refused for it, and
+`noHtml5Validate` puts every refusal in the form's own error list in Ajv's
+wording — the browser's native bubble reached neither the banner nor the field,
+and answered a range differently from a length and differently again from the
+same rule refused by the server.
+
+**Two shapes the entry form would not draw (2026-09-16).** A list that declares
+no `items` is what the builder's `array` kind writes, and RJSF answers "Missing
+items definition" for it *before* a `ui:widget` is read — so the chips widget
+chosen for the field never ran and the entry form printed it as unsupported.
+`FormSchema` now says what the schema already means, `items: {}`, which is the
+same move it makes for a property that declares nothing at all. And
+`format: "uri"` is a URL again: `buildUiSchema` and `MediaValue` counted it as
+media on its own, so the builder's new URL format would have drawn the media
+picker and written a `silo://media/<id>` for somebody who asked for a link. A
+media field says so with `x-silo-type: "media"`, which is what every importer
+writes and what the server rewrites on read; `cell-format.ts` already read the
+two apart this way, so the list and the form now agree.
+
+**JSON Schema became a rule, not just a shape (2026-09-16).** Collections were
+built on JSON Schema, and it drew the forms and described the data, but it did
+not reliably decide what got stored. `EntryService` validated every API write,
+and plugins inherited that because they dispatch through the real routes. The
+importer did not: it built a validator only under `opts.validate`, which
+defaulted to **false** on `silo import --validate`, on `POST /api/import`, and
+on both copy routes. And `putSchema` never looked at the entries under a
+collection at all, so tightening a schema left rows behind that it rejects.
+Three rules now hold (D70). **Data in is always validated** — the flag and every
+surface offering it are gone, and an entry the destination refuses is skipped,
+counted in `ImportResult.rejected` and named in `rejections` (capped at 100,
+count exact) rather than aborting an otherwise good archive. **Data out is never
+validated**, so a tightening cannot make stored entries unreadable. **A schema is
+frozen while entries exist**: `SchemaChangeGuard` compares the incoming bundled
+document against the stored one and answers `409` with the collection name and
+its entry count. Only the *validating shape* is frozen — `SchemaShape` strips
+`x-silo-auth`, `x-silo-search`, `title`, `description` and `$comment` at every
+depth first, so publishing a populated collection or fixing a search path stays
+an ordinary edit, and the strip is schema-aware rather than key-name-aware
+because `title` under `properties` is a field called "title". Replace-mode
+import, a first create and a rename are exempt, each because it has no entries
+to invalidate at the moment it writes. The admin's editor is read-only in both
+representations while entries exist, with the per-field description and the
+privacy toggle the exceptions; `x-silo-search` has no control of its own and so
+is API-only on a populated collection. `SchemaDraft` also stopped adding
+`type: "string"` to an enum that never declared one, which had made such a
+collection unsaveable once frozen. Editing a
+schema over existing data is **deferred, not refused forever** — a later release
+is expected to allow it behind a migration plan that says what happens to those
+entries.
 
 **silo has a Java client, and the three decisions that could not cross are the
 interesting part (2026-09-16, D69).** `packages/silo-client-java`, published as
@@ -465,7 +612,8 @@ accept is meant to be found. One secret, `NPM_TOKEN`.
 
 **silo has a TypeScript client, and it is a package rather than a copy of the
 admin's (2026-09-10).** `packages/silo-client`, published as `@org-quicko/silo-client`,
-with zero runtime dependencies and one bundled artifact per module condition.
+with one bundled artifact per module condition and `@isaacs/ttlcache` as an
+external runtime dependency (D71).
 The path is the object graph: `silo.project("acme").environment("prod")
 .collection<Post>("posts")`, where every handle is a value object that makes no
 request. There is no default scope, because a client that guesses `default/prod`

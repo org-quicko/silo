@@ -8,7 +8,8 @@ an environment holds collections, and a collection holds entries.
 npm install @org-quicko/silo-client
 ```
 
-Runs on Node 18+, Bun, Deno, browsers and workers. It has no dependencies.
+Runs on Node 18+, Bun, Deno, browsers and workers. Its optional cache uses one
+runtime dependency, `@isaacs/ttlcache`.
 
 The examples below build moviespace, a small film database.
 
@@ -318,6 +319,46 @@ await movies.get(id, { timeoutMilliseconds: 2_000 })
 `abort()` raises `RequestAbortedError`, and the deadline raises `TimeoutError`.
 Nothing is retried for you. A retried `POST` creates a second entry, and only
 the caller knows whether a call was safe to repeat.
+
+## Optional read cache
+
+Reads go to the server unless you enable caching. Choose a positive finite
+integer TTL in milliseconds. It starts when a response is stored and does
+not reset on a hit. `maxEntries` is optional; set it to bound memory use in a
+long-running client. When full, the soonest-expiring entry is removed first.
+
+```ts
+const silo = new Silo({
+  url: "https://cms.moviespace.com",
+  cache: { ttlMilliseconds: 5_000, maxEntries: 100 },
+})
+const movies = silo.scope("moviespace", "prod").collection<Movie>("movies")
+
+await movies.get(id)                       // may use a cached response
+await movies.get(id, { cache: "bypass" })  // fetch without reading or storing
+await movies.get(id, { cache: "refresh" }) // fetch and store on success
+silo.cache.clear()                         // after a change made elsewhere
+```
+
+Only successful GET JSON responses are cached, with separate entries for
+different URLs, queries and headers, including API keys. Returned objects
+are independent copies. A failed refresh leaves the existing cache unchanged.
+Your writes clear the shared cache before dispatch and after settlement,
+including failures. Pending reads cannot refill it after a clear or overwrite
+a newer read. `health()` always bypasses; `MediaAsset.refresh()` refreshes by
+default and accepts an explicit bypass. Modes do nothing when caching is off.
+
+`withKey()` and `withUrl()` share the cache. To share it explicitly, pass
+`cache: otherClient.cache`, or construct `new SiloCache({ ttlMilliseconds: 5000 })`.
+The facade exposes only `enabled`, `size` and `clear()`. Sharing preserves
+isolation by URL and headers. If a custom fetch adds authentication or changes
+the destination, include that context in the client's URL/headers or bypass
+caching.
+
+The cache lives in the tab, worker or process. Changes made elsewhere can
+remain hidden until expiry or a fresh read. Infinite TTLs are unsupported;
+`maxEntries` defaults to unlimited and may be `Infinity`. On Deno, an active
+expiry timer can keep the process alive; call `clear()` when finished.
 
 ## Anonymous reads
 

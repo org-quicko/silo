@@ -198,7 +198,7 @@ so it takes a key and a passphrase as secrets on top of the account token, and
 the `release` profile is where the `maven-gpg-plugin` joins the sources and
 javadoc jars it already attaches.
 
-### 15.8 Caching, and why `@Cache` decorates rather than intercepts (D70)
+### 15.8 Caching, and why `@Cache` decorates rather than intercepts (D79)
 
 A JVM consumer reading the same entry on every request pays a round trip for
 each one, and the entry did not change between them. `@Cache` is how a read

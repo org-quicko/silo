@@ -72,12 +72,17 @@ export:
   --dir path           export to directory layout
   --out path           export to .tar.gz tarball
   --with-keys          include API keys in export
+  --include rule       repeatable: project, project/env or project/env/collection.
+                       Omit for the whole instance.
+  --media s            all | referenced | none (default: all for a whole export,
+                       referenced once --include narrows it)
 
 import:
   --mode s             merge | replace (default merge)
-  --validate           strictly validate entries against schema (default false)
   --dry-run            verify import structure without writing (default false)
   --prefer s           local | remote (override conflict resolution)
+  --include rule       repeatable: load only this part of the archive
+  --media s            all | referenced | none. none ignores the archive bytes
 
 add: installs into <data>/plugins/ and appends a [[plugins]] block to the config.
   <spec> is a package name ("silo-plugin-slug", "@acme/x@^1"), a directory or

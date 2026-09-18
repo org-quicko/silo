@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { Collections } from "../../src/collections/collections";
 import { ValidationFailedError } from "../../src/errors/validation-failed-error";
 import { ScopeReference } from "../../src/scope/scope-reference";
-import { Transport } from "../../src/transport/transport";
+import { FetchTransport as Transport } from "../../src/transport/fetch-transport";
 import { StubFetch } from "../support/stub-fetch";
 import { StubResponse } from "../support/stub-response";
 

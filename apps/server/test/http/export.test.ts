@@ -688,10 +688,10 @@ describe("the export tarball streams rather than buffering", () => {
       const store = await SqliteStore.open(path.join(tempDir, "src.db"));
       // An object with no write method reached the write call and failed as a
       // TypeError; a null writer threw before the check meant to catch it.
-      await expect(Exporter.exportTarGz(store, {}, {})).rejects.toThrow(
+      await expect(Exporter.exportTarGz(store, {} as any, {})).rejects.toThrow(
         "unsupported writer type"
       );
-      await expect(Exporter.exportTarGz(store, null, {})).rejects.toThrow(
+      await expect(Exporter.exportTarGz(store, null as any, {})).rejects.toThrow(
         "unsupported writer type"
       );
       await store.close();
