@@ -15,8 +15,8 @@
 #     git tag -a silo-client-v1.1.0 -m "silo-client 1.1.0"
 #     git push origin silo-client-v1.1.0
 #
-# `silo-client-v*` cannot be caught by release.yml's `v*`, so a client release
-# builds no binaries and touches no tap.
+# `silo-client-v*` cannot be caught by release.yml's `vMAJOR.MINOR.PATCH` filter,
+# so a client release builds no binaries and touches no tap.
 #
 # `workflow_dispatch` runs everything up to and including `npm publish
 # --dry-run`. That is the rehearsal worth having here: the pack, the manifest
@@ -85,8 +85,8 @@ jobs:
           fi
 
           # A pre-release publishes under `next`: `npm install @org-quicko/silo-client`
-          # must not hand someone a release candidate. Same rule release.yml
-          # applies to the Homebrew tap, for the same reason.
+          # must not hand someone a release candidate. release.yml keeps the
+          # Homebrew tap safe by releasing no pre-releases at all.
           case "$version" in
             *-*) dist_tag=next ;;
             *) dist_tag=latest ;;

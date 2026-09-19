@@ -4,6 +4,87 @@
 > The *current* state is [CONTEXT.md](../../CONTEXT.md); this is how it got
 > there.
 
+- **Releases are `vMAJOR.MINOR.PATCH` only; media streams open on first read
+  (2026-09-19).** `release.yml` triggered on `v*` and routed a suffixed tag to
+  a GitHub pre-release kept off the tap and the dnf repo. It now triggers on
+  `v[0-9]+.[0-9]+.[0-9]+`, which GitHub matches against the whole tag, so
+  `v1.2.3-rc.1`, `-alpha`, `-beta`, `-SNAPSHOT` and `+build` tags start no run.
+  The version job's shell glob became an anchored regex that also refuses
+  leading zeros (the one thing the filter cannot express) and a suffixed
+  dispatch input. With no pre-release able to reach them, the `prerelease`
+  output, `--prerelease` and the `homebrew`/`dnf-repo` `if:` gates were
+  removed; those jobs still skip on a dispatch because `release` does.
+  `tools/set-version.ts` now refuses a suffix rather than letting it become a
+  tag that builds nothing. The dnf index still filters out GitHub
+  pre-releases, for any made by hand or before this change.
+
+  Separately, `bun test` on the tree failed: 2 tests and 10 unhandled errors, all
+  from `FileByteStream`. A `ReadableStream` at the default high-water mark
+  pulls once when it is built, so the file handle opened before anyone read,
+  and a body nobody consumed (headers-only tests; in production a `HEAD`,
+  which Hono answers with `new Response(null, getResponse)` without
+  cancelling the GET's body) held it until the collector closed it, which Bun
+  1.4.0 (bumped from 1.3.14) raises as `ERR_INVALID_STATE`. The stray errors
+  also landed in unrelated tests (`transfer-progress`, and `media-replace`'s
+  write on a closed database). The stream now has a zero high-water mark, so
+  nothing opens until a reader asks. `blob-storage.test.ts` pins it by swapping
+  the file between building and reading the stream.
+
+- **One `silo` name in every client; Claude Desktop's URL and key are settings
+  (2026-09-19).** The Claude Desktop extension was named `Silo — <saved server
+  name>` and baked its connection into a bundled `connection.json`, so pointing
+  it at another server or key meant downloading and installing a new
+  extension, and every client got a per-server name (`silo-<id>`). Every
+  client now lists the connection as `silo` (`AiAssistantConfig.ServerName`).
+  `DesktopExtension` writes `name: silo`, `display_name: Silo` and two optional
+  MCPB `user_config` settings, `server_url` and a `sensitive` `api_key`, which
+  default to the current connection and reach the bridge as `SILO_URL` and
+  `SILO_API_KEY`; Claude Desktop edits them under Settings > Extensions >
+  Silo. The bridge treats an empty or unexpanded setting as unset, gives a bare
+  host `http://`, and answers a missing URL, a refused key or a non-MCP reply
+  with the setting to fix. The Claude Code command removes a user-scope `silo`
+  before adding it, since `claude mcp add` refuses an existing name, so running
+  it again switches the connection.
+
+- **AI assistant setup now uses the saved connection directly (2026-09-19).**
+  **Settings > AI assistants** prepares setup with the existing key. It makes
+  a client-specific action from the current saved
+  connection: a self-contained Claude Desktop extension, Claude Code command,
+  Codex setup prompt with a manual TOML fallback, or a Cursor deep link with a
+  manual JSON fallback.
+  Each has a stable instance-specific client name, preserves URL path prefixes,
+  and says that adding configuration cannot prove a remote client is connected.
+
+- **The SQLite read thread keeps the process alive while a read is pending
+  (2026-09-18, D81 fix).** Run from source, `silo serve` and every CLI command
+  that opens SQLite storage exited 0 at once with nothing printed: the D81
+  worker was permanently unref'd, `main.ts` fires `Cli.run()` without awaiting
+  it, and `bun:sqlite` holds nothing open, so the first threaded read (`keys
+  list`'s filter, `serve`'s bootstrap) was the only thing on the loop and the
+  loop drained before the answer came. `bun test` never saw it because the
+  runner's `NODE_ENV=test` turns the thread off. `SqliteReadThread` now `ref`s
+  the worker while a message is out or the thread is starting and `unref`s it
+  when nothing waits, so an idle thread still lets a command end.
+  `CommandRouter.runAgainstData` also closes the runtime on the success path,
+  so the WAL is checkpointed and the thread's connection released before exit.
+  `test/adapters/sqlite-read-thread-liveness.test.ts` spawns a child without
+  `NODE_ENV` for both the store alone and `silo keys list`.
+
+- **silo is an MCP server (2026-09-18, D86).** `POST /api/mcp` speaks the
+  Model Context Protocol over Streamable HTTP, under the CORS, body-limit and
+  auth middleware every API route has, and `silo mcp --url <server>` bridges a
+  client's stdio to it for hosts that spawn a process. Nineteen hand-written
+  tools in `apps/server/src/mcp/tools/` (whoami, projects, environments,
+  variables, collections and schemas, entries, search, media) each stand for
+  one route; `McpToolRunner` dispatches a call back through the same Hono app
+  with the caller's own `Authorization` header, so `RouteAuth` decides as it
+  does over HTTP and a refusal reaches the model naming the missing claim.
+  Arguments are AJV-checked against the tool's schema before dispatch
+  (`-32602`); a route's `4xx` is a result with `isError`. Stateless (no
+  session id, `GET`/`DELETE` are `405`), a key is required even where a read
+  would be public, no SDK. New: `docs/guide/mcp.md`, `/api/mcp` in
+  `openapi.json`, the `--url`/`--key` flags and `SILO_URL`/`SILO_API_KEY`.
+
 - **A streamed import is bounded, locks only its load, and never empties a
   collection before it fills it (2026-09-18, D85).** A 128 MB `.tar.gz` could
   inflate to over a hundred gigabytes onto the data disk with nothing but

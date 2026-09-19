@@ -17,7 +17,56 @@ can be cloned with one command.
 
 ## Where things stand
 
-*Last updated: 2026-09-19 (D86)*
+*Last updated: 2026-09-19 (releases are `vMAJOR.MINOR.PATCH` only; media streams open on first read)*
+
+**silo releases only `vMAJOR.MINOR.PATCH`, and its suite passes on Bun 1.4
+(2026-09-19).** `release.yml` triggers on `v[0-9]+.[0-9]+.[0-9]+`, so an
+`-rc.1`, `-beta` or `-SNAPSHOT` tag starts nothing, and its version job refuses
+any other shape a dispatch passes. No run can carry a pre-release now, so the
+`prerelease` output, `--prerelease` and the tap and dnf-repo gates are gone;
+`bun run set-version` refuses a suffix too. `FileByteStream` has a zero
+high-water mark and opens its file on the first read: built at the default, it
+pulled at once, and a body nobody read (a `HEAD`, whose GET body Hono drops
+uncancelled) held a handle for the collector, which Bun 1.4 raises as an error.
+Those errors failed `bun test`, and with it the release's verify job.
+
+**silo is an MCP server (2026-09-18, D86).** `POST /api/mcp` speaks the Model
+Context Protocol over Streamable HTTP, under the same CORS, body-limit and auth
+middleware as every API route, and `silo mcp --url <server>` bridges a client's
+stdio to it for hosts that spawn a process (Claude Desktop, Codex, Claude Code
+either way). Nineteen hand-written tools in `apps/server/src/mcp/tools/`
+(whoami, projects, environments, variables, collections and schemas, entries,
+search, media) each stand for one route, and `McpToolRunner` dispatches a call
+back through the same Hono app carrying the caller's own `Authorization`
+header, so `RouteAuth` decides exactly as it does over HTTP and a refusal
+reaches the model naming the missing claim. Arguments are checked against each
+tool's JSON Schema before dispatch (`-32602`); a route's `4xx` comes back as a
+result with `isError`. The endpoint is stateless (no session id, `GET` and
+`DELETE` are `405`), requires a key even where a read would be public, and uses
+no SDK. [docs/guide/mcp.md](docs/guide/mcp.md) shows the client
+configurations; the rationale is §8.6 and §10.6.
+
+**The admin prepares current-connection AI client setup (2026-09-19).**
+**Settings > AI assistants** uses the saved server key as-is. It offers a
+Claude Desktop extension download, Claude Code command, Codex setup prompt
+with a manual TOML fallback, and Cursor deep link/manual JSON. Every client
+lists the connection as `silo`, so setting up another connection replaces it
+rather than adding a second. The Claude Desktop extension (`silo.mcpb`, shown
+as "Silo") carries its server URL and API key as MCPB `user_config` settings
+that default to the current connection, so Claude Desktop can change them
+without a new download; the key is `sensitive`, which the host masks and
+stores securely. The Claude Code command removes a user-scope `silo` before
+adding one. The client retains the current connection's access. The page
+guides installation and gives a prompt to try in the assistant.
+
+**The D81 read thread no longer ends the process under it (2026-09-18).**
+Run from source, `serve` and every storage-opening CLI command exited 0 at
+once and printed nothing, because the worker was permanently unref'd and the
+first threaded read was the only thing on the loop. `SqliteReadThread` now
+holds a `ref` while a message is out or it is starting and lets go when idle;
+`CommandRouter` closes the runtime on the success path too. Pinned across a
+process boundary by `sqlite-read-thread-liveness.test.ts`, since `bun test`'s
+`NODE_ENV=test` turns the thread off and could never see it.
 
 **All five critical findings and the first six high findings of the
 2026-09-18 adversarial audit are fixed (2026-09-18, D79–D85).** The audit
@@ -671,7 +720,7 @@ asset and the media route stays `{ view: 'media', serverId, folder, q }`.
 **The client releases on its own, and npm is the only thing it ships to
 (2026-09-15).** `.github/workflows/release-silo-client.yml` publishes
 `packages/silo-client` to npm from a `silo-client-v*` tag, which `release.yml`'s
-`v*` cannot catch, so a client release builds no executables and touches no
+`vMAJOR.MINOR.PATCH` filter cannot catch, so a client release builds no executables and touches no
 Homebrew tap. The version gate reads the *package's* `package.json` rather than
 the root's, `tools/set-version.ts` leaves that manifest alone for the same
 reason, and a pre-release goes out under the `next` dist-tag so

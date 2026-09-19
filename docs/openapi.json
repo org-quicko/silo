@@ -50,6 +50,10 @@
             "description": "Liveness, and who the presented key is."
         },
         {
+            "name": "MCP",
+            "description": "The Model Context Protocol surface: the HTTP API as a tool set for AI clients (D86)."
+        },
+        {
             "name": "Projects",
             "description": "Projects and the environments inside them."
         },
@@ -178,6 +182,124 @@
                     },
                     "401": {
                         "$ref": "#/components/responses/Unauthorized"
+                    }
+                }
+            }
+        },
+        "/api/mcp": {
+            "post": {
+                "tags": [
+                    "MCP"
+                ],
+                "summary": "MCP over Streamable HTTP",
+                "description": "The Model Context Protocol endpoint (D86). One JSON-RPC 2.0 message, or a batch of them, in; the reply out as `application/json`. silo answers `initialize`, `ping`, `tools/list` and `tools/call`; a body holding only notifications answers `202` with no body; an unknown method is `-32601`.\n\nEvery `tools/call` is dispatched through this same API with the presented key, so a tool asks for exactly the claim its route asks for, and a route's refusal comes back as a result with `isError: true` rather than as a protocol error. The endpoint is stateless: no `Mcp-Session-Id` is issued and `GET` and `DELETE` are `405`. A key is required even where the equivalent `GET` would be public. The tool catalog and the client configurations are in docs/guide/mcp.md.\n",
+                "operationId": "postMcp",
+                "requestBody": {
+                    "required": true,
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "oneOf": [
+                                    {
+                                        "$ref": "#/components/schemas/JsonRpcRequest"
+                                    },
+                                    {
+                                        "type": "array",
+                                        "items": {
+                                            "$ref": "#/components/schemas/JsonRpcRequest"
+                                        }
+                                    }
+                                ]
+                            }
+                        }
+                    }
+                },
+                "responses": {
+                    "200": {
+                        "description": "The reply, or an array of replies for a batch (notifications in the batch get none).",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "oneOf": [
+                                        {
+                                            "$ref": "#/components/schemas/JsonRpcResponse"
+                                        },
+                                        {
+                                            "type": "array",
+                                            "items": {
+                                                "$ref": "#/components/schemas/JsonRpcResponse"
+                                            }
+                                        }
+                                    ]
+                                }
+                            }
+                        }
+                    },
+                    "202": {
+                        "description": "The body held only notifications. No content."
+                    },
+                    "400": {
+                        "description": "The body is not JSON: a JSON-RPC `-32700` with a `null` id.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/JsonRpcResponse"
+                                }
+                            }
+                        }
+                    },
+                    "401": {
+                        "description": "No key, or an invalid one. Carries `WWW-Authenticate: Bearer realm=\"silo\"`.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/Error"
+                                }
+                            }
+                        }
+                    },
+                    "413": {
+                        "$ref": "#/components/responses/PayloadTooLarge"
+                    }
+                }
+            },
+            "get": {
+                "tags": [
+                    "MCP"
+                ],
+                "summary": "No event stream",
+                "description": "silo never sends a request of its own, so there is no server-to-client stream to open. Always `405` with `Allow: POST`.",
+                "operationId": "getMcp",
+                "responses": {
+                    "405": {
+                        "description": "`method_not_allowed`.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/Error"
+                                }
+                            }
+                        }
+                    }
+                }
+            },
+            "delete": {
+                "tags": [
+                    "MCP"
+                ],
+                "summary": "No session to end",
+                "description": "The endpoint is stateless and issues no `Mcp-Session-Id`, so there is nothing to terminate. Always `405` with `Allow: POST`.",
+                "operationId": "deleteMcp",
+                "responses": {
+                    "405": {
+                        "description": "`method_not_allowed`.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/Error"
+                                }
+                            }
+                        }
                     }
                 }
             }
@@ -6731,6 +6853,95 @@
                             },
                             "message": {
                                 "type": "string"
+                            }
+                        }
+                    }
+                }
+            },
+            "JsonRpcRequest": {
+                "type": "object",
+                "description": "One JSON-RPC 2.0 request, or a notification when `id` is absent.",
+                "required": [
+                    "jsonrpc",
+                    "method"
+                ],
+                "properties": {
+                    "jsonrpc": {
+                        "const": "2.0"
+                    },
+                    "id": {
+                        "description": "The request id. Absent on a notification; `null` is legal on a request and required on a parse-error reply.",
+                        "oneOf": [
+                            {
+                                "type": "string"
+                            },
+                            {
+                                "type": "integer"
+                            },
+                            {
+                                "type": "null"
+                            }
+                        ]
+                    },
+                    "method": {
+                        "type": "string",
+                        "description": "`initialize`, `ping`, `tools/list` or `tools/call` are answered; `notifications/*` are accepted; anything else is `-32601`.",
+                        "examples": [
+                            "initialize",
+                            "tools/list",
+                            "tools/call"
+                        ]
+                    },
+                    "params": {
+                        "type": "object",
+                        "description": "For `tools/call`: `{name, arguments}`, where `arguments` must match the tool's `inputSchema` from `tools/list`."
+                    }
+                }
+            },
+            "JsonRpcResponse": {
+                "type": "object",
+                "description": "One of `result` or `error`, never both.",
+                "required": [
+                    "jsonrpc",
+                    "id"
+                ],
+                "properties": {
+                    "jsonrpc": {
+                        "const": "2.0"
+                    },
+                    "id": {
+                        "description": "The request id. Absent on a notification; `null` is legal on a request and required on a parse-error reply.",
+                        "oneOf": [
+                            {
+                                "type": "string"
+                            },
+                            {
+                                "type": "integer"
+                            },
+                            {
+                                "type": "null"
+                            }
+                        ]
+                    },
+                    "result": {
+                        "description": "For `tools/call`: `{content: [{type: \"text\", text}], structuredContent?, isError?}`. The text is the route's JSON answer, pretty-printed; `structuredContent` repeats it when it is an object; `isError: true` marks a `4xx` from the route, with the text reading `code (status): message`."
+                    },
+                    "error": {
+                        "type": "object",
+                        "required": [
+                            "code",
+                            "message"
+                        ],
+                        "properties": {
+                            "code": {
+                                "type": "integer",
+                                "description": "`-32700` parse error, `-32600` invalid request, `-32601` method not found, `-32602` invalid params (an unknown tool, or arguments off the tool's schema), `-32603` internal."
+                            },
+                            "message": {
+                                "type": "string"
+                            },
+                            "data": {
+                                "description": "For `-32602`: the validator's `{path, message}` list."
                             }
                         }
                     }

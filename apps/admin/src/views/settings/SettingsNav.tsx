@@ -1,6 +1,7 @@
 import {
   ArrowLeft,
   ArrowUpDown,
+  Bot,
   FileCog,
   Folder,
   Image,
@@ -114,6 +115,12 @@ export function SettingsNav({
             icon={<KeyRound size={15} />}
             title="API Keys"
             active={serverSection === 'keys' || serverSection === 'key-new' || serverSection === 'key-edit'}
+          />
+          <SettingsNavItem
+            to={Routes.serverSettings(serverId, 'ai-assistants')}
+            icon={<Bot size={15} />}
+            title="AI assistants"
+            active={serverSection === 'ai-assistants'}
           />
           <SettingsNavItem
             to={Routes.serverSettings(serverId, 'transfer')}

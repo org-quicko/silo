@@ -60,6 +60,19 @@ describe("FsBlobStorage", () => {
     expect(await store.stream("absent.bin")).toBeNull();
   });
 
+  test("a stream opens the file only once it is read", async () => {
+    // A body nobody reads — a HEAD — must not hold a handle for the collector
+    // to close, which Bun 1.4 raises as an error. The file is swapped after the
+    // stream exists: had it pulled as it was built, the old bytes would be in
+    // its queue already.
+    await store.put("clip.bin", new TextEncoder().encode("0123456789"));
+    const streamed = await store.stream("clip.bin");
+    await Bun.sleep(20);
+    await store.put("clip.bin", new TextEncoder().encode("abcdefghij"));
+
+    expect(await new Response(streamed!.body).text()).toBe("abcdefghij");
+  });
+
   test("delete blob", async () => {
     const data = new TextEncoder().encode("delete me");
     await store.put("delete.txt", data);

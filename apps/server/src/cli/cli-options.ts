@@ -54,6 +54,9 @@ export class CliOptions {
     "timeout-ms": { type: "string" },
     "on-error": { type: "string" },
     "no-register": { type: "boolean" },
+    // `mcp` (D86): the server to bridge to, and the key to present.
+    url: { type: "string" },
+    key: { type: "string" },
     help: { type: "boolean", short: "h" },
   } as const;
 
