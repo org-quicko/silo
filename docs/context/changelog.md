@@ -285,7 +285,7 @@
 
 - **A JVM consumer had no client, so it shelled out to the CLI or wrote the
   address into every call by hand (2026-09-16, D69).** `packages/silo-client-java`
-  is the Java client, published as `in.org.quicko:silo-client`, on OkHttp and
+  is the Java client, published as `in.org.quicko.silo:client`, on OkHttp and
   Jackson with Java 25. The default was to port D61 and D62 rather than to
   redesign: their decisions are about this API, not about TypeScript, and a
   consumer reading both clients should not meet two vocabularies for one

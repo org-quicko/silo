@@ -207,7 +207,7 @@ entries.
 
 **silo has a Java client, and the three decisions that could not cross are the
 interesting part (2026-09-16, D69).** `packages/silo-client-java`, published as
-`in.org.quicko:silo-client`, on OkHttp and Jackson with Java 25. It is the same
+`in.org.quicko.silo:client`, on OkHttp and Jackson with Java 25. It is the same
 client as the TypeScript one on purpose: the same object graph, immutable
 handles, absent default scope, passed revision, per-call raw-versus-resolved
 read, window-driven pagination, built filters, four kinds of failure and

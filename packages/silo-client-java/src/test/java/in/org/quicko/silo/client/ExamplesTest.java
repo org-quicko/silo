@@ -251,7 +251,7 @@ class ExamplesTest {
         + "\"updated_at\":\"2026-09-01T10:00:00.000Z\",\"title\":\"Hello\"}";
     server.enqueueJson(row).enqueueJson(row).enqueueJson(row);
 
-    Silo silo = server.caching(CacheOptions.on());
+    Silo silo = server.caching(CacheOptions.on(Duration.ofSeconds(30), 1024));
     CollectionHandle<Post> posts = silo.scope("acme", "prod").collection("posts", Post.class);
 
     posts.get("01ABC");

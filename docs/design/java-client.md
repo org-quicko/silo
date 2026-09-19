@@ -6,7 +6,7 @@
 ## 15. The Java client (D69)
 
 `packages/silo-client-java`, published to Maven Central as
-`in.org.quicko:silo-client`. The same surface §14 describes, for the data half
+`in.org.quicko.silo:client`. The same surface §14 describes, for the data half
 of the API: projects, environments, collections, schemas, entries, queries,
 variables, search and media. Java 25, OkHttp and Jackson, and nothing else.
 

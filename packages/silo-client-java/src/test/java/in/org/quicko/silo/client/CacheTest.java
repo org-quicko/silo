@@ -20,6 +20,8 @@ import in.org.quicko.silo.client.errors.NotFoundException;
 import in.org.quicko.silo.client.support.FakeTicker;
 import in.org.quicko.silo.client.support.Post;
 import in.org.quicko.silo.client.support.StubHttp;
+import in.org.quicko.silo.client.transport.Transport;
+import in.org.quicko.silo.client.transport.TransportOptions;
 import in.org.quicko.silo.client.transport.TransportRequest;
 import java.lang.reflect.Method;
 import java.time.Duration;
@@ -41,6 +43,11 @@ class CacheTest {
       "{\"data\":[" + Row + "],\"total\":1,\"limit\":50,\"offset\":0}";
   private static final String Collection = "/api/projects/acme/envs/prod/collections/posts";
 
+  /** The shipped reads leave {@code @Cache} bare, so these are where their
+   *  numbers come from — stated once, the way a consumer states them. */
+  private static final Duration Ttl = Duration.ofSeconds(30);
+  private static final long MaxSize = 1024;
+
   private StubHttp server;
 
   @BeforeEach
@@ -53,7 +60,7 @@ class CacheTest {
   }
 
   private CollectionHandle<Post> cachedPosts() {
-    return posts(server.caching(CacheOptions.on()));
+    return posts(server.caching(CacheOptions.on(Ttl, MaxSize)));
   }
 
   @Test
@@ -152,7 +159,7 @@ class CacheTest {
   void stopsServingOnceTheTimeToLiveHasPassed() {
     server.enqueueJson(Row).enqueueJson(Row);
     FakeTicker clock = new FakeTicker();
-    CollectionHandle<Post> posts = posts(server.caching(CacheOptions.on().ticker(clock)));
+    CollectionHandle<Post> posts = posts(server.caching(CacheOptions.on(Ttl, MaxSize).ticker(clock)));
 
     posts.get("01ABC");
     clock.advance(Duration.ofSeconds(29));
@@ -165,21 +172,38 @@ class CacheTest {
   }
 
   /** Each annotated read gets a Caffeine instance of its own, which is what
-   *  lets the page's fifteen seconds expire while the entry's thirty have not. */
+   *  lets one read's fifteen seconds expire while another's thirty have not.
+   *  Against this suite's own reads, since the shipped ones leave theirs bare. */
   @Test
   void holdsEachReadForAsLongAsItsOwnAnnotationSaid() {
-    server.enqueueJson(Row).enqueueJson(Page).enqueueJson(Page);
+    server.enqueueJson(Row).enqueueJson(Row).enqueueJson(Row);
     FakeTicker clock = new FakeTicker();
-    CollectionHandle<Post> posts = posts(server.caching(CacheOptions.on().ticker(clock)));
+    Transport transport = transport(CacheOptions.on(Ttl, MaxSize).ticker(clock));
 
-    posts.get("01ABC");
-    posts.list();
+    aReadHeldForThirtySeconds(transport);
+    aReadHeldForFifteen(transport);
     clock.advance(Duration.ofSeconds(20));
 
+    aReadHeldForThirtySeconds(transport);
+    assertEquals(2, server.requestCount(), "the first had thirty seconds");
+    aReadHeldForFifteen(transport);
+    assertEquals(3, server.requestCount(), "the second had fifteen");
+  }
+
+  /** The workflow the shipped reads are configured for: {@code @Cache} bare,
+   *  both numbers stated once where the client is built. */
+  @Test
+  void takesTheShippedReadsNumbersFromTheConsumersOptions() {
+    server.enqueueJson(Row).enqueueJson(Row);
+    FakeTicker clock = new FakeTicker();
+    CollectionHandle<Post> posts = posts(
+        server.caching(CacheOptions.on(Duration.ofSeconds(5), MaxSize).ticker(clock)));
+
     posts.get("01ABC");
-    assertEquals(2, server.requestCount(), "the entry had thirty seconds");
-    posts.list();
-    assertEquals(3, server.requestCount(), "the page had fifteen");
+    clock.advance(Duration.ofSeconds(6));
+    posts.get("01ABC");
+
+    assertEquals(2, server.requestCount(), "get() states nothing, so the options govern it");
   }
 
   @Test
@@ -196,7 +220,7 @@ class CacheTest {
   @Test
   void startsEmptyForADifferentKey() {
     server.enqueueJson(Row).enqueueJson(Row);
-    Silo silo = server.caching(CacheOptions.on());
+    Silo silo = server.caching(CacheOptions.on(Ttl, MaxSize));
 
     posts(silo).get("01ABC");
     posts(silo.withKey("other")).get("01ABC");
@@ -207,7 +231,7 @@ class CacheTest {
   @Test
   void clearsEverythingOnDemand() {
     server.enqueueJson(Row).enqueueJson(Row);
-    Silo silo = server.caching(CacheOptions.on());
+    Silo silo = server.caching(CacheOptions.on(Ttl, MaxSize));
 
     posts(silo).get("01ABC");
     silo.cache().clear();
@@ -219,7 +243,7 @@ class CacheTest {
   @Test
   void countsWhatItServedAndWhatItFetched() {
     server.enqueueJson(Row);
-    Silo silo = server.caching(CacheOptions.on());
+    Silo silo = server.caching(CacheOptions.on(Ttl, MaxSize));
 
     posts(silo).get("01ABC");
     posts(silo).get("01ABC");
@@ -228,6 +252,26 @@ class CacheTest {
     assertEquals(1, statistics.hits());
     assertEquals(1, statistics.misses());
     assertEquals(1, statistics.size());
+  }
+
+  /** A transport straight onto the stub, so a read this suite owns can be
+   *  cached end to end without going through a handle. */
+  private Transport transport(CacheOptions cache) {
+    return new Transport(new TransportOptions(
+        StubHttp.BaseUrl, "k", Map.of(), null, server.client(), null, cache));
+  }
+
+  /** Two reads annotated the way a consumer may annotate theirs, so what an
+   *  annotation's own numbers do stays covered while the shipped reads, which
+   *  state none, take theirs from {@link CacheOptions}. */
+  @Cache(ttl = 30, maxSize = 64)
+  private void aReadHeldForThirtySeconds(Transport transport) {
+    transport.json(TransportRequest.get("/api/health").cache().build());
+  }
+
+  @Cache(ttl = 15, maxSize = 64)
+  private void aReadHeldForFifteen(Transport transport) {
+    transport.json(TransportRequest.get("/api/projects").cache().build());
   }
 
   /** A read of this test's own, so the resolution is observed rather than
@@ -278,14 +322,13 @@ class CacheTest {
   void keepsTheTimeToLiveTheReadStatedOverTheOneTheCallerSet() {
     server.enqueueJson(Row).enqueueJson(Row);
     FakeTicker clock = new FakeTicker();
-    CollectionHandle<Post> posts = posts(
-        server.caching(CacheOptions.on(Duration.ofMinutes(10), 50).ticker(clock)));
+    Transport transport = transport(CacheOptions.on(Duration.ofMinutes(10), 50).ticker(clock));
 
-    posts.get("01ABC");
+    aReadHeldForThirtySeconds(transport);
     clock.advance(Duration.ofSeconds(31));
-    posts.get("01ABC");
+    aReadHeldForThirtySeconds(transport);
 
-    assertEquals(2, server.requestCount(), "get() states 30s, and that is what governs it");
+    assertEquals(2, server.requestCount(), "the read states 30s, and that is what governs it");
   }
 
   /** What reaches Caffeine, rather than what Caffeine then does with it: its

@@ -9,8 +9,8 @@ blocks, so run it on virtual threads.
 
 ```xml
 <dependency>
-  <groupId>in.org.quicko</groupId>
-  <artifactId>silo-client</artifactId>
+  <groupId>in.org.quicko.silo</groupId>
+  <artifactId>client</artifactId>
   <version>1.1.0</version>
 </dependency>
 ```
@@ -484,7 +484,8 @@ Silo silo = new Silo(SiloOptions.of(url, key)
 ## Caching reads
 
 ```java
-Silo silo = new Silo(SiloOptions.of(url, key).cache(CacheOptions.on()));
+Silo silo = new Silo(SiloOptions.of(url, key)
+    .cache(CacheOptions.on(Duration.ofSeconds(30), 1024)));
 
 CollectionHandle<Post> posts = silo.scope("acme", "prod").collection("posts", Post.class);
 posts.get("01ABC");   // reaches the server
@@ -498,27 +499,30 @@ silo.cache().statistics().hitRate();
 ```
 
 **Off unless you ask for it.** A cached read hands back the `rev` it was stored
-with, and a write carrying a stale one fails with `ConflictException` — so this
+with, and a write carrying a stale one fails with `ConflictException`, so this
 is a decision the caller makes, for the same reason there is no default project
 or environment.
 
-### What is cached, and for how long
+### What is cached
 
-| Read | Holds | ttl | Bound |
-|------|-------|-----|-------|
-| `get` | one entry, by id | 30s | 1024 |
-| `list` | one page of entries | 15s | 256 |
+| Read | Holds | ttl and bound |
+|------|-------|---------------|
+| `get` | one entry, by id | from `CacheOptions` |
+| `list` | one page of entries | from `CacheOptions` |
+
+Both ship with `@Cache` bare, so the numbers you set on `CacheOptions` govern
+them and you never have to edit this library to change how stale a read may be.
 
 `all()` and `pages()` page through `list()`, so they are held with it. Nothing
-else is cached — a schema, a search, a variable and a media listing all reach
-the server every time.
+else is cached: a schema, a search, a variable and a media listing all reach the
+server every time.
 
 ### Setting the numbers
 
 Two places can name a ttl and a bound, and **`@Cache` wins**:
 
 ```java
-@Cache(ttl = 30, maxSize = 1024)        // on the read — ttl in seconds
+@Cache(ttl = 30, maxSize = 1024)        // on the read, ttl in seconds
 public Entry<F> get(String id, EntryReadOptions options) { ... }
 ```
 
@@ -539,12 +543,18 @@ left out on the read is taken from the options:
 | `@Cache(ttl = 30, maxSize = 1024)` | anything | 30s, 1024 |
 | `@Cache(ttl = 30)` | `.maxSize(10_000)` | 30s, 10 000 |
 | `@Cache` | `.on(ttl, maxSize)` | both from the options |
-| `@Cache` | `.on()` | refused — no number to use |
+| `@Cache` | `.on()` | refused, no number to use |
 
 The last row raises rather than picking a default, because a ttl this library
-invented is one you did not choose. The reads above ship with both numbers set,
-so changing `CacheOptions` alone will not move them — edit the annotation, or
-leave it bare and drive everything from `SiloOptions`.
+invented is one you did not choose. It raises at the first call rather than
+caching nothing quietly.
+
+The third row is how this client ships: `get` and `list` state nothing, so
+`CacheOptions` governs both and one line where you build `Silo` is the whole of
+your caching configuration. The annotation's numbers are there for a read whose
+staleness really is a property of the route rather than of your application, and
+they win where they are stated, since a caller cannot edit an annotation
+compiled into a jar.
 
 `@Cache` is required even when it carries nothing: it is what marks a read
 cacheable, and a read that calls for the cache without one raises at the first
@@ -555,7 +565,7 @@ call rather than quietly not caching.
 The key is the request: **the method, the path and every query parameter**, the
 way a CDN composes one. `Transport` is the only layer that sees a built request,
 and a key made of a method's arguments could not tell `01ABC` in `acme/prod`
-from `01ABC` in `beta/staging` — the path carries the project, the environment
+from `01ABC` in `beta/staging`: the path carries the project, the environment
 and the collection, and the arguments do not.
 
 Taking every parameter is what makes a raw read and a resolved read of one entry
@@ -567,7 +577,7 @@ the key of a read carrying one more parameter.
 ### Invalidation
 
 Every write this client makes to a collection drops that collection's rows and
-pages — the path stays the prefix of every key, so one sweep catches both. A
+pages. The path stays the prefix of every key, so one sweep catches both. A
 write made anywhere else is not something the client can be told about, which is
 what the ttl is for, and `cache().clear()` when you know better.
 
