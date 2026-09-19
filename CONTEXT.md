@@ -17,7 +17,7 @@ can be cloned with one command.
 
 ## Where things stand
 
-*Last updated: 2026-09-19 (AI assistant setup)*
+*Last updated: 2026-09-19 (AI assistant setup: one `silo` name, Claude Desktop settings)*
 
 **silo is an MCP server (2026-09-18, D86).** `POST /api/mcp` speaks the Model
 Context Protocol over Streamable HTTP, under the same CORS, body-limit and auth
@@ -38,9 +38,15 @@ configurations; the rationale is §8.6 and §10.6.
 **The admin prepares current-connection AI client setup (2026-09-19).**
 **Settings > AI assistants** uses the saved server key as-is. It offers a
 Claude Desktop extension download, Claude Code command, Codex setup prompt
-with a manual TOML fallback, and Cursor deep link/manual JSON; each uses a safe
-per-saved-server name. The client retains the current connection's access.
-The page guides installation and gives a prompt to try in the assistant.
+with a manual TOML fallback, and Cursor deep link/manual JSON. Every client
+lists the connection as `silo`, so setting up another connection replaces it
+rather than adding a second. The Claude Desktop extension (`silo.mcpb`, shown
+as "Silo") carries its server URL and API key as MCPB `user_config` settings
+that default to the current connection, so Claude Desktop can change them
+without a new download; the key is `sensitive`, which the host masks and
+stores securely. The Claude Code command removes a user-scope `silo` before
+adding one. The client retains the current connection's access. The page
+guides installation and gives a prompt to try in the assistant.
 
 **The D81 read thread no longer ends the process under it (2026-09-18).**
 Run from source, `serve` and every storage-opening CLI command exited 0 at

@@ -4,6 +4,22 @@
 > The *current* state is [CONTEXT.md](../../CONTEXT.md); this is how it got
 > there.
 
+- **One `silo` name in every client; Claude Desktop's URL and key are settings
+  (2026-09-19).** The Claude Desktop extension was named `Silo — <saved server
+  name>` and baked its connection into a bundled `connection.json`, so pointing
+  it at another server or key meant downloading and installing a new
+  extension, and every client got a per-server name (`silo-<id>`). Every
+  client now lists the connection as `silo` (`AiAssistantConfig.ServerName`).
+  `DesktopExtension` writes `name: silo`, `display_name: Silo` and two optional
+  MCPB `user_config` settings, `server_url` and a `sensitive` `api_key`, which
+  default to the current connection and reach the bridge as `SILO_URL` and
+  `SILO_API_KEY`; Claude Desktop edits them under Settings > Extensions >
+  Silo. The bridge treats an empty or unexpanded setting as unset, gives a bare
+  host `http://`, and answers a missing URL, a refused key or a non-MCP reply
+  with the setting to fix. The Claude Code command removes a user-scope `silo`
+  before adding it, since `claude mcp add` refuses an existing name, so running
+  it again switches the connection.
+
 - **AI assistant setup now uses the saved connection directly (2026-09-19).**
   **Settings > AI assistants** prepares setup with the existing key. It makes
   a client-specific action from the current saved

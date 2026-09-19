@@ -1,13 +1,38 @@
 /** Dependency-free Node entry point shipped inside the Claude Desktop bundle. */
 export class DesktopBridgeSource {
-  static readonly source = String.raw`const { readFileSync } = require('node:fs');
-const { join } = require('node:path');
-const { createInterface } = require('node:readline');
+  static readonly source = String.raw`const { createInterface } = require('node:readline');
 
 class SiloDesktopBridge {
-  constructor() {
-    this.connection = JSON.parse(readFileSync(join(__dirname, 'connection.json'), 'utf8'));
+  constructor(environment) {
+    this.url = SiloDesktopBridge.setting(environment.SILO_URL);
+    this.apiKey = SiloDesktopBridge.setting(environment.SILO_API_KEY);
+    this.endpoint = SiloDesktopBridge.endpointOf(this.url);
     this.pending = new Set();
+  }
+
+  // A setting left empty can arrive as its unexpanded manifest placeholder.
+  static setting(value) {
+    const text = (value || '').trim();
+    return /^\$\{user_config\.[^}]*\}$/.test(text) ? '' : text;
+  }
+
+  // Silo Admin's rules: a bare host means http, and a trailing /api/mcp is optional.
+  static endpointOf(url) {
+    if (!url) return undefined;
+    const base = (/^https?:\/\//i.test(url) ? url : 'http://' + url).replace(/\/+$/, '');
+    try {
+      return new URL(base.endsWith('/api/mcp') ? base : base + '/api/mcp').href;
+    } catch {
+      return undefined;
+    }
+  }
+
+  static parse(text) {
+    try {
+      return JSON.parse(text);
+    } catch {
+      return undefined;
+    }
   }
 
   async run() {
@@ -37,16 +62,20 @@ class SiloDesktopBridge {
   }
 
   async forward(message) {
+    if (!this.endpoint) {
+      this.fail(message, this.url
+        ? 'The server URL in the Silo extension settings is not a valid URL.'
+        : 'No server URL is set. Add it in the Silo extension settings.');
+      return;
+    }
+    const headers = { 'content-type': 'application/json', accept: 'application/json, text/event-stream' };
+    if (this.apiKey) headers.authorization = 'Bearer ' + this.apiKey;
     try {
-      const response = await fetch(this.connection.endpoint, {
+      const response = await fetch(this.endpoint, {
         method: 'POST',
         redirect: 'error',
         signal: AbortSignal.timeout(60000),
-        headers: {
-          'content-type': 'application/json',
-          accept: 'application/json, text/event-stream',
-          authorization: 'Bearer ' + this.connection.apiKey,
-        },
+        headers,
         body: JSON.stringify(message),
       });
       if (!Object.hasOwn(message, 'id') || response.status === 202) {
@@ -54,18 +83,20 @@ class SiloDesktopBridge {
         return;
       }
       if (response.status === 401) {
-        this.fail(message, 'Silo access is no longer valid. Download the extension again from your current Silo connection.');
+        this.fail(message, this.apiKey
+          ? 'Silo did not accept the API key. Set a current key in the Silo extension settings.'
+          : 'Silo needs an API key. Add one in the Silo extension settings.');
         await response.body?.cancel();
         return;
       }
-      const result = await response.json();
+      const result = SiloDesktopBridge.parse(await response.text());
       if (result?.jsonrpc !== '2.0') {
-        this.fail(message, 'Silo returned an unexpected response (HTTP ' + response.status + ').');
+        this.fail(message, 'The server URL answered HTTP ' + response.status + ' without an MCP reply. Check it in the Silo extension settings.');
         return;
       }
       this.reply(result);
     } catch {
-      this.fail(message, 'Could not reach Silo. Check that the instance is running and reachable from this computer.');
+      this.fail(message, 'Could not reach Silo. Check that it is running and reachable from this computer, and the server URL in the Silo extension settings.');
     }
   }
 
@@ -80,8 +111,8 @@ class SiloDesktopBridge {
   }
 }
 
-new SiloDesktopBridge().run().catch(() => {
-  process.stderr.write('Could not start the Silo extension. Download it again from Silo settings.\n');
+new SiloDesktopBridge(process.env).run().catch(() => {
+  process.stderr.write('The Silo extension stopped unexpectedly.\n');
   process.exitCode = 1;
 });
 `

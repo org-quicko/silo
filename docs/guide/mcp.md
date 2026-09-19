@@ -87,14 +87,21 @@ checkout, replace `silo` with `bun run apps/server/src/main.ts`.
 **Settings > AI assistants** prepares setup using the API key saved for the
 current Silo connection. It does not create another key or widen access: an
 assistant can do exactly what this connection can do. The page offers four
-client-specific actions and gives each saved server a separate connection name.
+client-specific actions. Each names the connection `silo` in its client, so
+setting up another connection replaces the one already there.
 
-- **Claude Desktop:** download the extension, then open its `.mcpb` file. If it
-  does not open, use **Settings > Extensions > Advanced settings > Install
-  Extension**. The downloaded extension contains the saved API key; keep it
-  private. It uses Claude Desktop's bundled Node runtime, so no separate Silo
-  or Node installation is needed. See [Claude Desktop extensions](https://support.claude.com/en/articles/10949351-getting-started-with-local-mcp-servers-on-claude-desktop).
-- **Claude Code:** copy and run the displayed user-scope command. See the
+- **Claude Desktop:** download the extension, then open its `silo.mcpb` file.
+  If it does not open, use **Settings > Extensions > Advanced settings >
+  Install Extension**. It appears as **Silo**, with two settings filled in
+  from the current connection: **Server URL** and **API key**. Change them
+  under **Settings > Extensions > Silo** to use another silo or key; there is
+  nothing to download again. The downloaded file contains the saved API key as
+  that setting's default; keep it private. It uses Claude Desktop's bundled
+  Node runtime, so no separate Silo or Node installation is needed. See
+  [Claude Desktop extensions](https://support.claude.com/en/articles/10949351-getting-started-with-local-mcp-servers-on-claude-desktop).
+- **Claude Code:** copy and run the displayed user-scope command. It removes
+  a user-scope `silo` server first, so running it again from another
+  connection switches Claude Code over. See the
   [Claude Code MCP guide](https://code.claude.com/docs/en/mcp).
 - **Codex:** copy the setup prompt into a local Codex task and let it update
   the personal configuration, approving the change if asked. A cloud task

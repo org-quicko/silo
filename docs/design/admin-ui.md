@@ -21,11 +21,27 @@ may be added or downloaded, but only a client can prove it can reach Silo.
 Claude Desktop's `.mcpb` is built in the browser by `DesktopExtension` as a
 small stored ZIP (`StoredZip`), with no package or download service. Its Node
 entry point forwards stdio messages to the existing HTTP endpoint; Claude
-Desktop supplies Node, so the visitor does not need a Silo binary. The saved
-key and endpoint live in a JSON data file inside the extension, avoiding both
-source interpolation and MCPB manifest variable expansion. The bridge rejects
+Desktop supplies Node, so the visitor does not need a Silo binary. The server
+URL and key are the extension's `user_config` settings, `server_url` and a
+`sensitive` `api_key`, which the host passes to the bridge as `SILO_URL` and
+`SILO_API_KEY`, the variables `silo mcp` reads. A setting is the one place
+Claude Desktop lets a person change a value, so pointing the extension at
+another Silo or rotating its key needs no new download; the connection used to
+sit in a bundled `connection.json` that nothing could edit. Both settings
+default to the current connection and neither is `required`: the reference
+host counts a required value as missing until someone saves it, while an
+optional one falls back to its default, so install stays one step. A default
+passes through the host's `${…}` substitution, which a Silo key (`silo_` plus
+base64url) cannot contain. The bridge source still interpolates nothing. It
+treats an empty or unexpanded setting as unset, gives a bare host `http://` as
+the server dialog does, and answers a missing URL, a refused key and a non-MCP
+reply by naming the setting to fix instead of failing to start. It rejects
 redirects, limits concurrent requests, times requests out, and reports failures
-without echoing credentials. Downloads and copied configurations contain the
+without echoing credentials or the URL setting, which may hold a key pasted
+into the wrong field. Every client lists the connection under one name, `silo`,
+so a second setup replaces the first instead of accumulating entries; the
+Claude Code command removes a user-scope `silo` first because `claude mcp add`
+refuses a name that exists. Downloads and copied configurations contain the
 current key; the page states this next to their actions. Cursor's install link
 uses its native protocol, so no vendor web redirect receives the key. Codex's
 primary action copies a setup prompt for a local task to merge the configuration;

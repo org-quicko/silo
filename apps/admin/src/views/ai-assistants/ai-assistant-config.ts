@@ -3,36 +3,39 @@ import type { Shell } from './ai-assistant'
 
 /** Builds client fragments from the saved instance connection without storing a copy. */
 export class AiAssistantConfig {
-  static endpoint(server: Server): string {
-    const base = server.url.trim().replace(/\/+$/, '')
-    return base.endsWith('/api/mcp') ? base : `${base}/api/mcp`
+  /** Every client lists silo under this one name, so setting up another connection replaces it. */
+  static readonly ServerName = 'silo'
+
+  /** The saved URL without trailing slashes, as a client setting shows it. */
+  static baseUrl(server: Server): string {
+    return server.url.trim().replace(/\/+$/, '')
   }
 
-  /** A stable client identifier derived from the saved server's id. */
-  static name(server: Server): string {
-    const suffix = server.id.toLowerCase().replace(/[^a-z0-9_-]/g, '-').replace(/-+/g, '-') || 'server'
-    return `silo-${suffix}`
+  static endpoint(server: Server): string {
+    const base = AiAssistantConfig.baseUrl(server)
+    return base.endsWith('/api/mcp') ? base : `${base}/api/mcp`
   }
 
   static cursorUri(server: Server): string {
     const config = JSON.stringify({ url: AiAssistantConfig.endpoint(server), headers: { Authorization: `Bearer ${server.apiKey}` } })
     const encoded = AiAssistantConfig.base64Utf8(config)
-    return `cursor://anysphere.cursor-deeplink/mcp/install?${new URLSearchParams({ name: AiAssistantConfig.name(server), config: encoded })}`
+    return `cursor://anysphere.cursor-deeplink/mcp/install?${new URLSearchParams({ name: AiAssistantConfig.ServerName, config: encoded })}`
   }
 
   static cursorJson(server: Server): string {
-    return JSON.stringify({ mcpServers: { [AiAssistantConfig.name(server)]: { url: AiAssistantConfig.endpoint(server), headers: { Authorization: `Bearer ${server.apiKey}` } } } }, null, 2)
+    return JSON.stringify({ mcpServers: { [AiAssistantConfig.ServerName]: { url: AiAssistantConfig.endpoint(server), headers: { Authorization: `Bearer ${server.apiKey}` } } } }, null, 2)
   }
 
+  /** Removes a user-scope `silo` first, because `claude mcp add` refuses a name that exists. */
   static claudeCode(server: Server, shell: Shell): string {
-    const values = [AiAssistantConfig.name(server), AiAssistantConfig.endpoint(server), `Authorization: Bearer ${server.apiKey}`]
+    const name = AiAssistantConfig.ServerName
     const quote = shell === 'powershell' ? AiAssistantConfig.powerShell : AiAssistantConfig.posix
-    return `claude mcp add --transport http --scope user ${quote(values[0])} ${quote(values[1])} --header ${quote(values[2])}`
+    const quiet = shell === 'powershell' ? '2>$null' : '2>/dev/null'
+    return `claude mcp remove --scope user ${name} ${quiet}; claude mcp add --transport http --scope user ${name} ${quote(AiAssistantConfig.endpoint(server))} --header ${quote(`Authorization: Bearer ${server.apiKey}`)}`
   }
 
   static codexToml(server: Server): string {
-    const name = AiAssistantConfig.name(server)
-    return `[mcp_servers.${name}]\nurl = ${JSON.stringify(AiAssistantConfig.endpoint(server))}\nhttp_headers = { Authorization = ${JSON.stringify(`Bearer ${server.apiKey}`)} }`
+    return `[mcp_servers.${AiAssistantConfig.ServerName}]\nurl = ${JSON.stringify(AiAssistantConfig.endpoint(server))}\nhttp_headers = { Authorization = ${JSON.stringify(`Bearer ${server.apiKey}`)} }`
   }
 
   private static posix(value: string): string {

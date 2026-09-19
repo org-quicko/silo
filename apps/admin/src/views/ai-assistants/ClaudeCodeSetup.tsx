@@ -17,7 +17,7 @@ export function ClaudeCodeSetup({ server }: { server: Server }) {
     <SettingsRow label="Shell" inline>
       <Segmented value={shell} options={[{ value: 'posix', label: 'macOS / Linux' }, { value: 'powershell', label: 'PowerShell' }]} onChange={setShell} variant="fit" />
     </SettingsRow>
-    <SettingsRow label="Command" stack help="Run this once in the shell where Claude Code is installed.">
+    <SettingsRow label="Command" stack help="Run this in the shell where Claude Code is installed. It replaces any user-scope silo server, so running it again switches to this connection's URL and key.">
       <code className={styles.code}>{command}</code>
       <CopyButton text={command} label="Copy command" />
     </SettingsRow>

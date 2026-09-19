@@ -18,14 +18,15 @@ export function ClaudeDesktopSetup({ server }: { server: Server }) {
     return () => URL.revokeObjectURL(url)
   }, [server])
   return <SettingsSection title="Claude Desktop">
-    <SettingsRow label="Extension" help="The download includes this saved Silo key. Keep the extension private.">
-      <a ref={downloadLink} className={`${button.button} ${button.primary}`} download={DesktopExtension.filename(server)}>
+    <SettingsRow label="Extension" help="The download carries this connection's URL and saved Silo key as its settings. Keep the extension private.">
+      <a ref={downloadLink} className={`${button.button} ${button.primary}`} download={DesktopExtension.Filename}>
         <Download size={14} />
         Download extension
       </a>
     </SettingsRow>
     <p className={styles.note}>Open the downloaded <code>.mcpb</code> file and finish the Install prompt. Then enable the extension in Claude Desktop.</p>
     <p className={styles.note}>If it does not open, use Settings → Extensions → Advanced settings → Install Extension.</p>
+    <p className={styles.note}>To use another Silo or key later, change the extension's Server URL and API key under Settings → Extensions → Silo.</p>
     <AssistantTryPrompt />
   </SettingsSection>
 }
