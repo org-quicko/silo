@@ -17,7 +17,18 @@ can be cloned with one command.
 
 ## Where things stand
 
-*Last updated: 2026-09-19 (AI assistant setup: one `silo` name, Claude Desktop settings)*
+*Last updated: 2026-09-19 (releases are `vMAJOR.MINOR.PATCH` only; media streams open on first read)*
+
+**silo releases only `vMAJOR.MINOR.PATCH`, and its suite passes on Bun 1.4
+(2026-09-19).** `release.yml` triggers on `v[0-9]+.[0-9]+.[0-9]+`, so an
+`-rc.1`, `-beta` or `-SNAPSHOT` tag starts nothing, and its version job refuses
+any other shape a dispatch passes. No run can carry a pre-release now, so the
+`prerelease` output, `--prerelease` and the tap and dnf-repo gates are gone;
+`bun run set-version` refuses a suffix too. `FileByteStream` has a zero
+high-water mark and opens its file on the first read: built at the default, it
+pulled at once, and a body nobody read (a `HEAD`, whose GET body Hono drops
+uncancelled) held a handle for the collector, which Bun 1.4 raises as an error.
+Those errors failed `bun test`, and with it the release's verify job.
 
 **silo is an MCP server (2026-09-18, D86).** `POST /api/mcp` speaks the Model
 Context Protocol over Streamable HTTP, under the same CORS, body-limit and auth
@@ -670,7 +681,7 @@ asset and the media route stays `{ view: 'media', serverId, folder, q }`.
 **The client releases on its own, and npm is the only thing it ships to
 (2026-09-15).** `.github/workflows/release-silo-client.yml` publishes
 `packages/silo-client` to npm from a `silo-client-v*` tag, which `release.yml`'s
-`v*` cannot catch, so a client release builds no executables and touches no
+`vMAJOR.MINOR.PATCH` filter cannot catch, so a client release builds no executables and touches no
 Homebrew tap. The version gate reads the *package's* `package.json` rather than
 the root's, `tools/set-version.ts` leaves that manifest alone for the same
 reason, and a pre-release goes out under the `next` dist-tag so

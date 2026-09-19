@@ -465,6 +465,10 @@ the file whole per request, the handle's `.stream()` grew the process by
 hundreds of megabytes under six concurrent downloads, and a sliced handle's
 stream returned nearly the whole file for a 1,000-byte range; the hand-written
 one grew the process by 24 MB for the same six downloads and slices exactly.
+It opens the file on the first read, not when it is built — its high-water mark
+is zero — because a body nobody reads, such as the GET body Hono drops
+uncancelled to answer a `HEAD`, would otherwise hold a handle until the
+collector closed it, which Bun 1.4 raises as an error.
 `S3BlobStorage` answers with the object handle's stream, a slice of which is a
 ranged `GetObject`, and leaves `size` unknown on purpose: learning it costs a
 HEAD that a policy granting `s3:GetObject` alone refuses, and the catalog has

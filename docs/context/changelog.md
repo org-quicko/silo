@@ -4,6 +4,32 @@
 > The *current* state is [CONTEXT.md](../../CONTEXT.md); this is how it got
 > there.
 
+- **Releases are `vMAJOR.MINOR.PATCH` only; media streams open on first read
+  (2026-09-19).** `release.yml` triggered on `v*` and routed a suffixed tag to
+  a GitHub pre-release kept off the tap and the dnf repo. It now triggers on
+  `v[0-9]+.[0-9]+.[0-9]+`, which GitHub matches against the whole tag, so
+  `v1.2.3-rc.1`, `-alpha`, `-beta`, `-SNAPSHOT` and `+build` tags start no run.
+  The version job's shell glob became an anchored regex that also refuses
+  leading zeros (the one thing the filter cannot express) and a suffixed
+  dispatch input. With no pre-release able to reach them, the `prerelease`
+  output, `--prerelease` and the `homebrew`/`dnf-repo` `if:` gates were
+  removed; those jobs still skip on a dispatch because `release` does.
+  `tools/set-version.ts` now refuses a suffix rather than letting it become a
+  tag that builds nothing. The dnf index still filters out GitHub
+  pre-releases, for any made by hand or before this change.
+
+  Separately, `bun test` on the tree failed: 2 tests and 10 unhandled errors, all
+  from `FileByteStream`. A `ReadableStream` at the default high-water mark
+  pulls once when it is built, so the file handle opened before anyone read,
+  and a body nobody consumed (headers-only tests; in production a `HEAD`,
+  which Hono answers with `new Response(null, getResponse)` without
+  cancelling the GET's body) held it until the collector closed it, which Bun
+  1.4.0 (bumped from 1.3.14) raises as `ERR_INVALID_STATE`. The stray errors
+  also landed in unrelated tests (`transfer-progress`, and `media-replace`'s
+  write on a closed database). The stream now has a zero high-water mark, so
+  nothing opens until a reader asks. `blob-storage.test.ts` pins it by swapping
+  the file between building and reading the stream.
+
 - **One `silo` name in every client; Claude Desktop's URL and key are settings
   (2026-09-19).** The Claude Desktop extension was named `Silo — <saved server
   name>` and baked its connection into a bundled `connection.json`, so pointing
