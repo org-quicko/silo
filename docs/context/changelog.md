@@ -4,6 +4,36 @@
 > The *current* state is [CONTEXT.md](../../CONTEXT.md); this is how it got
 > there.
 
+- **The SQLite read thread keeps the process alive while a read is pending
+  (2026-09-18, D81 fix).** Run from source, `silo serve` and every CLI command
+  that opens SQLite storage exited 0 at once with nothing printed: the D81
+  worker was permanently unref'd, `main.ts` fires `Cli.run()` without awaiting
+  it, and `bun:sqlite` holds nothing open, so the first threaded read (`keys
+  list`'s filter, `serve`'s bootstrap) was the only thing on the loop and the
+  loop drained before the answer came. `bun test` never saw it because the
+  runner's `NODE_ENV=test` turns the thread off. `SqliteReadThread` now `ref`s
+  the worker while a message is out or the thread is starting and `unref`s it
+  when nothing waits, so an idle thread still lets a command end.
+  `CommandRouter.runAgainstData` also closes the runtime on the success path,
+  so the WAL is checkpointed and the thread's connection released before exit.
+  `test/adapters/sqlite-read-thread-liveness.test.ts` spawns a child without
+  `NODE_ENV` for both the store alone and `silo keys list`.
+
+- **silo is an MCP server (2026-09-18, D86).** `POST /api/mcp` speaks the
+  Model Context Protocol over Streamable HTTP, under the CORS, body-limit and
+  auth middleware every API route has, and `silo mcp --url <server>` bridges a
+  client's stdio to it for hosts that spawn a process. Nineteen hand-written
+  tools in `apps/server/src/mcp/tools/` (whoami, projects, environments,
+  variables, collections and schemas, entries, search, media) each stand for
+  one route; `McpToolRunner` dispatches a call back through the same Hono app
+  with the caller's own `Authorization` header, so `RouteAuth` decides as it
+  does over HTTP and a refusal reaches the model naming the missing claim.
+  Arguments are AJV-checked against the tool's schema before dispatch
+  (`-32602`); a route's `4xx` is a result with `isError`. Stateless (no
+  session id, `GET`/`DELETE` are `405`), a key is required even where a read
+  would be public, no SDK. New: `docs/guide/mcp.md`, `/api/mcp` in
+  `openapi.json`, the `--url`/`--key` flags and `SILO_URL`/`SILO_API_KEY`.
+
 - **A streamed import is bounded, locks only its load, and never empties a
   collection before it fills it (2026-09-18, D85).** A 128 MB `.tar.gz` could
   inflate to over a hundred gigabytes onto the data disk with nothing but

@@ -17,7 +17,32 @@ can be cloned with one command.
 
 ## Where things stand
 
-*Last updated: 2026-09-18 (D85)*
+*Last updated: 2026-09-18 (D86)*
+
+**silo is an MCP server (2026-09-18, D86).** `POST /api/mcp` speaks the Model
+Context Protocol over Streamable HTTP, under the same CORS, body-limit and auth
+middleware as every API route, and `silo mcp --url <server>` bridges a client's
+stdio to it for hosts that spawn a process (Claude Desktop, Codex, Claude Code
+either way). Nineteen hand-written tools in `apps/server/src/mcp/tools/`
+(whoami, projects, environments, variables, collections and schemas, entries,
+search, media) each stand for one route, and `McpToolRunner` dispatches a call
+back through the same Hono app carrying the caller's own `Authorization`
+header, so `RouteAuth` decides exactly as it does over HTTP and a refusal
+reaches the model naming the missing claim. Arguments are checked against each
+tool's JSON Schema before dispatch (`-32602`); a route's `4xx` comes back as a
+result with `isError`. The endpoint is stateless (no session id, `GET` and
+`DELETE` are `405`), requires a key even where a read would be public, and uses
+no SDK. [docs/guide/mcp.md](docs/guide/mcp.md) shows the client
+configurations; the rationale is §8.6 and §10.6.
+
+**The D81 read thread no longer ends the process under it (2026-09-18).**
+Run from source, `serve` and every storage-opening CLI command exited 0 at
+once and printed nothing, because the worker was permanently unref'd and the
+first threaded read was the only thing on the loop. `SqliteReadThread` now
+holds a `ref` while a message is out or it is starting and lets go when idle;
+`CommandRouter` closes the runtime on the success path too. Pinned across a
+process boundary by `sqlite-read-thread-liveness.test.ts`, since `bun test`'s
+`NODE_ENV=test` turns the thread off and could never see it.
 
 **All five critical findings and the first six high findings of the
 2026-09-18 adversarial audit are fixed (2026-09-18, D79–D85).** The audit

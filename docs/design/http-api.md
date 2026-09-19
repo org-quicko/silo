@@ -949,3 +949,67 @@ name already declared. None of it is audited: `AuditAction` is the trail of
 because `rev` and `updated_at` already record them. A variable's value is
 content, and every declaration carries its own `rev` and `updated_at` for the
 same reason an entry does.
+
+### 8.6 MCP: the API as a tool set (D86)
+
+`POST /api/mcp` speaks the Model Context Protocol over its Streamable HTTP
+transport, so an AI client — Claude Code, Codex, Cursor, or Claude Desktop
+through `silo mcp` — calls silo the way it calls any other tool server. The
+design is one dispatch and four refusals.
+
+**Every tool is a route, dispatched through the same app (the D35 move,
+again).** `McpToolRunner` turns a `tools/call` into a `Request` against the
+Hono app the MCP message arrived on, carrying the caller's own `Authorization`
+header, and `AuthMiddleware` and `RouteAuth` decide as they would for any
+request. A tool therefore cannot be more permissive than its route, because
+there is no second evaluator; a `read` key hands a model a CMS it can browse and
+cannot dent; a refusal reaches the model as the route's own message naming the
+missing claim; and a route added later is one catalog entry away from being a
+tool. The plugin dispatcher *injects* a synthesised principal because a worker
+holds no secret; the tool runner *forwards* the presented one because the caller
+does, and forwards `Host` and the `X-Forwarded-*` pair with it, so
+`RequestUtils.getBaseUrl` roots media URLs where the client reached the instance
+instead of answering `""` as it does for a plugin.
+
+**The catalog is hand-written, like `openapi.json`.** Nineteen tools in five
+groups — `InstanceTools`, `CollectionTools`, `EntryTools`, `SearchTools`,
+`MediaTools` — each a name, a description written for a model, a closed JSON
+Schema for its arguments, the spec's annotations, and the mapping to a request.
+Deriving them from the route table was considered and rejected: Hono has no
+table to read, and a good tool description is not a route summary — it says
+what to call first, what `rev` is for, and that `data` is the whole document.
+Arguments are checked against the tool's schema by AJV before anything is
+dispatched. A wrong shape is a JSON-RPC `-32602`, because the route was never
+reached and there is nothing it refused; a route's `4xx` is a *result* with
+`isError: true`, because that is the answer the model has to read and correct.
+Media has read tools only: a tool call carries JSON and an upload carries bytes.
+
+**Stateless, and a key is required.** No `Mcp-Session-Id` is issued, `GET` and
+`DELETE` answer `405`, and there is no SSE stream: the server never initiates a
+request, the tool list never changes while the process runs, and every message
+already carries the credential, so a session would be state with nothing to
+remember. A `POST` without a key is `401` with a `WWW-Authenticate: Bearer`
+challenge even where a plain `GET` would be public — a client with no key
+configured has nothing to call and should learn that at connect time, not as
+nineteen refusals. OAuth is not offered; the key is the credential, and every
+client silo documents has a place for a bearer header or an environment
+variable.
+
+**No SDK.** `@modelcontextprotocol/sdk` would bring zod and a transport layer
+to do what `McpRoutes` and `McpServer` do in two short files: parse JSON-RPC,
+answer `initialize`, `ping`, `tools/list` and `tools/call`, `202` a
+notification, `-32601` the rest. Version negotiation is the spec's — echo a
+known revision, else answer `McpProtocol.Latest`. Resources, prompts, sampling,
+elicitation and `listChanged` notifications are not implemented; a collection's
+schema is a tool's answer rather than a resource because the tool is the one
+call every client supports. The route sits under `/api/*` on purpose, so CORS,
+`BodyLimitMiddleware` and the auth middleware apply with no MCP-specific rule.
+
+**`silo mcp` is a client.** Some hosts spawn a process and speak
+newline-delimited JSON-RPC on its stdio. `McpStdioBridge` forwards each line to
+`/api/mcp` and writes the reply, turning an HTTP refusal or a connection failure
+into a JSON-RPC error for the request it answers. It is deliberately *not* an
+in-process server over the data directory: that would wire a second app per
+spawn, and a stdio process writing to a data directory a `serve` owns is the
+very thing D25 forbids. Being a client is also what lets it run from any working
+directory with no config file (§10.6).

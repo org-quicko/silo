@@ -243,8 +243,17 @@ The thread's source is a string shipped as a `data:` URL, for the reason the
 plugin host's is: a compiled binary cannot load a worker module from outside
 its bundle. `PRAGMA query_only` on every connection means a bug there cannot
 become a second writer (D25). The thread starts on the first read, restarts on
-the read after a failure, is unref'd so an idle one never holds a CLI command
-open, and a store's `close` asks it to close that file's handle and waits for
+the read after a failure, is held (`ref`) while a read or its own start is
+pending and let go (`unref`) when nothing waits on it — so an idle thread never
+holds a CLI command open, and a pending read never lets the process end. The
+second half was learned the hard way: shipped permanently unref'd, the first
+threaded read of `silo keys list` or of `serve`'s bootstrap was the only thing
+on the loop, because `main.ts` fires `Cli.run()` without awaiting it and
+`bun:sqlite` itself holds nothing open, so the loop drained and the process
+exited 0 with nothing printed and no server listening. `bun test` never saw it,
+because the runner's `NODE_ENV=test` turns the thread off; the liveness test
+spawns a child without that variable for exactly this reason — and a store's
+`close` asks it to close that file's handle and waits for
 the answer — a fire-and-forget close or a `terminate` returns first, and on
 Windows the directory is then still undeletable, the same `EBUSY` the
 statement cache exists to prevent. Reads queue up to `MaxPending` (64) and the next is refused

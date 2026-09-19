@@ -16,6 +16,7 @@ Present a key as `Authorization: Bearer <key>` or `X-Api-Key: <key>`.
 |--------|------|-------|
 | `GET` | `/api/health` | liveness and version, never authenticated |
 | `GET` | `/api/session` | current key label, prefix, and effective claims |
+| `POST` | `/api/mcp` | MCP over Streamable HTTP: one JSON-RPC message, or a batch, in; the reply out. Needs a key. `GET` and `DELETE` answer `405`. See [mcp.md](mcp.md) |
 | `GET` / `POST` | `/api/projects` | list projects visible to the key / create `{id}` |
 | `PATCH` | `/api/projects/{project}` | rename a project, and rewrite the claims that name it (`?dry_run=true`) |
 | `DELETE` | `/api/projects/{project}` | delete a project, its environments and their collections (`?force=true`) |
@@ -170,6 +171,13 @@ A `sort` beats relevance, so omit it to rank. Which fields are indexed is a
 schema decision, through `x-silo-search`. An anonymous caller reaches only the
 collections whose schema does not set `x-silo-auth`.
 
+## MCP
+
+`POST /api/mcp` is the same API for an AI client. Each tool is one of the
+routes above, called with the key the client presents, so the claims decide
+exactly as they do here. [mcp.md](mcp.md) lists the tools and shows how to
+connect Claude Code, Codex, Cursor and Claude Desktop.
+
 ## Optimistic concurrency
 
 `PUT` and `DELETE` on an entry require the revision you expect, as
@@ -184,9 +192,10 @@ admin tabs from overwriting each other in silence.
 ```
 
 The codes are `validation_failed` (400), `unauthorized` (401), `forbidden`
-(403), `not_found` (404), `conflict` (409), `payload_too_large` (413),
-`archive_too_large` (413), `internal` (500) and `busy` (503). Validation
-details carry JSON Pointer paths from the validator.
+(403), `not_found` (404), `method_not_allowed` (405, only from `/api/mcp`),
+`conflict` (409), `payload_too_large` (413), `archive_too_large` (413),
+`internal` (500) and `busy` (503). Validation details carry JSON Pointer paths
+from the validator.
 
 A `503 busy` comes from an entry list or a search. A filter or a sort over
 entry data scans the collection. Those scans run on a separate storage thread

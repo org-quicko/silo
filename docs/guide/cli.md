@@ -10,6 +10,9 @@ the run file and never open storage. Asking whether a server is running
 therefore cannot create a data directory, and it cannot disturb one that
 another process already owns.
 
+`mcp` is the other exception. It is a client of a running server, over HTTP,
+and reads neither a config file nor a data directory. See [mcp.md](mcp.md).
+
 From source, replace `silo` with `bun run apps/server/src/main.ts`. The two are
 the same program.
 
@@ -32,6 +35,7 @@ silo plugin info <name>            one plugin's manifest, claims and config
 silo plugin grant <name>           approve what a plugin asked for
 silo plugin revoke <name>          withdraw the stored grant
 silo plugin doctor                 load every plugin, report failures, exit
+silo mcp --url <url> [--key <key>] stdio MCP server, bridging to a running silo
 silo version                       print the version
 ```
 
@@ -69,6 +73,8 @@ silo version                       print the version
 | `-y`, `--yes` | `add` | do not ask before granting. A non-interactive shell without this is a no |
 | `--force` | `add` | replace an already-installed plugin of the same name |
 | `--no-register` | `add` | install the files, print the block, and leave `silo.toml` alone |
+| `--url <url>` | `mcp` | the running server, for example `http://localhost:8090`. Falls back to `SILO_URL` |
+| `--key <key>` | `mcp` | the API key to present. Falls back to `SILO_API_KEY`, which is the safer place for it |
 
 A bare collection name in `--collections` grants the permission in **every**
 project and environment, as `collections:*/*/<name>:...`. Write

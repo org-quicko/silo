@@ -22,6 +22,7 @@ import { ConfigSupervisor, MediaPolicySupervisor, MediaStorageSupervisor } from 
 import { ConfigLoader } from "../config/config-loader";
 import { UiAssets } from "./ui-assets";
 import { Observability } from "../observability";
+import { McpRoutes } from "../mcp";
 
 /** How to build the app. An options object rather than a fourth and fifth
  *  positional argument, two of which would be bare booleans. */
@@ -176,6 +177,10 @@ export class SiloServer {
       this.settings,
       this.observability
     );
+
+    // MCP over HTTP (D86). After the route table, because every tool call is
+    // dispatched back through this same app and lands on a route above.
+    McpRoutes.register(app, { version: this.version });
 
     // Global Error Handler
     app.onError((err, c) => {

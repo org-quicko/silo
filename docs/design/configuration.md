@@ -266,3 +266,21 @@ less falls back to the default, as the body ceilings do.
 A tarball or directory named on the host's command line is not bounded. It is
 the operator's own file on the operator's own disk, and a ceiling there would
 only ever be raised.
+
+### 10.6 `silo mcp` (D86)
+
+The one subcommand that is neither the server nor a tool over the data
+directory. It bridges a client's stdio to a running instance's `/api/mcp`
+(§8.6), so it runs in `CommandRouter`'s first tier beside `init`: before any
+config is loaded, because it reads none, and before any storage is opened,
+because it opens none. An MCP host spawns it from whatever working directory it
+likes, and nothing there has to exist.
+
+Its two settings follow the `flags > env` half of the usual rule and stop
+there, since there is no file: `--url`, else `SILO_URL`; `--key`, else
+`SILO_API_KEY`. The variables are the documented way, because a host's config
+file has an `env` block and a process list shows argv. A missing URL is an
+error. A missing key is a warning on stderr and the bridge runs anyway, because
+an instance started with `[auth] disabled` needs none, and the `401` an
+authenticated instance answers reaches the client as a JSON-RPC error that
+says so. stdout is the protocol channel and carries nothing else.
