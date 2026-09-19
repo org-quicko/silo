@@ -1,6 +1,13 @@
 import { ValidationError } from "@silo/shared/validation-error";
 import { JsonPath } from "@silo/shared/json-path";
-import { DefaultLimit, MaxLimit, MaxFilterDepth, MaxFilterNodes, type Query } from "./query";
+import {
+  DefaultLimit,
+  MaxLimit,
+  MaxFilterDepth,
+  MaxFilterNodes,
+  MaxFilterLeaves,
+  type Query,
+} from "./query";
 import type { Filter } from "@silo/shared/filter";
 import { FilterOps } from "@silo/shared/filter-ops";
 import type { SortKey } from "./sort-key";
@@ -44,7 +51,7 @@ export class QueryUtils {
     };
 
     if (normalized.filter) {
-      const state = { nodes: 0 };
+      const state = { nodes: 0, leaves: 0 };
       QueryUtils.validateFilter(normalized.filter, 0, state);
     }
 
@@ -80,7 +87,11 @@ export class QueryUtils {
     return keys;
   }
 
-  private static validateFilter(f: Filter, depth: number, state: { nodes: number }): void {
+  private static validateFilter(
+    f: Filter,
+    depth: number,
+    state: { nodes: number; leaves: number }
+  ): void {
     if (depth > MaxFilterDepth) {
       throw new ValidationError("filter nested too deeply");
     }
@@ -89,6 +100,14 @@ export class QueryUtils {
       throw new ValidationError(
         `filter has too many conditions (max ${MaxFilterNodes})`
       );
+    }
+    if (!FilterOps.isGroup(f.op)) {
+      state.leaves++;
+      if (state.leaves > MaxFilterLeaves) {
+        throw new ValidationError(
+          `filter tests too many fields (max ${MaxFilterLeaves}); each test scans the collection`
+        );
+      }
     }
 
     if (FilterOps.isGroup(f.op)) {

@@ -163,7 +163,11 @@ describe("Server copy API", () => {
     expect(await response.json()).toMatchObject({ mode: "merge", added: 1 });
     expect((await destinationService.entries.get(Scope.Default, "notes", sourceEntry.id)).data.text).toBe("copied");
     expect((await destinationService.keys.authenticate(destinationKey)).claims).toEqual(["*"]);
-    await expect(destinationService.keys.authenticate(sourceKey)).rejects.toThrow();
+    // Settled before `expect`: authenticate reads through the storage worker,
+    // and bun test's `.rejects` wait drops such replies (code-design.md, Tests).
+    const stranger = destinationService.keys.authenticate(sourceKey);
+    await stranger.catch(() => {});
+    await expect(stranger).rejects.toThrow();
   });
 });
 

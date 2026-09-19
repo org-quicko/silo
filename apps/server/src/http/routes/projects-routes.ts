@@ -57,6 +57,9 @@ export class ProjectsRoutes {
 
     // Create a project
     app.post("/api/projects", async (c: Context) => {
+      // The exact claim names the project and so needs the body; a caller with
+      // no key at all is refused before the body is read.
+      RouteAuth.requireKey(c);
       const body = await c.req.json();
       if (!body || typeof body !== "object") {
         throw new ValidationError("invalid body: (want {id} or {project})");
@@ -147,6 +150,7 @@ export class ProjectsRoutes {
     // Create an environment in a project
     ProjectsRoutes.both(app, "post", "", async (c: Context) => {
       const project = c.req.param("project") || "";
+      RouteAuth.requireKey(c);
       const body = await c.req.json();
       if (!body || typeof body !== "object") {
         throw new ValidationError("invalid body: (want {id} or {env})");

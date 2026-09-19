@@ -6,6 +6,7 @@ import { HttpDefaults } from "./http-defaults";
 import { MediaDefaults } from "./media-defaults";
 import { MediaTable } from "./media-table";
 import type { PluginConfig } from "./plugin-config";
+import { TransferDefaults } from "./transfer-defaults";
 
 export class ConfigLoader {
   static defaultConfig(): Config {
@@ -13,6 +14,12 @@ export class ConfigLoader {
       listen: ":8090",
       http: {
         idle_timeout: HttpDefaults.IdleTimeout,
+        max_body_size_mb: HttpDefaults.MaxBodySizeMb,
+        max_json_body_size_mb: HttpDefaults.MaxJsonBodySizeMb,
+      },
+      transfer: {
+        max_archive_size_mb: TransferDefaults.MaxArchiveSizeMb,
+        max_extracted_size_mb: TransferDefaults.MaxExtractedSizeMb,
       },
       default_project: "default",
       default_env: "prod",
@@ -121,6 +128,32 @@ export class ConfigLoader {
           if (parsed.http && typeof parsed.http === "object") {
             if (typeof parsed.http.idle_timeout === "number") {
               config.http.idle_timeout = HttpDefaults.idleTimeout(parsed.http.idle_timeout);
+            }
+            if (typeof parsed.http.max_body_size_mb === "number") {
+              config.http.max_body_size_mb = HttpDefaults.bodySizeMb(
+                parsed.http.max_body_size_mb,
+                HttpDefaults.MaxBodySizeMb
+              );
+            }
+            if (typeof parsed.http.max_json_body_size_mb === "number") {
+              config.http.max_json_body_size_mb = HttpDefaults.bodySizeMb(
+                parsed.http.max_json_body_size_mb,
+                HttpDefaults.MaxJsonBodySizeMb
+              );
+            }
+          }
+          if (parsed.transfer && typeof parsed.transfer === "object") {
+            if (typeof parsed.transfer.max_archive_size_mb === "number") {
+              config.transfer.max_archive_size_mb = TransferDefaults.sizeMb(
+                parsed.transfer.max_archive_size_mb,
+                TransferDefaults.MaxArchiveSizeMb
+              );
+            }
+            if (typeof parsed.transfer.max_extracted_size_mb === "number") {
+              config.transfer.max_extracted_size_mb = TransferDefaults.sizeMb(
+                parsed.transfer.max_extracted_size_mb,
+                TransferDefaults.MaxExtractedSizeMb
+              );
             }
           }
           if (typeof parsed.default_project === "string") {
@@ -234,6 +267,30 @@ export class ConfigLoader {
     }
     if (process.env.SILO_HTTP_IDLE_TIMEOUT) {
       config.http.idle_timeout = HttpDefaults.idleTimeout(Number(process.env.SILO_HTTP_IDLE_TIMEOUT));
+    }
+    if (process.env.SILO_HTTP_MAX_BODY_SIZE_MB) {
+      config.http.max_body_size_mb = HttpDefaults.bodySizeMb(
+        Number(process.env.SILO_HTTP_MAX_BODY_SIZE_MB),
+        config.http.max_body_size_mb
+      );
+    }
+    if (process.env.SILO_HTTP_MAX_JSON_BODY_SIZE_MB) {
+      config.http.max_json_body_size_mb = HttpDefaults.bodySizeMb(
+        Number(process.env.SILO_HTTP_MAX_JSON_BODY_SIZE_MB),
+        config.http.max_json_body_size_mb
+      );
+    }
+    if (process.env.SILO_TRANSFER_MAX_ARCHIVE_SIZE_MB) {
+      config.transfer.max_archive_size_mb = TransferDefaults.sizeMb(
+        Number(process.env.SILO_TRANSFER_MAX_ARCHIVE_SIZE_MB),
+        config.transfer.max_archive_size_mb
+      );
+    }
+    if (process.env.SILO_TRANSFER_MAX_EXTRACTED_SIZE_MB) {
+      config.transfer.max_extracted_size_mb = TransferDefaults.sizeMb(
+        Number(process.env.SILO_TRANSFER_MAX_EXTRACTED_SIZE_MB),
+        config.transfer.max_extracted_size_mb
+      );
     }
     if (process.env.SILO_DEFAULT_PROJECT) {
       config.default_project = process.env.SILO_DEFAULT_PROJECT;

@@ -1,5 +1,6 @@
 import fs from "fs/promises";
 import { SiloService } from "../../core/services/silo-service";
+import { ImportGrants } from "../../core/transfer/import-grants";
 import { MediaModes } from "../../core/transfer/media-mode";
 import { TransferSelection } from "../../core/transfer/transfer-selection";
 
@@ -25,8 +26,9 @@ export class ImportCommand {
     );
     const media = MediaModes.parse(values.media, !include.isEverything);
 
-    // Host-level CLI access is trusted and retains the ability to restore keys.
-    const options = { mode, dryRun, prefer, include, media, allowKeys: true };
+    // Host-level CLI access is trusted: it restores keys, the media catalog and
+    // every project's variables, since whoever runs it already holds the store.
+    const options = { mode, dryRun, prefer, include, media, grants: ImportGrants.Trusted };
 
     let response;
     const stat = await fs.stat(src);

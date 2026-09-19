@@ -1,5 +1,6 @@
 import { FsBlobStorage } from "../../adapters/blob/fs-blob-storage";
 import type { MediaConfig } from "../../config/media-config";
+import type { TransferConfig } from "../../config/transfer-config";
 import { Logger } from "../../logging/logger";
 import type { Meta } from "../domain/meta";
 import type { Hooks } from "../hooks/hooks";
@@ -17,6 +18,7 @@ import { PluginGrantService } from "./plugin-grant-service";
 import { RenameService } from "./rename-service";
 import { ScopeService } from "./scope-service";
 import { SearchService } from "./search-service";
+import { ImportLimits } from "../transfer/import-limits";
 import { SchemaRegistry } from "./support/schema-registry";
 import { ScopeRenameCascade } from "./support/scope-rename-cascade";
 import { ServiceContext } from "./support/service-context";
@@ -35,6 +37,9 @@ export interface SiloServiceOptions extends SchemaValidatorOptions {
   /** Where a transfer unpacks an archive. Defaults to the platform temp
    *  directory, which on a hardened unit is often RAM (§7.2). */
   stagingDir?: string;
+  /** How large a streamed archive may be and how much it may expand to
+   *  (D85). Absent leaves a streamed import unbounded. */
+  transfer?: TransferConfig;
   /** Bounds for the portable engine; ignored when a native one is given. */
   scan?: { visitLimit?: number; timeBudgetMs?: number };
   /** Where an audit append that fails is reported (D38). Silent by default, so
@@ -92,6 +97,7 @@ export class SiloService {
     );
 
     if (options.stagingDir) this.context.useStagingDirectory(options.stagingDir);
+    if (options.transfer) this.context.useImportLimits(ImportLimits.of(options.transfer));
 
     this.store = store;
 

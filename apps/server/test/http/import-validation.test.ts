@@ -142,7 +142,7 @@ describe("import validation", () => {
     );
   });
 
-  test("replace mode is not blocked, because it empties the collection first", async () => {
+  test("replace mode is not blocked, because it brings the collection to the archive's content", async () => {
     await source.putSchema(scope, "posts", strict);
     const incoming = entry("posts", { title: "from source" });
     await source.put(incoming, { usages: [], search: null });

@@ -100,7 +100,11 @@ Adapters assume **one process owns a data directory**, which is enforced above
 them at the process boundary rather than by any of them (D25): `Storage` has no
 cross-process lock, the fs adapter holds `last_seq` in memory, and `Service`'s
 write mutex is process-local. `RunFile.assertNotRunning` is what makes that
-assumption true.
+assumption true, and since D82 it decides by identity rather than by pid alone
+— a record naming this process, or written in another boot, or unrefreshed for
+two minutes, is a dead server's — because the 2026-09-18 audit showed the pid
+check refusing every restart of a crashed Docker instance, where the server is
+pid 1 each time and so always found "itself" alive.
 
 Rules for all adapters: single-writer semantics per entry, atomic writes (no torn entries observable), `List` results stable-ordered (sort keys, then `id`), the **record existence rule of D51** — a project, environment or collection exists exactly when its record does, superseding D20's "created explicitly *or* still holding content"; a scope reported by one adapter and not the other is a portability bug, since `Exporter` enumerates `listScopes()` — and **`project`/`env`/`collection`/`id` validated as safe path segments** (`EntryUtils.assertSafeSegment`: non-empty, not `.`/`..`, no `/`, `\`, or NUL, ≤255 bytes) on every entry call. That last rule is a port contract rather than one adapter's local defense: the fs adapter turns these values into a path, so an unvalidated `id` from an import archive could otherwise plant an entry outside its scope or outside the data dir entirely — and a cap the fs adapter can't honor would let SQLite accept what fs rejects mid-write with `ENAMETOOLONG`. Both adapters therefore reject the same values, and the conformance suite pins that. Since D18, `$ref`/`$defs` resolution, the compiled-validator cache, and referrer checks (§9) are likewise scoped — the same collection name in two scopes never shares a validator or resolves a ref against the other's schemas.
 
@@ -219,6 +223,44 @@ WAL mode, `busy_timeout` set, one write connection + a read pool. `seq` allocate
 
 No part of the adapter holds the `Database` directly; they all hold a `SqliteConnection`, which owns it together with every statement prepared against it. The reason is that bun:sqlite finalizes a statement only if it is still in `Database.query`'s own cache when the database closes, and that cache holds exactly **twenty** — the twenty-first distinct statement evicts the first, and an evicted statement is never finalized. `Database.prepare` is not cached at all and is never finalized. Either way the unfinalized statement keeps the database file open, so `close()` stops *using* the file without *releasing* it: `sqlite3_close_v2` leaves a zombie connection behind. On Windows that is not a detail, because an open handle makes the data directory undeletable and unmovable, so the leak surfaces as `EBUSY` from whatever next tries to remove or move the directory rather than as anything recognisably about SQLite. `SqliteConnection.query` therefore caches without a bound and `close()` finalizes the lot. SQL whose text is built per call — a compiled filter, an `IN` list sized to its arguments — must not be cached at all, or the map would grow by one live statement per shape; that goes through `SqliteConnection.once`, which prepares, runs and finalizes in a `finally`. The interpolation that remains in a cached `query` is a class constant or the two-value table name in `touchName`, so what is cached is bounded by the code rather than by the workload.
 
+**The scans run on a second connection, on their own thread** (D81). The
+"read pool" the paragraph above promised did not exist until the 2026-09-18
+audit measured what its absence cost: `bun:sqlite` is synchronous, a filter or
+a sort over `data` is a scan of the collection (there are no per-field
+indexes), and the scan held the one JS thread — 0.6 s for one `contains` over
+200,000 rows, 12 s for a 49-way `or` of them — while every other request,
+`/api/health` included, waited. Any public collection made that anonymous.
+`SqliteReadWorker` is a store's handle on `SqliteReadThread`, one `Worker`
+per process holding one connection per database path, which WAL lets read
+while the main connection writes; `SqliteEntryStore.list` and
+`SqliteSearcher.search` post their two statements to it and await the rows, so
+the main thread is free for the duration. One thread rather than one per store
+because a `Worker` is not cheap to come and go: the first cut spawned one per
+store, the test suite opens hundreds, and a single run spawned 539 workers,
+took the runtime to 11 GB and crashed it — terminated workers are not fully
+released. The server opens one store, so for it the two designs are the same.
+The thread's source is a string shipped as a `data:` URL, for the reason the
+plugin host's is: a compiled binary cannot load a worker module from outside
+its bundle. `PRAGMA query_only` on every connection means a bug there cannot
+become a second writer (D25). The thread starts on the first read, restarts on
+the read after a failure, is unref'd so an idle one never holds a CLI command
+open, and a store's `close` asks it to close that file's handle and waits for
+the answer — a fire-and-forget close or a `terminate` returns first, and on
+Windows the directory is then still undeletable, the same `EBUSY` the
+statement cache exists to prevent. Reads queue up to `MaxPending` (64) and the next is refused
+as `503 busy` with `Retry-After: 1`: a flood of slow scans degrades listing and
+search, and nothing else. An in-memory database gets no worker and reads on
+the main connection as before, and so does every store opened under `bun test`
+unless it asks (`SqliteStore.readThreadDefault`, `SILO_READ_THREAD=on|off` to
+force either): the runner's `expect(...).rejects` wait does not deliver a
+worker's replies once it has answered twice, which one shared thread always
+has by the second test, so the suite runs the same SQL on the main connection
+and the thread's own test turns it on. The server never runs under the runner. Two things bound what one caller can cost:
+`MaxFilterLeaves` (16) caps the field tests a filter may name, since each is
+evaluated per row, and the queue cap sheds what the worker cannot take on.
+Writes, counts, gets and the media catalog stay on the main connection; they
+are indexed reads or the one writer, and moving them would buy nothing.
+
 ### 6.3 Filesystem adapter (layout = export format, per D5)
 
 Every collection lives under its `(project, env)` pair, and the directories are
@@ -258,7 +300,7 @@ The seven system collections are seeded here by `FsSystemSeed`, the counterpart 
 
 **There is deliberately no name-to-id cache on this adapter**, where SQLite has one: identity is read from the markers on every operation. That is the same argument D23 makes for keeping no usage index here — this adapter exists for `rsync` and `git checkout`, and an in-memory index goes stale the moment someone checks out a branch under a running process. It is already O(n)-per-query by design, so a rename addressed by id scans for it.
 
-A project or environment rename is a single `fs.rename` of the directory, atomic on one filesystem, with the marker travelling untouched. **A collection rename is the one that is not**: the marker, the schema file and the content directory are three moves. So the destination marker carries `moving_from`, written before the first move and cleared after the last, and `FsCollectionStore.resumePending` finishes it at the next open, counting failures rather than throwing — the same reasoning D23's and D49's resumes give. Recovery is *decidable* precisely because the id is in both places: a destination marker holding **this** id is this rename half-done and is resumed, while any other id is a genuine collision. `putSchema` writes the schema **before** the marker for a related reason — a crash between the two then leaves a schema file no listing reports, which the next put adopts, where the other order would leave a collection that lists and has no schema, the one state the `NOT NULL` invariant exists to rule out.
+A project or environment rename is a single `fs.rename` of the directory, atomic on one filesystem, with the marker travelling untouched. **A collection rename is the one that is not**: the marker, the schema file and the content directory are three moves. So the destination marker carries `moving_from`, written before the first move and cleared after the last, and `FsCollectionStore.resumePending` finishes it at the next open, counting failures rather than throwing — the same reasoning D23's and D49's resumes give. Recovery is *decidable* precisely because the id is in both places: a destination marker holding **this** id is this rename half-done and is resumed, while any other id is a genuine collision. The content move has one more rule, learned from a data-loss bug found in the 2026-09-18 audit: `fs.rename` of a directory is one syscall and never leaves both ends behind, so a destination directory that *already exists* is never "this move, already landed" — it is a leftover (an empty directory a delete failed to remove, a stray temp file), which is removed so the rename can land, or it holds entry files, which is a collision and is refused. The source is never the thing discarded, because the source is the collection. Two guards keep the leftover from arising at all: `delete` refuses while entry files remain, as SQLite does, and then removes the directory whole; and `rename` refuses a destination name whose content directory holds entries even when no marker claims it, since an import can leave content with no record. `putSchema` writes the schema **before** the marker for a related reason — a crash between the two then leaves a schema file no listing reports, which the next put adopts, where the other order would leave a collection that lists and has no schema, the one state the `NOT NULL` invariant exists to rule out.
 
 Each entry file is the full envelope, pretty-printed with a fixed field order — every write serializes the same envelope shape in the same order, so diffs stay minimal (git-diff-friendly), though it's insertion order, not alphabetical. The `project`/`env`/`collection` fields carry the scope and collection name but are **not** trusted on read: `get`/`list` always take `project`/`env` from the scope that was queried (the directory the file was found under), and import takes both from the archive path — the path is the addressing authority, not the file's own contents. This also closes a concrete bug class: an envelope that disagreed with its path could otherwise make a later write fork the entry into the wrong scope.
 
@@ -401,6 +443,49 @@ deliver, so `publicRoot()` answers the derived root by default and no second
 question is asked about it. `[media] base_url` still swaps the host, and nothing
 else has to be set for an S3-backed instance to hand out S3 URLs.
 
+**Where silo does serve the bytes, it serves them as it reads them** (D80).
+`BlobStorage.get` reads an object whole, and `/media/<id>` handed that buffer to
+the response after copying it once more, so every in-flight download cost
+twice the asset — and the largest asset was one anonymous `?sort=-size` away.
+The port gains an optional **`stream(key, range?)`**: a body forwarded as it
+arrives, plus the size where the store knows it without a second round trip.
+`FsBlobStorage` answers with `FileByteStream`, a pull-based reader over a file
+handle in 64 KB chunks, because the runtime's own file bodies were measured on
+Bun 1.3.14 and each failed in its own way — a `Response` over a file handle read
+the file whole per request, the handle's `.stream()` grew the process by
+hundreds of megabytes under six concurrent downloads, and a sliced handle's
+stream returned nearly the whole file for a 1,000-byte range; the hand-written
+one grew the process by 24 MB for the same six downloads and slices exactly.
+`S3BlobStorage` answers with the object handle's stream, a slice of which is a
+ranged `GetObject`, and leaves `size` unknown on purpose: learning it costs a
+HEAD that a policy granting `s3:GetObject` alone refuses, and the catalog has
+it. `MediaDelivery.open` resolves the request's range against the catalog's
+size, so a bucket is never asked a second question per read. The method is
+optional so a provider plugin written against the earlier port keeps working;
+the caller then falls back to `get` and slices the bytes it was handed. The
+runtime drops a `Content-Length` set on a stream body, so a whole answer is
+chunked and a ranged one carries the size in `Content-Range`, which is the
+header a seeking client reads anyway.
+
+**And it serves them as data, never as a page on its own origin** (D83). The
+API and the admin share one origin, and the admin keeps an API key for every
+configured server in that origin's `localStorage`, so an uploaded document a
+browser would render — an SVG with a `<script>`, an HTML file an operator's
+allowlist let through — was a way to read every one of those keys; the
+2026-09-18 audit (H1) walked it from a `write`-preset upload to root. Every
+`/media/<id>` answer now carries `X-Content-Type-Options: nosniff` and
+`Content-Security-Policy: sandbox` (`ResponseSandbox`), so whatever does render
+gets an opaque origin and no script; images, video, audio and PDF stay
+`inline` and everything else, an SVG first among them, is a
+`Content-Disposition: attachment` (`MediaDisposition`), which a subresource
+load ignores — an `<img>` still draws it — and a navigation obeys. The
+`content_type` recorded at upload is read off the filename's extension and
+never off the type the client declared, since the extension is what the
+allowlist already judged. Measured on a Chromium browser before choosing: a PDF
+renders under `sandbox`, an iframe `sandbox` *attribute* blanks the PDF viewer
+(so the admin's preview leans on the header, not the attribute), and a
+navigated SVG's script does not run.
+
 **`[blob_storage] public_read` is the way out, not the way in.** It exists
 because readability is the one thing here that is genuinely not derivable: it
 lives in a bucket policy, and silo's credentials say what silo may write rather
@@ -472,9 +557,14 @@ filename enters the library, and without it `report.png` becomes `report.exe`
 after the fact and the check is decoration. An empty list is refused at parse:
 a library that accepts nothing is a mistake rather than a policy, and `["*"]` is
 how "accept everything" is said out loud. The default is media types only —
-images, video, audio and PDF — with `svg` included and carrying the one caveat
-worth repeating in the file: an SVG is a document that can run script, and
-`/media/{id}` serves it inline from silo's own origin.
+images, video, audio and PDF — and since D83 without `svg`: an SVG is a
+document that can run script, and the 2026-09-18 audit (H1) showed one uploaded
+with a `write`-preset key running on the admin's origin with every saved key in
+reach. `/media/{id}` now serves every asset with `nosniff` and a
+`Content-Security-Policy: sandbox`, sends an SVG and anything not image, video,
+audio or PDF as an `attachment` (`MediaDisposition`), and reads `content_type`
+off the extension rather than off what the upload declared — so an operator
+who trusts every uploader can add `svg` back, and the file says so.
 
 **What does not change is D23.** Blob keys stay flat and folders stay catalog
 metadata even in `store` mode, where the key is the public path. Mirroring

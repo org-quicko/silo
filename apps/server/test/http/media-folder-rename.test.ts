@@ -52,8 +52,8 @@ describe("media folder rename (D49)", () => {
       type: "object",
       properties: { cover: { type: "string", "x-silo-type": "media" } },
     });
-    const inRoot = await service.media.save("hero.png", new TextEncoder().encode("a"), undefined, "/a");
-    const nested = await service.media.save("logo.png", new TextEncoder().encode("b"), undefined, "/a/x");
+    const inRoot = await service.media.save("hero.png", new TextEncoder().encode("a"), "/a");
+    const nested = await service.media.save("logo.png", new TextEncoder().encode("b"), "/a/x");
     await service.media.createFolder("/a/empty");
     const entry = await service.entries.create(Scope.Default, "posts", { cover: MediaRef.url(inRoot.id) });
 
@@ -81,8 +81,8 @@ describe("media folder rename (D49)", () => {
   });
 
   test("a prefix sibling is not a descendant: /a to /c leaves /ab alone, and /ab to /c leaves /a alone", async () => {
-    const inA = await service.media.save("a.png", new TextEncoder().encode("a"), undefined, "/a");
-    const inAb = await service.media.save("ab.png", new TextEncoder().encode("b"), undefined, "/ab");
+    const inA = await service.media.save("a.png", new TextEncoder().encode("a"), "/a");
+    const inAb = await service.media.save("ab.png", new TextEncoder().encode("b"), "/ab");
 
     expect((await patch({ from: "/a", to: "/c" })).status).toBe(200);
     expect((await service.media.get(inA.id)).folder).toBe("/c");
@@ -114,7 +114,7 @@ describe("media folder rename (D49)", () => {
 
   test("refuses when the destination already exists, implied by an asset's folder", async () => {
     await service.media.createFolder("/a");
-    await service.media.save("x.png", new TextEncoder().encode("x"), undefined, "/b");
+    await service.media.save("x.png", new TextEncoder().encode("x"), "/b");
 
     const response = await patch({ from: "/a", to: "/b" });
     expect(response.status).toBe(409);
@@ -140,10 +140,10 @@ describe("media folder rename (D49)", () => {
   });
 
   test("merge moves a subtree into an existing folder, descendant folders and assets included", async () => {
-    const inA = await service.media.save("hero.png", new TextEncoder().encode("a"), undefined, "/a");
-    const nested = await service.media.save("logo.png", new TextEncoder().encode("b"), undefined, "/a/x");
+    const inA = await service.media.save("hero.png", new TextEncoder().encode("a"), "/a");
+    const nested = await service.media.save("logo.png", new TextEncoder().encode("b"), "/a/x");
     await service.media.createFolder("/a/empty");
-    const already = await service.media.save("existing.png", new TextEncoder().encode("c"), undefined, "/b");
+    const already = await service.media.save("existing.png", new TextEncoder().encode("c"), "/b");
 
     const response = await patch({ from: "/a", to: "/b", merge: true });
     expect(response.status).toBe(200);
@@ -181,8 +181,8 @@ describe("media folder rename (D49)", () => {
   });
 
   test("merge with colliding filenames succeeds: both assets survive with distinct ids", async () => {
-    const fromAsset = await service.media.save("logo.svg", new TextEncoder().encode("a"), undefined, "/a");
-    const toAsset = await service.media.save("logo.svg", new TextEncoder().encode("b"), undefined, "/b");
+    const fromAsset = await service.media.save("logo.svg", new TextEncoder().encode("a"), "/a");
+    const toAsset = await service.media.save("logo.svg", new TextEncoder().encode("b"), "/b");
 
     const response = await patch({ from: "/a", to: "/b", merge: true });
     expect(response.status).toBe(200);
@@ -203,8 +203,8 @@ describe("media folder rename (D49)", () => {
     // Simulates what a crash mid-rename leaves behind (D49): some assets
     // already at `to`, some still at `from` — both exist per D20's rule, and
     // a plain rename refuses on the resulting collision.
-    const stillAtFrom = await service.media.save("a.png", new TextEncoder().encode("a"), undefined, "/a");
-    const alreadyAtTo = await service.media.save("b.png", new TextEncoder().encode("b"), undefined, "/b");
+    const stillAtFrom = await service.media.save("a.png", new TextEncoder().encode("a"), "/a");
+    const alreadyAtTo = await service.media.save("b.png", new TextEncoder().encode("b"), "/b");
 
     const collision = await patch({ from: "/a", to: "/b" });
     expect(collision.status).toBe(409);
@@ -328,15 +328,15 @@ describe("media folder rename saga (D49)", () => {
   };
 
   test("a completed rename leaves no marker behind", async () => {
-    await service.media.save("a.png", bytes(), undefined, "/a");
+    await service.media.save("a.png", bytes(), "/a");
     await service.media.renameFolder("/a", "/b");
 
     expect(await markers()).toEqual([]);
   });
 
   test("resume finishes a rename interrupted partway through the subtree", async () => {
-    const moved = await service.media.save("moved.png", bytes(), undefined, "/a");
-    const stranded = await service.media.save("stranded.png", bytes(), undefined, "/a/deep");
+    const moved = await service.media.save("moved.png", bytes(), "/a");
+    const stranded = await service.media.save("stranded.png", bytes(), "/a/deep");
 
     await service.media.renameFolder("/a", "/b");
     // Exactly what a crash between two asset writes leaves: the subtree split
@@ -354,7 +354,7 @@ describe("media folder rename saga (D49)", () => {
   });
 
   test("resume is idempotent when the move already completed", async () => {
-    const asset = await service.media.save("a.png", bytes(), undefined, "/a");
+    const asset = await service.media.save("a.png", bytes(), "/a");
     await service.media.renameFolder("/a", "/b");
     await stageMarker("/a", "/b");
 
@@ -375,8 +375,8 @@ describe("media folder rename saga (D49)", () => {
   });
 
   test("resume finishes several staged moves in one pass", async () => {
-    const first = await service.media.save("one.png", bytes(), undefined, "/a");
-    const second = await service.media.save("two.png", bytes(), undefined, "/c");
+    const first = await service.media.save("one.png", bytes(), "/a");
+    const second = await service.media.save("two.png", bytes(), "/c");
     await stageMarker("/a", "/b", "marker-one");
     await stageMarker("/c", "/d", "marker-two");
 

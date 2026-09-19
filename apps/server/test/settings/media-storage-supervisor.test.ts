@@ -96,7 +96,7 @@ describe("MediaStorageSupervisor", () => {
   });
 
   test("a save takes effect on the next upload, without a restart", async () => {
-    const before = await service.media.save("before.txt", bytes("before"), "text/plain");
+    const before = await service.media.save("before.txt", bytes("before"));
     expect(await fs.readFile(path.join(dir, "media", before.blob_key!), "utf8")).toBe("before");
 
     const moved = path.join(dir, "moved");
@@ -107,7 +107,7 @@ describe("MediaStorageSupervisor", () => {
     expect(view.file.path).toBe(moved);
     expect(view.in_force.path).toBe(moved);
 
-    const after = await service.media.save("after.txt", bytes("after"), "text/plain");
+    const after = await service.media.save("after.txt", bytes("after"));
     expect(await fs.readFile(path.join(moved, after.blob_key!), "utf8")).toBe("after");
 
     // ...and the bytes did not follow. The catalog still lists the first asset,
@@ -134,7 +134,7 @@ describe("MediaStorageSupervisor", () => {
     expect((await supervisor.view()).in_force.driver).toBe("fs");
 
     // The running store is untouched: an upload still works.
-    const asset = await service.media.save("still.txt", bytes("still"), "text/plain");
+    const asset = await service.media.save("still.txt", bytes("still"));
     expect((await service.media.bytes(asset.id))!.data).toEqual(bytes("still"));
   });
 

@@ -5,6 +5,7 @@ import { MediaExtensions } from "../../media/media-extensions";
 import type { Searcher } from "../../search/searcher";
 import type { Hooks } from "../../hooks/hooks";
 import { NoOpHooks } from "../../hooks/no-op-hooks";
+import type { ImportLimits } from "../../transfer/import-limits";
 import { AsyncMutex } from "./async-mutex";
 import { SchemaRegistry } from "./schema-registry";
 
@@ -54,6 +55,11 @@ export class ServiceContext {
    */
   private staging = "";
 
+  /** How large a streamed archive may be and how much it may expand to
+   *  (D85). Absent, a transfer is unbounded — the state of a service built
+   *  without a config, which only a test or an embedder does. */
+  private limits: ImportLimits | undefined;
+
   constructor(
     store: Storage,
     blobStorage: BlobStorage,
@@ -77,6 +83,15 @@ export class ServiceContext {
 
   useStagingDirectory(directory: string): void {
     this.staging = directory;
+  }
+
+  /** The ceilings a streamed import is held to, or `undefined` for none. */
+  get importLimits(): ImportLimits | undefined {
+    return this.limits;
+  }
+
+  useImportLimits(limits: ImportLimits): void {
+    this.limits = limits;
   }
 
   /** Where media bytes live. A getter rather than a field because it can be

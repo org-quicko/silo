@@ -17,9 +17,15 @@ export class StopCommand {
       return;
     }
 
-    if (!Daemon.isAlive(state.pid)) {
+    // Judged by identity, not by the pid alone (D82): a record from before a
+    // reboot, or one no server has refreshed, names a pid that may now belong
+    // to something else entirely — and that is not ours to signal.
+    const liveness = RunFile.liveness(state);
+    if (!liveness.live) {
       await RunFile.remove(config.storage.path);
-      console.log(`silo is not running (cleared a stale record left by pid ${state.pid})`);
+      console.log(
+        `silo is not running (cleared a stale record left by pid ${state.pid}: ${liveness.reason})`
+      );
       return;
     }
 
