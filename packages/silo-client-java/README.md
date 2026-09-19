@@ -2,10 +2,10 @@
 
 A typed, object-oriented Java client for [silo](../../README.md)'s HTTP API:
 projects, environments, collections, schemas, entries, queries, variables,
-search and media.
+search and media, with [optional caching](#caching-reads) of entry reads.
 
-Two runtime dependencies, OkHttp and Jackson. Java 25 or newer. Every call
-blocks, so run it on virtual threads.
+Three runtime dependencies: OkHttp, Jackson, and Caffeine for the cache.
+Java 25 or newer. Every call blocks, so run it on virtual threads.
 
 ```xml
 <dependency>
@@ -73,6 +73,14 @@ posts.delete(published.id(), published.rev());
 A record works as the field type, and so does a plain class with public fields
 or getters and setters. Jackson reads it, so whatever Jackson can bind, this
 client can carry.
+
+Every read above reaches the server. To hold entry reads in memory instead, add
+one line where the client is built and see [Caching reads](#caching-reads):
+
+```java
+Silo silo = new Silo(SiloOptions.of(url, key)
+    .cache(CacheOptions.on(Duration.ofSeconds(30), 1024)));
+```
 
 ## The path is the object graph
 
@@ -503,6 +511,11 @@ with, and a write carrying a stale one fails with `ConflictException`, so this
 is a decision the caller makes, for the same reason there is no default project
 or environment.
 
+Caffeine holds the responses, in one cache per set of numbers in force, so the
+ttl and the bound are its `expireAfterWrite` and `maximumSize`. Eviction by size
+is asynchronous, which is Caffeine's behaviour rather than this client's: the
+bound is a ceiling the cache settles to, not one it is never briefly over.
+
 ### What is cached
 
 | Read | Holds | ttl and bound |
@@ -583,6 +596,7 @@ what the ttl is for, and `cache().clear()` when you know better.
 
 A cache belongs to one client: `withKey` and `withUrl` start empty, because one
 key's reads are not another key's to serve.
+
 ## What this client does not reach
 
 Keys, claims, plugins, transfer, settings, audit, observability, search reindex,
