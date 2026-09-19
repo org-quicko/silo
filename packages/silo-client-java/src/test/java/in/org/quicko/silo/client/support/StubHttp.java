@@ -2,6 +2,7 @@ package in.org.quicko.silo.client.support;
 
 import in.org.quicko.silo.client.Silo;
 import in.org.quicko.silo.client.SiloOptions;
+import in.org.quicko.silo.client.cache.CacheOptions;
 import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.util.ArrayDeque;
@@ -44,6 +45,11 @@ public final class StubHttp implements Interceptor {
   /** A client pointed at this stub, with a key. */
   public Silo silo(String key) {
     return new Silo(SiloOptions.of(BaseUrl, key).httpClient(client()));
+  }
+
+  /** A client pointed at this stub whose reads are cached, for the cache suite. */
+  public Silo caching(CacheOptions cache) {
+    return new Silo(SiloOptions.of(BaseUrl, "k").httpClient(client()).cache(cache));
   }
 
   /** A client pointed at this stub with no key, for the anonymous reads. */

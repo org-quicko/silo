@@ -6,7 +6,7 @@
 ## 15. The Java client (D69)
 
 `packages/silo-client-java`, published to Maven Central as
-`in.org.quicko:silo-client`. The same surface §14 describes, for the data half
+`in.org.quicko.silo:client`. The same surface §14 describes, for the data half
 of the API: projects, environments, collections, schemas, entries, queries,
 variables, search and media. Java 25, OkHttp and Jackson, and nothing else.
 
@@ -197,3 +197,138 @@ the signing half: Central requires a detached GPG signature on every artifact,
 so it takes a key and a passphrase as secrets on top of the account token, and
 the `release` profile is where the `maven-gpg-plugin` joins the sources and
 javadoc jars it already attaches.
+
+### 15.8 Caching, and why `@Cache` decorates rather than intercepts (D86)
+
+A JVM consumer reading the same entry on every request pays a round trip for
+each one, and the entry did not change between them. `@Cache` is how a read
+says it may be served from memory, for how long, and what identifies one
+response from another; Caffeine is what holds it, and `CacheOptions` is where a
+consumer disagrees.
+
+The name is Spring's `@Cacheable`, shortened, because that is the vocabulary a
+Java consumer already has. **The mechanism is not Spring's**, and could not be.
+Spring's annotation works because the container hands callers a proxy; there is
+no container here, every handle is `final`, and none of them implements an
+interface. Making the annotation work the way Spring's does meant one of three
+things, and each cost more than it bought:
+
+- **An interface per handle, proxied with `java.lang.reflect.Proxy`.** Roughly
+  doubles the surface, and callers would hold `EntryReads<Post>` where §15.1
+  promised them the same object graph the TypeScript client has.
+- **Bytecode subclasses, with ByteBuddy.** Drops `final` from every handle,
+  which §15.1's immutability leans on, and adds a bytecode-generation
+  dependency to a client library. It also inherits Spring's own footgun: a
+  call a class makes to itself never crosses the proxy, so `all()` calling
+  `list()` would silently miss the cache.
+- **A compile-time processor generating decorators.** No runtime magic, but it
+  still needs something non-final to decorate, and adds a processor module plus
+  a wiring step to a build that is otherwise `mvn test`.
+
+So the annotation is read, not woven — and read **off the stack**, from the
+method that asked. A read describes its request and calls `.cache()` with no
+argument; `CachePolicy.declaredOnCaller` walks past the builder frame, finds the
+read that called it, and takes the `@Cache` off exactly that method, matched on
+its signature so one annotated overload cannot answer for another. The result is
+remembered per method, so a call pays for a stack walk (about a microsecond) and
+a map lookup, never for reflection — nothing next to the round trip it may save.
+
+An earlier draft resolved the annotation into a `static final CachePolicy`
+constant and passed that to `.cache(policy)`. It worked, but it named the method
+three times — in the constant, in the annotation, and at the call — and only two
+of the three were checked against each other. Deleting the `.cache(...)` call
+left everything compiling and caching silently off, which is the failure this
+client keeps refusing. Reading from the caller collapses all three into one:
+**the annotation now decides whether caching happens at all**, and a read that
+calls `.cache()` without declaring one raises immediately rather than quietly
+doing nothing.
+
+Only the immediate caller is consulted. A read that delegated its
+request-building to a helper would raise rather than inherit whatever was
+further up the stack, which is the one way this could have gone quietly wrong.
+The cost that remains is real: `.cache()` no longer says where its numbers come
+from, and a stack frame is now load-bearing. It is mitigated by the annotation
+sitting on the same method, a few lines above the call, rather than at the top
+of the class.
+
+**The annotation declares the ttl and the bound; a consumer replaces them.**
+This is a published client, so a number compiled into it is one a consumer
+cannot change without forking — and equally, a read that knows its own staleness
+should not have that overwritten by a blanket setting. Both elements are
+therefore optional and the precedence runs **read first**: `@Cache` wins where
+it states a number, `CacheOptions` supplies every number it leaves out, and
+`inForce` is where the two meet. A number neither side names is refused, not
+defaulted, because a ttl this library invented is one nobody chose.
+
+`@Cache(ttl = 30, maxSize = 1024)` is the whole annotation, and the two numbers
+are all of it. **Nothing names a cache** — not the annotation, not the policy,
+not the key. A read needs a Caffeine instance of its own only because
+`expireAfterWrite` and `maximumSize` are per-instance and neither is per-entry,
+so the instances are looked up by the `CachePolicy` itself: the numbers are the
+whole reason one exists. A name would have been a second identity for the same
+thing, and the one an earlier draft carried was worse than redundant — it was a
+string a caller could misspell into a tuning that silently never took effect.
+
+### The key is composed from the request, the way a CDN composes one
+
+The cache sits in `Transport`, which sees a built method, path and query and
+never the caller's arguments — so Spring's `@Cacheable(key = "#id")` has nothing
+to evaluate against here. That is a constraint, and it is also the right answer:
+`#id` alone would serve `01ABC` of `acme/prod/posts` to a read of `01ABC` in
+`beta/staging/posts`, because an id is only unique inside a scope the arguments
+do not carry. The path does carry it.
+
+So `CacheKey` takes all three, and every query parameter with them. There is no
+policy to declare and nothing to leave out, which is the simplification that
+matters most here: a parameter left out of a key is two different responses
+sharing one entry, and no annotation can be relied on to stay right about that
+as parameters are added.
+
+`CacheKey.of` builds the key with `QueryString`, the same code that builds the
+URL — so the key is the request rather than a second rendering of it that could
+drift. What it adds is a sort, so two callers who set the same parameters
+in a different order still meet one entry; `QueryString` itself stays
+order-preserving, because on the wire the order is the caller's and nothing
+depends on it. Percent-encoding comes for free and is not cosmetic: a filter
+holding an `&` would otherwise render into a target indistinguishable from a
+read carrying one more parameter. The path stays the prefix of whatever it
+composes, which is what keeps prefix invalidation working — `matches` takes the
+path itself, or the path followed by a `/` or a `?`, so a write to `posts`
+cannot reach `posts-archive`.
+
+**The cache lives under the read, not over it.** Keying on the built path and
+query rather than on arguments is what makes a raw read and a resolved read of
+one entry two entries in the cache, and two windows of one filter two more,
+without the key having to know what `variables` or `offset` mean. It is also why
+`all()` and `pages()` are cached without declaring anything: they page through
+`list()`, and it is `list()` that reaches the server.
+
+**Invalidation is declared by the write, for the same reason.** A write sets
+`evicts` to the collection's path and `Transport` drops everything stored at or
+below it on a successful response, so the transport never learns what an entry
+is. The sweep is a walk of the stored keys rather than a keyed delete, because
+the caller that replaced one row cannot name the pages that row appeared on. A
+boundary check on the prefix is what keeps a write to `posts` off `posts-archive`.
+
+**Only entries are cached, and only when asked.** Schemas, searches, variables
+and media all reach the server every time; they were candidates, and each would
+have been a second invalidation story for a read that is not on the hot path.
+And the whole thing is off until `SiloOptions.cache` turns it on. A cached read
+hands back the `rev` it was stored with, and a write carrying a stale one fails
+with a `ConflictException` the caller did nothing to cause — which is the
+failure §15.1's absent default scope exists to avoid, one layer down. A client
+cannot be told about a write made somewhere else, so the ttl is the only bound
+on staleness and `cache().clear()` is the escape hatch when the caller knows
+better.
+
+A cache belongs to one transport, so `withKey` and `withUrl` start empty: one
+key's reads are not another key's to serve, and that is structural rather than a
+component of the key.
+
+This is not D7 revisited. That decision is about the server's storage layer,
+where SQLite is the cache and no adapter interface exists; this is a client
+holding a response it already fetched, on the other side of the wire.
+
+Caffeine's `Ticker` is on `CacheOptions` for the reason `OkHttpClient` is on
+`SiloOptions` — the alternative is a suite that sleeps for thirty seconds to
+prove a ttl expires.

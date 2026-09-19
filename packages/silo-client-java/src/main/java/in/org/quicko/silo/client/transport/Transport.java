@@ -6,6 +6,8 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import in.org.quicko.silo.client.CancellationSignal;
 import in.org.quicko.silo.client.RequestOptions;
+import in.org.quicko.silo.client.cache.CachePolicy;
+import in.org.quicko.silo.client.cache.ResponseCache;
 import in.org.quicko.silo.client.errors.ErrorFactory;
 import in.org.quicko.silo.client.errors.NetworkException;
 import in.org.quicko.silo.client.errors.RequestAbortedException;
@@ -32,6 +34,10 @@ import okhttp3.ResponseBody;
  * {@link RequestTimeoutException}, and a request that never landed raises
  * {@link NetworkException}. Nothing here retries, because a retried POST is a
  * duplicate entry and a retried 409 is wrong by definition.
+ *
+ * <p>It is also where the cache is consulted, since this is the only place that
+ * knows a request was actually sent. What may be served from it, and what a
+ * write invalidated, are both carried on the request rather than decided here.
  */
 public final class Transport {
   private static final MediaType JsonMediaType = MediaType.get("application/json; charset=utf-8");
@@ -40,6 +46,7 @@ public final class Transport {
   private final String url;
   private final OkHttpClient http;
   private final JsonCodec codec;
+  private final ResponseCache cache;
 
   public Transport(TransportOptions options) {
     this.options = options;
@@ -48,17 +55,34 @@ public final class Transport {
     ObjectMapper mapper =
         options.objectMapper() == null ? JsonCodec.defaultMapper() : options.objectMapper();
     this.codec = new JsonCodec(mapper);
+    this.cache = new ResponseCache(options.cache());
   }
 
   public JsonCodec codec() {
     return codec;
   }
 
-  /** A route documented to answer JSON. A body of any other type is refused. */
+  /** What this transport is holding: clearing it, and what it has done. */
+  public ResponseCache cache() {
+    return cache;
+  }
+
+  /**
+   * A route documented to answer JSON. A body of any other type is refused.
+   *
+   * <p>Served from the cache only when the request declared a policy and is a
+   * GET: a policy on anything else would be a bug, and refusing it here is
+   * cheaper than finding out from a write that never left. What identifies the
+   * response is the request itself, so the method, the path and the query go
+   * over and the policy carries only its numbers.
+   */
   public JsonNode json(TransportRequest request) {
-    RawResponse response = execute(request, null);
-    return ResponseDecoder.decode(
-        response.status(), response.contentType(), response.body(), request, codec, true);
+    CachePolicy policy = request.cachePolicy();
+    if (policy == null || !cache.isEnabled() || !request.method().equals("GET")) {
+      return fetchJson(request);
+    }
+    return cache.get(
+        policy, request.method(), request.path(), request.query(), () -> fetchJson(request));
   }
 
   public <T> T json(TransportRequest request, Class<T> type) {
@@ -97,6 +121,12 @@ public final class Transport {
     return new Transport(options.withUrl(target));
   }
 
+  private JsonNode fetchJson(TransportRequest request) {
+    RawResponse response = execute(request, null);
+    return ResponseDecoder.decode(
+        response.status(), response.contentType(), response.body(), request, codec, true);
+  }
+
   private RawResponse execute(TransportRequest request, RequestBody multipart) {
     RequestOptions callOptions = request.options();
     if (callOptions.isCancelled()) {
@@ -117,6 +147,7 @@ public final class Transport {
         throw ErrorFactory.fromResponseBody(
             response.code(), request.method(), request.path(), raw, codec);
       }
+      cache.invalidate(request.evicts());
       return new RawResponse(response.code(), response.header("content-type"), raw);
     } catch (IOException caught) {
       throw transportFailure(request, signal, deadline, client, caught);
@@ -151,8 +182,7 @@ public final class Transport {
   }
 
   private Request buildRequest(TransportRequest request, RequestBody multipart) {
-    Request.Builder builder =
-        new Request.Builder().url(url + request.path() + QueryString.build(request.query()));
+    Request.Builder builder = new Request.Builder().url(url + target(request));
 
     for (Map.Entry<String, String> header : options.headers().entrySet()) {
       builder.header(header.getKey(), header.getValue());
@@ -183,6 +213,11 @@ public final class Transport {
     String method = request.method();
     boolean requiresBody = method.equals("POST") || method.equals("PUT") || method.equals("PATCH");
     return requiresBody ? RequestBody.create(new byte[0], null) : null;
+  }
+
+  /** The path and query a request addresses — what it is sent to, and cached under. */
+  private static String target(TransportRequest request) {
+    return request.path() + QueryString.build(request.query());
   }
 
   private static String normalizeUrl(String target) {

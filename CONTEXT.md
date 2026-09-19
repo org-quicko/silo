@@ -142,6 +142,45 @@ beside the idle timeout. `POST /api/projects` and environment create ask for a
 key before reading the body; `ExtRequest` bounds a plugin route's body from the
 header and while reading.
 
+**The Java client caches entry reads, and `@Cache` decorates rather than
+intercepts (2026-09-17, D86).** Caffeine holds one entry and one page of
+entries. **`@Cache(ttl = 30, maxSize = 1024)` is the whole annotation**, and
+both are optional: what a read states **wins**, and what it leaves out is
+taken from `CacheOptions`, which a consumer sets on `SiloOptions`. A number
+neither side names is refused rather than invented. The name is Spring's
+`@Cacheable` shortened, and the mechanism is not Spring's, because it could not
+be: there is no container here, every handle is `final` and none implements an
+interface, so a proxy had nothing to stand in front of. The annotation is
+**read, not woven, and read off the stack** — a read describes its request and
+calls `.cache()` with no argument, and `CachePolicy.declaredOnCaller` takes the
+`@Cache` off exactly the method that called it, matched on signature and
+memoised per method. That is what makes the annotation decide **whether**
+caching happens: delete it and the read raises, where the resolved-constant
+draft this replaced would have compiled and quietly cached nothing. Only the
+immediate caller is consulted, so a read that delegated its request-building
+raises rather than inheriting numbers from further up the stack. **The key is composed from the
+request, the way a CDN composes one** — `Transport` never sees a caller's
+arguments, and `#id` alone would serve `01ABC` of `acme/prod` to a read of
+`01ABC` in `beta/staging`, since an id is unique only inside a scope the path
+carries and the arguments do not. `CacheKey` is the method, the path and every
+query parameter — there is nothing to declare and nothing to leave out, because
+a parameter left out of a key is two different responses sharing one entry. It
+sorts the parameters so two callers who built one read differently still meet
+one entry, and encodes the values so a filter holding an `&` cannot forge
+another read's key. `@Cache(ttl = 30, maxSize = 1024)` is the whole annotation,
+and nothing names a cache: a read needs a Caffeine instance of its own only
+because both bounds are per-instance, so one is looked up by the `CachePolicy`. `all()` and `pages()` are cached without
+declaring anything: they page through `list()`. Writes declare what they invalidated — `evicts` carries the
+collection's path and `Transport` drops everything at or below it, with a
+boundary check keeping a write to `posts` off `posts-archive`. **Off until
+`SiloOptions.cache(CacheOptions.on())` asks for it**, and only entries: a cached
+read hands back the `rev` it was stored with, and the write carrying a stale one
+raises a `ConflictException` the caller did nothing to cause — the
+absent-default-scope reasoning one layer down. Schemas, searches, variables and
+media reach the server every time. A cache belongs to one transport, so
+`withKey` and `withUrl` start empty. D7 is untouched: that is the server's
+storage layer, not a client holding what it already fetched. The suite is 114.
+
 **A transfer now says what it covers, and export answers immediately
 (2026-09-17).** `GET /api/export` had been failing behind a reverse proxy with a
 `503` that named the proxy. Three things were true at once: `Bun.serve` was
@@ -291,7 +330,7 @@ entries.
 
 **silo has a Java client, and the three decisions that could not cross are the
 interesting part (2026-09-16, D69).** `packages/silo-client-java`, published as
-`in.org.quicko:silo-client`, on OkHttp and Jackson with Java 25. It is the same
+`in.org.quicko.silo:client`, on OkHttp and Jackson with Java 25. It is the same
 client as the TypeScript one on purpose: the same object graph, immutable
 handles, absent default scope, passed revision, per-call raw-versus-resolved
 read, window-driven pagination, built filters, four kinds of failure and
