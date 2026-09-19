@@ -34,7 +34,7 @@ Codex, in `~/.codex/config.toml`:
 ```toml
 [mcp_servers.silo]
 url = "https://cms.example.com/api/mcp"
-bearer_token_env_var = "SILO_API_KEY"
+http_headers = { Authorization = "Bearer silo_..." }
 ```
 
 Cursor, and any client that reads an `mcp.json`:
@@ -82,6 +82,33 @@ The bridge opens no data directory and reads no config file. It is safe to run
 beside the server it talks to, on the same machine or another. From a source
 checkout, replace `silo` with `bun run apps/server/src/main.ts`.
 
+## Connect from Silo Admin
+
+**Settings > AI assistants** prepares setup using the API key saved for the
+current Silo connection. It does not create another key or widen access: an
+assistant can do exactly what this connection can do. The page offers four
+client-specific actions and gives each saved server a separate connection name.
+
+- **Claude Desktop:** download the extension, then open its `.mcpb` file. If it
+  does not open, use **Settings > Extensions > Advanced settings > Install
+  Extension**. The downloaded extension contains the saved API key; keep it
+  private. It uses Claude Desktop's bundled Node runtime, so no separate Silo
+  or Node installation is needed. See [Claude Desktop extensions](https://support.claude.com/en/articles/10949351-getting-started-with-local-mcp-servers-on-claude-desktop).
+- **Claude Code:** copy and run the displayed user-scope command. See the
+  [Claude Code MCP guide](https://code.claude.com/docs/en/mcp).
+- **Codex:** copy the setup prompt into a local Codex task and let it update
+  the personal configuration, approving the change if asked. A cloud task
+  cannot change a local configuration. The page also offers the TOML block for
+  manual setup. This personal file contains the API key and should stay
+  private. See the [Codex MCP guide](https://learn.chatgpt.com/docs/extend/mcp?surface=cli).
+- **Cursor:** use **Add to Cursor**, or merge the manual JSON shown by the page.
+  The action opens Cursor directly and does not send the credential through a
+  web proxy. See [Cursor MCP setup](https://prod.cursor.com/help/customization/mcp).
+
+Adding or downloading configuration cannot prove that a client installed on
+another machine can reach Silo. Keep Silo running; `localhost` always means the
+machine that runs the assistant.
+
 ## Tools
 
 The tool set is the same for every key. What differs is which calls succeed.
@@ -107,8 +134,8 @@ project, environment and collection the call names.
 | `update_entry` | replace an entry's fields, with the `rev` you read | `collections:<p>/<e>/<c>:entries:update` |
 | `delete_entry` | delete an entry, with the `rev` you read | `collections:<p>/<e>/<c>:entries:delete` |
 | `search` | text search of one collection, one environment, or everything | `entries:read` where it looks |
-| `list_media` | the media catalog, filtered and paged | `media:read` |
-| `get_media` | one asset's catalog record | `media:read` |
+| `list_media` | the media catalog, filtered and paged | public read (the MCP endpoint still needs a key) |
+| `get_media` | one asset's catalog record | public read (the MCP endpoint still needs a key) |
 
 `list_entries` and `search` take the same `filter`, `sort`, `limit` and
 `offset` the HTTP routes take. The filter is the JSON AST described in

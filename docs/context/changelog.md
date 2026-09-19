@@ -4,6 +4,15 @@
 > The *current* state is [CONTEXT.md](../../CONTEXT.md); this is how it got
 > there.
 
+- **AI assistant setup now uses the saved connection directly (2026-09-19).**
+  **Settings > AI assistants** prepares setup with the existing key. It makes
+  a client-specific action from the current saved
+  connection: a self-contained Claude Desktop extension, Claude Code command,
+  Codex setup prompt with a manual TOML fallback, or a Cursor deep link with a
+  manual JSON fallback.
+  Each has a stable instance-specific client name, preserves URL path prefixes,
+  and says that adding configuration cannot prove a remote client is connected.
+
 - **The SQLite read thread keeps the process alive while a read is pending
   (2026-09-18, D81 fix).** Run from source, `silo serve` and every CLI command
   that opens SQLite storage exited 0 at once with nothing printed: the D81

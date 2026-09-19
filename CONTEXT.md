@@ -17,7 +17,7 @@ can be cloned with one command.
 
 ## Where things stand
 
-*Last updated: 2026-09-18 (D86)*
+*Last updated: 2026-09-19 (AI assistant setup)*
 
 **silo is an MCP server (2026-09-18, D86).** `POST /api/mcp` speaks the Model
 Context Protocol over Streamable HTTP, under the same CORS, body-limit and auth
@@ -34,6 +34,13 @@ result with `isError`. The endpoint is stateless (no session id, `GET` and
 `DELETE` are `405`), requires a key even where a read would be public, and uses
 no SDK. [docs/guide/mcp.md](docs/guide/mcp.md) shows the client
 configurations; the rationale is §8.6 and §10.6.
+
+**The admin prepares current-connection AI client setup (2026-09-19).**
+**Settings > AI assistants** uses the saved server key as-is. It offers a
+Claude Desktop extension download, Claude Code command, Codex setup prompt
+with a manual TOML fallback, and Cursor deep link/manual JSON; each uses a safe
+per-saved-server name. The client retains the current connection's access.
+The page guides installation and gives a prompt to try in the assistant.
 
 **The D81 read thread no longer ends the process under it (2026-09-18).**
 Run from source, `serve` and every storage-opening CLI command exited 0 at

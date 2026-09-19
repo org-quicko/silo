@@ -11,6 +11,26 @@ React + TypeScript + Vite + RJSF (`@rjsf/core` + `@rjsf/validator-ajv8` for 2020
 
 **Layout:** a server manager, then a two-pane shell, with settings as a second two-pane shell of its own:
 
+**AI assistants:** **Settings > AI assistants** is a short, action-first ledger
+page. It selects a client and uses the saved connection's current key directly;
+there is no second key, scope picker or connection registry. A client-specific
+button or copyable configuration is the action, with a manual fallback where
+needed. The page says what the action does and does not establish: configuration
+may be added or downloaded, but only a client can prove it can reach Silo.
+
+Claude Desktop's `.mcpb` is built in the browser by `DesktopExtension` as a
+small stored ZIP (`StoredZip`), with no package or download service. Its Node
+entry point forwards stdio messages to the existing HTTP endpoint; Claude
+Desktop supplies Node, so the visitor does not need a Silo binary. The saved
+key and endpoint live in a JSON data file inside the extension, avoiding both
+source interpolation and MCPB manifest variable expansion. The bridge rejects
+redirects, limits concurrent requests, times requests out, and reports failures
+without echoing credentials. Downloads and copied configurations contain the
+current key; the page states this next to their actions. Cursor's install link
+uses its native protocol, so no vendor web redirect receives the key. Codex's
+primary action copies a setup prompt for a local task to merge the configuration;
+the manual fragment remains available for users who prefer editing it themselves.
+
 - **Sidebar (nav):** the visible collections with an in-memory box (`⌥F` / `Alt+F`) that *filters what is already listed* — a different question from the smart search bar's, so the two are worded apart — and user-resizable width (persisted in `localStorage`); selecting one shows its entries. Pinned at the bottom when authorized: *Keys*, *Media*, and *Data transfer*. Navigation and page actions adapt to the session's claims.
 - **Top bar (slim):** the smart search bar, centred. **A page's own actions sit with the page**: the entries list keeps its under the bar, and a page with a right rail (an entry, a collection's schema) carries every action it has — Save, Discard or Cancel, Delete — as one block in that rail, under the facts the rail already states. The bar belongs to the search, which reaches every collection in the scope rather than the page on screen. Both shortcut hints name the modifier the reader's own keyboard has (`PlatformKeys`), since both shortcuts have always listened for either. **`?` opens the shortcut list** from anywhere and **`Ctrl`/`⌘` `,` goes to Settings**, and the sidebar carries both as items of its own: a shortcut nobody can find is not a shortcut. Those two belong to the shell rather than to a page, which is why they live in one hook (`views/shell/use-shell-shortcuts.ts`) beside it. `?` stands down while somebody is typing, because it is a character they meant to write; the Settings shortcut does not, for the same reason `⌘K` does not, since a modified press types nothing and an open field has no claim on it. In an editor **`Esc` discards**, exactly as its own Discard or Cancel button does, standing down for a press something else already claimed so that leaving the search bar never throws away the form behind it. **A heading lands in the same place on every page** — the collection name, `Edit entry`, `Edit collection` — because a title that moves as you navigate reads as the page jumping; the breadcrumb and the heading are one block for that reason. A rail runs the full height of the view rather than stopping where its content does. A page with no search (settings, keys, a plugin) has no bar at all unless its actions are in it. What the active key can do **in the scope on screen** (full access / read & write / read-only / none, derived by `Claims.accessLevel`) is stated in the sidebar's account row, not here, and neither is the instance name or the lock — the sidebar's scope switcher already carries those.
 - **Main pane:** whatever the nav selected.
