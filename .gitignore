@@ -27,3 +27,7 @@ node_modules/
 
 # Leaked bun bundler temp files from an interrupted build.
 *.bun-build
+*.classpath
+*.xml
+*.project
+*.prefs
