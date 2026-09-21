@@ -326,45 +326,62 @@ safe, but it touches around forty view files and is its own change.
 
 ### 14.10 Optional read caching (D71)
 
-`SiloOptions.cache` accepts `{ ttlMilliseconds, maxEntries? }` or an existing
-`SiloCache`. Without it, reads go directly through `FetchTransport`; no cache
-store, timer, key or clone is created. `silo.cache` still provides `enabled`,
-`size` and `clear()`. `withKey()` and `withUrl()` share that facade.
+Revised on 2026-09-17 to match `feature/java-client` at `3ad9c83`.
 
-The TTL is a required positive finite safe integer, measured from storage,
-not extended by hits. `maxEntries` is a positive safe integer or `Infinity`;
-omitting it leaves the count unlimited. The soonest-expiring entry is evicted
-first. `@isaacs/ttlcache` 2.1.5 stays external in both bundles. Infinite TTLs
-are rejected because that version cannot safely evict or clear immortal
-entries. Expiry is checked on retrieval as well as by the library's timer.
+`SiloOptions.cache` accepts `{ enabled, ttl, maxSize }`. Omitted or disabled
+options make normal requests. Both TTL and capacity must resolve from the method
+or instance configuration before a cacheable read. There are no implicit TTL or
+capacity defaults. Annotation values override instance values. TTL is in
+milliseconds in TypeScript, seconds in Java's annotation. TTLCache validates the
+numeric values. Finite TTLs are recommended: TTLCache 2.1.5 cannot enforce a finite
+capacity safely for immortal entries. Silo adds no separate numeric validator.
 
-`CachingTransport` wraps the transport interface used by every handle. It
-caches successful GET calls through `json()`, including a decoded `undefined`
-from a 204. Other transport methods pass through. The URL (including query)
-and normalized `Headers` are prepared once, then used for both the key and
-fetch. Authorization is included; duplicate header names keep their combined
-value order. A custom fetch that changes authentication or routing must keep
-that context in the client's URL/headers, or bypass the cache.
+The local `@Cache()` decorator marks `EntryReader.get()` and `list()`. It only
+assigns a `CachePolicy` to the method's `cachePolicy` property. `TransportRequest`
+provides a builder whose `.cache(this.get)` or `.cache(this.list)` reads that
+property. The builder is a module-private class in `transport-request.ts`,
+corresponding to Java's nested `TransportRequest.Builder`, with no separate
+builder file. No method wrapper or global cache registry is needed. Java's `.cache()`
+uses StackWalker, which cannot be ported to browser JavaScript. The explicit
+function reference is the TypeScript adaptation. It carries no cache instance or
+configuration through collection method arguments. A missing decorator is an
+error, preventing accidental opt-in by an unmarked method.
 
-Responses are cloned before storage and on each hit. The public facade uses
-runtime-private storage; it offers no keys or body access. An already-aborted
-cacheable read raises `RequestAbortedError`; a hit has no network timeout.
+`Transport` owns `ResponseCache`, with one TTLCache per resolved TTL/capacity pair.
+A stable string identifies equal policy values because JavaScript Map keys compare
+objects by identity, unlike Java record keys. All scopes share the transport that
+already handles their requests. `SiloContext`, reader Symbol properties and the
+core decorator dependency are removed. `withKey()` and `withUrl()` create
+independent caches. The builder remains structurally compatible with existing
+plain request objects so unrelated endpoints need no conversion.
 
-`bypass` skips lookup and storage. `refresh` skips lookup and stores a
-successful response; failure leaves an existing cached response unchanged.
-Both modes are ignored on writes or when caching is disabled. `health()`
-always bypasses. `MediaAsset.refresh()` defaults to refresh and honors an
-explicit bypass. Pagination keeps the mode unless the caller overrides it.
+Only GET requests carrying a policy are cached. Keys use method, API path and
+sorted top-level query names, with the existing QueryString encoding for values.
+Nested filter JSON is not reordered. Constructor options are used directly and
+are expected to remain unchanged for the client's lifetime. Transport reads its
+settings from the options object rather than duplicating fields and reconstructing
+a snapshot for derived clients. Custom fetch
+implementations must keep authentication and routing stable.
+Health, schemas, metadata, searches and writes remain uncached.
+`all()` and `pages()` pass through `list()` and share its cached payloads.
 
-Every non-GET clears the shared store before dispatch and in `finally` after
-settlement, including failed or partially successful writes. This removes
-reads cached while a write was pending. Manual `clear()` also invalidates
-pending reads. Each cacheable network read gets a unique per-key ticket;
-only the current ticket may store, and completion removes it. Clearing the
-tickets prevents old reads from repopulating the cache. Starting a newer
-read prevents an older one from overwriting its result, even if the newer
-read fails. Callers still receive their own network responses.
+The cache stores successfully decoded responses, including null, and skips
+undefined and rejected loads. TypeScript clones JSON on insertion and retrieval;
+Java maps cached JSON into new entry values instead. Pagination objects are built
+after lookup. TTLCache owns expiry and capacity removal, with expiry purged before
+lookup so stale entries count as evictions. Its capacity eviction order differs
+from Caffeine's policy. `silo.cache().statistics()` returns hits, misses, evictions,
+size, requests() and hitRate(); clear and explicit invalidation preserve counters.
 
-The store is local to a tab, worker or process, with no coalescing, retries,
-persistence or scoped invalidation. Node and Bun unref the expiry timer;
-Deno may stay alive until expiry, so `clear()` releases the timer when done.
+Collection create, replace, delete, rename and schema deletion declare
+`.evicts(collectionPath)`. Transport applies it after HTTP success, before body
+decoding, matching Java. Invalidation removes every cached entry/page at that path
+across policy buckets and distinguishes sibling names such as posts-archive.
+Other writes, including variable and scope changes, do not invalidate collection
+reads automatically. `silo.cache().clear()` is the explicit escape hatch.
+
+Concurrent misses remain independent. Pending reads may repopulate after
+invalidation or clear, as in the Java baseline. Cache hits do not check abort
+signals; network requests use the existing transport cancellation handling.
+There are no bypass/refresh modes or in-flight request coalescing. See the
+[usage documentation](../../packages/silo-client/README.md#optional-collection-caching).

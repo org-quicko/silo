@@ -46,8 +46,12 @@
     "build:types": "tsc -p tsconfig.build.json && bun run tools/emit-cts-types.ts",
     "test": "bun test",
     "test:packaged": "bun run tools/packaged-tests.ts",
+    "verify:cache": "node tools/verifyCache.mjs",
     "typecheck": "tsc --noEmit -p tsconfig.json && tsc --noEmit -p tsconfig.test.json",
     "prepublishOnly": "bun run build"
+  },
+  "dependencies": {
+    "@isaacs/ttlcache": "^2.1.5"
   },
   "devDependencies": {
     "@arethetypeswrong/cli": "^0.18.5",

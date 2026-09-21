@@ -17,7 +17,7 @@ can be cloned with one command.
 
 ## Where things stand
 
-*Last updated: 2026-09-19 (releases are `vMAJOR.MINOR.PATCH` only; media streams open on first read)*
+*Last updated: 2026-09-21 (Node client caching, Java caching, MCP and server updates)*
 
 **silo releases only `vMAJOR.MINOR.PATCH`, and its suite passes on Bun 1.4
 (2026-09-19).** `release.yml` triggers on `v[0-9]+.[0-9]+.[0-9]+`, so an
@@ -242,13 +242,33 @@ line; the admin reads it, and a long run reports what it is doing. The admin's
 Data Transfer page gains a three-level scope picker, every box checked by
 default because an empty selection *is* everything.
 
-**silo-client 1.1.1 can cache reads (2026-09-16).**
-`SiloOptions.cache` is opt-in and requires a finite TTL, so an application
-chooses how long a stored GET JSON response remains reusable. `SiloCache` can be shared by clients and is cleared around every
-write; `bypass` and `refresh` name the two per-read choices. Keys include the
-prepared URL and final headers, authorization included, and values are cloned
-at both cache boundaries. A pending read cannot refill a cache a write or
-manual clear has invalidated, and a newer refresh wins over an older one (D71).
+**Node collection caching now follows the Java client (2026-09-17).**
+The baseline is `feature/java-client` at `3ad9c83`. Local `@Cache()` decorators
+mark `EntryReader.get()` and `list()`. The request builder reads their
+`method.cachePolicy` property through `.cache(this.get)` or `.cache(this.list)`.
+Each `Transport` owns a `ResponseCache`; handles carry only their existing
+transport. `SiloContext` and the `@org-quicko/core` dependency are removed.
+`SiloOptions.cache` accepts `{ enabled, ttl, maxSize }`, with TTL in milliseconds.
+Both settings must resolve from the decorator or client options; Silo supplies
+no TTL or capacity defaults. Omitted or disabled caching makes ordinary requests.
+Constructor options are used directly, without defensive copies; callers treat
+them as immutable for the client's lifetime.
+Transport reads its settings from those options without duplicate fields or a
+snapshot helper. The request builder is internal to `transport-request.ts`,
+corresponding to Java's nested `TransportRequest.Builder`.
+Successful collection create, replace, delete, rename and schema deletion
+invalidate that collection's cached entry and page responses. Health, searches,
+schemas and other metadata remain uncached. `silo.cache().clear()` and
+`statistics()` expose cache management. Derived clients have independent caches.
+The implementation uses standard decorators, function properties and TTLCache,
+with no Node-only execution context. See the
+[client design](docs/design/api-client.md#1410-optional-read-caching-d71) for the
+Java differences and concurrency limits, and the
+[client README](packages/silo-client/README.md#optional-collection-caching) for usage.
+`packages/silo-client/tools/verifyCache.mjs` verifies the built client against a
+real public collection with GET requests and HTTP request-count assertions.
+Run `npm run verify:cache` from the client package after building; it defaults
+to the production GST state-code collection and requires no API key.
 
 **A collection can now say more than "required" (2026-09-16).** The visual
 schema builder wrote `type`, `enum`, `$ref` and a required list and nothing
@@ -735,8 +755,8 @@ accept is meant to be found. One secret, `NPM_TOKEN`.
 
 **silo has a TypeScript client, and it is a package rather than a copy of the
 admin's (2026-09-10).** `packages/silo-client`, published as `@org-quicko/silo-client`,
-with one bundled artifact per module condition and `@isaacs/ttlcache` as an
-external runtime dependency (D71).
+with one bundled artifact per module condition. Collection caching uses
+`@org-quicko/core/cache` and `@isaacs/ttlcache`.
 The path is the object graph: `silo.project("acme").environment("prod")
 .collection<Post>("posts")`, where every handle is a value object that makes no
 request. There is no default scope, because a client that guesses `default/prod`

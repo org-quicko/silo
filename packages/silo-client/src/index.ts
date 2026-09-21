@@ -7,6 +7,9 @@
 
 export { Silo } from "./silo.js";
 export type { SiloOptions } from "./silo-options.js";
+export type { CacheOptions } from "./cache/CacheOptions.js";
+export { CacheStatistics } from "./cache/CacheStatistics.js";
+export { ResponseCache } from "./cache/ResponseCache.js";
 export type { RequestOptions } from "./request-options.js";
 export type { FetchFunction } from "./transport/fetch-function.js";
 export { RouteInventory } from "./transport/route-inventory.js";

@@ -1,6 +1,5 @@
-import type { RequestOptions } from "../request-options.js";
-import { ApiPath } from "../transport/api-path.js";
 import type { Transport } from "../transport/transport.js";
+import { ApiPath } from "../transport/api-path.js";
 import { ProjectVariables } from "../variables/project-variables.js";
 import type { DeleteOptions } from "./delete-options.js";
 import { EnvironmentHandle } from "./environment-handle.js";

@@ -220,6 +220,19 @@
   directory holds entries even without a marker. Two conformance tests pin it
   for both adapters.
 
+- **Live Node cache verification (2026-09-18).** `tools/verifyCache.mjs` and
+  `npm run verify:cache` exercise the built client against the public production
+  GST state-code collection. GET request counts verify hits, expiry, capacity,
+  clearing, client isolation and uncached health reads without changing data.
+  Target URL, project, environment and collection can be set through environment variables.
+
+- **Node client option handling is simpler (2026-09-18).** Silo, Transport and
+  ResponseCache use the supplied options directly. Removed defensive copies and
+  the test for mutation protection; callers treat configuration as immutable.
+  Transport reads options without duplicate fields or a snapshot helper. The
+  request builder now lives inside `transport-request.ts`, corresponding to
+  Java's nested `TransportRequest.Builder`; the separate builder file is removed.
+
 - **A JVM consumer reading one entry on every request paid a round trip for
   each of them (2026-09-17, D86).** The Java client gains a Caffeine response
   cache, declared by `@Cache` — Spring's `@Cacheable` by the name a Java
@@ -274,6 +287,32 @@
   untouched: that is the server's storage layer, not a client holding what it
   already fetched. `CacheTest` is 30 cases and the README's block is one more in
   `ExamplesTest`; the suite is 114.
+
+- **Node caching follows the Java client (2026-09-17).** Local metadata-only
+  `@Cache()` decorators mark individual entry reads. `.cache(this.get)` reads
+  `method.cachePolicy` directly, using a string property instead of a Symbol.
+  Transport owns the TTL caches; `SiloContext` and `@org-quicko/core` are removed.
+  Options are `{ enabled, ttl, maxSize }` with no TTL/capacity defaults, and
+  `silo.cache().clear()` replaces `clearCache()`. Cache statistics and collection
+  write invalidation match Java's behavior. The explicit method reference replaces
+  StackWalker so the same implementation runs in browsers and Node.
+
+- **Node caching no longer uses result filtering (2026-09-17).** Core's `@Cache`
+  accepts only a key; the `unless` option is removed. Successful `null` responses
+  are cached. Rejected requests and `undefined` remain uncached.
+
+- **Node collection caching uses core's decorator (2026-09-17).** Replaces the
+  D71 transport cache with `@Cache` and a per-client Symbol-attached TTL cache.
+  Only collection entry GETs are cached, with the API path and query as the key.
+  Search methods remain uncached. Options
+  are `{ ttl, max? }`, with no default capacity. Derived clients have independent
+  caches. `clearCache()` clears current entries; writes do not invalidate them.
+  Entry reads call the decorated fetch directly; cache hits do not check abort signals.
+  One `SiloContext` holds the transport and optional cache for each client.
+  Project handles and scopes carry `siloContext`; only readers use `CACHE_MAP_KEY`.
+  Cache options use `@isaacs/ttlcache` validation, including support for `ttl: Infinity`.
+  `packages/silo-client/tools/verifyCache.mjs` checks caching against a live collection
+  using GET requests and HTTP request-count assertions.
 
 - **The receiving end of a transfer is memory-flat too (2026-09-17).** A
   destination taking a 750 MB copy peaked at **2.0 GB** of private memory, which
