@@ -42,7 +42,7 @@ describe("media folder delete (D49)", () => {
   };
 
   test("without recursive, still refuses while the folder holds anything", async () => {
-    await service.media.save("x.png", new TextEncoder().encode("x"), undefined, "/a");
+    await service.media.save("x.png", new TextEncoder().encode("x"), "/a");
 
     const response = await del(`path=${encodeURIComponent("/a")}`);
     expect(response.status).toBe(409);
@@ -68,8 +68,8 @@ describe("media folder delete (D49)", () => {
 
   test("recursive: a mix of free and referenced assets — unforced deletes what it can and reports the rest", async () => {
     await seedCollection();
-    const free = await service.media.save("free.png", new TextEncoder().encode("a"), undefined, "/a");
-    const used = await service.media.save("used.png", new TextEncoder().encode("b"), undefined, "/a/x");
+    const free = await service.media.save("free.png", new TextEncoder().encode("a"), "/a");
+    const used = await service.media.save("used.png", new TextEncoder().encode("b"), "/a/x");
     await service.entries.create(Scope.Default, "posts", { cover: MediaRef.url(used.id) });
 
     const response = await del(`path=${encodeURIComponent("/a")}&recursive=true`);
@@ -90,8 +90,8 @@ describe("media folder delete (D49)", () => {
     // "folder records removed" half of the response has something to count.
     await service.media.createFolder("/a");
     await service.media.createFolder("/a/x");
-    const free = await service.media.save("free.png", new TextEncoder().encode("a"), undefined, "/a");
-    const used = await service.media.save("used.png", new TextEncoder().encode("b"), undefined, "/a/x");
+    const free = await service.media.save("free.png", new TextEncoder().encode("a"), "/a");
+    const used = await service.media.save("used.png", new TextEncoder().encode("b"), "/a/x");
     await service.entries.create(Scope.Default, "posts", { cover: MediaRef.url(used.id) });
 
     const response = await del(`path=${encodeURIComponent("/a")}&recursive=true&force=true`);
@@ -124,7 +124,7 @@ describe("media folder delete (D49)", () => {
       logger: Logger.silent(),
     }).build();
     await seedCollection();
-    const used = await service.media.save("used.png", new TextEncoder().encode("b"), undefined, "/a");
+    const used = await service.media.save("used.png", new TextEncoder().encode("b"), "/a");
     await service.entries.create(Scope.Default, "posts", { cover: MediaRef.url(used.id) });
 
     const key = (await service.keys.create("probe", [Claims.MediaDelete])).secret;

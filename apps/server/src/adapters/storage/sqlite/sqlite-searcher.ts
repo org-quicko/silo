@@ -15,6 +15,7 @@ import { SearchSnippets } from "../../../core/search/search-snippets";
 import { SearchText } from "../../../core/search/search-text";
 import { SearchTokens, type SearchQuery } from "../../../core/search/search-tokens";
 import { SqliteCompiler } from "./sqlite-compiler";
+import type { SqliteReadWorker } from "./sqlite-read-worker";
 import { SearchIndex } from "./search-index";
 
 /**
@@ -63,11 +64,19 @@ export class SqliteSearcher implements Searcher {
   private readonly db: SqliteConnection;
   private readonly store: Storage;
   private readonly tokenizer: string;
+  /** Where a search's two statements run; `null` runs them here (D81). */
+  private readonly reads: SqliteReadWorker | null;
 
-  constructor(db: SqliteConnection, store: Storage, tokenizer: string) {
+  constructor(
+    db: SqliteConnection,
+    store: Storage,
+    tokenizer: string,
+    reads: SqliteReadWorker | null = null
+  ) {
     this.db = db;
     this.store = store;
     this.tokenizer = tokenizer;
+    this.reads = reads;
   }
 
   capabilities(): { engine: "fts5" | "scan"; snippets: boolean } {
@@ -114,20 +123,31 @@ export class SqliteSearcher implements Searcher {
 
     const cond = where.join(" AND ");
 
-    const totalRow = this.db.once(`SELECT COUNT(*) AS n ${from} ${SqliteSearcher.Joins} WHERE ${cond}`,
-      (statement) => statement.get(...args)
-    ) as { n: number };
-
     const order = this.order(request, text.match);
-    const rows = this.db.once(`SELECT e.id, p.project_name AS project, v.env_name AS env, c.collection_name AS collection,
+    const countSql = `SELECT COUNT(*) AS n ${from} ${SqliteSearcher.Joins} WHERE ${cond}`;
+    const pageSql = `SELECT e.id, p.project_name AS project, v.env_name AS env, c.collection_name AS collection,
                 e.rev, e.seq, e.created_at, e.updated_at, e.data
-         ${from} ${SqliteSearcher.Joins} WHERE ${cond} ORDER BY ${order.sql} LIMIT ? OFFSET ?`,
-      (statement) => statement.all(...args, ...order.args, limit, offset)
-    ) as any[];
+         ${from} ${SqliteSearcher.Joins} WHERE ${cond} ORDER BY ${order.sql} LIMIT ? OFFSET ?`;
+    const pageArgs = [...args, ...order.args, limit, offset];
+
+    // On the read worker where there is one (D81): a match narrowed by a
+    // compiled filter scans what the index matched, on the thread every other
+    // request shares.
+    let totalRows: any[];
+    let rows: any[];
+    if (this.reads) {
+      [totalRows, rows] = await Promise.all([
+        this.reads.all(countSql, args),
+        this.reads.all(pageSql, pageArgs),
+      ]);
+    } else {
+      totalRows = this.db.once(countSql, (statement) => statement.all(...args)) as any[];
+      rows = this.db.once(pageSql, (statement) => statement.all(...pageArgs)) as any[];
+    }
 
     return {
       items: await this.toHits(rows, query),
-      total: totalRow.n,
+      total: totalRows[0]?.n ?? 0,
       limit,
       offset,
       // An index answers completely or not at all; only a scan runs out of

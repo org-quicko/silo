@@ -1581,6 +1581,13 @@ shape of everything else here:
   are shown. It is the one property of a route nobody can infer from the claim,
   and it is the sharp end of the deputy problem: a public route publishes
   whatever the plugin was granted at a URL anyone can reach.
+- **A route's answer is data, never a page (D83).** Whatever `Content-Type` the
+  plugin declares, `ExtRoutes` sends it with `X-Content-Type-Options: nosniff`
+  and `Content-Security-Policy: default-src 'none'; sandbox` — the panel route's
+  policy — replacing the plugin's own spelling of either header. A public route
+  answering HTML, opened in a tab, would otherwise render on the origin that
+  holds the admin's saved keys: the D41 hazard arriving through a door D41 did
+  not cover, and the 2026-09-18 audit's H2.
 - **A plugin never receives a credential.** `authorization`, `x-api-key` and
   `cookie` are withheld from the handler, and `caller` carries an id, a label and
   claims instead. The same rule as `PluginApiDispatcher` stripping those on the
@@ -2049,7 +2056,9 @@ granted at all. So:
   own origin.
 - **It is served as JSON**, by `GET /api/plugins/{name}/ui` behind
   `plugins:read`, with `nosniff` and a `default-src 'none'; sandbox` CSP. The
-  bytes leave as data and nothing renders them on silo's origin.
+  bytes leave as data and nothing renders them on silo's origin. Since D83
+  every `/api/ext/{name}/*` answer carries the same two headers, so no
+  plugin-authored bytes render on this origin from any route.
 - **The admin makes it a document**, in an iframe with `sandbox="allow-scripts"`
   and **no** `allow-same-origin`, mounted through `srcdoc`. That gives it an
   opaque origin: `localStorage` throws, `document.cookie` is empty, the parent is

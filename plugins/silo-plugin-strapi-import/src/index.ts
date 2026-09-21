@@ -25,6 +25,11 @@ import { ImportRuntime } from './worker/import-runtime'
  * one keeps its Strapi URL, which silo resolves by leaving alone. Same schema
  * either way, which is what lets an operator import now and send the files later.
  *
+ * **Each operator gets their own session**, keyed by the caller silo
+ * authenticated: their own staging directory, their own plan, their own history.
+ * Two people can import at the same time, and the only thing refused is two of
+ * them writing one collection (`RunningTargets`).
+ *
  * Two things it does **not** do, and says so rather than approximating:
  *
  * - **It does not import relations.** A Strapi relation is a row in a link table
@@ -40,7 +45,7 @@ import { ImportRuntime } from './worker/import-runtime'
  */
 export default defineSiloPlugin({
   /**
-   * Build the worker's state, and recover a source staged before a restart.
+   * Build the worker's state, and recover the sessions staged before a restart.
    *
    * Declared as a runtime for exactly that: without it, restarting the worker —
    * which the admin offers a button for — would leave the panel reporting no

@@ -1,0 +1,14 @@
+/* The browser sits inside a settings row rather than filling a page, so it
+   needs the frame and the height the server manager's own window gives it.
+   A flex column, because the panes below it claim their height with `flex: 1`
+   and would otherwise collapse to their content. */
+.browser {
+  display: flex;
+  height: 340px;
+  flex-direction: column;
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: var(--panel);
+}
+

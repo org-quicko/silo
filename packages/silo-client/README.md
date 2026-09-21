@@ -8,7 +8,7 @@ an environment holds collections, and a collection holds entries.
 npm install @org-quicko/silo-client
 ```
 
-Runs on Node 18+, Bun, Deno, browsers and workers. It has no dependencies.
+Runs on Node 18+, Bun, Deno, browsers and workers.
 
 The examples below build moviespace, a small film database.
 
@@ -29,6 +29,86 @@ for (const movie of page.entries) {
 
 `silo.project("moviespace").environment("prod")` sends no request. It only
 builds the path, so nothing needs an `await` until the read.
+
+## Optional collection caching
+
+```ts
+const silo = new Silo({
+  url: "http://localhost:8090",
+  key: process.env.SILO_KEY,
+  cache: { enabled: true, ttl: 10 * 60 * 1000, maxSize: 1_000 },
+})
+
+const statistics = silo.cache().statistics()
+console.log(statistics.hits, statistics.misses, statistics.evictions, statistics.size)
+console.log(statistics.requests(), statistics.hitRate())
+
+// Discard this client's cached responses after changes made by another client.
+silo.cache().clear()
+```
+
+Omit `cache` or set `{ enabled: false }` to disable caching. When enabled, `ttl`
+and `maxSize` must be supplied unless a method's decorator supplies them.
+The built-in entry reads use `@Cache()` without overrides, so both settings are
+required in the client options. Silo supplies no TTL or capacity defaults.
+`ttl` is in milliseconds, measured from insertion; hits do not extend it.
+`maxSize` limits responses per resolved policy. Equal TTL and capacity settings
+share a cache within that client. Numeric validation belongs to `@isaacs/ttlcache`.
+Use a finite positive TTL: upstream TTLCache 2.1.5 cannot safely enforce a finite
+capacity with `ttl: Infinity`. `maxSize: Infinity` is supported with a finite TTL.
+
+Only collection entry reads are cached. `get()` and `list()` declare `@Cache()`;
+`all()` and `pages()` reuse `list()`. The cache holds decoded JSON and creates
+fresh pagination objects with working navigation methods. Health, schemas, other
+metadata, searches and writes remain uncached. Successful `null` responses are
+cached; errors and `undefined` are not. Stored data and cache hits are cloned so
+callers can modify returned entries independently.
+
+Keys combine the HTTP method, the path built by `ApiPath`, and sorted top-level
+query parameters encoded by `QueryString`. Different filters, sort orders, page
+windows and raw/resolved reads have different keys. Each client owns its cache;
+`withKey()` and `withUrl()` create independent caches. Constructor options are
+used directly; treat them as immutable for the client's lifetime. A custom
+`fetch` must keep its routing and authentication stable for that client.
+
+Successful collection `create()`, `replace()`, `delete()`, `rename()` and
+`schema.delete()` invalidate the affected collection's entries and pages. Failed
+writes preserve cached data. Other writes, including variable, project and
+environment changes, do not trigger automatic invalidation. Use `clear()` after
+those changes when a fresh collection read is needed. Clearing and invalidation
+do not reset statistics; `evictions` counts expiry and capacity removal only.
+
+Concurrent misses make independent requests. A pending read can refill the cache
+after a write or clear, matching the Java client's behavior. Cache hits return
+stored data without checking the abort signal. This is an in-memory cache local
+to one process, worker or browser tab.
+
+The internal decorator only assigns `method.cachePolicy`. Calls use
+`.cache(this.get)` or `.cache(this.list)` on the request builder, which reads that
+metadata. This explicit method reference works in both browsers and Node without
+caller inspection or an async execution context. Consumers use the built package
+and do not need decorator or reflection configuration.
+
+To verify caching against real data, run these commands from `packages/silo-client`:
+
+```sh
+npx --yes bun run build
+npm run verify:cache
+```
+
+`tools/verifyCache.mjs` uses the built client against the public production
+`in-co-sandbox-gst-state-code` collection in project `in-co-sandbox-gst`.
+It needs no API key and sends only GET requests. Each check asserts the number
+of HTTP requests, so a fast server response cannot be mistaken for a cache hit.
+It checks entry/page caching, distinct queries, shared handles, independent
+clients, disabled caching, uncached health checks, clearing, expiry and capacity.
+Write invalidation remains covered by the local test suite.
+
+Override `SILO_BASE_URL`, `SILO_PROJECT`, `SILO_ENVIRONMENT` and
+`SILO_GST_STATE_CODE_COLLECTION` to use another public, nonempty collection.
+The defaults are `https://api.silo.quicko.company`, `in-co-sandbox-gst`, `prod`
+and `in-co-sandbox-gst-state-code`. A failed assertion or request exits with
+status 1; a passing run prints each check, cache statistics and the HTTP total.
 
 ## Entries
 

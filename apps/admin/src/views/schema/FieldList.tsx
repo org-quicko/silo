@@ -11,6 +11,8 @@ interface Props {
   /** Ref targets: names only — choosing one writes a `silo://` URL, and
    *  nothing here reads the target's schema. */
   collections: readonly { name: string }[]
+  /** Entries exist, so fields cannot be added, removed, retyped or reordered. */
+  locked: boolean
   /** The index whose editor is open, or null. */
   expanded: number | null
   onExpand: (index: number | null) => void
@@ -24,6 +26,7 @@ interface Props {
 export function FieldList({
   fields,
   collections,
+  locked,
   expanded,
   onExpand,
   onChangeField,
@@ -38,7 +41,9 @@ export function FieldList({
   return (
     <div className={styles.builder}>
       {fields.length === 0 && (
-        <div className={styles.emptyFields}>No fields yet — add one below.</div>
+        <div className={styles.emptyFields}>
+          {locked ? 'No fields.' : 'No fields yet — add one below.'}
+        </div>
       )}
 
       {fields.map((field, index) => (
@@ -46,12 +51,13 @@ export function FieldList({
           <FieldRow
             field={field}
             expanded={expanded === index}
+            locked={locked}
             dragging={dragging === index}
             onToggle={() => onExpand(expanded === index ? null : index)}
             onDragStart={() => setDragging(index)}
             onDragEnd={() => setDragging(null)}
             onDragOverRow={() => {
-              if (dragging === null || dragging === index) return
+              if (locked || dragging === null || dragging === index) return
               onMoveField(dragging, index)
               setDragging(index)
             }}
@@ -60,6 +66,7 @@ export function FieldList({
             <FieldEditor
               field={field}
               collections={collections}
+              locked={locked}
               onChange={(patch) => onChangeField(index, patch)}
               onRemove={() => onRemoveField(index)}
             />
@@ -67,9 +74,11 @@ export function FieldList({
         </div>
       ))}
 
-      <Button variant="dashed" onClick={onAddField}>
-        <Plus size={15} /> Add field
-      </Button>
+      {!locked && (
+        <Button variant="dashed" onClick={onAddField}>
+          <Plus size={15} /> Add field
+        </Button>
+      )}
     </div>
   )
 }

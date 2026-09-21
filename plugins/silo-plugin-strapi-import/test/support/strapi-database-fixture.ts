@@ -24,6 +24,13 @@ import { Database } from 'bun:sqlite'
  *    shortened name its own schema does not contain. The shortened spelling here
  *    is a literal on purpose: computing it with the code under test would make
  *    the assertion agree with whatever that code did.
+ * 6. A component whose table name shares **nothing** with its uid, because its
+ *    category was renamed after it was created — and whose `cmp_id`s are held by
+ *    three other tables in this same database, so only its fields tell it apart.
+ * 7. A content type whose **only** field is a component nothing can be proved
+ *    for: no table under any spelling, and no content-manager record to prove
+ *    one by fields either. Everything an import could write about it is the
+ *    empty list, which is what `StrapiInventory` skips it for.
  */
 export class StrapiDatabaseFixture {
   /** The component the single type's list is made of. */
@@ -34,6 +41,17 @@ export class StrapiDatabaseFixture {
   static readonly ContentType = 'api::org-quicko-payment-entity.org-quicko-payment-entity'
   /** A collection type holding a dynamic zone. */
   static readonly Page = 'api::org-quicko-page.org-quicko-page'
+  /** A collection type holding the renamed component below. */
+  static readonly Desk = 'api::org-quicko-desk.org-quicko-desk'
+  /** A component whose category was renamed after its table was created, so its
+   *  uid and `RenamedTable` have no substring in common. */
+  static readonly Renamed = 'org-quicko-workspace.bench'
+  static readonly RenamedTable = 'components_seating_seats'
+  /** A content type holding nothing but the component below. */
+  static readonly Expertise = 'api::org-quicko-expertise.org-quicko-expertise'
+  /** A component with no table and no content-manager record, so neither the
+   *  name search nor the fields fallback reaches one. */
+  static readonly Unprovable = 'org-quicko-workspace.expertise'
   /** A content type whose declared table name is too long to be a table name. */
   static readonly LongType = 'api::org-quicko-template.org-quicko-template'
   static readonly LongDeclared = 'org_quicko_payment_entity_settlement_and_rail_templates_and_more'
@@ -52,7 +70,9 @@ export class StrapiDatabaseFixture {
 
     StrapiDatabaseFixture.writePaymentEntity(db)
     StrapiDatabaseFixture.writePage(db)
+    StrapiDatabaseFixture.writeDesk(db)
     StrapiDatabaseFixture.writeLongType(db)
+    StrapiDatabaseFixture.writeExpertise(db)
     StrapiDatabaseFixture.writeSchema(db)
 
     db.close(true)
@@ -171,6 +191,50 @@ export class StrapiDatabaseFixture {
                    (1, 1, 'org-quicko.image-block', 'blocks', 2)`)
   }
 
+  /**
+   * A collection type whose one component was created under another category.
+   *
+   * `org-quicko-workspace.bench` is stored in `components_seating_seats`: the
+   * component was made as `seating.seat`, its category was renamed in the admin,
+   * and Strapi rewrote the uid every reference uses while leaving the
+   * `collectionName` — and so the table — exactly as it was. Nothing derived
+   * from the uid reaches that name.
+   *
+   * The two `cmp_id`s are 1 and 2 **deliberately**: three other component tables
+   * in this database hold those ids, so a search that proves a candidate only by
+   * the rows it contains has four answers here and no way to choose. The fields
+   * are what is left — `seat_label` is a column of one table only, and
+   * `seat_icon` is a media field, which is a column of none of them.
+   */
+  private static writeDesk(db: Database): void {
+    db.run(`CREATE TABLE org_quicko_desks (
+      id INTEGER PRIMARY KEY, document_id TEXT, floor VARCHAR(255), published_at DATETIME)`)
+    db.run(`INSERT INTO org_quicko_desks (id, document_id, floor, published_at)
+            VALUES (1, 'desk1', 'Ground', 1751022409249)`)
+
+    db.run(`CREATE TABLE "${StrapiDatabaseFixture.RenamedTable}" (
+      id INTEGER PRIMARY KEY, seat_label VARCHAR(255))`)
+    db.run(`INSERT INTO "${StrapiDatabaseFixture.RenamedTable}" (id, seat_label)
+            VALUES (1, 'Window'), (2, 'Aisle')`)
+
+    db.run(`CREATE TABLE org_quicko_desks_cmps (
+      id INTEGER PRIMARY KEY, entity_id INTEGER, cmp_id INTEGER, component_type TEXT,
+      field TEXT, "order" REAL)`)
+    db.run(
+      `INSERT INTO org_quicko_desks_cmps (entity_id, cmp_id, component_type, field, "order")
+       VALUES (1, 1, ?, 'seats', 1), (1, 2, ?, 'seats', 2)`,
+      [StrapiDatabaseFixture.Renamed, StrapiDatabaseFixture.Renamed],
+    )
+
+    db.run(`INSERT INTO files (id, name, mime, size, url)
+            VALUES (3, 'seat.svg', 'image/svg+xml', 0.5, '/uploads/seat_9f1e2a.svg')`)
+    db.run(
+      `INSERT INTO files_related_mph (file_id, related_id, related_type, field, "order")
+       VALUES (3, 1, ?, 'seat_icon', 1)`,
+      [StrapiDatabaseFixture.Renamed],
+    )
+  }
+
   /** The content type Strapi could not give the table name its schema declares.
    *  Its one row shares file 1 with the payment entity's items — the case
    *  `StrapiMediaOwners` exists for: one upload two content types both want. */
@@ -186,6 +250,37 @@ export class StrapiDatabaseFixture {
       `INSERT INTO files_related_mph (file_id, related_id, related_type, field, "order")
        VALUES (1, 1, ?, 'template_icon', 1)`,
       [StrapiDatabaseFixture.LongType],
+    )
+  }
+
+  /**
+   * The content type that is one unprovable component and nothing else.
+   *
+   * The join table names `org-quicko-workspace.expertise` and points at two
+   * rows, and no `components_` table in this database holds them under a name
+   * anything derives from that uid — nor is there a
+   * `plugin_content_manager_configuration_components::` record for it, so
+   * `StrapiComponents.byFields` has no fields to prove one by and answers `null`
+   * as well.
+   *
+   * The content type declares **only** that field. That is the whole point: with
+   * a scalar beside it the list is worth importing and the panel's note is
+   * enough, and without one there is nothing left to write but `{ expertise: [] }`
+   * once per document.
+   */
+  private static writeExpertise(db: Database): void {
+    db.run(`CREATE TABLE org_quicko_expertises (
+      id INTEGER PRIMARY KEY, document_id TEXT, published_at DATETIME)`)
+    db.run(`INSERT INTO org_quicko_expertises (id, document_id, published_at)
+            VALUES (1, 'exp1', 1751022409249)`)
+
+    db.run(`CREATE TABLE org_quicko_expertises_cmps (
+      id INTEGER PRIMARY KEY, entity_id INTEGER, cmp_id INTEGER, component_type TEXT,
+      field TEXT, "order" REAL)`)
+    db.run(
+      `INSERT INTO org_quicko_expertises_cmps (entity_id, cmp_id, component_type, field, "order")
+       VALUES (1, 1, ?, 'expertise', 1), (1, 2, ?, 'expertise', 2)`,
+      [StrapiDatabaseFixture.Unprovable, StrapiDatabaseFixture.Unprovable],
     )
   }
 
@@ -227,12 +322,43 @@ export class StrapiDatabaseFixture {
               },
             },
           },
+          [StrapiDatabaseFixture.Desk]: {
+            kind: 'collectionType',
+            collectionName: 'org_quicko_desks',
+            info: { displayName: 'Desk' },
+            options: { draftAndPublish: true },
+            __schema__: {
+              attributes: {
+                floor: { type: 'string' },
+                seats: {
+                  type: 'component',
+                  component: StrapiDatabaseFixture.Renamed,
+                  repeatable: true,
+                },
+              },
+            },
+          },
           [StrapiDatabaseFixture.LongType]: {
             kind: 'collectionType',
             collectionName: StrapiDatabaseFixture.LongDeclared,
             info: { displayName: 'Template' },
             options: { draftAndPublish: true },
             __schema__: { attributes: { template_name: { type: 'string' } } },
+          },
+          [StrapiDatabaseFixture.Expertise]: {
+            kind: 'collectionType',
+            collectionName: 'org_quicko_expertises',
+            info: { displayName: 'Expertise' },
+            options: { draftAndPublish: true },
+            __schema__: {
+              attributes: {
+                expertise: {
+                  type: 'component',
+                  component: StrapiDatabaseFixture.Unprovable,
+                  repeatable: true,
+                },
+              },
+            },
           },
           // Dropped: Strapi's own machinery, which silo has no concepts for.
           'plugin::upload.file': { kind: 'collectionType', collectionName: 'files' },
@@ -251,6 +377,21 @@ export class StrapiDatabaseFixture {
           uid: StrapiDatabaseFixture.Nested,
           isComponent: true,
           metadatas: { id: {}, rail_name: {}, rail_icon: {}, rail_colour: {}, documentId: {} },
+        }),
+      ],
+    )
+
+    // The renamed component's. This is the only record in the export that says
+    // what `org-quicko-workspace.bench` holds, and the only thing that can point
+    // at the table still holding it.
+    db.run(
+      `INSERT INTO strapi_core_store_settings (key, value) VALUES (?, ?)`,
+      [
+        `plugin_content_manager_configuration_components::${StrapiDatabaseFixture.Renamed}`,
+        JSON.stringify({
+          uid: StrapiDatabaseFixture.Renamed,
+          isComponent: true,
+          metadatas: { id: {}, seat_label: {}, seat_icon: {}, documentId: {} },
         }),
       ],
     )

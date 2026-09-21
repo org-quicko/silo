@@ -16,6 +16,15 @@ listen          = ":8090"
 default_project = "default"   # created on startup if missing
 default_env     = "prod"
 
+[http]
+idle_timeout = 120      # seconds a connection may stay quiet; 0 disables, 255 is the maximum
+max_body_size_mb      = 128   # the largest request body on any route: a media upload, an import
+max_json_body_size_mb = 4     # every other route: an entry, a schema, a list of ids
+
+[transfer]
+max_archive_size_mb   = 1024  # an import upload, or the export a copy pulls
+max_extracted_size_mb = 4096  # what it may unpack to on disk, checked before anything is written
+
 [storage]
 driver = "sqlite"       # "sqlite" | "fs"
 path   = "./silo_data"  # data dir; the sqlite file lives at <path>/silo.db
@@ -34,9 +43,10 @@ driver = "fs"                 # "fs" | "s3"
 # base_url   = "https://cdn.example.com"  # the host every media URL is rooted at
 # Unset, media URLs point at the bucket when the provider above is a bucket, and
 # at the address each request arrives on when silo serves the bytes itself.
-extensions = ["jpg", "jpeg", "png", "gif", "webp", "avif", "svg", "ico",
-              "bmp", "mp4", "webm", "mov", "mp3", "wav", "ogg", "m4a", "pdf"]
+extensions = ["jpg", "jpeg", "png", "gif", "webp", "avif", "ico", "bmp",
+              "mp4", "webm", "mov", "mp3", "wav", "ogg", "m4a", "pdf"]
 # Uploads are refused unless the filename ends in one of these. ["*"] accepts anything.
+# svg is not in the default: it can carry script. Add it where every uploader is trusted.
 
 [auth]
 disabled = false        # dev only: if true, every request is treated as root
@@ -73,6 +83,10 @@ max_files   = 5               # kept as silo.log.1 ... silo.log.5
 |----------------------|-----------|
 | `SILO_CONFIG` | which file this table is read from and written to, below `--config` |
 | `SILO_LISTEN` | `listen` |
+| `SILO_HTTP_IDLE_TIMEOUT` | `[http] idle_timeout` |
+| `SILO_HTTP_MAX_BODY_SIZE_MB`, `SILO_HTTP_MAX_JSON_BODY_SIZE_MB` | `[http] max_body_size_mb`, `[http] max_json_body_size_mb` |
+| `SILO_TRANSFER_MAX_ARCHIVE_SIZE_MB`, `SILO_TRANSFER_MAX_EXTRACTED_SIZE_MB` | `[transfer] max_archive_size_mb`, `[transfer] max_extracted_size_mb` |
+| `SILO_READ_THREAD` | `on` or `off`: whether entry lists and searches on SQLite run on a separate storage thread. On by default; off under the test runner. Not in the file |
 | `SILO_DEFAULT_PROJECT`, `SILO_DEFAULT_ENV` | `default_project`, `default_env` |
 | `SILO_STORAGE_DRIVER`, `SILO_STORAGE_PATH` | `[storage]` |
 | `SILO_BLOB_DRIVER`, `SILO_BLOB_PATH` | `[blob_storage]` |
@@ -86,6 +100,66 @@ max_files   = 5               # kept as silo.log.1 ... silo.log.5
 | `SILO_LOG_REQUESTS`, `SILO_LOG_MAX_SIZE_MB`, `SILO_LOG_MAX_FILES` | `[log]` |
 | `SILO_MEDIA_BASE_URL`, `SILO_MEDIA_BASE_URL_TARGET` | `[media]` |
 | `SILO_MEDIA_EXTENSIONS` | `[media]`, comma-separated |
+
+## Connections that go quiet
+
+`[http] idle_timeout` is the number of seconds a connection can send and
+receive nothing before silo closes it. The default is 120. A value above 255 is
+reduced to 255, which is the maximum the runtime accepts. `0` switches the check
+off. A change takes effect at the next restart.
+
+Raise it if a transfer of a large instance runs longer than this. An export
+answers immediately and does not need it. An import and a copy can run for a
+long time, and the progress stream in
+[transfer.md](transfer.md) is the better answer for those, because it keeps the
+connection busy for as long as the work runs.
+
+**If you see a 502 or a 503 from a reverse proxy on a long request, look here
+first.** silo closes the connection, the proxy reports what it saw, and silo's
+own log shows the request finishing normally. Its error log says `upstream
+prematurely closed connection while reading response header`.
+
+You can also set this from the admin, under **Settings > Configuration >
+Connections**.
+
+## How much one request may carry
+
+`[http] max_body_size_mb` is the largest request body silo accepts on any
+route, in megabytes. The default is 128. It is the ceiling for a media upload,
+a media replace, an import archive and a plugin package. A request above it is
+refused before silo reads it.
+
+`[http] max_json_body_size_mb` is the ceiling for every other route: an entry,
+a schema, a key, a list of ids. The default is 4. A request above it gets a
+`413` with the code `payload_too_large`, before the route runs and before the
+key is checked.
+
+The runtime holds a request body in memory until the route reads it or answers.
+So each open connection can hold up to `max_body_size_mb`. On an instance with
+1 GB of memory, set it to the largest upload you expect and no higher. A value
+of `0` or less is ignored and the default is used. Both take effect at the next
+restart, and both are on the same admin page as the idle timeout.
+
+## How large an archive may be
+
+An archive that arrives over the network is checked twice.
+
+`[transfer] max_archive_size_mb` is the largest archive silo accepts, in
+megabytes. The default is 1024. It applies to an upload to `/api/import` and to
+the export that `/api/copy` pulls from another instance. An upload is also held
+to `[http] max_body_size_mb`, which is normally the lower of the two.
+
+`[transfer] max_extracted_size_mb` is the most an archive may unpack to on
+disk. The default is 4096. silo reads each file's size from the archive before
+it writes the file, and counts every file as at least 4 KB, so an archive of a
+million empty files is refused as well. A small archive built to inflate to
+many gigabytes stops here, before it fills the disk that holds your data.
+
+A request past either limit gets a `413` with the code `archive_too_large`.
+The message names the setting to raise. Raise both to copy a large instance.
+An archive or directory you name on the command line with `silo import` is
+not checked. Both take effect at the next restart, and both are on
+**Settings > Configuration > Transfers**.
 
 ## Media, from the admin
 
@@ -159,9 +233,11 @@ The allowlist works on the filename extension. silo checks it before it writes
 anything, on a rename as well as on an upload, and only the last extension
 counts. `["*"]` accepts everything. An instance with no `[media]` table gets the
 default list above, so add back any type you need that is not in it, such as
-`.docx` or `.zip`. Note that `svg` ships in the default: it can carry script,
-and silo serves it inline from its own origin, so drop it where your uploaders
-are untrusted.
+`.docx` or `.zip`. `svg` is not in the default list. An SVG can carry script.
+silo sends every file with headers that stop a browser running it, and sends an
+SVG as a download rather than a page, so you can add `svg` back when you trust
+every uploader. A file's type is read from its extension, never from what the
+upload declared.
 
 ## Where files go
 
@@ -265,8 +341,26 @@ it, and the refusal is not caution:
 
 A running server records itself in `<data dir>/silo.run.json`, and any `serve`
 that finds a live one refuses to start. A server that was killed leaves that
-record behind, so silo checks whether the process still exists rather than
-trusting the file. A crash therefore never locks your data directory out of use.
+record behind, so silo does not trust the file. It decides whether the record
+still names a live server by four tests, in this order:
+
+1. The record names this very process. Under Docker the server is always
+   process 1, so after a crash the new server finds its own number in the
+   record. That record is stale.
+2. The record was written before the last reboot (Linux keeps a boot id). That
+   record is stale, whatever its process number points at now.
+3. The process the record names is gone. Stale.
+4. A running server refreshes the record every 30 seconds. A record no server
+   has refreshed for 2 minutes is stale, even if its process number now
+   belongs to some other program.
+
+Only a record that passes all four is a live server, and only then does a new
+`serve` refuse to start. `silo stop` uses the same tests and never signals a
+process a stale record points at; it removes the record and says why. A crash
+therefore does not lock your data directory out of use. A crash also removes
+the record itself where it can: the server catches an uncaught error or a
+rejected promise, logs it, removes the record, closes storage and exits with
+code 1.
 
 Scaling silo horizontally would mean moving `seq` allocation and write
 serialisation into the storage layer. That is a design change, not a

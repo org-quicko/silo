@@ -1,6 +1,6 @@
 {
   "name": "@silo/server",
-  "version": "1.1.0",
+  "version": "1.1.2-alpha",
   "description": "The silo server — CLI, HTTP API, storage adapters, and the plugin host",
   "private": true,
   "type": "module",

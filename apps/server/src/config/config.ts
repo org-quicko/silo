@@ -3,12 +3,18 @@ import type { BlobStorageConfig } from "./blob-storage-config";
 import type { MediaConfig } from "./media-config";
 import type { AuthConfig } from "./auth-config";
 import type { SchemaConfig } from "./schema-config";
+import type { HttpConfig } from "./http-config";
 import type { LogConfig } from "./log-config";
 import type { SearchConfig } from "./search-config";
 import type { PluginConfig } from "./plugin-config";
+import type { TransferConfig } from "./transfer-config";
 
 export interface Config {
   listen: string;
+  /** Connection-level settings for the listener the `listen` address binds. */
+  http: HttpConfig;
+  /** How large an archive arriving over the network may be and expand to (D85). */
+  transfer: TransferConfig;
   default_project: string;
   default_env: string;
   storage: StorageConfig;

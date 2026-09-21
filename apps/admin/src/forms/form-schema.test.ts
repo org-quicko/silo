@@ -62,3 +62,44 @@ describe('the schema the entry form is given', () => {
     expect(marked.properties.notes['x-silo-ui']).toEqual({ order: ['a'], widget: 'json' })
   })
 })
+
+/**
+ * **A list that declares no `items` is still a list.**
+ *
+ * It is what the schema editor's `array` kind writes, and RJSF answers
+ * "Missing items definition" for it before a `ui:widget` is read — so the chips
+ * widget chosen for the field never ran and the entry form printed it as
+ * unsupported. The property means "items constrained by nothing", and saying so
+ * costs no constraint.
+ */
+describe('a list with no items declared', () => {
+  test('gets the schema that says its items are unconstrained', () => {
+    const form = FormSchema.forEntry({
+      type: 'object',
+      properties: { tags: { type: 'array', minItems: 1, uniqueItems: true } },
+    })
+
+    expect(form.properties.tags).toEqual({
+      type: 'array',
+      minItems: 1,
+      uniqueItems: true,
+      items: {},
+    })
+  })
+
+  test('a nullable list gets it too, which is what every import writes', () => {
+    const form = FormSchema.forEntry({
+      type: 'object',
+      properties: { tags: { type: ['array', 'null'] } },
+    })
+
+    expect(form.properties.tags).toEqual({ type: ['array', 'null'], items: {} })
+  })
+
+  test('a list that declares its items is left alone', () => {
+    const declared = { type: 'array', items: { type: 'string' } }
+    const form = FormSchema.forEntry({ type: 'object', properties: { tags: declared } })
+
+    expect(form.properties.tags).toEqual(declared)
+  })
+})

@@ -68,7 +68,7 @@ describe("media replace (D67)", () => {
   const sha256 = (text: string) => crypto.createHash("sha256").update(text).digest("hex");
 
   test("keeps the id, blob key, filename, folder and URL; re-derives size, hash and type", async () => {
-    const asset = await service.media.save("logo.png", new TextEncoder().encode("original"), undefined, "/brand");
+    const asset = await service.media.save("logo.png", new TextEncoder().encode("original"), "/brand");
     const key = await mint([Claims.MediaReplace]);
 
     const response = await replace(asset.id, key, "logo-v2.png", "a much longer replacement");

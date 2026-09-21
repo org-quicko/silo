@@ -1,5 +1,5 @@
 {
-  "name": "silo-plugin-strapi-import",
+  "name": "@org-quicko/silo-plugin-strapi-import",
   "version": "1.0.0",
   "description": "Import a Strapi 5 SQLite export into silo collections, from a panel in the admin",
   "type": "module",
@@ -128,7 +128,14 @@
         "work_dir": {
           "type": "string",
           "title": "Staging directory",
-          "description": "Where the uploaded .db and any supplied uploads are written while they are being read. Defaults to a silo-strapi-import directory under the system temp dir."
+          "description": "Where the uploaded .db and any supplied uploads are written while they are being read. Each operator gets a directory of their own under it. Defaults to a silo-strapi-import directory under the system temp dir."
+        },
+        "session_ttl_hours": {
+          "type": "number",
+          "title": "Keep staged files for",
+          "description": "Hours an operator's staged database and uploads survive with no request reaching them. 0 keeps them until they are removed by hand.",
+          "minimum": 0,
+          "default": 24
         },
         "version": {
           "type": "string",

@@ -11,5 +11,13 @@
   the affected `docs/context/` file in the same change set. A change worth
   remembering also gets an entry at the top of
   [docs/context/changelog.md](docs/context/changelog.md).
+- [docs/openapi.json](docs/openapi.json) describes every HTTP route the server
+  serves. It is written by hand — Hono registers routes as code, so nothing
+  generates it — which makes it a promise rather than a derivation. **Adding,
+  removing or changing a route, a query parameter, a request body, a response
+  shape or the claim a route asks for MUST update it in the same change set**,
+  beside `docs/guide/http-api.md` and `docs/design/http-api.md`. Its
+  `x-maintenance` field says the same thing to anyone who arrives at the file
+  first.
 - NEVER run `git add`, `git commit`, or `git push` in this repo. The user
   stages and commits everything themselves. Leave the working tree dirty.

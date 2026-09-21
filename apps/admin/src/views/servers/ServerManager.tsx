@@ -6,6 +6,7 @@ import { AddServerDialog } from './AddServerDialog'
 import { EnvironmentColumn } from './EnvironmentColumn'
 import { ProjectColumn } from './ProjectColumn'
 import { ScopeBreadcrumb } from './ScopeBreadcrumb'
+import { BrowserColumns } from '../../components/browser/BrowserColumns'
 import { ServerColumn } from './ServerColumn'
 import type { Server } from './server'
 import { useScopeBrowser } from './use-scope-browser'
@@ -104,7 +105,7 @@ export function ServerManager({
         </div>
       )}
 
-      <div className={styles.columnsContainer}>
+      <BrowserColumns>
         <ServerColumn
           servers={servers}
           selectedId={browser.serverId}
@@ -131,7 +132,7 @@ export function ServerManager({
           onCreate={browser.createEnvironment}
           onActivate={connect}
         />
-      </div>
+      </BrowserColumns>
 
       <footer className={styles.footer}>
         <ScopeBreadcrumb

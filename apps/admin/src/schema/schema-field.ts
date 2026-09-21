@@ -12,12 +12,40 @@ export type SchemaFieldKind =
   | 'media'
   | 'any'
 
+/**
+ * The validation keywords the visual builder draws a control for, as the text
+ * that was typed into it.
+ *
+ * The numbers stay text because a keystroke rebuilds the whole document:
+ * parsing `0.` to a number and rendering it back would delete the dot the
+ * author is still typing, and `-` would never survive long enough to become
+ * `-1`. `SchemaConstraints` converts on the way out, where a half-typed value
+ * is simply a keyword not written yet.
+ */
+export interface SchemaFieldConstraints {
+  /** A JSON Schema `format`: it validates the value *and* picks the entry
+   *  form's control, which is why only formats with both are offered. */
+  format: string
+  minLength: string
+  maxLength: string
+  pattern: string
+  minimum: string
+  maximum: string
+  multipleOf: string
+  minItems: string
+  maxItems: string
+  uniqueItems: boolean
+}
+
 /** One property of a collection schema, as the visual builder edits it. */
 export interface SchemaField {
   name: string
   kind: SchemaFieldKind
   required: boolean
   description: string
+  /** What the field constrains beyond its type. Only the group the kind
+   *  carries is written back; see `SchemaConstraints`. */
+  constraints: SchemaFieldConstraints
   /** `$ref` URL: `silo://collections/<name>` or an https one. */
   refTarget: string
   enumValues: string[]
