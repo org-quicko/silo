@@ -50,6 +50,42 @@ describe("Transport: base URL normalisation", () => {
   });
 });
 
+describe("Transport: the fetch function's receiver", () => {
+  test("the default fetch is bound to the global, not called as a method on the Transport", async () => {
+    const receivers: unknown[] = [];
+    await withGlobalFetch(
+      function recordReceiver(this: unknown): Promise<Response> {
+        receivers.push(this);
+        return Promise.resolve(StubResponse.json({ status: "ok" }));
+      },
+      () => new Transport({ url: "http://localhost:8090" }).json({ method: "GET", path: "/api/health" }),
+    );
+
+    expect(receivers[0]).toBe(globalThis);
+  });
+
+  test("a supplied fetch is called with no receiver, so a Window method handed over unbound still works", async () => {
+    const receivers: unknown[] = [];
+    const browserFetch = function fetchWithReceiverCheck(this: unknown): Promise<Response> {
+      receivers.push(this);
+      if (this !== undefined && this !== globalThis) {
+        throw new TypeError("Failed to execute 'fetch' on 'Window': Illegal invocation");
+      }
+      return Promise.resolve(StubResponse.json({ status: "ok" }));
+    } as unknown as FetchFunction;
+    const transport = new Transport({ url: "http://localhost:8090", fetch: browserFetch });
+
+    await expect(transport.json({ method: "GET", path: "/api/health" })).resolves.toEqual({ status: "ok" });
+    expect(receivers[0]).toBeUndefined();
+  });
+
+  test("a runtime with no fetch at all is refused at construction, by name", async () => {
+    await withGlobalFetch(undefined, () => {
+      expect(() => new Transport({ url: "http://localhost:8090" })).toThrow(/no global fetch/);
+    });
+  });
+});
+
 describe("Transport: request bodies", () => {
   test("JSON-encodes a body and sets Content-Type", async () => {
     const stubFetch = new StubFetch();
@@ -118,13 +154,16 @@ describe("Transport: error mapping", () => {
 });
 
 describe("Transport: three distinct failure kinds", () => {
-  test("a fetch rejection becomes NetworkError", async () => {
+  test("a fetch rejection becomes NetworkError, saying what fetch rejected with", async () => {
     const failingFetch: FetchFunction = async () => {
-      throw new TypeError("fetch failed");
+      throw new TypeError("Failed to execute 'fetch' on 'Window': Illegal invocation");
     };
     const transport = new Transport({ url: "http://localhost:8090", fetch: failingFetch });
 
-    await expect(transport.json({ method: "GET", path: "/api/health" })).rejects.toBeInstanceOf(NetworkError);
+    const caught = await transport.json({ method: "GET", path: "/api/health" }).catch((error: unknown) => error);
+
+    expect(caught).toBeInstanceOf(NetworkError);
+    expect((caught as NetworkError).message).toContain("Illegal invocation");
   });
 
   test("an abort from the deadline becomes TimeoutError, not RequestAbortedError", async () => {
@@ -145,6 +184,18 @@ describe("Transport: three distinct failure kinds", () => {
     await expect(pending).rejects.toBeInstanceOf(RequestAbortedError);
   });
 });
+
+/** Runs `body` with the runtime's own `fetch` replaced, and puts the real one
+ *  back whatever happens. `undefined` models a runtime that has none. */
+const withGlobalFetch = async (replacement: unknown, body: () => unknown): Promise<void> => {
+  const original = globalThis.fetch;
+  (globalThis as { fetch?: unknown }).fetch = replacement;
+  try {
+    await body();
+  } finally {
+    globalThis.fetch = original;
+  }
+};
 
 /** A fetch that never resolves on its own, but honours the signal it was
  *  given — exactly like a real `fetch` waiting on a slow server. */

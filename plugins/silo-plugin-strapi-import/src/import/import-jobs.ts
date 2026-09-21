@@ -1,16 +1,17 @@
 import type { ImportJob, ImportProgress } from './import-job'
 
 /**
- * The imports this worker has run, newest first.
+ * The imports **one session** has run, newest first.
  *
  * In memory, and bounded. Persisting them would mean this plugin writing its own
  * bookkeeping into the instance it imports into — a `_strapi_imports` collection
  * an operator did not ask for, in a scope the plan chose — and the thing a job
  * record is *for* is a screen somebody is watching right now.
  *
- * One at a time, and that is a correctness bound rather than a resource one: two
- * concurrent runs of the same plan would both create the collection, both read
- * `total` as zero, and both write every row.
+ * One at a time *per operator*, which is the half of the old worker-wide bound
+ * that is about a plan rather than about a collection: nobody needs two runs of
+ * their own at once. What stops two *different* operators writing the same
+ * collection is `RunningTargets`.
  */
 export class ImportJobs {
   /** How many finished runs are kept. Enough to compare a retry with what it
@@ -34,18 +35,21 @@ export class ImportJobs {
   }
 
   /**
-   * Start `job`, or refuse because one is already running.
+   * Start `job`, or refuse because this session already has one running.
    *
    * The promise is deliberately not returned, and not awaited: the caller is a
    * route handler bounded by `timeout_ms`, so awaiting the import here is the
    * timeout this design exists to avoid. `void` rather than a bare call so the
    * float is visible as a decision.
+   *
+   * `onSettled` runs however the job ends, and is how the collections it claimed
+   * are released — the claim has to outlive the dispatch exactly as the run does.
    */
-  start(job: ImportJob): void {
+  start(job: ImportJob, onSettled: () => void = () => {}): void {
     if (this.running) {
       throw new Error(
-        `an import is already running (${this.running.id}). Wait for it to finish: two runs ` +
-          `of the same plan would each create the collection and each write every row.`,
+        `you already have an import running (${this.running.id}). Wait for it to finish: two ` +
+          `runs of the same plan would each create the collection and each write every row.`,
       )
     }
 
@@ -62,6 +66,7 @@ export class ImportJobs {
       })
       .finally(() => {
         if (this.running === job) this.running = null
+        onSettled()
       })
   }
 }

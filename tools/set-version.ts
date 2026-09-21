@@ -33,6 +33,11 @@ export class SetVersion {
    * `import` rather than something `silo --version` prints. Moving it here
    * would churn a library version on every silo patch and make a client fix
    * wait for a binary release to carry it. Its manifest is bumped by hand.
+   *
+   * `packages/silo-client-java` is absent for the same reason, one step
+   * further: its version lives in a `pom.xml` this list of JSON manifests
+   * could not describe anyway, and its release tag is `silo-client-java-v*`.
+   * Its `<version>` is bumped by hand too.
    */
   private static readonly manifests = [
     "package.json",
@@ -42,15 +47,16 @@ export class SetVersion {
     "packages/create-silo-plugin/package.json",
   ];
 
-  /** Semver proper, since the release workflow rejects anything else and it is
-   *  better to hear that here than after pushing a tag. */
-  private static readonly semver = /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(-[0-9A-Za-z.-]+)?(\+[0-9A-Za-z.-]+)?$/;
+  /** A release version, MAJOR.MINOR.PATCH with no suffix. The release
+   *  workflow's tag filter ignores anything else, so a pre-release tag would
+   *  build nothing, and it is better to hear that here than after pushing it. */
+  private static readonly release = /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/;
 
   static async run(): Promise<void> {
     const version = Bun.argv[2];
     if (!version) throw new Error("usage: bun run set-version <version>   (e.g. 0.2.0)");
-    if (!SetVersion.semver.test(version)) {
-      throw new Error(`"${version}" is not a semantic version — expected 1.2.3, or 1.2.3-rc.1 for a pre-release`);
+    if (!SetVersion.release.test(version)) {
+      throw new Error(`"${version}" is not a release version — expected MAJOR.MINOR.PATCH, e.g. 1.2.3, with no -rc/-beta or other suffix`);
     }
 
     for (const manifest of SetVersion.manifests) {

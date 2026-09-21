@@ -1,3 +1,4 @@
+import type { CacheOptions } from "./cache/CacheOptions.js";
 import type { FetchFunction } from "./transport/fetch-function.js";
 
 /**
@@ -10,4 +11,6 @@ export interface SiloOptions {
   timeoutMilliseconds?: number;
   headers?: Record<string, string>;
   fetch?: FetchFunction;
+  /** Cache collection entry reads. Omitted or disabled options leave reads uncached. */
+  cache?: CacheOptions;
 }

@@ -4,19 +4,25 @@ import type { SiloService } from "../core/services/silo-service";
 import { RouteManager } from "./routes/route-manager";
 import { LoggingMiddleware } from "./middleware/logging-middleware";
 import { AuthMiddleware } from "./middleware/auth-middleware";
+import { BodyLimitMiddleware } from "./middleware/body-limit-middleware";
+import type { HttpConfig } from "../config/http-config";
 import { ValidationError } from "@silo/shared/validation-error";
+import { ArchiveTooLargeError } from "../core/errors/archive-too-large-error";
 import { NotFoundError } from "../core/errors/not-found-error";
 import { ConflictError } from "../core/errors/conflict-error";
 import { MediaDeleteStalledError } from "../core/errors/media-delete-stalled-error";
 import { PluginStartError } from "../core/errors/plugin-start-error";
 import { UnauthorizedError } from "../core/errors/unauthorized-error";
 import { ForbiddenError } from "../core/errors/forbidden-error";
+import { RangeNotSatisfiableError } from "../core/errors/range-not-satisfiable-error";
+import { StorageBusyError } from "../core/errors/storage-busy-error";
 import type { Logger } from "../logging/logger";
 import { PluginRegistry, PluginSupervisor, ProviderRegistry } from "../plugins";
 import { ConfigSupervisor, MediaPolicySupervisor, MediaStorageSupervisor } from "../settings";
 import { ConfigLoader } from "../config/config-loader";
 import { UiAssets } from "./ui-assets";
 import { Observability } from "../observability";
+import { McpRoutes } from "../mcp";
 
 /** How to build the app. An options object rather than a fourth and fifth
  *  positional argument, two of which would be bare booleans. */
@@ -27,6 +33,13 @@ export interface SiloServerOptions {
   /** Whether to log a line per request. Off unless asked for, so a test or an
    *  embedder does not have to opt out of an access log it never wanted. */
   logRequests?: boolean;
+
+  /**
+   * The listener's `[http]` table, for the body ceilings the app enforces per
+   * route class (§10.4). Absent, the defaults apply — a test or an embedder
+   * gets the same refusals a configured server gives.
+   */
+  http?: HttpConfig;
 
   /**
    * The live plugin set the management API acts on (D39, phase 4).
@@ -79,12 +92,14 @@ export class SiloServer {
   private readonly mediaPolicy: MediaPolicySupervisor;
   private readonly settings: ConfigSupervisor;
   private readonly observability: Observability;
+  private readonly http: HttpConfig;
 
   constructor(service: SiloService, options: SiloServerOptions) {
     this.service = service;
     this.version = options.version;
     this.authDisabled = options.authDisabled;
     this.logger = options.logger;
+    this.http = options.http ?? ConfigLoader.defaultConfig().http;
     // An explicit option still wins at construction, for an embedder that wants
     // an access log without a `[log]` table. Absent, whatever `Logger.create`
     // read from the config stands.
@@ -140,6 +155,10 @@ export class SiloServer {
     // Enable CORS
     app.use("/api/*", cors());
 
+    // Before auth, so an oversize body is refused from its headers alone and
+    // never buffered for a handler that would not have run (§10.4).
+    app.use("/api/*", BodyLimitMiddleware.create(this.http));
+
     // Authentication middleware
     app.use("/api/*", AuthMiddleware.create(this.service, this.authDisabled));
 
@@ -158,6 +177,10 @@ export class SiloServer {
       this.settings,
       this.observability
     );
+
+    // MCP over HTTP (D86). After the route table, because every tool call is
+    // dispatched back through this same app and lands on a route above.
+    McpRoutes.register(app, { version: this.version });
 
     // Global Error Handler
     app.onError((err, c) => {
@@ -242,6 +265,31 @@ export class SiloServer {
           { error: { code: "forbidden", message: err.message } },
           403
         );
+      }
+      // An archive, or the tree it expands to, past `[transfer]`'s ceilings
+      // (D85). The message names the setting to raise.
+      if (err instanceof ArchiveTooLargeError) {
+        return c.json(
+          { error: { code: "archive_too_large", message: err.message } },
+          413
+        );
+      }
+      // Too many reads already waiting on storage (D81): shed the request with
+      // a retry hint rather than queue it behind a flood.
+      if (err instanceof StorageBusyError) {
+        return c.json(
+          { error: { code: "busy", message: err.message } },
+          503,
+          { "Retry-After": "1" }
+        );
+      }
+      // A `Range` wholly outside the object (D80). `Content-Range` names the
+      // size, which is what a client that asked past the end needs next.
+      if (err instanceof RangeNotSatisfiableError) {
+        return new Response(null, {
+          status: 416,
+          headers: { "Content-Range": `bytes */${err.size}`, "Accept-Ranges": "bytes" },
+        });
       }
 
       this.logger.error("internal error", { message: err instanceof Error ? err.message : String(err) });

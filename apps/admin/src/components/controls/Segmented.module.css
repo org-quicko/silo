@@ -77,9 +77,12 @@
   width: fit-content;
 }
 
+/* `min-width` rather than `width`: three tabs read as one strip when they
+   share a floor, and a label longer than that floor has to widen the tab
+   rather than spill out of it. */
 .tabs .option {
   flex: none;
-  width: 120px;
+  min-width: 120px;
   padding: 6px 16px;
   white-space: nowrap;
 }

@@ -31,6 +31,7 @@
     "./path-selector": "./src/query/path/path-selector.ts",
     "./reserved-field-names": "./src/schema/reserved-field-names.ts",
     "./schema-access": "./src/schema/schema-access.ts",
+    "./schema-shape": "./src/schema/schema-shape.ts",
     "./search-fields": "./src/schema/search-fields.ts",
     "./silo-ref": "./src/schema/silo-ref.ts",
     "./validation-detail": "./src/errors/validation-detail.ts",

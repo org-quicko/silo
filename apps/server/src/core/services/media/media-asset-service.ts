@@ -154,10 +154,20 @@ export class MediaAssetService {
     return { visible, visibleCapped: total > MediaUsageScopes.EnumerationCap };
   }
 
+  /**
+   * Stores a new asset.
+   *
+   * **The content type comes from the filename's extension and from nothing
+   * else** (D83). It used to prefer the type the upload declared, which is
+   * whatever the client chose to write into its multipart part — so a client
+   * could have a `.pdf` served as `text/html` and rendered on silo's origin
+   * the moment a runtime honoured the declared type. The extension is what the
+   * allowlist judged, so it is the one fact about the file silo has already
+   * decided to trust.
+   */
   async save(
     originalName: string,
     fileData: Uint8Array,
-    mimeType?: string,
     folder?: string
   ): Promise<MediaAssetView> {
     const filename = MediaPaths.normalizeFilename(originalName);
@@ -167,7 +177,7 @@ export class MediaAssetService {
 
     const id = EntryUtils.newID();
     const blobKey = MediaPaths.blobKey(id, filename);
-    const contentType = mimeType && mimeType.trim() ? mimeType : MimeUtils.lookup(filename);
+    const contentType = MimeUtils.lookup(filename);
 
     return this.context.withWriteLock(async () => {
       // Bytes first: a blob with no catalog record is an orphan reconcile can
@@ -222,8 +232,7 @@ export class MediaAssetService {
   async replaceContent(
     id: string,
     originalName: string,
-    fileData: Uint8Array,
-    mimeType?: string
+    fileData: Uint8Array
   ): Promise<MediaAssetView> {
     return this.context.withWriteLock(async () => {
       const entry = await this.catalog.asset(id);
@@ -240,8 +249,10 @@ export class MediaAssetService {
       // same answer rename already gives.
       MediaExtensions.assert(this.context.mediaConfig.extensions, incoming);
 
-      const contentType =
-        mimeType && mimeType.trim() ? mimeType : MimeUtils.lookup(asset.filename);
+      // From the extension the asset keeps, as at upload (D83) — and re-derived
+      // rather than copied, so an asset stored before D83 with a declared type
+      // is corrected the first time its bytes are replaced.
+      const contentType = MimeUtils.lookup(asset.filename);
 
       await this.context.blobStorage.put(asset.blob_key, fileData, { contentType });
 

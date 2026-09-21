@@ -101,16 +101,47 @@ export class ExtRequest {
     const empty = { body: null, bytes: null };
     if (c.req.method === "GET" || c.req.method === "HEAD") return empty;
 
-    const buffer = await c.req.arrayBuffer();
-    if (buffer.byteLength === 0) return empty;
-    if (buffer.byteLength > route.body.max_bytes) {
-      throw new ValidationError(
-        `request body is ${buffer.byteLength} bytes; the plugin route ` +
-          `"${route.method} ${route.path}" accepts at most ${route.body.max_bytes}`
-      );
+    // From the header first, so an oversize body is refused before any of it
+    // is held; then by counting, so a body sent without a length is bounded
+    // the same way rather than buffered whole and measured afterwards.
+    const declared = Number(c.req.header("content-length"));
+    if (Number.isFinite(declared) && declared > route.body.max_bytes) {
+      throw ExtRequest.tooLarge(route, declared);
     }
+    const stream = c.req.raw.body;
+    if (!stream) return empty;
+    const buffer = await ExtRequest.readBounded(stream, route);
+    if (buffer.byteLength === 0) return empty;
 
-    if (route.body.kind === "bytes") return { body: null, bytes: new Uint8Array(buffer) };
+    if (route.body.kind === "bytes") return { body: null, bytes: buffer };
     return { body: new TextDecoder().decode(buffer), bytes: null };
+  }
+
+  private static async readBounded(
+    stream: ReadableStream<Uint8Array>,
+    route: PluginRoute
+  ): Promise<Uint8Array> {
+    const chunks: Uint8Array[] = [];
+    let size = 0;
+    const reader = stream.getReader();
+    try {
+      for (;;) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        size += value.byteLength;
+        if (size > route.body.max_bytes) throw ExtRequest.tooLarge(route, size);
+        chunks.push(value);
+      }
+    } finally {
+      await reader.cancel().catch(() => {});
+    }
+    return chunks.length === 1 ? chunks[0] : Buffer.concat(chunks);
+  }
+
+  private static tooLarge(route: PluginRoute, size: number): ValidationError {
+    return new ValidationError(
+      `request body is ${size} bytes or more; the plugin route ` +
+        `"${route.method} ${route.path}" accepts at most ${route.body.max_bytes}`
+    );
   }
 }

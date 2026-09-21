@@ -97,6 +97,8 @@ describe("settings API (D47)", () => {
     const view = (await (await app.request("/api/settings", { headers: auth(rootKey) })).json()) as any;
     expect(view.sections.map((each: any) => each.table)).toEqual([
       "log",
+      "http",
+      "transfer",
       "search",
       "schema",
       "auth",
@@ -139,7 +141,7 @@ describe("settings API (D47)", () => {
   test("an unknown section is a 400 that lists the real ones", async () => {
     const response = await put(rootKey, "nonsense", { x: 1 });
     expect(response.status).toBe(400);
-    expect(((await response.json()) as any).error.message).toContain("log, search, schema, auth, storage");
+    expect(((await response.json()) as any).error.message).toContain("log, http, transfer, search, schema, auth, storage");
   });
 
   test("[storage] cannot be pointed somewhere else", async () => {

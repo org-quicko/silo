@@ -108,14 +108,15 @@ export class MediaValue {
 
   /** The same "is this a media field" heuristic `buildUiSchema` uses to pick
    *  the media widget, so what renders as media and what gets omitted here
-   *  cannot disagree. */
+   *  cannot disagree — `format: "uri"` alone included, which is a URL field
+   *  and not a media one. */
   private static isMediaSchema(prop: any): boolean {
     if (!prop || typeof prop !== 'object') return false
     const widget = prop['x-silo-ui']?.widget
     return (
       MediaField.is(prop) ||
       prop['x-silo-media'] === true ||
-      (prop.type === 'string' && (prop.format === 'uri' || widget === 'media'))
+      (prop.type === 'string' && widget === 'media')
     )
   }
 }

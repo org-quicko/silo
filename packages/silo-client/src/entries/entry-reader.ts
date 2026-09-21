@@ -1,8 +1,10 @@
+import { Cache } from "../cache/Cache.js";
 import { PageWindow } from "../pagination/page-window.js";
 import type { RowLoader } from "../pagination/row-stream.js";
 import type { ScopeReference } from "../scope/scope-reference.js";
 import { ApiPath } from "../transport/api-path.js";
 import { PagePayload } from "../transport/page-payload.js";
+import { TransportRequest } from "../transport/transport-request.js";
 import type { Entry } from "./entry.js";
 import type { EntryListQuery } from "./entry-list-query.js";
 import { EntryPage, type EntryPageLoader } from "./entry-page.js";
@@ -24,33 +26,33 @@ export class EntryReader<Fields> {
     private readonly collection: string,
   ) {}
 
+  @Cache()
   get(id: string, options: EntryReadOptions = {}): Promise<Entry<Fields>> {
-    const { variables, ...request } = options;
-    return this.scope.transport.json<Entry<Fields>>({
-      method: "GET",
-      path: ApiPath.entry(this.scope.project, this.scope.environment, this.collection, id),
-      query: { variables },
-      ...request,
-    });
+    return this.scope.transport.json<Entry<Fields>>(
+      TransportRequest.get(ApiPath.entry(this.scope.project, this.scope.environment, this.collection, id))
+        .query("variables", options.variables)
+        .options(options)
+        .cache(this.get)
+        .build(),
+    );
   }
 
+  @Cache()
   async list(query: EntryListQuery = {}, options: EntryReadOptions = {}): Promise<EntryPage<Entry<Fields>>> {
-    const { variables, ...request } = options;
     const loader: EntryPageLoader<Entry<Fields>> = (window) =>
       this.list({ ...query, limit: window.limit, offset: window.offset }, options);
 
-    const body = await this.scope.transport.json<Record<string, unknown>>({
-      method: "GET",
-      path: ApiPath.entries(this.scope.project, this.scope.environment, this.collection),
-      query: {
-        limit: query.limit,
-        offset: query.offset,
-        filter: query.where?.toJSON(),
-        sort: query.sort === undefined ? undefined : String(query.sort),
-        variables,
-      },
-      ...request,
-    });
+    const body = await this.scope.transport.json<Record<string, unknown>>(
+      TransportRequest.get(ApiPath.entries(this.scope.project, this.scope.environment, this.collection))
+        .query("limit", query.limit)
+        .query("offset", query.offset)
+        .query("filter", query.where?.toJSON())
+        .query("sort", query.sort === undefined ? undefined : String(query.sort))
+        .query("variables", options.variables)
+        .options(options)
+        .cache(this.list)
+        .build(),
+    );
 
     const page = PagePayload.read<Entry<Fields>>(body);
     const window = new PageWindow(page.limit ?? query.limit ?? 50, page.offset ?? query.offset ?? 0);

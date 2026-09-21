@@ -1,3 +1,4 @@
+import type { ResponseCache } from "./cache/ResponseCache.js";
 import type { HealthReport } from "./instance/health-report.js";
 import { Media } from "./media/media.js";
 import type { RequestOptions } from "./request-options.js";
@@ -31,13 +32,7 @@ export class Silo {
 
   constructor(options: SiloOptions) {
     this.options = options;
-    this.transport = new Transport({
-      url: options.url,
-      key: options.key,
-      headers: options.headers,
-      timeoutMilliseconds: options.timeoutMilliseconds,
-      fetch: options.fetch,
-    });
+    this.transport = new Transport(options);
     this.projects = new Projects(this.transport);
     this.media = new Media(this.transport);
   }
@@ -79,5 +74,10 @@ export class Silo {
   /** The same options pointed at a different server. */
   withUrl(url: string): Silo {
     return new Silo({ ...this.options, url });
+  }
+
+  /** The cache owned by this client's transport. */
+  cache(): ResponseCache {
+    return this.transport.cache;
   }
 }

@@ -1,8 +1,13 @@
 import { createHash } from 'crypto'
 
 /**
- * The name Strapi actually gave a table, when the one its schema declares is too
- * long to be one.
+ * The name Strapi actually gave a table or a column, when it is not the one the
+ * schema spells.
+ *
+ * Two transforms, and both of them are the difference between finding an
+ * export's data and reporting it missing. `column` is the small one: attribute
+ * names are the author's and columns are snake_case. The shortener below is the
+ * one worth the file.
  *
  * Strapi caps a database identifier at 55 characters and shortens anything past
  * that to its first 50 plus a five-character digest, so a content type whose
@@ -30,6 +35,13 @@ export class StrapiIdentifiers {
   static readonly HashLength = 5
   /** How much of the declared name survives shortening. */
   static readonly KeptLength = StrapiIdentifiers.MaxLength - StrapiIdentifiers.HashLength
+
+  /** The column an attribute is stored in. Strapi's attribute names are
+   *  camelCase and its columns snake_case, and a `_cmps` table's `field` keeps
+   *  the attribute name verbatim — so a reader comparing the two needs both. */
+  static column(attribute: string): string {
+    return attribute.replace(/([a-z0-9])([A-Z])/g, '$1_$2').toLowerCase()
+  }
 
   /** `name` as Strapi would have stored it. */
   static shorten(name: string): string {

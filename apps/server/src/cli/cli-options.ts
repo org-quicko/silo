@@ -33,8 +33,11 @@ export class CliOptions {
     dir: { type: "string" },
     out: { type: "string" },
     "with-keys": { type: "boolean" },
+    // Repeatable: one `project[/env[/collection]]` rule per occurrence, so a
+    // rule never has to be escaped against a separator of its own (§7.6).
+    include: { type: "string", multiple: true },
+    media: { type: "string" },
     mode: { type: "string", default: "merge" },
-    validate: { type: "boolean" },
     "dry-run": { type: "boolean" },
     prefer: { type: "string" },
     detach: { type: "boolean", short: "d" },
@@ -51,6 +54,9 @@ export class CliOptions {
     "timeout-ms": { type: "string" },
     "on-error": { type: "string" },
     "no-register": { type: "boolean" },
+    // `mcp` (D86): the server to bridge to, and the key to present.
+    url: { type: "string" },
+    key: { type: "string" },
     help: { type: "boolean", short: "h" },
   } as const;
 

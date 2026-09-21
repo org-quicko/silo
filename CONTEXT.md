@@ -17,7 +17,469 @@ can be cloned with one command.
 
 ## Where things stand
 
-*Last updated: 2026-09-16 (D67)*
+*Last updated: 2026-09-21 (Node client caching, Java caching, MCP and server updates)*
+
+**silo releases only `vMAJOR.MINOR.PATCH`, and its suite passes on Bun 1.4
+(2026-09-19).** `release.yml` triggers on `v[0-9]+.[0-9]+.[0-9]+`, so an
+`-rc.1`, `-beta` or `-SNAPSHOT` tag starts nothing, and its version job refuses
+any other shape a dispatch passes. No run can carry a pre-release now, so the
+`prerelease` output, `--prerelease` and the tap and dnf-repo gates are gone;
+`bun run set-version` refuses a suffix too. `FileByteStream` has a zero
+high-water mark and opens its file on the first read: built at the default, it
+pulled at once, and a body nobody read (a `HEAD`, whose GET body Hono drops
+uncancelled) held a handle for the collector, which Bun 1.4 raises as an error.
+Those errors failed `bun test`, and with it the release's verify job.
+
+**silo is an MCP server (2026-09-18, D86).** `POST /api/mcp` speaks the Model
+Context Protocol over Streamable HTTP, under the same CORS, body-limit and auth
+middleware as every API route, and `silo mcp --url <server>` bridges a client's
+stdio to it for hosts that spawn a process (Claude Desktop, Codex, Claude Code
+either way). Nineteen hand-written tools in `apps/server/src/mcp/tools/`
+(whoami, projects, environments, variables, collections and schemas, entries,
+search, media) each stand for one route, and `McpToolRunner` dispatches a call
+back through the same Hono app carrying the caller's own `Authorization`
+header, so `RouteAuth` decides exactly as it does over HTTP and a refusal
+reaches the model naming the missing claim. Arguments are checked against each
+tool's JSON Schema before dispatch (`-32602`); a route's `4xx` comes back as a
+result with `isError`. The endpoint is stateless (no session id, `GET` and
+`DELETE` are `405`), requires a key even where a read would be public, and uses
+no SDK. [docs/guide/mcp.md](docs/guide/mcp.md) shows the client
+configurations; the rationale is §8.6 and §10.6.
+
+**The admin prepares current-connection AI client setup (2026-09-19).**
+**Settings > AI assistants** uses the saved server key as-is. It offers a
+Claude Desktop extension download, Claude Code command, Codex setup prompt
+with a manual TOML fallback, and Cursor deep link/manual JSON. Every client
+lists the connection as `silo`, so setting up another connection replaces it
+rather than adding a second. The Claude Desktop extension (`silo.mcpb`, shown
+as "Silo") carries its server URL and API key as MCPB `user_config` settings
+that default to the current connection, so Claude Desktop can change them
+without a new download; the key is `sensitive`, which the host masks and
+stores securely. The Claude Code command removes a user-scope `silo` before
+adding one. The client retains the current connection's access. The page
+guides installation and gives a prompt to try in the assistant.
+
+**The D81 read thread no longer ends the process under it (2026-09-18).**
+Run from source, `serve` and every storage-opening CLI command exited 0 at
+once and printed nothing, because the worker was permanently unref'd and the
+first threaded read was the only thing on the loop. `SqliteReadThread` now
+holds a `ref` while a message is out or it is starting and lets go when idle;
+`CommandRouter` closes the runtime on the success path too. Pinned across a
+process boundary by `sqlite-read-thread-liveness.test.ts`, since `bun test`'s
+`NODE_ENV=test` turns the thread off and could never see it.
+
+**All five critical findings and the first six high findings of the
+2026-09-18 adversarial audit are fixed (2026-09-18, D79–D85).** The audit
+report itself is not in the repo; high findings H7–H15 and the mediums are not
+yet addressed. **H1, H2, served bytes rendering on the admin's origin (D83):**
+an SVG uploaded with a `write`-preset key ran its script on the origin that
+holds every saved API key, and a public plugin route answering HTML was the
+same door. `ResponseSandbox` puts `nosniff` and a `Content-Security-Policy` on
+every `/media/{id}` answer (`sandbox`) and every `/api/ext/{name}/*` answer
+(`default-src 'none'; sandbox`); `MediaDisposition` sends an SVG and any
+non-media type as an attachment; `content_type` is read off the extension and
+never off what an upload declared; `svg` is out of the default allowlist. **H3,
+import wrote any `_system` row (D84):** `ImportSystemGate` judges the rows
+against `ImportGrants` — `_keys` on `keys:import`, the media catalog on
+`media:create` and `media:delete`, `_variables` on `create` plus
+`entries:update` over their project — and refuses `_audit`, `_plugins`,
+`_scope_renames` and unknown names outright; the routes derive the grants from
+claims, the CLI is trusted. **H4–H6, import unbounded, lock held across the
+upload, replace emptied first (D85):** `[transfer] max_archive_size_mb` and
+`max_extracted_size_mb` bound a streamed archive (`ArchiveExtractor` spends the
+second from tar's headers before anything is written, `413 archive_too_large`),
+`TransferService` unpacks before taking the write lock, and replace writes the
+archive's rows over what is there and prunes the rest, so an interruption leaves
+extra rows, never missing ones. **C3, media read whole into
+memory (D80):** `/media/{id}` read every asset into memory and copied it once
+more per request, with `GET /api/media?sort=-size` telling an anonymous caller
+which asset to ask for. `BlobStorage` gains an optional `stream(key, range?)`;
+the fs store answers with `FileByteStream`, a hand-written 64 KB pull reader,
+because every runtime file body was measured to buffer the file or mis-slice a
+range on Bun 1.3.14; the S3 store answers with the object handle's stream. A
+`Range` is honoured as `206` with `Content-Range`, `416` past the end,
+`Accept-Ranges: bytes` always. Measured: six concurrent 60 MB downloads grew
+the process by 24 MB where the old path held about 720 MB. **C4, scans on the
+event loop (D81):** a filter over a public collection blocked the one JS thread
+for the length of the scan — 12 s for a 49-way `or` on 200,000 rows — so entry
+lists and searches now run their statements on `SqliteReadThread`, the one
+`Worker` per process holding a second connection per database (WAL,
+`query_only`, `data:` URL source, unref'd), through a per-store
+`SqliteReadWorker` handle with a queue of 64 that sheds as `503 busy`;
+`MaxFilterLeaves` (16) caps what one filter may cost. Measured on a real listener: `/api/health` stayed at 3 ms while four
+1.4 s scans ran, 240 concurrent filtered lists all completed, a flood of 120
+was shed as 88 × 503. One test-runner caution came out of it and is in
+`code-design.md` (Tests): under `bun test` the thread is off by default
+(`SqliteStore.readThreadDefault`, `SILO_READ_THREAD=on|off`), because the
+runner's `expect(...).rejects` wait does not deliver a worker's replies once it
+has answered twice; the thread's own test opts in and awaits plainly. **C5, the run-file guard (D82):** it
+trusted a pid, so a crashed Docker instance (always pid 1) refused itself
+forever. `RunFile.liveness` decides by identity — not this process, same boot
+(`BootId`), pid present, refreshed within two minutes by a 30 s heartbeat —
+and `serve` now catches uncaught errors and unhandled rejections to remove the
+record and exit 1. **C1, data
+loss in the fs adapter:** `FsCollectionStore.delete` removed the content
+directory with `fs.rm` and no `recursive`, which never removes a directory, and
+swallowed the error, so every collection delete left an empty
+`content/<name>/` behind; `moveIfPresent` then read an existing destination as
+"this move already landed" and `rm -rf`'d the source. Renaming a live
+collection onto a name that had been deleted earlier silently erased every
+entry of the renamed collection — reproduced, and now pinned by
+`RenameOntoAPreviouslyDeletedNameKeepsTheContent` in the conformance suite.
+`delete` now refuses while entry files remain, as SQLite does, and removes the
+directory whole; the content move treats an existing destination as a leftover
+to remove or as content to refuse, never as a reason to discard the source; and
+`rename` refuses a destination whose content directory holds entries even when
+no marker claims it. **C2, no request body ceiling (D79):** `Bun.serve` got no
+`maxRequestBodySize`, and the runtime buffers a body whether or not a handler
+reads it, so eight concurrent unread 120 MB bodies took a probe server to a
+1.4 GB peak with no key and no valid route. Two ceilings now, by route class:
+`[http] max_body_size_mb` (default 128) is the listener's cap and bounds the
+four upload routes and plugin routes; `[http] max_json_body_size_mb` (default
+4) bounds everything else through `BodyLimitMiddleware`, before auth, as
+`413 payload_too_large`. Both are on **Settings > Configuration > Connections**
+beside the idle timeout. `POST /api/projects` and environment create ask for a
+key before reading the body; `ExtRequest` bounds a plugin route's body from the
+header and while reading.
+
+**The Java client caches entry reads, and `@Cache` decorates rather than
+intercepts (2026-09-17, D86).** Caffeine holds one entry and one page of
+entries. **`@Cache(ttl = 30, maxSize = 1024)` is the whole annotation**, and
+both are optional: what a read states **wins**, and what it leaves out is
+taken from `CacheOptions`, which a consumer sets on `SiloOptions`. A number
+neither side names is refused rather than invented. The name is Spring's
+`@Cacheable` shortened, and the mechanism is not Spring's, because it could not
+be: there is no container here, every handle is `final` and none implements an
+interface, so a proxy had nothing to stand in front of. The annotation is
+**read, not woven, and read off the stack** — a read describes its request and
+calls `.cache()` with no argument, and `CachePolicy.declaredOnCaller` takes the
+`@Cache` off exactly the method that called it, matched on signature and
+memoised per method. That is what makes the annotation decide **whether**
+caching happens: delete it and the read raises, where the resolved-constant
+draft this replaced would have compiled and quietly cached nothing. Only the
+immediate caller is consulted, so a read that delegated its request-building
+raises rather than inheriting numbers from further up the stack. **The key is composed from the
+request, the way a CDN composes one** — `Transport` never sees a caller's
+arguments, and `#id` alone would serve `01ABC` of `acme/prod` to a read of
+`01ABC` in `beta/staging`, since an id is unique only inside a scope the path
+carries and the arguments do not. `CacheKey` is the method, the path and every
+query parameter — there is nothing to declare and nothing to leave out, because
+a parameter left out of a key is two different responses sharing one entry. It
+sorts the parameters so two callers who built one read differently still meet
+one entry, and encodes the values so a filter holding an `&` cannot forge
+another read's key. `@Cache(ttl = 30, maxSize = 1024)` is the whole annotation,
+and nothing names a cache: a read needs a Caffeine instance of its own only
+because both bounds are per-instance, so one is looked up by the `CachePolicy`. `all()` and `pages()` are cached without
+declaring anything: they page through `list()`. Writes declare what they invalidated — `evicts` carries the
+collection's path and `Transport` drops everything at or below it, with a
+boundary check keeping a write to `posts` off `posts-archive`. **Off until
+`SiloOptions.cache(CacheOptions.on())` asks for it**, and only entries: a cached
+read hands back the `rev` it was stored with, and the write carrying a stale one
+raises a `ConflictException` the caller did nothing to cause — the
+absent-default-scope reasoning one layer down. Schemas, searches, variables and
+media reach the server every time. A cache belongs to one transport, so
+`withKey` and `withUrl` start empty. D7 is untouched: that is the server's
+storage layer, not a client holding what it already fetched. The suite is 114.
+
+**A transfer now says what it covers, and export answers immediately
+(2026-09-17).** `GET /api/export` had been failing behind a reverse proxy with a
+`503` that named the proxy. Three things were true at once: `Bun.serve` was
+started with no `idleTimeout`, so the runtime's own **10 seconds** applied;
+`Exporter` staged the entire archive in a temp tree before the first byte, which
+on the deployment that found this meant 1,619 media objects pulled from a bucket
+and 68 seconds of silence; and the handler then finished normally and logged its
+own `200` for a client that had left a minute earlier.
+
+**The listener has `[http] idle_timeout`** (default 120s,
+`SILO_HTTP_IDLE_TIMEOUT`, settable from **Settings > Configuration >
+Connections**), clamped to the runtime's 255 rather than refused, since a config
+that is only too generous must not be what stops a server starting (D72).
+
+**The archive is produced as it is walked** (D73). The walk writes through an
+`ExportSink` — a directory for `--dir`, a tar stream over silo's own
+`TarWriter` for everything else — so the first byte leaves in milliseconds and
+peak memory is one entry rather than one media library. Reading an archive is
+still `tar.x`; only the writer is ours. Archives are reproducible for real now,
+every entry carrying the export's own `exported_at` instead of the clock at
+staging time. The cost is stated: a blob failure truncates the body rather than
+becoming an error status, and a truncated archive fails its own gzip check and
+extracts nothing. Import keeps a temp tree, staged under `<data>/transfer/`
+because a hardened unit puts `/tmp` on a RAM-backed tmpfs.
+
+**Export holds a flat 147 MB whatever the library weighs** (D76). D73's claim
+that it already did was measured and was wrong, and the cause was below the
+walk: the web `CompressionStream` accepts every chunk it is offered and holds
+the result. `GzipStream` (`node:zlib`) replaces it, and the file path flushes
+its sink on a byte budget instead of trusting a `write` that answers a count.
+**The receiving end is flat too, in two steps.** `ImportEntries` replaced the
+`Entry[]` the walker handed over with a directory opened one file at a time
+(D77), and the upload is spooled to one file and extracted from that rather than
+fed to `tar.x` as a stream, which absorbed the archive as fast as the socket
+delivered it (D78). A 750 MB copy went from **2.0 GB** of private memory on the
+destination to **516 MB**, against a baseline near 390 MB. Media goes to the
+store the instance is configured with, never a directory derived from the data
+path; it already did, and four tests now hold it there.
+
+**Export, import and copy share one selection vocabulary and three media modes**
+(D74). `include` is repeatable and names a `project`, a `project/env` or a
+`project/env/collection`; empty is the whole instance. `media` is
+`all|referenced|none` and decides the catalog subset with the bytes, defaulting
+to `all` for a whole transfer and `referenced` for a narrowed one — so "export
+everything" stays lossless and "export one collection" does not carry the whole
+library. `none` carries the catalog and no bytes, for two instances on one
+bucket. A copy forwards its selection to the source's own export. Claims follow
+the reach, which is D22's rule applied to the archive routes. **This forced a
+data-loss fix**: replace mode used to clear every blob in the destination
+whenever an archive had a `media/` directory, and to empty `_media` because the
+collection was in the archive; `ImportAuthority` now scopes replace to what the
+archive is actually authoritative for.
+
+**Import and copy can stream progress** (D75). `Accept: application/x-ndjson`
+answers with one JSON object per line and a heartbeat every second, because
+those two have nothing to send until they are done and a quiet connection is a
+closed one. The status goes out before the work, so the outcome is the last
+line; the admin reads it, and a long run reports what it is doing. The admin's
+Data Transfer page gains a three-level scope picker, every box checked by
+default because an empty selection *is* everything.
+
+**Node collection caching now follows the Java client (2026-09-17).**
+The baseline is `feature/java-client` at `3ad9c83`. Local `@Cache()` decorators
+mark `EntryReader.get()` and `list()`. The request builder reads their
+`method.cachePolicy` property through `.cache(this.get)` or `.cache(this.list)`.
+Each `Transport` owns a `ResponseCache`; handles carry only their existing
+transport. `SiloContext` and the `@org-quicko/core` dependency are removed.
+`SiloOptions.cache` accepts `{ enabled, ttl, maxSize }`, with TTL in milliseconds.
+Both settings must resolve from the decorator or client options; Silo supplies
+no TTL or capacity defaults. Omitted or disabled caching makes ordinary requests.
+Constructor options are used directly, without defensive copies; callers treat
+them as immutable for the client's lifetime.
+Transport reads its settings from those options without duplicate fields or a
+snapshot helper. The request builder is internal to `transport-request.ts`,
+corresponding to Java's nested `TransportRequest.Builder`.
+Successful collection create, replace, delete, rename and schema deletion
+invalidate that collection's cached entry and page responses. Health, searches,
+schemas and other metadata remain uncached. `silo.cache().clear()` and
+`statistics()` expose cache management. Derived clients have independent caches.
+The implementation uses standard decorators, function properties and TTLCache,
+with no Node-only execution context. See the
+[client design](docs/design/api-client.md#1410-optional-read-caching-d71) for the
+Java differences and concurrency limits, and the
+[client README](packages/silo-client/README.md#optional-collection-caching) for usage.
+`packages/silo-client/tools/verifyCache.mjs` verifies the built client against a
+real public collection with GET requests and HTTP request-count assertions.
+Run `npm run verify:cache` from the client package after building; it defaults
+to the production GST state-code collection and requires no API key.
+
+**A collection can now say more than "required" (2026-09-16).** The visual
+schema builder wrote `type`, `enum`, `$ref` and a required list and nothing
+else, so every other rule JSON Schema can state had to be typed into Code
+view — and the entry form, which already knows how to draw those rules, had
+nothing to draw. `SchemaConstraints` (`apps/admin/src/schema/`) is the set the
+builder now reads and writes: `format`, `minLength`, `maxLength` and `pattern`
+on a string, `minimum`, `maximum` and `multipleOf` on a number or integer, and
+`minItems`, `maxItems` and `uniqueItems` on a list — a reference list included,
+since that is an array too. Each keyword earns its place twice, because the
+server asserts it *and* RJSF already renders it: a `format` picks the entry
+form's control outright (`date` a date picker, `date-time` a datetime-local,
+`email` and `uri` their typed inputs), and a range becomes the number input's
+`min`/`max`/`step` through RJSF's own `getInputProps`, which `BaseInputTemplate`
+now calls rather than deriving the type by hand. Only formats `ajv-formats`
+asserts on **both** sides are offered, which is why `color` and `data-url` are
+not: RJSF's validator registers those and silo's server does not, so the form
+would accept a value the authority then stored unchecked. The keywords are
+written as a **set** on every save — `SchemaDraft` rewrites them from the field
+rather than letting the `raw` spread carry them through — so a string retyped as
+a boolean does not keep a `maxLength` the builder has stopped showing, and Code
+view cannot disagree with the row above it. They are held as the **text** that
+was typed rather than as numbers, because a keystroke rebuilds the whole
+document and parsing `0.` back to a number would delete the dot somebody is
+still typing; the conversion happens on the way out, where a half-typed value is
+simply a keyword not written yet. Everything here is part of the validating
+shape, so a populated collection freezes it (D70): the editor shows every
+constraint read-only, and a description-only save still round-trips the document
+unchanged. The builder row and the entry form's hint line both name what a field
+will accept, so a rule is stated before a save is refused for it, and
+`noHtml5Validate` puts every refusal in the form's own error list in Ajv's
+wording — the browser's native bubble reached neither the banner nor the field,
+and answered a range differently from a length and differently again from the
+same rule refused by the server.
+
+**Two shapes the entry form would not draw (2026-09-16).** A list that declares
+no `items` is what the builder's `array` kind writes, and RJSF answers "Missing
+items definition" for it *before* a `ui:widget` is read — so the chips widget
+chosen for the field never ran and the entry form printed it as unsupported.
+`FormSchema` now says what the schema already means, `items: {}`, which is the
+same move it makes for a property that declares nothing at all. And
+`format: "uri"` is a URL again: `buildUiSchema` and `MediaValue` counted it as
+media on its own, so the builder's new URL format would have drawn the media
+picker and written a `silo://media/<id>` for somebody who asked for a link. A
+media field says so with `x-silo-type: "media"`, which is what every importer
+writes and what the server rewrites on read; `cell-format.ts` already read the
+two apart this way, so the list and the form now agree.
+
+**JSON Schema became a rule, not just a shape (2026-09-16).** Collections were
+built on JSON Schema, and it drew the forms and described the data, but it did
+not reliably decide what got stored. `EntryService` validated every API write,
+and plugins inherited that because they dispatch through the real routes. The
+importer did not: it built a validator only under `opts.validate`, which
+defaulted to **false** on `silo import --validate`, on `POST /api/import`, and
+on both copy routes. And `putSchema` never looked at the entries under a
+collection at all, so tightening a schema left rows behind that it rejects.
+Three rules now hold (D70). **Data in is always validated** — the flag and every
+surface offering it are gone, and an entry the destination refuses is skipped,
+counted in `ImportResult.rejected` and named in `rejections` (capped at 100,
+count exact) rather than aborting an otherwise good archive. **Data out is never
+validated**, so a tightening cannot make stored entries unreadable. **A schema is
+frozen while entries exist**: `SchemaChangeGuard` compares the incoming bundled
+document against the stored one and answers `409` with the collection name and
+its entry count. Only the *validating shape* is frozen — `SchemaShape` strips
+`x-silo-auth`, `x-silo-search`, `title`, `description` and `$comment` at every
+depth first, so publishing a populated collection or fixing a search path stays
+an ordinary edit, and the strip is schema-aware rather than key-name-aware
+because `title` under `properties` is a field called "title". Replace-mode
+import, a first create and a rename are exempt, each because it has no entries
+to invalidate at the moment it writes. The admin's editor is read-only in both
+representations while entries exist, with the per-field description and the
+privacy toggle the exceptions; `x-silo-search` has no control of its own and so
+is API-only on a populated collection. `SchemaDraft` also stopped adding
+`type: "string"` to an enum that never declared one, which had made such a
+collection unsaveable once frozen. Editing a
+schema over existing data is **deferred, not refused forever** — a later release
+is expected to allow it behind a migration plan that says what happens to those
+entries.
+
+**silo has a Java client, and the three decisions that could not cross are the
+interesting part (2026-09-16, D69).** `packages/silo-client-java`, published as
+`in.org.quicko.silo:client`, on OkHttp and Jackson with Java 25. It is the same
+client as the TypeScript one on purpose: the same object graph, immutable
+handles, absent default scope, passed revision, per-call raw-versus-resolved
+read, window-driven pagination, built filters, four kinds of failure and
+`RouteInventory`. Those decisions are about this API rather than about
+TypeScript, and a consumer reading both clients should not meet two
+vocabularies for one service; `RouteInventoryDriftTest` parses the TypeScript
+inventory and holds the two lists equal, which inherits that list's own check
+against the server's route registrations. Three things could not carry.
+**An entry is split** into `Entry<F>`: D62's row is the wire's flat object,
+`Fields & EntryEnvelope`, and Java cannot name a type that is both the caller's
+`Post` and an envelope — a `Post` extending a supplied base class would be flat
+and would make every consumer DTO inherit from this library, a bare `Map` keeps
+every type out and gives up the typing, and splitting gives up flatness alone.
+Everything D62 was protecting is intact, since a row still carries no transport
+and therefore cannot print an API key. Timestamps become `Instant` on the same
+reasoning: the wire's strings were kept because a flat row went back out
+unchanged, and this one never does. **Every call blocks**, because a
+`CompletableFuture` twin of every method doubles the surface for a concurrency
+model Java 25 supplies underneath; `CancellationSignal` replaces `AbortSignal`,
+and it is consulted before the exception type because OkHttp reports a
+cancelled call as an ordinary `IOException`. **Filters are untyped**, since
+there is no Java `keyof Post` and the shapes that approximate one need
+generated code from the consumer's own DTOs. Five names differ and every one is
+a collision: `isEqualTo`, `CollectionCatalog`, `RequestTimeoutException`,
+`SiloException`, and the `within`/`preview`/`matching` factories. The tests run
+on an OkHttp interceptor rather than a local server, which is the stub fetch
+one layer down, and that suite immediately found `TransportRequest` freezing
+its query map with `Map.copyOf` — an unordered map, so one call emitted its
+parameters in a different order between runs. The package README walks the
+whole surface, and **every example in it is a test**: `ExamplesTest` and
+`MediaExamplesTest` type each block out as the README types it and run it
+against the same interceptor, on the split the TypeScript package already uses,
+so a documented call that stops compiling fails the build rather than the
+reader. A `module-info.java` exporting
+everything but `transport` is written and deferred: the compiler plugin here
+reads module descriptors through an ASM that cannot parse a Java 25 class file,
+and shipping one unverified is worse than saying `transport` is internal by
+convention. Its release tag is `silo-client-java-v*`, decided and not yet
+wired: `release-silo-client.yml` has no Java counterpart, so the first publish
+to Maven Central is by hand.
+
+**The HTTP API has a machine-readable description (2026-09-16).**
+[docs/openapi.json](docs/openapi.json) is OpenAPI 3.1 over all 83 operations the
+server serves: every route under `/api`, the public `/media/{id}` stream, and the
+single handler every plugin route is matched through. It carries the query
+grammar, the `If-Match` revision fence, the `?variables=` switch, the response
+shapes, and — named per operation — the claim each one asks for, which is the
+half of this API a path table alone cannot tell you. It is **hand-written**.
+Hono registers routes as code and there is no decorator to read them off, so
+nothing generates this and nothing can check it: it is a promise the repo makes,
+which is why `CLAUDE.md` now names it as a mandatory part of any route change,
+`docs/context/repo-map.md` says where it sits and why, and the file itself
+carries an `x-maintenance` field repeating the rule to whoever opens it first.
+Only the canonical `/environments` spelling is described; `/envs` is the same
+handler registered twice, and listing both would double the file to say one
+thing. See [docs/guide/http-api.md](docs/guide/http-api.md) for the page a human
+reads and [docs/design/http-api.md](docs/design/http-api.md) for why each route
+is shaped the way it is.
+
+**A content type made only of unresolvable components is skipped, not offered
+(2026-09-16).** `StrapiShapes.isEmpty` counted a shape as non-empty on
+`children.length > 0`, and a component field no table could be proved for is
+still a child — `shapes: []` and a non-empty `unresolved`. So
+`api::pro-quicko-workspace-expertise`, whose one attribute is a repeatable
+component, reached the plan as an importable list: count 1, one entry reported
+written, and the entry was `{ expertise: [] }`, with a note on the panel the only
+thing that said otherwise. A child now counts only where a table was proved for
+at least one of the components it names, which puts such a content type on
+`StrapiInventory.skipped` beside the one with no importable fields at all. That
+is not omission — the panel prints every skipped content type with its reason —
+and the reason names the component uid and the number of entries, because finding
+that component's table is the one thing that makes the content type importable,
+and it is `src/components/*.json` in the Strapi project rather than anything in
+the export. The line is "would this import write anything": a scalar beside the
+same component keeps the list on the plan, where the existing note carries the
+warning. The alternative considered and rejected was defaulting the step's
+`include` to false, which overloads a flag that means "the operator narrowed
+this" and still permits the empty import.
+
+**A Strapi component whose category was renamed now imports its rows
+(2026-09-16).** The importer found a component's table by four matchers over its
+name, and all four assume the uid and the table still share a word. Strapi
+writes a component's `collectionName` when the component is created and never
+again, so renaming its category rewrites every reference and none of the
+storage: in a live `pro-quicko-workspace` export, `nature-of-business.test` is
+stored in `components_test_tests`, nothing proposed that table, and the entry
+imported as `{ expertise: [] }` — no error, one entry reported written, and its
+content gone. `StrapiComponents.byFields` is a fifth tier reached only when the
+name says nothing: it proposes every component table and proves one by the
+fields `StrapiFields` reads from the content-manager configuration, counting a
+field as held when the table has that column, when its `_cmps` names it as a
+child, or when it is a media field and so a column of no table. Every field must
+be accounted for and exactly one table may survive, because this tier is
+name-blind — the ids alone are ambiguous across component tables. An export that
+does not name the fields still resolves to `null`, and the panel still says so.
+
+**The client works in a browser without being handed a `fetch`
+(2026-09-16).** `Transport` stored `options.fetch ?? fetch` and then called it
+as `this.fetchFunction(...)`, a method call that makes `this` the `Transport`.
+A browser enforces the receiver on `fetch` and threw
+`TypeError: Illegal invocation` on every request; Node's undici does not, which
+is why nothing server-side ever saw it, and the admin UI passes a fetch of its
+own so it was unaffected too. The default is now `globalThis.fetch` bound to
+the global, a runtime with no `fetch` at all is refused at construction by
+name, and the call reads the function into a local so it never carries a
+receiver — a caller handing over an unbound `window.fetch` works as well.
+`NetworkError` also puts what `fetch` rejected with in its own message, since
+"the request never reached the server" alone reads as a verdict on the network
+when the fault can be the call.
+
+**Two people can import from Strapi at once, each in their own session
+(2026-09-16, D68).** The importer's panel held one staged database, one plan and
+one history for the whole instance, all in one directory under the system temp
+dir. That read as a queue and was a correctness bug: `POST /imports` re-reads the
+*current* inventory, and a plan is only refused when its list ids are absent — so
+two exports of the same Strapi, which is what a team migrating one has, let an
+operator's plan validate against a colleague's database and import their rows.
+Everything about one import now lives on an `ImportSession` keyed by
+`request.caller.id`, with a staging directory of its own under
+`work_dir/sessions/<key>`: `ImportRuntime` keeps only the settings, the session
+map, the collections in flight and the janitor. The key is the caller's key id
+because a panel's iframe has an opaque origin and no storage to remember a
+session id in, so two people sharing an API key share a session. `RunningTargets`
+holds each `project/env/collection` a run writes and refuses a second run of one
+by name, capped at three imports at once since they all queue on the write lock;
+one at a time still holds per operator. `session_ttl_hours` (default 24) and a
+half-hourly sweep end a session nobody came back to, never one whose import is
+running, and a start adopts what is on disk and clears the flat staging of the
+version before this.
 
 **Everything that resolves the client builds it first (2026-09-16).** The admin
 imports `@org-quicko/silo-client` through the package's `exports`, which name
@@ -105,7 +567,8 @@ way out, and it is the only thing that keeps silo in the read path (D59).
 
 There is now a **published TypeScript client** for the data half of the API,
 `packages/silo-client` (D61), and it **releases independently of silo**: its
-own tag, its own version, its own workflow.
+own tag, its own version, its own workflow. A **Java client** sits beside it,
+`packages/silo-client-java` (D69), on the same terms.
 
 An API key is no longer write-once: `PATCH /api/keys/{id}` changes its label,
 its claims, or both, leaving the secret alone, and the admin's key form now does
@@ -277,7 +740,7 @@ asset and the media route stays `{ view: 'media', serverId, folder, q }`.
 **The client releases on its own, and npm is the only thing it ships to
 (2026-09-15).** `.github/workflows/release-silo-client.yml` publishes
 `packages/silo-client` to npm from a `silo-client-v*` tag, which `release.yml`'s
-`v*` cannot catch, so a client release builds no executables and touches no
+`vMAJOR.MINOR.PATCH` filter cannot catch, so a client release builds no executables and touches no
 Homebrew tap. The version gate reads the *package's* `package.json` rather than
 the root's, `tools/set-version.ts` leaves that manifest alone for the same
 reason, and a pre-release goes out under the `next` dist-tag so
@@ -292,7 +755,8 @@ accept is meant to be found. One secret, `NPM_TOKEN`.
 
 **silo has a TypeScript client, and it is a package rather than a copy of the
 admin's (2026-09-10).** `packages/silo-client`, published as `@org-quicko/silo-client`,
-with zero runtime dependencies and one bundled artifact per module condition.
+with one bundled artifact per module condition. Collection caching uses
+`@org-quicko/core/cache` and `@isaacs/ttlcache`.
 The path is the object graph: `silo.project("acme").environment("prod")
 .collection<Post>("posts")`, where every handle is a value object that makes no
 request. There is no default scope, because a client that guesses `default/prod`

@@ -69,6 +69,20 @@ listen          = ${s(config.listen)}     # host:port to bind; ":8090" means eve
 default_project = ${s(config.default_project)}   # created on startup if missing
 default_env     = ${s(config.default_env)}      # created on startup if missing
 
+[http]
+idle_timeout = ${config.http.idle_timeout}        # seconds a connection may go quiet before it is closed; 0 disables, 255 is the ceiling
+# Raise it where a transfer of a large instance runs long. The runtime's own
+# default is 10, which a whole-instance export can exceed before it answers.
+max_body_size_mb      = ${config.http.max_body_size_mb}   # the largest request body on any route: a media upload, an import
+max_json_body_size_mb = ${config.http.max_json_body_size_mb}     # every other route: an entry, a schema, a list of ids
+# Each open connection can hold up to max_body_size_mb of an unread body, so
+# lower it on an instance with little memory.
+
+[transfer]
+max_archive_size_mb   = ${config.transfer.max_archive_size_mb}  # an import upload, or the export a copy pulls
+max_extracted_size_mb = ${config.transfer.max_extracted_size_mb}  # what it may expand to on disk, counted before anything is written
+# A file named on the command line is not held to either; raise both to copy a large instance.
+
 [storage]
 driver = ${s(config.storage.driver)}       # "sqlite" (indexed, fast) | "fs" (plain JSON files, git/rsync friendly)
 path   = ${s(config.storage.path)}  # data dir; the sqlite database lives at <path>/silo.db
@@ -94,7 +108,7 @@ driver = ${s(config.blob_storage.driver)}           # "fs" (local directory) | "
 # the address each request arrived on whenever silo serves the bytes itself.
 extensions = [${config.media.extensions.map((e) => s(e)).join(", ")}]
 # Uploads are refused unless the filename ends in one of these. ["*"] accepts anything.
-# svg can carry script and is served inline: drop it where uploaders are untrusted.
+# svg is not in the default: it can carry script. Add it where every uploader is trusted.
 
 [auth]
 disabled = ${config.auth.disabled}   # dev only: true treats every request as root, ignoring API keys

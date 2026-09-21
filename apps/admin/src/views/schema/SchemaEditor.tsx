@@ -98,6 +98,25 @@ export function SchemaEditorView({
       ),
     )
 
+  /**
+   * Entries were validated against the schema they were written under, so the
+   * fields are frozen while they exist (D70).
+   *
+   * The schema is read-only in **both** representations. The visual builder
+   * locks every control that decides what validates and leaves the per-field
+   * description live; the code editor locks outright, because it is the whole
+   * document in one text box and there is no way to admit an edit to part of
+   * free text.
+   *
+   * That costs one thing, deliberately: `x-silo-search` has no control of its
+   * own, so on a populated collection it is no longer editable from the admin.
+   * It is still editable over the API, and `x-silo-auth` — the other keyword
+   * this rule leaves open — has its own toggle above the card and is unaffected.
+   * A schema you cannot accidentally widen from a text box is worth more than
+   * the one keyword that lost its editor.
+   */
+  const frozen = !!collection && !!entryCount && entryCount > 0
+
   const switchMode = (next: SchemaEditorMode) => {
     setError('')
     if (!draft.switchMode(next)) {
@@ -243,6 +262,17 @@ export function SchemaEditorView({
         </div>
       )}
 
+      {frozen && (
+        <div className="banner banner-warn">
+          <AlertCircle size={16} />
+          <span>
+            The schema is locked: this collection has {entryCount}{' '}
+            {entryCount === 1 ? 'entry' : 'entries'} already validated against it. You can still edit
+            field descriptions and the privacy setting. To change a field, delete the entries first.
+          </span>
+        </div>
+      )}
+
       <div
         className={styles.authCard}
       >
@@ -278,6 +308,7 @@ export function SchemaEditorView({
           <FieldList
             fields={draft.fields}
             collections={collections}
+            locked={frozen}
             expanded={draft.expanded}
             onExpand={draft.setExpanded}
             onChangeField={draft.updateField}
@@ -287,10 +318,13 @@ export function SchemaEditorView({
           />
         ) : (
           <div className={styles.codeEditor}>
+            {/* `readOnly` rather than `editable={false}`: the document still
+                takes focus and selects, so it can be read and copied out. */}
             <CodeMirror
               value={draft.text}
               height="420px"
               theme="dark"
+              readOnly={frozen}
               extensions={[jsonLang()]}
               onChange={(value) => draft.setText(value)}
             />

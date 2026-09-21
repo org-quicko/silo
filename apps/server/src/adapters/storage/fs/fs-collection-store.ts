@@ -104,6 +104,15 @@ export class FsCollectionStore {
     if (destination && destination.id !== id) {
       throw new ConflictError(`collection "${name}" already exists in this environment`);
     }
+    // No marker, but entry files under the name: content with no record, which
+    // an import can leave. Moving onto it would either bury it or lose it, so
+    // it is a collision too. Skipped when the marker is this rename's own, since
+    // then the content under `name` is what an earlier attempt already moved.
+    if (!destination && (await this.hasEntries(found.scope, name))) {
+      throw new ConflictError(
+        `collection "${name}" already holds entries in this environment`
+      );
+    }
 
     await FsMarker.replace(this.layout.collectionMarkerFile(found.scope, name), {
       id,
@@ -114,9 +123,13 @@ export class FsCollectionStore {
   }
 
   /**
-   * Removes the record: the schema, its marker, and the content directory if it
-   * is empty. Entries have to be gone first, which is what the caller's own
-   * erase loop guarantees.
+   * Removes the record: the schema, its marker, and the content directory.
+   *
+   * Entries have to be gone first, and that is checked rather than assumed, so
+   * both adapters refuse the same way. The directory is then removed whole —
+   * only a stray temp file can still be in it — because a directory left behind
+   * is what a later rename onto this name would mistake for its own finished
+   * move (see `moveContentDir`).
    */
   async delete(scope: Scope, collection: string): Promise<void> {
     const markerFile = this.layout.collectionMarkerFile(scope, collection);
@@ -125,9 +138,16 @@ export class FsCollectionStore {
       throw FsCollectionStore.notFound(scope, collection);
     }
 
+    const remaining = await this.countEntryFiles(scope, collection);
+    if (remaining > 0) {
+      throw new ConflictError(
+        `collection "${scope.key()}/${collection}" still holds ${remaining} entries`
+      );
+    }
+
     await fs.rm(markerFile, { force: true });
     await fs.rm(schemaFile, { force: true });
-    await fs.rm(this.layout.collectionDir(scope, collection), { force: true }).catch(() => {});
+    await fs.rm(this.layout.collectionDir(scope, collection), { recursive: true, force: true });
   }
 
   /**
@@ -170,14 +190,11 @@ export class FsCollectionStore {
     id: string,
     created: Date
   ): Promise<void> {
-    await FsCollectionStore.moveIfPresent(
+    await FsCollectionStore.moveFile(
       this.layout.schemaFile(scope, from),
       this.layout.schemaFile(scope, to)
     );
-    await FsCollectionStore.moveIfPresent(
-      this.layout.collectionDir(scope, from),
-      this.layout.collectionDir(scope, to)
-    );
+    await this.moveContentDir(scope, from, to);
     await fs.rm(this.layout.collectionMarkerFile(scope, from), { force: true });
     await FsMarker.replace(this.layout.collectionMarkerFile(scope, to), {
       id,
@@ -185,15 +202,47 @@ export class FsCollectionStore {
     });
   }
 
-  private static async moveIfPresent(from: string, to: string): Promise<void> {
+  /** A single-file move. `rename` replaces a stale destination atomically, and
+   *  a missing source means this step already ran. */
+  private static async moveFile(from: string, to: string): Promise<void> {
     if (!(await FsFiles.exists(from))) return;
-    if (await FsFiles.exists(to)) {
-      // The move already landed and the source is a leftover the previous
-      // attempt did not get to remove.
-      await fs.rm(from, { recursive: true, force: true });
-      return;
-    }
     await fs.rename(from, to);
+  }
+
+  /**
+   * The content move. A missing source means it already ran, since `rename` of
+   * a directory is one syscall and never leaves both behind.
+   *
+   * A destination that exists anyway is therefore never "already moved": it is
+   * a leftover — an empty directory a delete could not remove, a stray temp
+   * file — or it is content, which nothing may move onto. The first is removed
+   * so the rename can land; the second is refused. What must never happen is
+   * the source being discarded, because the source is the collection.
+   */
+  private async moveContentDir(scope: Scope, from: string, to: string): Promise<void> {
+    const source = this.layout.collectionDir(scope, from);
+    const target = this.layout.collectionDir(scope, to);
+    if (!(await FsFiles.exists(source))) return;
+
+    if (await FsFiles.exists(target)) {
+      if (await this.hasEntries(scope, to)) {
+        throw new ConflictError(
+          `collection "${to}" already holds entries in this environment`
+        );
+      }
+      await fs.rm(target, { recursive: true, force: true });
+    }
+    await fs.rename(source, target);
+  }
+
+  private async hasEntries(scope: Scope, collection: string): Promise<boolean> {
+    return (await this.countEntryFiles(scope, collection)) > 0;
+  }
+
+  /** Entry files under a collection's content directory; zero when absent. */
+  private async countEntryFiles(scope: Scope, collection: string): Promise<number> {
+    const names = await FsFiles.readNames(this.layout.collectionDir(scope, collection));
+    return names.filter((name) => FsLayout.idOfEntryFile(name) !== null).length;
   }
 
   private async read(

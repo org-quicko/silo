@@ -9,6 +9,10 @@
 #
 #     git tag -a v0.2.0 -m "v0.2.0" && git push origin v0.2.0
 #
+# Only a release tag, vMAJOR.MINOR.PATCH, starts it. v0.2.0-rc.1, -beta,
+# -SNAPSHOT and every other suffix fall outside the filter, so such a tag builds
+# nothing and publishes nothing.
+#
 # `workflow_dispatch` runs the same build and uploads the artifacts to the run
 # without publishing anything, which is how to rehearse a release — or bisect a
 # broken one — without burning a version number.
@@ -16,11 +20,13 @@ name: release
 
 on:
   push:
-    tags: ["v*"]
+    # GitHub's tag filter matches the whole tag name, and `+` is "one or more
+    # of the preceding", so this is v1.2.3 and nothing after it.
+    tags: ["v[0-9]+.[0-9]+.[0-9]+"]
   workflow_dispatch:
     inputs:
       version:
-        description: "Version to build, without the leading v. Nothing is published."
+        description: "Version to build, MAJOR.MINOR.PATCH without the leading v. Nothing is published."
         required: true
         type: string
 
@@ -51,7 +57,6 @@ jobs:
     runs-on: ubuntu-24.04
     outputs:
       version: ${{ steps.resolve.outputs.version }}
-      prerelease: ${{ steps.resolve.outputs.prerelease }}
     steps:
       - uses: actions/checkout@v7
       - id: resolve
@@ -62,18 +67,16 @@ jobs:
             version="${GITHUB_REF_NAME#v}"
           fi
 
-          case "$version" in
-            [0-9]*.[0-9]*.[0-9]*) ;;
-            *) echo "::error::'$version' is not a semantic version" && exit 1 ;;
-          esac
-
-          # A version with a pre-release suffix (1.0.0-rc.1) is published as a
-          # GitHub pre-release and never reaches the tap: `brew install silo`
-          # must not hand someone a release candidate.
-          case "$version" in
-            *-*) prerelease=true ;;
-            *) prerelease=false ;;
-          esac
+          # Releases are MAJOR.MINOR.PATCH and nothing else, so nothing
+          # downstream has a pre-release to keep away from the tap or the dnf
+          # repo. The tag filter already enforces the shape; this also refuses
+          # the leading zeros the filter cannot express, and is the only check a
+          # dispatch meets, since it has no tag to filter.
+          release='^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$'
+          if ! [[ "$version" =~ $release ]]; then
+            echo "::error::'$version' is not a release version — expected MAJOR.MINOR.PATCH with no suffix"
+            exit 1
+          fi
 
           # package.json is the single source of truth (D28); the tag is a
           # request to publish what it already says. When the two disagree the
@@ -91,8 +94,7 @@ jobs:
           fi
 
           echo "version=$version" >> "$GITHUB_OUTPUT"
-          echo "prerelease=$prerelease" >> "$GITHUB_OUTPUT"
-          echo "silo $version (prerelease=$prerelease, declared=$declared)"
+          echo "silo $version (declared=$declared)"
 
   verify:
     runs-on: ubuntu-24.04
@@ -371,7 +373,6 @@ jobs:
           # `gh` read a remote URL is not.
           GH_REPO: ${{ github.repository }}
           VERSION: ${{ needs.version.outputs.version }}
-          PRERELEASE: ${{ needs.version.outputs.prerelease }}
         run: |
           cat > notes.md <<'EOF'
           ## Install
@@ -409,7 +410,6 @@ jobs:
           EOF
 
           flags=(--title "silo $VERSION" --notes-file notes.md --generate-notes)
-          if [ "$PRERELEASE" = "true" ]; then flags+=(--prerelease); fi
 
           assets=(dist/silo-*.tar.gz dist/silo-*.rpm dist/SHA256SUMS dist/SHA256SUMS.cosign.bundle)
           if [ -f dist/SHA256SUMS.asc ]; then assets+=(dist/SHA256SUMS.asc); fi
@@ -418,7 +418,6 @@ jobs:
 
   homebrew:
     needs: [version, release]
-    if: needs.version.outputs.prerelease == 'false'
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v7
@@ -476,7 +475,6 @@ jobs:
   # policy nobody wrote down.
   dnf-repo:
     needs: [version, release]
-    if: needs.version.outputs.prerelease == 'false'
     runs-on: ubuntu-24.04
     permissions:
       contents: read
@@ -491,8 +489,10 @@ jobs:
       - name: Install createrepo_c
         run: sudo apt-get update && sudo apt-get install -y --no-install-recommends createrepo-c
 
-      # Newest first, drafts and pre-releases excluded — a release candidate
-      # must not be installable by someone who just typed `dnf install silo`.
+      # Newest first, drafts and pre-releases excluded. This workflow publishes
+      # neither, but one made by hand, or before releases were limited to
+      # vMAJOR.MINOR.PATCH, must still not be installable by someone who just
+      # typed `dnf install silo`.
       - name: Collect the RPMs of the last ${{ env.DNF_REPO_RELEASES }} releases
         env:
           GH_TOKEN: ${{ github.token }}

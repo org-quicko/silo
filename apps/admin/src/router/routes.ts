@@ -24,7 +24,7 @@ function adoptLegacySort(sort: string): string {
  * (`/api/projects/{project}/environments/{env}/…`), with `settings` as the
  * tail — so a workspace URL becomes its settings URL by swapping that tail:
  *
- *   /servers/:sid/settings/{keys,keys/new,transfer,connection,appearance,media-storage,configuration}
+ *   /servers/:sid/settings/{keys,keys/new,transfer,connection,appearance,media-storage,configuration,ai-assistants}
  *   /servers/:sid/settings/plugins[/:name]
  *   /servers/:sid/projects/:project/settings/{general,environments}
  *   /servers/:sid/projects/:project/environments/:env/settings/{general,variables,transfer}
@@ -212,7 +212,8 @@ export class Routes {
       section === 'connection' ||
       section === 'appearance' ||
       section === 'media-storage' ||
-      section === 'configuration'
+      section === 'configuration' ||
+      section === 'ai-assistants'
     ) {
       return { view: 'server-settings', serverId, section }
     }
