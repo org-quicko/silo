@@ -1,30 +1,31 @@
 import fs from "fs/promises";
-import { Claims } from "@silo/shared/claims";
 import path from "path";
 import os from "os";
-import { x } from "tar";
 import type { Storage } from "../ports/storage";
 import type { BlobStorage } from "../ports/blob-storage";
 import { FsBlobStorage } from "../../adapters/blob/fs-blob-storage";
 import type { Entry } from "../domain/entry";
 import { EntryUtils } from "../domain/entry-utils";
 import type { Meta } from "../domain/meta";
+import type { Scope } from "../domain/scope";
 import { ValidationError } from "@silo/shared/validation-error";
+import { ArchiveTooLargeError } from "../errors/archive-too-large-error";
 import { ConflictError } from "../errors/conflict-error";
 import { NotFoundError } from "../errors/not-found-error";
 import { MediaRefs } from "../media/media-refs";
 import { SearchText } from "../search/search-text";
-import { ForbiddenError } from "../errors/forbidden-error";
 import { SchemaChangeGuard } from "../schema/schema-change-guard";
 import { SchemaValidator } from "../schema/schema-validator";
+import { ArchiveExtractor } from "./archive-extractor";
 import { FormatVersion } from "./format-version";
 import type { ExportManifest } from "./export-manifest";
 import { ImportAuthority } from "./import-authority";
 import { ImportFilter } from "./import-filter";
+import { ImportLimits } from "./import-limits";
+import { ImportSystemGate } from "./import-system-gate";
 import { ImportWalker, type ScopedImport } from "./import-walker";
 import { ImportMedia } from "./import-media";
 import type { ParsedImport } from "./parsed-import";
-import { KeyUtils } from "../keys/key-utils";
 import type { ImportOptions } from "./import-options";
 import type { ImportResult } from "./import-result";
 import { ScopeCopyPreviewBuilder } from "./scope-copy-preview-builder";
@@ -48,6 +49,14 @@ export class Importer {
 
   /** How much of a spooled upload may sit in the sink before it is flushed. */
   static readonly SpoolFlushBytes = 8 * 1024 * 1024;
+
+  /** Rows read per page when a replaced collection is pruned (D85). */
+  static readonly PrunePage = 500;
+
+  /** How often a staging directory's removal is retried, and how long between
+   *  tries: an aborted extraction can still be closing the last file it wrote. */
+  static readonly DiscardAttempts = 5;
+  static readonly DiscardRetryMs = 100;
 
   /** The spooled upload's name inside the staging directory. Removed before
    *  the walk, and never mistaken for content: the walk reads `projects/`,
@@ -144,7 +153,7 @@ export class Importer {
     return response;
   }
 
-  // Replace mode deletes only the collections present in the archive **for
+  // Replace mode acts only on the collections present in the archive **for
   // this scope** — a same-named collection in another scope is untouched
   // (D18). Merge/replace/prefer/dry-run semantics are otherwise unchanged
   // from the pre-scoping importer, just applied per (scope, collection).
@@ -169,15 +178,29 @@ export class Importer {
       );
     }
 
+    // Replace brings each collection the archive is authoritative for to the
+    // archive's content, and does it in an order that never empties anything
+    // first (D85): every row the archive carries is written over what is
+    // there, and every row it does not carry is removed afterwards, in
+    // `prune`. It used to delete the collection and then refill it, which
+    // meant a failure between the two — a full disk, an OOM kill, a stop —
+    // left a collection with nothing in it and nothing coming. Now an
+    // interruption leaves rows the archive did not name beside the ones it
+    // did, and the next run removes them. The ids written per collection are
+    // kept here so `prune` knows what to spare.
+    const replacing = new Map<string, Set<string>>();
     if (mode === "replace") {
-      // Only what this archive is authoritative for. A partial archive empties
+      // Only what this archive is authoritative for. A partial archive replaces
       // the content collections it names and nothing in `_system`, where its
       // rows are a subset rather than the whole (§7.7).
       const replaceCollections = [...new Set([...schemas.keys(), ...entries.keys()])].filter(
         (colName) => ImportAuthority.replaces(scope, colName, manifest, opts)
       );
       for (const colName of replaceCollections) {
+        replacing.set(colName, new Set());
         try {
+          // What is there now is what replace does away with, overwritten or
+          // removed — which is what `deleted` has always counted.
           const { total } = await store.list(scope, colName, { limit: 1, offset: 0 });
           response.deleted += total;
           if (preview) {
@@ -192,23 +215,11 @@ export class Importer {
               preview.repeated(colName, "deleted", total);
             }
           }
-
-          if (!opts.dryRun) {
-            let entriesLeft = total;
-            while (entriesLeft > 0) {
-              const { items } = await store.list(scope, colName, { limit: 100, offset: 0 });
-              if (items.length === 0) break;
-              for (const e of items) {
-                await store.delete(scope, colName, e.id);
-              }
-              entriesLeft -= items.length;
-            }
-            // The schema is **not** deleted. It used to be, and re-put a moment
-            // later — which under record keying destroys the collection record
-            // and mints a new id for the same collection, losing the identity
-            // the destination already had. `putSchema` below replaces the
-            // schema in place and keeps it (D51).
-          }
+          // The schema is **not** deleted. It used to be, and re-put a moment
+          // later — which under record keying destroys the collection record
+          // and mints a new id for the same collection, losing the identity
+          // the destination already had. `putSchema` below replaces the
+          // schema in place and keeps it (D51).
         } catch (caught: any) {
           if (!(caught instanceof NotFoundError)) {
             throw caught;
@@ -221,16 +232,16 @@ export class Importer {
     //
     // Only the **merge-over-existing** branch is guarded (D70), because it is
     // the only one that can leave entries filed under constraints that never
-    // judged them. Replace has already emptied the collection in the loop
-    // above, and a collection that does not exist yet has nothing to
-    // invalidate — so guarding either would refuse an import that is safe.
+    // judged them. Replace brings the collection to the archive's content
+    // below — every row overwritten or removed — and a collection that does
+    // not exist yet has nothing to invalidate, so guarding either would refuse
+    // an import that is safe.
     //
     // The guard runs on a dry run too, and that is the point: for merge, the
     // count it reads is the same one the real run would read, so the dry run
     // predicts the refusal instead of the operator meeting it at apply time.
-    // Replace is exempt for the same reason in reverse — a dry run deletes
-    // nothing, so a guard there would report a conflict the real run resolves
-    // by emptying the collection first.
+    // Replace is exempt for the same reason in reverse — a dry run removes
+    // nothing, so a guard there would report a conflict the real run resolves.
     for (const [colName, remoteSchema] of schemas.entries()) {
       const write = async (guarded: boolean) => {
         if (guarded) await SchemaChangeGuard.assert(store, scope, colName, remoteSchema);
@@ -294,7 +305,9 @@ export class Importer {
        *
        * Answers false when the entry was rejected, so the caller counts it as
        * neither an add nor an update — the counts stay a description of what
-       * reached the destination, and `rejected` describes the rest.
+       * reached the destination, and `rejected` describes the rest. A rejected
+       * row is also left out of what a replace spares, so a row the archive
+       * carries but the schema refuses is removed rather than kept as it was.
        *
        * A dry run never reaches the validator. The schemas it would have
        * written are still unwritten, so judging entries against the local ones
@@ -322,6 +335,7 @@ export class Importer {
           }
         }
         await store.put(remote, derived(remote.data));
+        replacing.get(colName)?.add(remote.id);
         return true;
       };
 
@@ -383,6 +397,49 @@ export class Importer {
         }
       }
     }
+
+    if (mode === "replace" && !opts.dryRun) {
+      for (const [colName, kept] of replacing) {
+        await Importer.prune(store, scope, colName, kept);
+      }
+    }
+  }
+
+  /**
+   * Removes every row of a replaced collection the archive did not carry (D85).
+   *
+   * Runs after the archive's rows are written, so the collection is never empty
+   * between the two. Ids are collected before anything is deleted, because
+   * deleting while paging by offset skips rows; the set of ids is small where
+   * the rows are not.
+   */
+  private static async prune(
+    store: Storage,
+    scope: Scope,
+    collection: string,
+    kept: ReadonlySet<string>
+  ): Promise<void> {
+    const stale: string[] = [];
+    try {
+      for (let offset = 0; ; ) {
+        const { items } = await store.list(scope, collection, {
+          sort: [{ path: "$.id", desc: false }],
+          limit: Importer.PrunePage,
+          offset,
+        });
+        if (items.length === 0) break;
+        for (const entry of items) {
+          if (!kept.has(entry.id)) stale.push(entry.id);
+        }
+        offset += items.length;
+      }
+    } catch (caught) {
+      if (caught instanceof NotFoundError) return;
+      throw caught;
+    }
+    for (const id of stale) {
+      await store.delete(scope, collection, id);
+    }
   }
 
   static async importDir(
@@ -391,15 +448,10 @@ export class Importer {
     opts: ImportOptions,
     blobStorage?: BlobStorage | string
   ): Promise<ImportResult> {
-    // Narrowed before the keys check, so a selection that leaves `_keys`
-    // behind is judged on what it actually loads.
+    // Narrowed before the gate, so a selection that leaves `_keys` behind is
+    // judged on what it actually loads (D84).
     const pi = ImportFilter.apply(await Importer.parseImportDir(src), opts.include);
-    const hasKeys = pi.scopes.some((s) => s.entries.has(KeyUtils.KeysCollection));
-    if (hasKeys && opts.allowKeys !== true) {
-      throw new ForbiddenError(
-        `import contains API keys but this key is missing claim "${Claims.KeysImport}"`,
-      );
-    }
+    await ImportSystemGate.assert(pi, opts);
     const response = await Importer.executeImport(store, pi, opts);
 
     if (blobStorage) {
@@ -420,16 +472,58 @@ export class Importer {
   }
 
   /**
-   * Load an archive that arrives as a stream — an upload body, or another
-   * instance's `/api/export` response.
+   * Unpack a streamed archive — an upload body, or another instance's export —
+   * into a fresh staging directory, and answer its path.
    *
-   * An archive carries every media byte, so reading one into a `Buffer` first
-   * cost as much memory as the source instance's library and failed a large
-   * import outright on a small host. `tar.x` is fed the stream directly: no
-   * intermediate `.tar.gz` is written and nothing bigger than one chunk is
-   * held, though the *extracted* tree still lands in a temp dir, since
-   * `importDir` walks a directory and the archive is not ordered for a
-   * single pass.
+   * Separate from the load on purpose (D85): the caller takes the write lock
+   * around `importDir` alone, so a slow upload holds up nothing but itself,
+   * where the old shape held the lock from the first byte. The caller owns the
+   * directory from here and removes it with {@link discard}; on a failure here
+   * it is already gone.
+   */
+  static async stage(archive: ReadableStream<Uint8Array>, opts: ImportOptions): Promise<string> {
+    const tmpDir = await Importer.staging(opts, "silo-import-");
+    try {
+      opts.onProgress?.({ phase: "extract", result: Importer.emptyResult(opts) });
+      await Importer.extractStream(archive, tmpDir, opts.limits);
+      return tmpDir;
+    } catch (caught) {
+      await Importer.discard(tmpDir);
+      throw caught;
+    }
+  }
+
+  /** A tarball already on disk, unpacked the same way. */
+  static async stageFile(tarballPath: string, opts: ImportOptions): Promise<string> {
+    const tmpDir = await Importer.staging(opts, "silo-import-");
+    try {
+      await ArchiveExtractor.extract(tarballPath, tmpDir, opts.limits);
+      return tmpDir;
+    } catch (caught) {
+      await Importer.discard(tmpDir);
+      throw caught;
+    }
+  }
+
+  /** Removes a staging directory, retrying briefly: an aborted extraction can
+   *  still be closing the last file it wrote. */
+  static async discard(directory: string): Promise<void> {
+    for (let attempt = 1; ; attempt++) {
+      try {
+        await fs.rm(directory, { recursive: true, force: true });
+        return;
+      } catch (caught) {
+        if (attempt >= Importer.DiscardAttempts) throw caught;
+        await Bun.sleep(Importer.DiscardRetryMs);
+      }
+    }
+  }
+
+  /**
+   * Load an archive that arrives as a stream, staging and loading in one call.
+   *
+   * The service takes the two halves separately so the write lock covers only
+   * the second; this is the shape for a caller with no lock to hold.
    */
   static async importTarGzStream(
     store: Storage,
@@ -437,19 +531,17 @@ export class Importer {
     opts: ImportOptions,
     blobStorage?: BlobStorage | string
   ): Promise<ImportResult> {
-    const tmpDir = await Importer.staging(opts, "silo-import-");
+    const staged = await Importer.stage(archive, opts);
     try {
-      opts.onProgress?.({ phase: "extract", result: Importer.emptyResult(opts) });
-      await Importer.extractStream(archive, tmpDir);
-      return await Importer.importDir(store, tmpDir, opts, blobStorage);
+      return await Importer.importDir(store, staged, opts, blobStorage);
     } finally {
-      await fs.rm(tmpDir, { recursive: true, force: true });
+      await Importer.discard(staged);
     }
   }
 
   /**
    * The upload spooled to one file, with backpressure the tar parser does not
-   * give.
+   * give, and held to the archive ceiling as it arrives (D85).
    *
    * `Unpack.write` answers `false` only for its own small buffer and keeps
    * accepting entries while it writes them out, so feeding it a stream as fast
@@ -459,14 +551,26 @@ export class Importer {
    * **disk**, which a small host has and which the extracted tree was going to
    * need beside it anyway, and holds one flush budget in memory.
    */
-  private static async spool(archive: ReadableStream<Uint8Array>, destination: string): Promise<void> {
+  private static async spool(
+    archive: ReadableStream<Uint8Array>,
+    destination: string,
+    limits?: ImportLimits
+  ): Promise<void> {
     const file = Bun.file(destination).writer();
     const reader = archive.getReader();
     let pending = 0;
+    let received = 0;
     try {
       for (;;) {
         const { done, value } = await reader.read();
         if (done) break;
+        received += value.byteLength;
+        if (limits && received > limits.maxArchiveBytes) {
+          throw new ArchiveTooLargeError(
+            `archive is larger than ${ImportLimits.megabytes(limits.maxArchiveBytes)} MB; ` +
+              `raise [transfer] max_archive_size_mb to load it`
+          );
+        }
         await file.write(value);
         pending += value.byteLength;
         if (pending >= Importer.SpoolFlushBytes) {
@@ -525,12 +629,13 @@ export class Importer {
    */
   private static async extractStream(
     archive: ReadableStream<Uint8Array>,
-    dest: string
+    dest: string,
+    limits?: ImportLimits
   ): Promise<void> {
     const spooled = path.join(dest, Importer.SpoolName);
     try {
-      await Importer.spool(archive, spooled);
-      await x({ file: spooled, cwd: dest });
+      await Importer.spool(archive, spooled, limits);
+      await ArchiveExtractor.extract(spooled, dest, limits);
     } finally {
       await fs.rm(spooled, { force: true });
     }
@@ -539,10 +644,9 @@ export class Importer {
   /**
    * Load an archive from a path, or from a `Buffer` a caller already holds.
    *
-   * A path is handed to `tar.x`, which reads it itself. A `Buffer` is already
-   * whole in memory, so there is nothing left to stream — it goes through the
-   * same extraction as one chunk, which is what removed the temp `.tar.gz`
-   * this branch used to write and delete.
+   * A path is unpacked by `stageFile`. A `Buffer` is already whole in memory,
+   * so there is nothing left to stream — it goes through the same extraction
+   * as one chunk.
    */
   static async importTarGz(
     store: Storage,
@@ -551,26 +655,24 @@ export class Importer {
     blobStorage?: BlobStorage | string
   ): Promise<ImportResult> {
     if (typeof tarballPathOrBuffer !== "string") {
-      const buffer = tarballPathOrBuffer;
-      return Importer.importTarGzStream(
-        store,
-        new ReadableStream<Uint8Array>({
-          start(controller) {
-            controller.enqueue(buffer);
-            controller.close();
-          },
-        }),
-        opts,
-        blobStorage
-      );
+      return Importer.importTarGzStream(store, Importer.streamOf(tarballPathOrBuffer), opts, blobStorage);
     }
 
-    const tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), "silo-import-"));
+    const staged = await Importer.stageFile(tarballPathOrBuffer, opts);
     try {
-      await x({ file: tarballPathOrBuffer, cwd: tmpDir });
-      return await Importer.importDir(store, tmpDir, opts, blobStorage);
+      return await Importer.importDir(store, staged, opts, blobStorage);
     } finally {
-      await fs.rm(tmpDir, { recursive: true, force: true });
+      await Importer.discard(staged);
     }
+  }
+
+  /** A buffer as the one-chunk stream the staged path reads. */
+  static streamOf(buffer: Buffer): ReadableStream<Uint8Array> {
+    return new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.enqueue(buffer);
+        controller.close();
+      },
+    });
   }
 }

@@ -203,7 +203,7 @@ describe("ctx.fetch (D35)", () => {
       // A real asset, because a reference to one that does not exist is refused
       // at write time (D23) — the reference has to be genuine for the read to
       // reach the resolver at all.
-      const asset = await service.media.save("hero.txt", new Uint8Array([1, 2, 3]), "text/plain");
+      const asset = await service.media.save("hero.txt", new Uint8Array([1, 2, 3]));
       const stored = await service.entries.create(scope, "assets", {
         title: "a",
         hero: `silo://media/${asset.id}`,

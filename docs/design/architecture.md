@@ -26,7 +26,7 @@ silo/
     logging/                   # Logger, LogLevel(s), LogSink + ConsoleSink/FileSink,
                                #   LogLocation, LogTail
     runtime/                   # Process lifecycle (D25): RunState, RunFile, Daemon,
-                               #   ListenAddress
+                               #   ListenAddress, BootId (D82)
     core/
       domain/                  # Entry, Meta, EntryUtils, Collection, Scope
       ports/                   # Storage, BlobStorage interfaces

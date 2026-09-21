@@ -7,6 +7,7 @@ import type { PluginSupervisor } from "../../plugins";
 import type { PluginRuntime } from "../../plugins";
 import { PluginTimeoutError } from "../../plugins";
 import { RouteAuth } from "../auth/route-auth";
+import { ResponseSandbox } from "../response-sandbox";
 import { ExtRequest } from "./ext-request";
 
 /**
@@ -125,15 +126,23 @@ export class ExtRoutes {
       throw caught;
     }
 
+    // A plugin route is an API answer and never a page (D83). Whatever type the
+    // plugin declared, the bytes leave with `nosniff` and a `default-src
+    // 'none'; sandbox` policy — the headers `/api/plugins/{name}/ui` has
+    // carried since D41, for the same reason: a public route answering HTML
+    // opened in a tab would otherwise run on the origin that holds the admin's
+    // saved keys. A plugin's own spelling of either header is replaced.
+    const headers = ResponseSandbox.apply(response.headers, ResponseSandbox.ApiPolicy);
+
     // 204 means no body, and sending one anyway is the kind of response that
     // makes a client library disagree with a proxy. A HEAD is the same rule from
     // the other end: the handler ran as the GET it declared, and the content it
     // produced is dropped here rather than in the plugin, so a handler never has
     // to know which of the two it is answering.
     if (response.body === null || response.status === 204 || c.req.method === "HEAD") {
-      return c.body(null, response.status as any, response.headers);
+      return c.body(null, response.status as any, headers);
     }
-    return c.body(response.body, response.status as any, response.headers);
+    return c.body(response.body, response.status as any, headers);
   }
 
   /**

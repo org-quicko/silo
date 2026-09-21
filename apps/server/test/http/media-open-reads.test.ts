@@ -39,7 +39,7 @@ describe("media reads are open (D58)", () => {
 
     await service.media.createFolder("/marketing");
     assetId = (
-      await service.media.save("hero.png", new Uint8Array([1, 2, 3]), "image/png", "/marketing")
+      await service.media.save("hero.png", new Uint8Array([1, 2, 3]), "/marketing")
     ).id;
   });
 

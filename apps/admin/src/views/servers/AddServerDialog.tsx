@@ -45,7 +45,7 @@ export function AddServerDialog({ onAdd, onClose }: Props) {
         return
       }
       onAdd({
-        id: Math.random().toString(36).substring(2, 11),
+        id: Array.from(crypto.getRandomValues(new Uint8Array(8)), (byte) => byte.toString(16).padStart(2, '0')).join(''),
         name: trimmedName,
         url: trimmedUrl,
         apiKey: trimmedKey,

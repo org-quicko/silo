@@ -3,6 +3,7 @@ package in.org.quicko.silo.client;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import in.org.quicko.silo.client.cache.CacheOptions;
 import in.org.quicko.silo.client.collections.CollectionDefinition;
 import in.org.quicko.silo.client.collections.CollectionHandle;
 import in.org.quicko.silo.client.collections.CollectionSummary;
@@ -22,6 +23,7 @@ import in.org.quicko.silo.client.search.SearchQuery;
 import in.org.quicko.silo.client.support.StubHttp;
 import in.org.quicko.silo.client.variables.DeclareVariableOptions;
 import in.org.quicko.silo.client.variables.Variable;
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
 import org.junit.jupiter.api.BeforeEach;
@@ -240,5 +242,27 @@ class ExamplesTest {
     assertTrue(page.truncated());
     assertTrue(page.pageCount().isEmpty(), "the total is a scan's count, not a real one");
     assertEquals(SearchEngine.SCAN, page.engine());
+  }
+
+  /** The README's caching block. The counts are the claim the section makes. */
+  @Test
+  void cachesAReadUntilAWriteOrATtlDropsIt() {
+    String row = "{\"id\":\"01ABC\",\"rev\":3,\"created_at\":\"2026-09-01T10:00:00.000Z\","
+        + "\"updated_at\":\"2026-09-01T10:00:00.000Z\",\"title\":\"Hello\"}";
+    server.enqueueJson(row).enqueueJson(row).enqueueJson(row);
+
+    Silo silo = server.caching(CacheOptions.on(Duration.ofSeconds(30), 1024));
+    CollectionHandle<Post> posts = silo.scope("acme", "prod").collection("posts", Post.class);
+
+    posts.get("01ABC");
+    posts.get("01ABC");
+    assertEquals(1, server.requestCount());
+
+    posts.replace("01ABC", 3, new Post("Hello", "published", List.of()));
+    posts.get("01ABC");
+    assertEquals(3, server.requestCount());
+
+    silo.cache().clear();
+    assertEquals(0, silo.cache().statistics().size());
   }
 }

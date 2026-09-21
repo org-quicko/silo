@@ -67,7 +67,8 @@ whole library with it.
 
 Use `none` when the destination can already read the files, for example when two
 instances use the same S3 bucket. The catalog still moves, so filenames, folders
-and URLs are kept, and the result reports `0` files written.
+and URLs are kept, and the result reports `0` files written. Loading the catalog
+still needs `media:create`.
 
 ```sh
 curl -X POST "http://new-silo:8090/api/import?mode=merge&media=none" \
@@ -160,8 +161,10 @@ model in `collections` and `entries` tables, keyed by scope.
   resolved by the newest `updated_at`, then by the higher `rev`, then by the
   source `instance_id`. Those last two are deterministic tiebreakers.
   `--prefer local|remote` overrides the whole rule.
-- **replace** deletes each collection the archive carries, in that scope only,
-  and then loads it. A collection the archive does not carry is left alone.
+- **replace** brings each collection the archive carries to the archive's
+  content, in that scope only. Every entry in the archive is written over what
+  is there. Then every entry the archive does not carry is removed. A collection
+  the archive does not carry is left alone.
 
 An imported entry keeps its id, its revision, its timestamps and its scope.
 `seq` is reassigned locally, and the importing instance keeps its own
@@ -199,7 +202,41 @@ reflects a deletion made somewhere else.
 
 **An import is not atomic.** A failure partway leaves the earlier writes in
 place. Treat a failed import as unknown state, and check an untrusted archive
-with `--dry-run` first.
+with `--dry-run` first. A `replace` that stops partway never leaves a collection
+empty: it writes first and removes after, so the worst case is extra entries the
+archive did not carry. Run the import again to remove them.
+
+## What an import may write into silo's own data
+
+An archive can carry silo's own records under `_system`. A selection cannot
+name them, so the import checks them after it unpacks the archive, against the
+same claims their own routes ask for:
+
+| Records | Claim needed |
+|---------|--------------|
+| `_keys` | `keys:import` |
+| `_media`, `_media_folders`, `_media_folder_moves` | `media:create`, even with `media=none`; `media:delete` too when `replace` would empty them |
+| `_variables` for a project | `create` and `entries:update` on `<project>/*/*` |
+| `_audit`, `_plugins`, `_scope_renames`, any other `_` name | never imported. The request is a `400` |
+
+A missing claim is a `403` that names the records and the claim. The check
+reads rows, not empty collections, so an export of an empty library loads with
+content permissions alone. `silo import` on the host is trusted and loads all
+of it.
+
+## Size limits
+
+An archive that arrives over HTTP is checked twice. `[transfer]
+max_archive_size_mb` (default 1024) is the most the archive itself may weigh.
+`[transfer] max_extracted_size_mb` (default 4096) is the most it may unpack to
+on disk, read from the archive's own headers before anything is written, with
+every file counted as at least 4 KB. Past either the request is a `413` with
+the code `archive_too_large`, and the message names the setting to raise. Both
+apply to `/api/import` and to `/api/copy`. A file you name on the command line
+is not checked. See [configuration.md](configuration.md).
+
+The archive is unpacked before the import takes the write lock, so a slow
+upload holds up nothing else on the instance.
 
 ## Cross-driver migration
 

@@ -59,6 +59,22 @@
   names the shape it expects — the source's own interface where there is one,
   or a local one carrying just the fields the cases read — rather than casting
   to `any`. `variables-api.test.ts` and `search-api.test.ts` are the pattern.
+- **The storage read thread is off under `bun test`, and a test that turns it
+  on settles a worker-backed promise before `expect(...).rejects` or
+  `.resolves`.** Since D81 every entry list and search on SQLite can run on
+  `SqliteReadThread`, and so can anything built on one: `keys.authenticate`,
+  `plugins.grant`, the media folder guards. Under `bun test` 1.3.14, once a
+  `Worker` has answered two earlier round trips, a promise handed to
+  `.rejects`/`.resolves` while a third reply is outstanding never settles —
+  the reply is not delivered while that wait runs. Measured with a plain echo
+  worker too, so it is the runner's wait, not silo; the server is unaffected,
+  `Bun.serve` delivers the replies. Because the process shares one thread,
+  every test after the first would trip it, so `SqliteStore.readThreadDefault`
+  answers `false` when `NODE_ENV` is `test` (which the runner sets) and the
+  suite runs the same SQL on the main connection. `sqlite-read-worker.test.ts`
+  passes `{ readThread: true }` and is where the thread is exercised; a test
+  that does the same must await its reads plainly, or settle first:
+  `const attempt = call(); await attempt.catch(() => {}); await expect(attempt).rejects.toThrow(...)`.
 
 ## UI styling
 

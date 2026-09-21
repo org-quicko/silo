@@ -4,6 +4,222 @@
 > The *current* state is [CONTEXT.md](../../CONTEXT.md); this is how it got
 > there.
 
+- **Releases are `vMAJOR.MINOR.PATCH` only; media streams open on first read
+  (2026-09-19).** `release.yml` triggered on `v*` and routed a suffixed tag to
+  a GitHub pre-release kept off the tap and the dnf repo. It now triggers on
+  `v[0-9]+.[0-9]+.[0-9]+`, which GitHub matches against the whole tag, so
+  `v1.2.3-rc.1`, `-alpha`, `-beta`, `-SNAPSHOT` and `+build` tags start no run.
+  The version job's shell glob became an anchored regex that also refuses
+  leading zeros (the one thing the filter cannot express) and a suffixed
+  dispatch input. With no pre-release able to reach them, the `prerelease`
+  output, `--prerelease` and the `homebrew`/`dnf-repo` `if:` gates were
+  removed; those jobs still skip on a dispatch because `release` does.
+  `tools/set-version.ts` now refuses a suffix rather than letting it become a
+  tag that builds nothing. The dnf index still filters out GitHub
+  pre-releases, for any made by hand or before this change.
+
+  Separately, `bun test` on the tree failed: 2 tests and 10 unhandled errors, all
+  from `FileByteStream`. A `ReadableStream` at the default high-water mark
+  pulls once when it is built, so the file handle opened before anyone read,
+  and a body nobody consumed (headers-only tests; in production a `HEAD`,
+  which Hono answers with `new Response(null, getResponse)` without
+  cancelling the GET's body) held it until the collector closed it, which Bun
+  1.4.0 (bumped from 1.3.14) raises as `ERR_INVALID_STATE`. The stray errors
+  also landed in unrelated tests (`transfer-progress`, and `media-replace`'s
+  write on a closed database). The stream now has a zero high-water mark, so
+  nothing opens until a reader asks. `blob-storage.test.ts` pins it by swapping
+  the file between building and reading the stream.
+
+- **One `silo` name in every client; Claude Desktop's URL and key are settings
+  (2026-09-19).** The Claude Desktop extension was named `Silo — <saved server
+  name>` and baked its connection into a bundled `connection.json`, so pointing
+  it at another server or key meant downloading and installing a new
+  extension, and every client got a per-server name (`silo-<id>`). Every
+  client now lists the connection as `silo` (`AiAssistantConfig.ServerName`).
+  `DesktopExtension` writes `name: silo`, `display_name: Silo` and two optional
+  MCPB `user_config` settings, `server_url` and a `sensitive` `api_key`, which
+  default to the current connection and reach the bridge as `SILO_URL` and
+  `SILO_API_KEY`; Claude Desktop edits them under Settings > Extensions >
+  Silo. The bridge treats an empty or unexpanded setting as unset, gives a bare
+  host `http://`, and answers a missing URL, a refused key or a non-MCP reply
+  with the setting to fix. The Claude Code command removes a user-scope `silo`
+  before adding it, since `claude mcp add` refuses an existing name, so running
+  it again switches the connection.
+
+- **AI assistant setup now uses the saved connection directly (2026-09-19).**
+  **Settings > AI assistants** prepares setup with the existing key. It makes
+  a client-specific action from the current saved
+  connection: a self-contained Claude Desktop extension, Claude Code command,
+  Codex setup prompt with a manual TOML fallback, or a Cursor deep link with a
+  manual JSON fallback.
+  Each has a stable instance-specific client name, preserves URL path prefixes,
+  and says that adding configuration cannot prove a remote client is connected.
+
+- **The SQLite read thread keeps the process alive while a read is pending
+  (2026-09-18, D81 fix).** Run from source, `silo serve` and every CLI command
+  that opens SQLite storage exited 0 at once with nothing printed: the D81
+  worker was permanently unref'd, `main.ts` fires `Cli.run()` without awaiting
+  it, and `bun:sqlite` holds nothing open, so the first threaded read (`keys
+  list`'s filter, `serve`'s bootstrap) was the only thing on the loop and the
+  loop drained before the answer came. `bun test` never saw it because the
+  runner's `NODE_ENV=test` turns the thread off. `SqliteReadThread` now `ref`s
+  the worker while a message is out or the thread is starting and `unref`s it
+  when nothing waits, so an idle thread still lets a command end.
+  `CommandRouter.runAgainstData` also closes the runtime on the success path,
+  so the WAL is checkpointed and the thread's connection released before exit.
+  `test/adapters/sqlite-read-thread-liveness.test.ts` spawns a child without
+  `NODE_ENV` for both the store alone and `silo keys list`.
+
+- **silo is an MCP server (2026-09-18, D86).** `POST /api/mcp` speaks the
+  Model Context Protocol over Streamable HTTP, under the CORS, body-limit and
+  auth middleware every API route has, and `silo mcp --url <server>` bridges a
+  client's stdio to it for hosts that spawn a process. Nineteen hand-written
+  tools in `apps/server/src/mcp/tools/` (whoami, projects, environments,
+  variables, collections and schemas, entries, search, media) each stand for
+  one route; `McpToolRunner` dispatches a call back through the same Hono app
+  with the caller's own `Authorization` header, so `RouteAuth` decides as it
+  does over HTTP and a refusal reaches the model naming the missing claim.
+  Arguments are AJV-checked against the tool's schema before dispatch
+  (`-32602`); a route's `4xx` is a result with `isError`. Stateless (no
+  session id, `GET`/`DELETE` are `405`), a key is required even where a read
+  would be public, no SDK. New: `docs/guide/mcp.md`, `/api/mcp` in
+  `openapi.json`, the `--url`/`--key` flags and `SILO_URL`/`SILO_API_KEY`.
+
+- **A streamed import is bounded, locks only its load, and never empties a
+  collection before it fills it (2026-09-18, D85).** A 128 MB `.tar.gz` could
+  inflate to over a hundred gigabytes onto the data disk with nothing but
+  `ENOSPC` to stop it; the write lock was held from the upload's first byte,
+  so a slow sender held every write on the instance; and replace mode deleted
+  a collection and then refilled it, so a failure between the two left it
+  empty. Now `[transfer] max_archive_size_mb` (default 1024) is enforced as
+  the spool arrives and `max_extracted_size_mb` (default 4096) as tar hands
+  each header to `ArchiveExtractor`'s filter, every entry costing at least a
+  4 KB block, with the first overspend aborting the parser before the entry
+  is written — `413 archive_too_large`, naming the setting; both take
+  `SILO_TRANSFER_*` overrides and sit on **Settings > Configuration >
+  Transfers**; a file named on the command line is not bounded.
+  `TransferService` unpacks with `Importer.stage` before taking the lock and
+  holds it for `importDir` alone. Replace writes every row the archive carries
+  over what is there and then `prune`s the rows it did not carry, so an
+  interruption leaves extra rows, never missing ones; the counts read as
+  before. Found by the 2026-09-18 audit (H4, H5, H6).
+
+- **An archive's `_system` half is gated per collection (2026-09-18, D84).**
+  Only `_keys` was gated; a key with `transfer:import` and write on one
+  collection could plant `_variables` for any project, forge `_audit` events,
+  or empty the audit trail with a whole-instance replace. `ImportSystemGate`
+  now judges the rows after the filter and before anything is written, against
+  `ImportGrants`: `_keys` needs `keys:import`; the media catalog needs
+  `media:create` even with `media=none`, and `media:delete` when a replace
+  would empty it; `_variables` need `create` and `entries:update` over the
+  whole project they belong to, by the archive's own project markers.
+  `_audit`, `_plugins`, `_scope_renames` and any unknown `_system` name are a
+  `400` whoever asks. The routes derive the grants from the caller's claims;
+  the CLI passes `ImportGrants.Trusted`, which is also the default; `allowKeys`
+  is gone. Found by the 2026-09-18 audit (H3).
+
+- **Nothing silo did not write may render as a page on silo's origin
+  (2026-09-18, D83).** An SVG uploaded with a `write`-preset key was served
+  inline from the origin the admin lives on, and one click ran its script with
+  every saved API key in `localStorage` in reach; a public plugin route
+  answering HTML was the same door with no upload. `ResponseSandbox` now puts
+  `X-Content-Type-Options: nosniff` and a `Content-Security-Policy` on every
+  `/media/{id}` answer (`sandbox`) and every `/api/ext/{name}/*` answer
+  (`default-src 'none'; sandbox`, the panel route's policy), replacing a
+  plugin's own. `MediaDisposition` sends images, video, audio and PDF inline
+  and everything else — an SVG first — as an attachment; an `<img>` still
+  draws it. An asset's `content_type` comes from its extension and never from
+  what the upload declared, so `MediaService.save` and `replaceContent` lost
+  that parameter and `MimeUtils` learnt `avif`, `mov`, `m4a` and the office
+  types. `svg` is out of the default allowlist; add it back where every
+  uploader is trusted. Measured on a Chromium browser first: a PDF renders
+  under `sandbox`, and an iframe `sandbox` attribute blanks it, which is why
+  the admin's PDF preview relies on the header. Found by the 2026-09-18 audit
+  (H1, H2).
+
+- **A run record is live by identity, not by pid (2026-09-18, D82).** The
+  guard asked the kernel whether the recorded pid existed. Under Docker the
+  server is pid 1 every time, so after an OOM kill the restarted container
+  found "itself" alive and refused to start until a human deleted
+  `silo.run.json`; after an unclean reboot a root-owned early service read as
+  alive too, and `silo stop` on one instance could SIGTERM another on a shared
+  box. `RunFile.liveness` now applies four tests: the record names this very
+  process; it carries a `boot_id` from another boot (`BootId`, Linux); its pid
+  is gone; or no server has refreshed its `heartbeat_at` for two minutes,
+  where `serve` refreshes it every 30 s. `stop` and `status` say which. The
+  record is written atomically, and `serve` catches uncaught errors and
+  unhandled rejections to remove the record and exit 1 rather than leave it
+  behind. Records from older versions, with no heartbeat, are judged by pid as
+  before. Found by the 2026-09-18 audit (C5).
+
+- **Entry lists and searches scan on a storage read worker, not on the event
+  loop (2026-09-18, D81).** `bun:sqlite` is synchronous and every filter or
+  sort over entry data is a full scan of the collection, so on 200,000 rows
+  one `contains` held the one JS thread for 0.6 s and a 49-way `or` for 12 s,
+  `/api/health` included — anonymously, on any public collection.
+  `SqliteReadThread` is one `Worker` per process holding one connection per
+  database path (WAL, `query_only`, source as a `data:` URL like the plugin
+  host's, unref'd), and `SqliteReadWorker` a store's handle on it;
+  `SqliteEntryStore.list` and `SqliteSearcher.search` await their statements
+  from it. One thread rather than one per store because the first cut spawned
+  539 workers across a full test run and crashed Bun at 11 GB. Off under
+  `bun test` unless a store asks (`SqliteStore.readThreadDefault`,
+  `SILO_READ_THREAD=on|off`), because the runner's `expect(...).rejects` wait
+  does not deliver a worker's replies once it has answered twice; the thread's
+  own test opts in. Reads queue to 64 and
+  the next is `503 busy` with `Retry-After: 1`. A filter may name at most
+  `MaxFilterLeaves` (16) field tests. `close` waits for the worker to release
+  its handle before terminating, which the conformance suite caught as `EBUSY`
+  on the first run without it. An in-memory database reads as before. Found by
+  the 2026-09-18 audit (C4).
+
+- **Media is read from the store as it is sent, and a `Range` is honoured
+  (2026-09-18, D80).** `/media/{id}` read every asset whole and copied it once
+  more per request, with the largest asset one anonymous `?sort=-size` away.
+  `BlobStorage` gains an optional `stream(key, range?)`; the fs store answers
+  it with `FileByteStream`, a hand-written 64 KB pull reader over a file
+  handle, because every runtime file body was measured to buffer the file or
+  mis-slice a range on Bun 1.3.14; the S3 store answers with the object
+  handle's stream, whose slice is a ranged `GetObject`. `MediaDelivery.open`
+  resolves a `Range` against the catalog's size (`ByteRange`), the route
+  answers `206` with `Content-Range`, `416` past the end, and always
+  `Accept-Ranges: bytes`. Measured against a real listener: six concurrent
+  60 MB downloads grew the process by 24 MB where the old path held about
+  720 MB. A whole answer is chunked, since the runtime drops a `Content-Length`
+  on a stream body. Found by the 2026-09-18 audit (C3).
+
+- **Every request body has a ceiling, by route class (2026-09-18, D79).** The
+  listener passed no `maxRequestBodySize`, and the runtime buffers a body
+  whether or not a handler reads it: eight concurrent unread 120 MB bodies took
+  a probe server from 50 MB to a 1.4 GB peak, with no key and no valid route.
+  `[http] max_body_size_mb` (default 128, the runtime's own) is now passed to
+  `Bun.serve` and bounds the four upload routes and plugin routes;
+  `[http] max_json_body_size_mb` (default 4) bounds every other `/api` route
+  through the new `BodyLimitMiddleware`, installed before auth, answering
+  `413 payload_too_large` from `Content-Length` or by counting a chunked body.
+  Both are on the Connections settings page with `SILO_HTTP_*` overrides.
+  `POST /api/projects` and environment create ask for a key before reading the
+  body; `ExtRequest` checks a plugin route's `max_bytes` against the header
+  first and while reading, not after buffering. Found by the 2026-09-18 audit
+  (C2). The runtime facts — a `Content-Length` over the cap is refused up
+  front, an unread chunked body is cut at the cap, a consumed chunked stream is
+  not bounded — were measured, and are why the import route is exempt rather
+  than wrapped.
+
+- **The fs adapter no longer loses a collection on rename (2026-09-18).**
+  `FsCollectionStore.delete` removed the content directory with `fs.rm` and no
+  `recursive`, which never removes a directory, and swallowed the error; every
+  collection delete left an empty `content/<name>/` behind. `moveIfPresent`
+  then read an existing destination as "this move already landed" and removed
+  the source. Renaming a live collection onto a name deleted earlier erased
+  every entry of the renamed collection, silently — reproduced from the
+  2026-09-18 audit (C1). `delete` now refuses while entry files remain, as the
+  SQLite adapter does, and removes the directory whole; the content move
+  removes an empty leftover, refuses a destination that holds entries, and
+  never discards the source; `rename` refuses a destination whose content
+  directory holds entries even without a marker. Two conformance tests pin it
+  for both adapters.
+
 - **Live Node cache verification (2026-09-18).** `tools/verifyCache.mjs` and
   `npm run verify:cache` exercise the built client against the public production
   GST state-code collection. GET request counts verify hits, expiry, capacity,
@@ -16,6 +232,61 @@
   Transport reads options without duplicate fields or a snapshot helper. The
   request builder now lives inside `transport-request.ts`, corresponding to
   Java's nested `TransportRequest.Builder`; the separate builder file is removed.
+
+- **A JVM consumer reading one entry on every request paid a round trip for
+  each of them (2026-09-17, D86).** The Java client gains a Caffeine response
+  cache, declared by `@Cache` — Spring's `@Cacheable` by the name a Java
+  consumer already has, and deliberately not Spring's mechanism. There is no
+  container here, every handle is `final` and none implements an interface, so
+  a proxy had nothing to stand in front of: interfaces plus `Proxy` would have
+  doubled the surface and broken D69's promise that the object graph is the
+  TypeScript client's, ByteBuddy would have cost `final`, a bytecode dependency
+  and Spring's own self-invocation footgun, and a processor would have needed
+  something non-final to decorate anyway. **The annotation is read, not woven.**
+  `EntryReader` resolves each `@Cache` once into a `CachePolicy` constant, hands
+  it to the request it builds, and `Transport` — already the one place a request
+  is made — consults the cache before sending; `CachePolicy.declaredOn` throws
+  off the stack, and both its numbers are optional — what a read states wins,
+  what it leaves out comes from `CacheOptions` on `SiloOptions`, and a number
+  neither names is refused rather than invented. A read calls `.cache()` with no argument and
+  `declaredOnCaller` takes the `@Cache` off exactly the method that called it,
+  memoised per method. That is what makes the annotation decide **whether**
+  caching happens — delete it and the read raises, where an earlier draft with a
+  resolved constant would have compiled and quietly cached nothing.
+  **`@Cache(ttl = 30, maxSize = 1024)` is the whole annotation.** This is a
+  published client, so both are defaults and not impositions: `CacheOptions`
+  replaces either for every cache (`ttl`, `maxSize`), with `inForce` where
+  declared meets chosen. **Nothing names a cache.** A read needs a Caffeine
+  instance of its own only because both bounds are per-instance and neither is
+  per-entry, so the instances are keyed by the `CachePolicy` itself.
+  **The key is composed from the request, the way a CDN composes one.**
+  `Transport` sees a built method, path and query and never a caller's
+  arguments, so Spring's `key = "#id"` has nothing to evaluate against here —
+  and that is also the right answer, because `#id` alone would serve `01ABC` of
+  `acme/prod/posts` to a read of `01ABC` in `beta/staging/posts`. The path
+  carries the scope, and `CacheKey` takes the method, the path and **every**
+  query parameter: there is nothing to declare and nothing to leave out,
+  because a parameter left out of a key is two different responses sharing one
+  entry. It sorts the parameters so two callers who built one read differently
+  still meet one entry, percent-encodes the values so a filter holding an `&`
+  cannot forge the key of a read carrying one more parameter, and drops a
+  parameter that was never sent rather than rendering it as null.
+  Taking the query in is what makes a raw read and a
+  resolved read of one entry two entries and two windows of one filter two more,
+  and why `all()` and `pages()` are cached without declaring anything — they page
+  through `list()`. A write declares what it invalidated rather than being
+  inspected for it: `evicts` carries the collection's path, `Transport` drops
+  everything stored at or below it on a successful response, and a boundary
+  check on the prefix keeps a write to `posts` off `posts-archive`. **Only
+  entries, and only when asked.** Schemas, searches, variables and media reach
+  the server every time, and the whole cache is off until `SiloOptions.cache`
+  turns it on — a cached read hands back the `rev` it was stored with, and the
+  write carrying a stale one raises a `ConflictException` the caller did nothing
+  to cause, which is the absent-default-scope reasoning one layer down. A cache
+  belongs to one transport, so `withKey` and `withUrl` start empty. D7 is
+  untouched: that is the server's storage layer, not a client holding what it
+  already fetched. `CacheTest` is 30 cases and the README's block is one more in
+  `ExamplesTest`; the suite is 114.
 
 - **Node caching follows the Java client (2026-09-17).** Local metadata-only
   `@Cache()` decorators mark individual entry reads. `.cache(this.get)` reads
@@ -269,7 +540,7 @@
 
 - **A JVM consumer had no client, so it shelled out to the CLI or wrote the
   address into every call by hand (2026-09-16, D69).** `packages/silo-client-java`
-  is the Java client, published as `in.org.quicko:silo-client`, on OkHttp and
+  is the Java client, published as `in.org.quicko.silo:client`, on OkHttp and
   Jackson with Java 25. The default was to port D61 and D62 rather than to
   redesign: their decisions are about this API, not about TypeScript, and a
   consumer reading both clients should not meet two vocabularies for one

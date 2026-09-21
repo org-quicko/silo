@@ -31,6 +31,10 @@ import java.util.Map;
  * {@link EntryReadOptions#raw()} to any read to get the stored
  * {@code {{NAME}}} templates instead of what they resolve to, which is what
  * editing one requires.
+ *
+ * <p>Every write declares that it invalidated this collection, so a cached read
+ * that follows one this client made is never stale. A write made anywhere else
+ * is not something it can be told about, which is what a ttl is for.
  */
 public final class CollectionHandle<F> {
   private final ScopeReference scope;
@@ -132,6 +136,7 @@ public final class CollectionHandle<F> {
         TransportRequest.delete(ApiPath.entry(scope.project(), scope.environment(), name, id))
             .query("rev", rev)
             .options(options)
+            .evicts(entries())
             .build());
   }
 
@@ -159,6 +164,7 @@ public final class CollectionHandle<F> {
             .query("expected_id", options.expectedId())
             .body(Map.of("name", newName))
             .options(options.request())
+            .evicts(entries())
             .build()));
   }
 
@@ -171,7 +177,13 @@ public final class CollectionHandle<F> {
             .query("variables", "raw")
             .body(fields)
             .options(options)
+            .evicts(entries())
             .build());
     return EntryMapper.read(row, fieldsType, scope.transport().codec());
+  }
+
+  /** What every write here invalidates: this collection's rows, and its pages. */
+  private String entries() {
+    return ApiPath.entries(scope.project(), scope.environment(), name);
   }
 }

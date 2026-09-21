@@ -154,6 +154,10 @@ engine handle them with no special code.
   export format, so an fs-backed instance is a live backup you can copy with
   `cp`, replicate with `rsync`, or review in git. You can also pull an export
   straight from another running silo.
+- **An MCP server.** Point Claude Code, Codex, Cursor or Claude Desktop at
+  `/api/mcp` with an API key and the model gets silo's tools: browse projects
+  and schemas, read, search, create and update entries. Every tool is one API
+  route called with that key, so the key's claims decide what the model may do.
 - **Replaceable parts.** Storage is SQLite, flat files, or your own driver.
   Media is local disk or any S3-compatible bucket (AWS S3, MinIO, Cloudflare R2,
   DigitalOcean Spaces). The admin UI is an ordinary client of the public API, so
@@ -231,6 +235,7 @@ its own port. Two processes over one data directory is refused, and
 | [Configuration](docs/guide/configuration.md) | `silo.toml`, the `SILO_*` variables, and running as a service |
 | [CLI](docs/guide/cli.md) | Every subcommand and every flag |
 | [HTTP API](docs/guide/http-api.md) | The routes, the query AST, search, and the error shape |
+| [MCP](docs/guide/mcp.md) | Connect an AI client to silo's tools with an API key |
 | [Authentication and claims](docs/guide/claims.md) | The claim catalog, wildcards, and delegation |
 | [Plugins](docs/guide/plugins.md) | Write one, enable one, install one, inspect one |
 | [Export, import and copy](docs/guide/transfer.md) | Archives, the on-disk layout, and migration |

@@ -50,6 +50,7 @@ public final class CollectionSchema {
         TransportRequest.delete(path())
             .query("force", options.force() ? true : null)
             .options(options.request())
+            .evicts(ApiPath.entries(scope.project(), scope.environment(), name))
             .build());
   }
 
