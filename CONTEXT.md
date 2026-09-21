@@ -17,7 +17,68 @@ can be cloned with one command.
 
 ## Where things stand
 
-*Last updated: 2026-09-16 (D71)*
+*Last updated: 2026-09-17 (D78)*
+
+**A transfer now says what it covers, and export answers immediately
+(2026-09-17).** `GET /api/export` had been failing behind a reverse proxy with a
+`503` that named the proxy. Three things were true at once: `Bun.serve` was
+started with no `idleTimeout`, so the runtime's own **10 seconds** applied;
+`Exporter` staged the entire archive in a temp tree before the first byte, which
+on the deployment that found this meant 1,619 media objects pulled from a bucket
+and 68 seconds of silence; and the handler then finished normally and logged its
+own `200` for a client that had left a minute earlier.
+
+**The listener has `[http] idle_timeout`** (default 120s,
+`SILO_HTTP_IDLE_TIMEOUT`, settable from **Settings > Configuration >
+Connections**), clamped to the runtime's 255 rather than refused, since a config
+that is only too generous must not be what stops a server starting (D72).
+
+**The archive is produced as it is walked** (D73). The walk writes through an
+`ExportSink` — a directory for `--dir`, a tar stream over silo's own
+`TarWriter` for everything else — so the first byte leaves in milliseconds and
+peak memory is one entry rather than one media library. Reading an archive is
+still `tar.x`; only the writer is ours. Archives are reproducible for real now,
+every entry carrying the export's own `exported_at` instead of the clock at
+staging time. The cost is stated: a blob failure truncates the body rather than
+becoming an error status, and a truncated archive fails its own gzip check and
+extracts nothing. Import keeps a temp tree, staged under `<data>/transfer/`
+because a hardened unit puts `/tmp` on a RAM-backed tmpfs.
+
+**Export holds a flat 147 MB whatever the library weighs** (D76). D73's claim
+that it already did was measured and was wrong, and the cause was below the
+walk: the web `CompressionStream` accepts every chunk it is offered and holds
+the result. `GzipStream` (`node:zlib`) replaces it, and the file path flushes
+its sink on a byte budget instead of trusting a `write` that answers a count.
+**The receiving end is flat too, in two steps.** `ImportEntries` replaced the
+`Entry[]` the walker handed over with a directory opened one file at a time
+(D77), and the upload is spooled to one file and extracted from that rather than
+fed to `tar.x` as a stream, which absorbed the archive as fast as the socket
+delivered it (D78). A 750 MB copy went from **2.0 GB** of private memory on the
+destination to **516 MB**, against a baseline near 390 MB. Media goes to the
+store the instance is configured with, never a directory derived from the data
+path; it already did, and four tests now hold it there.
+
+**Export, import and copy share one selection vocabulary and three media modes**
+(D74). `include` is repeatable and names a `project`, a `project/env` or a
+`project/env/collection`; empty is the whole instance. `media` is
+`all|referenced|none` and decides the catalog subset with the bytes, defaulting
+to `all` for a whole transfer and `referenced` for a narrowed one — so "export
+everything" stays lossless and "export one collection" does not carry the whole
+library. `none` carries the catalog and no bytes, for two instances on one
+bucket. A copy forwards its selection to the source's own export. Claims follow
+the reach, which is D22's rule applied to the archive routes. **This forced a
+data-loss fix**: replace mode used to clear every blob in the destination
+whenever an archive had a `media/` directory, and to empty `_media` because the
+collection was in the archive; `ImportAuthority` now scopes replace to what the
+archive is actually authoritative for.
+
+**Import and copy can stream progress** (D75). `Accept: application/x-ndjson`
+answers with one JSON object per line and a heartbeat every second, because
+those two have nothing to send until they are done and a quiet connection is a
+closed one. The status goes out before the work, so the outcome is the last
+line; the admin reads it, and a long run reports what it is doing. The admin's
+Data Transfer page gains a three-level scope picker, every box checked by
+default because an empty selection *is* everything.
 
 **silo-client 1.1.1 can cache reads (2026-09-16).**
 `SiloOptions.cache` is opt-in and requires a finite TTL, so an application

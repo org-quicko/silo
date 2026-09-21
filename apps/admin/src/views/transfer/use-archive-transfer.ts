@@ -1,6 +1,8 @@
 import { useRef, useState, type ChangeEvent } from 'react'
 import { api } from '../../api/silo-api'
 import type { ImportResult } from '../../api/types/import-result'
+import type { MediaMode } from '../../api/types/media-mode'
+import type { TransferProgress } from '../../api/transport/progress-reader'
 import { ArchiveName } from './archive-name'
 
 /** Whether an import empties a collection first, or writes over it. */
@@ -25,6 +27,16 @@ export function useArchiveTransfer(
   const [withKeys, setWithKeys] = useState(false)
   const [exporting, setExporting] = useState(false)
 
+  // Empty is the whole instance, which is what an absent `include` means to
+  // the server too.
+  const [exportInclude, setExportInclude] = useState<string[]>([])
+  const [exportMedia, setExportMedia] = useState<MediaMode>('all')
+  // Until the operator picks one, media follows the selection the way the
+  // server's own default does: everything for a whole export, only what the
+  // entries point at once it is narrowed.
+  const [exportMediaChosen, setExportMediaChosen] = useState(false)
+  const [importMedia, setImportMedia] = useState<MediaMode>('all')
+
   const [mode, setMode] = useState<ArchiveMode>('merge')
   const [prefer, setPrefer] = useState<ArchivePrefer>('')
 
@@ -32,13 +44,19 @@ export function useArchiveTransfer(
   const [preview, setPreview] = useState<ImportResult | null>(null)
   const [applied, setApplied] = useState<ImportResult | null>(null)
   const [busy, setBusy] = useState(false)
+  const [progress, setProgress] = useState<TransferProgress | null>(null)
   const [error, setError] = useState('')
   const fileInput = useRef<HTMLInputElement>(null)
 
   const exportArchive = async () => {
     setExporting(true)
+    setError('')
     try {
-      const blob = await api.transfer.exportArchive(serverUrl, apiKey, withKeys)
+      const blob = await api.transfer.exportArchive(serverUrl, apiKey, {
+        withKeys,
+        include: exportInclude,
+        media: exportMedia,
+      })
       const objectUrl = URL.createObjectURL(blob)
       const anchor = document.createElement('a')
       anchor.href = objectUrl
@@ -54,26 +72,36 @@ export function useArchiveTransfer(
     }
   }
 
+  const runImport = async (
+    archive: File,
+    overrides?: { mode?: ArchiveMode; prefer?: ArchivePrefer; media?: MediaMode; dryRun?: boolean },
+  ) =>
+    api.transfer.importArchive(serverUrl, apiKey, archive, {
+      mode: overrides?.mode ?? mode,
+      prefer: overrides?.prefer ?? prefer,
+      media: overrides?.media ?? importMedia,
+      // The archive decides what it holds; the import does not narrow it
+      // further from here. Narrowing belongs on the export that made it.
+      include: [],
+      dryRun: overrides?.dryRun ?? true,
+      onProgress: setProgress,
+    })
+
   const runPreview = async (
     archive: File,
-    overrides?: { mode?: ArchiveMode; prefer?: ArchivePrefer },
+    overrides?: { mode?: ArchiveMode; prefer?: ArchivePrefer; media?: MediaMode },
   ) => {
     setBusy(true)
     setError('')
     setApplied(null)
     setPreview(null)
     try {
-      setPreview(
-        await api.transfer.importArchive(serverUrl, apiKey, archive, {
-          mode: overrides?.mode ?? mode,
-          prefer: overrides?.prefer ?? prefer,
-          dryRun: true,
-        }),
-      )
+      setPreview(await runImport(archive, { ...overrides, dryRun: true }))
     } catch (caught: any) {
       setError(caught.message || 'Import preview failed')
     } finally {
       setBusy(false)
+      setProgress(null)
     }
   }
 
@@ -82,6 +110,17 @@ export function useArchiveTransfer(
     setWithKeys,
     exporting,
     exportArchive,
+    exportInclude,
+    setExportInclude: (next: string[]) => {
+      setExportInclude(next)
+      if (!exportMediaChosen) setExportMedia(next.length > 0 ? 'referenced' : 'all')
+    },
+    exportMedia,
+    setExportMedia: (next: MediaMode) => {
+      setExportMediaChosen(true)
+      setExportMedia(next)
+    },
+    importMedia,
 
     mode,
     prefer,
@@ -89,6 +128,7 @@ export function useArchiveTransfer(
     preview,
     applied,
     busy,
+    progress,
     error,
     fileInput,
     /** Added + updated + deleted, as the preview reports them. */
@@ -103,6 +143,10 @@ export function useArchiveTransfer(
     changePrefer: (next: ArchivePrefer) => {
       setPrefer(next)
       if (file) runPreview(file, { prefer: next })
+    },
+    changeImportMedia: (next: MediaMode) => {
+      setImportMedia(next)
+      if (file) runPreview(file, { media: next })
     },
     pickFile: (event: ChangeEvent<HTMLInputElement>) => {
       const chosen = event.target.files?.[0]
@@ -124,19 +168,14 @@ export function useArchiveTransfer(
       setBusy(true)
       setError('')
       try {
-        setApplied(
-          await api.transfer.importArchive(serverUrl, apiKey, file, {
-            mode,
-            prefer,
-            dryRun: false,
-          }),
-        )
+        setApplied(await runImport(file, { dryRun: false }))
         setPreview(null)
         onImported()
       } catch (caught: any) {
         setError(caught.message || 'Import failed')
       } finally {
         setBusy(false)
+        setProgress(null)
       }
     },
 
@@ -145,6 +184,7 @@ export function useArchiveTransfer(
       setPreview(null)
       setApplied(null)
       setError('')
+      setProgress(null)
     },
   }
 }

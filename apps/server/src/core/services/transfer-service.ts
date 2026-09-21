@@ -1,4 +1,5 @@
 import type { Scope } from "../domain/scope";
+import type { ExportManifest } from "../transfer/export-manifest";
 import type { ExportOptions } from "../transfer/export-options";
 import { Exporter } from "../transfer/exporter";
 import type { ImportOptions } from "../transfer/import-options";
@@ -23,8 +24,9 @@ export class TransferService {
     this.context = context;
   }
 
-  async exportDir(destination: string, options: ExportOptions): Promise<void> {
-    await Exporter.exportDir(
+  /** Answers the manifest it wrote, so a caller can report what actually rode. */
+  async exportDir(destination: string, options: ExportOptions): Promise<ExportManifest> {
+    return Exporter.exportDir(
       this.context.store,
       destination,
       options,
@@ -40,11 +42,13 @@ export class TransferService {
   }
 
   /**
-   * The archive as a stream, for a caller that can pass one straight to a
-   * response body — nothing is buffered whole, so peak memory does not scale
-   * with the media library.
+   * The archive as a stream, produced as it is walked — the first bytes are
+   * available immediately and nothing larger than one entry is ever held.
+   *
+   * Not async, and that is the point: there is no walk to await before the
+   * response can begin.
    */
-  async exportTarGzStream(options: ExportOptions): Promise<ReadableStream<Uint8Array>> {
+  exportTarGzStream(options: ExportOptions): ReadableStream<Uint8Array> {
     return Exporter.exportTarGzStream(this.context.store, options, this.context.blobStorage);
   }
 
@@ -96,7 +100,7 @@ export class TransferService {
       const result = await Importer.importTarGzStream(
         this.context.store,
         archive,
-        options,
+        { stagingDirectory: this.context.stagingDirectory, ...options },
         this.context.blobStorage
       );
       this.context.schemaRegistry.invalidate();

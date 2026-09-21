@@ -69,6 +69,11 @@ listen          = ${s(config.listen)}     # host:port to bind; ":8090" means eve
 default_project = ${s(config.default_project)}   # created on startup if missing
 default_env     = ${s(config.default_env)}      # created on startup if missing
 
+[http]
+idle_timeout = ${config.http.idle_timeout}        # seconds a connection may go quiet before it is closed; 0 disables, 255 is the ceiling
+# Raise it where a transfer of a large instance runs long. The runtime's own
+# default is 10, which a whole-instance export can exceed before it answers.
+
 [storage]
 driver = ${s(config.storage.driver)}       # "sqlite" (indexed, fast) | "fs" (plain JSON files, git/rsync friendly)
 path   = ${s(config.storage.path)}  # data dir; the sqlite database lives at <path>/silo.db

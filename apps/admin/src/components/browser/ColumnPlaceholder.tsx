@@ -1,6 +1,6 @@
 import type { LucideIcon } from 'lucide-react'
-import { Spinner } from '../../components/feedback/Spinner'
-import styles from './ServerManager.module.css'
+import { Spinner } from '../feedback/Spinner'
+import styles from './ScopeBrowser.module.css'
 
 interface Props {
   /** Omitted while loading, when the spinner takes its place. */

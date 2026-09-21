@@ -32,6 +32,9 @@ export interface SiloServiceOptions extends SchemaValidatorOptions {
   blobStorage?: BlobStorage;
   /** A native engine when the adapter has one; otherwise the portable scan. */
   searcher?: Searcher;
+  /** Where a transfer unpacks an archive. Defaults to the platform temp
+   *  directory, which on a hardened unit is often RAM (§7.2). */
+  stagingDir?: string;
   /** Bounds for the portable engine; ignored when a native one is given. */
   scan?: { visitLimit?: number; timeBudgetMs?: number };
   /** Where an audit append that fails is reported (D38). Silent by default, so
@@ -87,6 +90,8 @@ export class SiloService {
       new SchemaRegistry(store, options),
       searcher
     );
+
+    if (options.stagingDir) this.context.useStagingDirectory(options.stagingDir);
 
     this.store = store;
 

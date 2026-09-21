@@ -1,3 +1,4 @@
+import type { ImportMediaResult } from "./import-media-result";
 import type { ImportRejection } from "./import-rejection";
 import type { ScopeCopyPreview } from "./scope-copy-preview";
 
@@ -16,6 +17,9 @@ export interface ImportResult {
   rejected: number;
   /** Which ones, up to `Importer.RejectionLimit`. `rejected` stays exact. */
   rejections: ImportRejection[];
+  /** What happened to the archive's media bytes. Absent when the run had no
+   *  blob store to write into — a scope copy, which touches no media at all. */
+  media?: ImportMediaResult;
   /** Present only for a scoped dry-run that asks for a bounded preview. */
   scope_copy?: ScopeCopyPreview;
 }

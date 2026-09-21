@@ -1,5 +1,7 @@
 import fs from "fs/promises";
 import { SiloService } from "../../core/services/silo-service";
+import { MediaModes } from "../../core/transfer/media-mode";
+import { TransferSelection } from "../../core/transfer/transfer-selection";
 
 export class ImportCommand {
   static async run(
@@ -18,8 +20,13 @@ export class ImportCommand {
     const dryRun = !!values["dry-run"];
     const prefer = values.prefer as "local" | "remote";
 
+    const include = TransferSelection.parse(
+      Array.isArray(values.include) ? values.include : values.include ? [values.include] : []
+    );
+    const media = MediaModes.parse(values.media, !include.isEverything);
+
     // Host-level CLI access is trusted and retains the ability to restore keys.
-    const options = { mode, dryRun, prefer, allowKeys: true };
+    const options = { mode, dryRun, prefer, include, media, allowKeys: true };
 
     let response;
     const stat = await fs.stat(src);
@@ -38,6 +45,11 @@ export class ImportCommand {
     console.log(`  Updated: ${response.updated}`);
     console.log(`  Deleted: ${response.deleted}`);
     console.log(`  Skipped: ${response.skipped}`);
+    if (response.media) {
+      console.log(
+        `  Media:   ${response.media.files} file(s)${response.media.cleared ? " (library cleared first)" : ""}`
+      );
+    }
 
     // Last, and only when there are any: a clean import should not end on a
     // zero that invites a search for a problem that is not there.
