@@ -148,10 +148,12 @@ engine handle them with no special code.
   in each environment, and silo puts the value into each `{{NAME}}` on the way
   out.
 - **Portable data.** One command exports every project, environment, schema,
-  entry, and media file, and one command imports it again. The filesystem
-  driver's on-disk layout is the export format, so an fs-backed instance is a
-  live backup you can copy with `cp`, replicate with `rsync`, or review in git.
-  You can also pull an export straight from another running silo.
+  entry, and media file, and one command imports it again. Name a project, an
+  environment or a single collection to move only that, and choose whether the
+  media files travel with it. The filesystem driver's on-disk layout is the
+  export format, so an fs-backed instance is a live backup you can copy with
+  `cp`, replicate with `rsync`, or review in git. You can also pull an export
+  straight from another running silo.
 - **Replaceable parts.** Storage is SQLite, flat files, or your own driver.
   Media is local disk or any S3-compatible bucket (AWS S3, MinIO, Cloudflare R2,
   DigitalOcean Spaces). The admin UI is an ordinary client of the public API, so

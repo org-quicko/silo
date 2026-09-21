@@ -4,13 +4,15 @@ import { ValidationError } from "@silo/shared/validation-error";
 // The fs layout *is* the archive format (D5), so the file and marker names come
 // from the one place that grammar is stated.
 import { FsLayout } from "../../adapters/storage/fs/fs-layout";
-import type { Entry } from "../domain/entry";
 import { Scope } from "../domain/scope";
+import { ImportEntries } from "./import-entries";
 
 export interface ScopedImport {
   scope: Scope;
   schemas: Map<string, any>;
-  entries: Map<string, Entry[]>;
+  /** Keyed by collection name; the value is read when the importer reaches it,
+   *  not when the archive is walked (§7.2). */
+  entries: Map<string, ImportEntries>;
   /** The environment's own id from its marker, when the archive carried one
    *  (D51). Absent for a hand-assembled tree, and then minted locally. */
   envId?: string;
@@ -67,7 +69,7 @@ export class ImportWalker {
 
         const schemas = new Map<string, any>();
         const collectionIds = new Map<string, string>();
-        const entries = new Map<string, Entry[]>();
+        const entries = new Map<string, ImportEntries>();
         await ImportWalker.walkSchemas(envPath, schemas, collectionIds);
         await ImportWalker.walkContent(envPath, scope, entries);
         ImportWalker.assertSchemasPresent(scope, schemas, entries);
@@ -98,7 +100,7 @@ export class ImportWalker {
   private static assertSchemasPresent(
     scope: Scope,
     schemas: Map<string, any>,
-    entries: Map<string, Entry[]>
+    entries: Map<string, ImportEntries>
   ): void {
     const missing = [...entries.keys()].filter((name) => !schemas.has(name)).sort();
     if (missing.length === 0) return;
@@ -150,7 +152,7 @@ export class ImportWalker {
   private static async walkContent(
     scopeDir: string,
     scope: Scope,
-    entries: Map<string, Entry[]>
+    entries: Map<string, ImportEntries>
   ): Promise<void> {
     const contentDir = path.join(scopeDir, "content");
     for (const d of await ImportWalker.readdirSafe(contentDir)) {
@@ -158,30 +160,10 @@ export class ImportWalker {
       const colPath = path.join(contentDir, d);
       if (!(await ImportWalker.isDir(colPath))) continue;
 
-      entries.set(d, await ImportWalker.readEntries(colPath, scope, d));
+      // The directory is recorded, not read. What is in it is the importer's
+      // to pull when it gets there.
+      entries.set(d, ImportEntries.inDirectory(colPath, scope, d));
     }
-  }
-
-  private static async readEntries(colPath: string, scope: Scope, collection: string): Promise<Entry[]> {
-    const files = await fs.readdir(colPath);
-    const colEntries: Entry[] = [];
-    for (const f of files) {
-      if (f.startsWith(".") || !f.endsWith(".json")) continue;
-      const data = await fs.readFile(path.join(colPath, f), "utf8");
-      const parsed = JSON.parse(data);
-      colEntries.push({
-        id: parsed.id,
-        project: scope.project,
-        env: scope.env,
-        collection: collection,
-        rev: parsed.rev,
-        seq: parsed.seq,
-        created_at: new Date(parsed.created_at),
-        updated_at: new Date(parsed.updated_at),
-        data: parsed.data,
-      });
-    }
-    return colEntries;
   }
 
   private static async readdirSafe(dir: string): Promise<string[]> {

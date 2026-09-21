@@ -29,9 +29,9 @@ Hono web framework on Bun. JSON everywhere. Admin UI served at `/`; API under `/
 | GET | `/api/projects/{project}/envs/{env}/search` | search one scope |
 | GET | `/api/search` | search the instance |
 | POST | `/api/search/reindex` | rebuild the index; export-level read claims |
-| GET | `/api/export` | streams tar.gz (`transfer:export`; `keys:export` when including keys) |
-| POST | `/api/import?mode=` | streams in a tar.gz — a raw body, or a `multipart/form-data` `file` part (`transfer:import` + `media:create`, plus `media:delete` in replace mode; archives containing keys also require `keys:import`) |
-| POST | `/api/copy` | pulls and imports another silo (`{source_url, source_api_key, mode, with_keys, dry_run, prefer}`; `transfer:copy`) |
+| GET | `/api/export?include=&media=` | streams tar.gz as it is walked (§7.1); `include` is repeatable and narrows it, `media` is `all\|referenced\|none` (§7.6, §7.7). `transfer:export`, plus read permissions at the reach `include` names or instance-wide without one; `keys:export` and instance-wide read when including keys |
+| POST | `/api/import?mode=&include=&media=` | streams in a tar.gz — a raw body, or a `multipart/form-data` `file` part. `transfer:import` + write permissions at the same reach, `media:create` unless `media=none`, plus the delete permissions in replace mode; archives containing keys also require `keys:import`. `Accept: application/x-ndjson` answers with a progress stream (§7.8) |
+| POST | `/api/copy` | pulls and imports another silo (`{source_url, source_api_key, mode, with_keys, dry_run, prefer, include, media}`; `transfer:copy`). `include` is forwarded to the source's own export, and the progress stream applies here too |
 | GET / POST | `/api/keys` | list (`keys:read`) / create (`keys:create`); create returns the secret exactly once |
 | PATCH | `/api/keys/{id}` | edit a key's label and/or claims (`keys:create`, **and** the authority to have minted both what it holds and what it is being given — D63) |
 | DELETE | `/api/keys/{id}` | revoke a key (`keys:revoke`, **and** the authority to have minted it — D37) |

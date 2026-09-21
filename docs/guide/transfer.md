@@ -3,17 +3,130 @@
 > The archive format, the on-disk layout, and every way data moves. The design rationale is in [docs/design/transfer.md](../design/transfer.md).
 
 ```sh
-silo export --dir ./backup               # an on-disk tree
-silo export --out backup.tar.gz          # a reproducible tarball
-silo import ./backup --mode merge        # newest updated_at wins
-silo import backup.tar.gz --mode replace # replace per collection
+silo export --dir ./backup                        # an on-disk tree
+silo export --out backup.tar.gz                   # a reproducible tarball
+silo export --out posts.tar.gz \
+  --include acme/prod/posts                       # one collection
+silo import ./backup --mode merge                 # newest updated_at wins
+silo import backup.tar.gz --mode replace          # replace per collection
 ```
 
 An export holds every project and environment, empty ones included, plus the
 schemas, the entries and the media. API key hashes are left out unless you pass
 `--with-keys`, so a content export you hand to someone else ships no
-credentials. Entries are ordered by collection and by id, so an archive is
-byte-for-byte reproducible from identical data.
+credentials. Entries are ordered by collection and by id, and every entry is
+stamped with the export's own time, so an archive is byte-for-byte reproducible
+from identical data.
+
+The archive is written as it is read. The first bytes leave immediately, and no
+copy of your data is staged on disk first. This matters behind a reverse proxy:
+a response that says nothing for a minute is a response many proxies close.
+
+## Choose what to move
+
+`--include` narrows an export to a project, an environment or a collection. Give
+it more than once for more than one rule. Leave it out for the whole instance.
+
+```sh
+silo export --out site.tar.gz --include site              # one project
+silo export --out prod.tar.gz --include site/prod         # one environment
+silo export --out posts.tar.gz \
+  --include site/prod/posts --include site/prod/authors    # two collections
+```
+
+The HTTP route spells it the same way, one `include` parameter per rule:
+
+```sh
+curl -H "Authorization: Bearer $SILO_KEY" \
+  "http://localhost:8090/api/export?include=site/prod/posts&include=blog" \
+  -o partial.tar.gz
+```
+
+`POST /api/import?include=…` uses the same rules to load part of an archive that
+holds more. `POST /api/copy` takes them as an `include` array, and sends them on
+to the source, so the source builds only what you asked for.
+
+With no rules, an export needs read permission on everything. With rules, it
+needs permission only on what the rules name, so a key scoped to one project can
+export that project. `--with-keys` always needs instance-wide read, because API
+keys are not scoped.
+
+## Media files
+
+`--media` (or `?media=`) says what happens to the files in the media library.
+
+| value | catalog | files |
+|-------|---------|-------|
+| `all` | every asset | every file in the library |
+| `referenced` | only assets the moved entries point at | those files |
+| `none` | every asset | none |
+
+The default is `all` for a whole transfer and `referenced` once `--include`
+narrows it. A whole export stays complete, and a narrow export does not drag the
+whole library with it.
+
+Use `none` when the destination can already read the files, for example when two
+instances use the same S3 bucket. The catalog still moves, so filenames, folders
+and URLs are kept, and the result reports `0` files written.
+
+```sh
+curl -X POST "http://new-silo:8090/api/import?mode=merge&media=none" \
+  -H "Authorization: Bearer $DESTINATION_SILO_KEY" \
+  -H "Content-Type: application/gzip" \
+  --data-binary @backup.tar.gz
+```
+
+**Replace mode only empties what the archive is complete for.** A whole-instance
+archive taken with `media=all` empties the destination library before it loads.
+A narrowed archive, or one taken with `media=referenced` or `media=none`, does
+not: it adds and replaces what it carries and keeps the rest. The result says
+which happened:
+
+```json
+{ "mode": "replace", "media": { "files": 12, "cleared": false } }
+```
+
+## Watch a long transfer
+
+An import and a copy say nothing between the request and the answer. Behind a
+proxy that closes a quiet connection, a transfer that is working can look like
+one that has failed.
+
+Send `Accept: application/x-ndjson` to get one JSON object per line instead:
+
+```sh
+curl -X POST "http://new-silo:8090/api/import" \
+  -H "Authorization: Bearer $DESTINATION_SILO_KEY" \
+  -H "Accept: application/x-ndjson" \
+  -H "Content-Type: application/gzip" \
+  --data-binary @backup.tar.gz
+```
+
+```
+{"type":"progress","phase":"extract","result":{...}}
+{"type":"progress","phase":"entries","result":{"added":200,...}}
+{"type":"progress","phase":"media"}
+{"type":"result","result":{"added":412,"updated":0,...}}
+```
+
+**Read the last line, not the status code.** The status is sent before the work
+starts, so it is always `200`. A failure is an `error` line that carries the
+status it would have been:
+
+```
+{"type":"error","status":409,"error":{"code":"conflict","message":"..."}}
+```
+
+A stream that stops with no `result` line means the connection ended before the
+transfer finished. The destination is in an unknown state. Check it before you
+try again.
+
+The admin UI uses this stream, so its Data Transfer page reports what a long
+import or copy is doing while it runs.
+
+If a transfer still runs longer than the connection allows, raise
+`[http] idle_timeout` in `silo.toml`. See
+[configuration.md](configuration.md).
 
 ## On-disk layout
 
@@ -22,7 +135,8 @@ fs-backed instance a live export:
 
 ```
 <data-dir>/
-  manifest.json                 # format_version, instance_id, last_seq
+  manifest.json                 # format_version, instance_id, last_seq,
+                                # selection and media, if the export was narrowed
   projects/
     acme/
       prod/
@@ -115,9 +229,15 @@ curl -X POST http://new-silo:8090/api/copy \
     "source_api_key": "'"$SOURCE_SILO_KEY"'",
     "mode": "merge",
     "with_keys": false,
-    "dry_run": true
+    "dry_run": true,
+    "include": ["site/prod"],
+    "media": "referenced"
   }'
 ```
+
+`include` and `media` work as they do on an export. The destination sends
+`include` to the source, so the source reads only what you asked for instead of
+building the whole instance and throwing most of it away.
 
 ## Copying between environments
 

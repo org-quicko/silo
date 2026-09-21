@@ -43,6 +43,125 @@
   `packages/silo-client/tools/verifyCache.mjs` checks caching against a live collection
   using GET requests and HTTP request-count assertions.
 
+- **The receiving end of a transfer is memory-flat too (2026-09-17).** A
+  destination taking a 750 MB copy peaked at **2.0 GB** of private memory, which
+  is the side of a transfer a small instance is least able to absorb. Two
+  causes, found by bisecting rather than guessing. `ImportWalker` handed the
+  importer an `Entry[]` per collection, so the whole archive's content was
+  parsed before a single row landed — `ImportEntries` replaces the array with a
+  directory recorded and opened one file at a time, and because the importer
+  already worked one collection and one entry at a time, only the shape it was
+  handed changed (D77). That took it to 1.0 GB. A **dry run** then peaked
+  identically while writing nothing, which ruled out the entry writes, the media
+  load and SQLite in one pass and left extraction: `tar.x` with no `file` is a
+  writable parser that keeps accepting entries while it writes them out, so it
+  absorbed the archive as fast as the socket delivered it. The upload is now
+  spooled to one file and extracted from that, where tar pulls at its own pace
+  (D78). **516 MB private for the same copy**, against a runtime baseline near
+  390 MB, and still verified faithful: 6,000 entries and 150 media files, every
+  count matching.
+
+  The trade is stated rather than hidden: an intermediate `.tar.gz` is written
+  again, which D73 was pleased to remove on the export side. It is the right
+  trade here and the wrong one there, because an export has a reader waiting on
+  a first byte and an import has nobody waiting, and a small host has more disk
+  than memory.
+
+  Separately pinned: a transfer's media goes to the store the **instance** is
+  configured with, never to a directory derived from the data path. It already
+  did; every entry point takes `BlobStorage | string` and builds an
+  `FsBlobStorage` for the string, so one caller passing a path would have sent
+  an import's media to local disk on an S3 instance with nothing to say so.
+  Four tests hand the destination a recording store and assert the local
+  directory stays empty.
+
+- **Export is memory-flat, and the reason it was not is three layers down
+  (2026-09-17).** D73 claimed peak memory was one entry rather than one media
+  library. Measured, it was not: a 500 MB library exported at a 500 MB peak, and
+  a t3.micro would not have survived it. Bisecting the pipeline took four
+  runs — the tar writer alone held **67 MB** for the same bytes, the same bytes
+  through the web `CompressionStream` held **583 MB**, `node:zlib` held
+  **116 MB**, and `Bun.serve` pulling a response body eagerly held **2.1 GB**
+  when nothing upstream paced it. So `GzipStream` (`node:zlib`) replaces
+  `CompressionStream`, and `exportTarGz` flushes its `FileSink` on an 8 MB
+  budget rather than trusting `write`, which answers a count and not a promise.
+  A 500 MB archive now exports at a **147 MB** peak, over HTTP and to disk both,
+  with the first byte still at 0.04s (D76). One self-inflicted bug fell out on
+  the way: `GzipStream.write` attached three `once` listeners per backpressured
+  write and removed none of them, which `MaxListenersExceededWarning` announced
+  at eleven and a long export turned into thousands.
+
+  Verified at size rather than argued: 6,000 entries and 150 media files copied
+  between two instances over `POST /api/copy`, every collection count and the
+  media count matching. **The import side is not fixed**: a destination still
+  peaks at roughly twice the archive, because `ImportWalker` reads every entry
+  of every collection into memory before the importer writes any of them.
+
+- **Data transfer is granular, and export no longer times out (2026-09-17).**
+  `GET /api/export` closed under a reverse proxy with a `503` and nothing in
+  silo's log to show for it. Three facts had to be lined up to see why:
+  `Bun.serve` was started with no `idleTimeout`, so the runtime's own **10
+  seconds** applied; `Exporter` assembled the whole archive into a temp tree
+  before the first byte, which on the instance that found this meant 1,619 S3
+  objects and 68 seconds of silence; and the handler then ran to completion and
+  logged its own `200` for a client that had left a minute earlier. The proxy
+  reported `upstream prematurely closed connection while reading response
+  header`, so every symptom named the proxy and none named the cause.
+
+  Four decisions came out of it. **D72** gives the listener `[http]
+  idle_timeout` (default 120s, `SILO_HTTP_IDLE_TIMEOUT`, a settings-API field),
+  clamped to the runtime's ceiling of 255 rather than refused, because a config
+  that is merely too generous must not be what stops a server starting.
+  **D73** removes the staging pass: the walk writes through an `ExportSink`,
+  with a tar sink over silo's own `TarWriter` emitting ustar entries (PAX for a
+  long path) straight into the gzip stream, so the first byte leaves in
+  milliseconds and peak memory is one entry. Reading is still `tar.x`. Two
+  things fall out: archives are now genuinely reproducible, since every entry
+  carries the export's own `exported_at` rather than the clock at staging time;
+  and a blob failure truncates the body instead of becoming an error status,
+  which is accepted because a truncated archive fails its own gzip check and
+  extracts nothing. Import keeps its temp tree but stages it under
+  `<data>/transfer/`, since a hardened systemd unit puts `/tmp` on a RAM-backed
+  tmpfs while the data volume is the disk provisioned for this.
+
+  **D74** gives all three operations one selection vocabulary and three media
+  modes. `include` is repeatable and names a `project`, a `project/env` or a
+  `project/env/collection`; empty is the whole instance. `media` is
+  `all|referenced|none`, defaulting to `all` for a whole transfer and
+  `referenced` for a narrowed one, so a whole export stays lossless and a narrow
+  one does not drag the library with it. `none` carries the catalog and no
+  bytes, which is the answer for two instances sharing one bucket. A copy
+  forwards its selection to the source's own export. Claims follow the reach:
+  instance-wide without a selection, per-rule with one, which is D22's rule
+  applied to the archive routes. This also forced a correctness fix that was not
+  optional — replace mode used to clear **every blob in the destination**
+  whenever an archive had a `media/` directory, and to empty `_media` because
+  the collection appeared in the archive. Both were right by accident while
+  every archive was the whole instance; `ImportAuthority` now scopes replace to
+  what the archive is authoritative for.
+
+  **D75** adds an opt-in NDJSON progress stream to `/api/import` and
+  `/api/copy`, the two operations that have nothing to send until they are done.
+  The status goes out before the work begins, so the outcome is the last line
+  rather than the status code, and that is exactly why it is opt-in. The admin
+  uses it, so a long import or copy reports what it is doing.
+
+  The admin's Data Transfer page gains a scope picker and a media control on all
+  three tabs. The picker is the **server manager's own column browser**, lifted
+  into `components/browser/` rather than copied: projects, then environments,
+  then collections, one pane per level, with a checkbox on each row and every
+  box checked by default because an empty selection *is* everything. The panes
+  are a fixed height and their lists scroll, which they could not do until
+  `.column` and `.columnList` were allowed to shrink below their content. What
+  a narrowed archive covers is stated as the projects it touches, with a sheet
+  behind it, since a fact row ellipsises and forty-six rules on one line says
+  nothing; `FactList` gained the end-of-row `action` that link sits in. An
+  archive now downloads stamped to the second in UTC, so a directory of them
+  sorts into the order they were taken. The tab strip stopped clipping a label
+  longer than its fixed 120px. The stale `?validate=` parameter D70 removed, and
+  the `rejected`/`rejections` fields it added, are finally correct in
+  `docs/openapi.json`.
+
 - **silo-client 1.1.1 can cache reads (2026-09-16).** `SiloCache`
   caches successful GET JSON responses only when a caller supplies a finite
   TTL. Its keys use the prepared URL and normalized final headers, including

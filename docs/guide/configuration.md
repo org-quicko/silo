@@ -16,6 +16,9 @@ listen          = ":8090"
 default_project = "default"   # created on startup if missing
 default_env     = "prod"
 
+[http]
+idle_timeout = 120      # seconds a connection may stay quiet; 0 disables, 255 is the maximum
+
 [storage]
 driver = "sqlite"       # "sqlite" | "fs"
 path   = "./silo_data"  # data dir; the sqlite file lives at <path>/silo.db
@@ -73,6 +76,7 @@ max_files   = 5               # kept as silo.log.1 ... silo.log.5
 |----------------------|-----------|
 | `SILO_CONFIG` | which file this table is read from and written to, below `--config` |
 | `SILO_LISTEN` | `listen` |
+| `SILO_HTTP_IDLE_TIMEOUT` | `[http] idle_timeout` |
 | `SILO_DEFAULT_PROJECT`, `SILO_DEFAULT_ENV` | `default_project`, `default_env` |
 | `SILO_STORAGE_DRIVER`, `SILO_STORAGE_PATH` | `[storage]` |
 | `SILO_BLOB_DRIVER`, `SILO_BLOB_PATH` | `[blob_storage]` |
@@ -86,6 +90,27 @@ max_files   = 5               # kept as silo.log.1 ... silo.log.5
 | `SILO_LOG_REQUESTS`, `SILO_LOG_MAX_SIZE_MB`, `SILO_LOG_MAX_FILES` | `[log]` |
 | `SILO_MEDIA_BASE_URL`, `SILO_MEDIA_BASE_URL_TARGET` | `[media]` |
 | `SILO_MEDIA_EXTENSIONS` | `[media]`, comma-separated |
+
+## Connections that go quiet
+
+`[http] idle_timeout` is the number of seconds a connection can send and
+receive nothing before silo closes it. The default is 120. A value above 255 is
+reduced to 255, which is the maximum the runtime accepts. `0` switches the check
+off. A change takes effect at the next restart.
+
+Raise it if a transfer of a large instance runs longer than this. An export
+answers immediately and does not need it. An import and a copy can run for a
+long time, and the progress stream in
+[transfer.md](transfer.md) is the better answer for those, because it keeps the
+connection busy for as long as the work runs.
+
+**If you see a 502 or a 503 from a reverse proxy on a long request, look here
+first.** silo closes the connection, the proxy reports what it saw, and silo's
+own log shows the request finishing normally. Its error log says `upstream
+prematurely closed connection while reading response header`.
+
+You can also set this from the admin, under **Settings > Configuration >
+Connections**.
 
 ## Media, from the admin
 

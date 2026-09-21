@@ -3,6 +3,7 @@ import fs from "fs/promises";
 import path from "path";
 import os from "os";
 import { CliOptions } from "../../src/cli/cli-options";
+import { HttpDefaults } from "../../src/config/http-defaults";
 import { ConfigLoader } from "../../src/config/config-loader";
 
 /**
@@ -181,5 +182,65 @@ describe("ConfigLoader log settings", () => {
     process.env.SILO_LOG_MAX_SIZE_MB = "lots";
     const config = await ConfigLoader.loadConfig(path.join(tempDir, "absent.toml"), false);
     expect(config.log.max_size_mb).toBe(ConfigLoader.defaultConfig().log.max_size_mb);
+  });
+});
+
+/**
+ * The listener's idle timeout (§10.3). It exists because the runtime's own
+ * default is 10 seconds and a transfer route can legitimately say nothing for
+ * longer, and the socket closing mid-response reaches the caller as a proxy
+ * error naming the proxy rather than silo.
+ */
+describe("ConfigLoader http settings", () => {
+  let tempDir: string;
+  let saved: string | undefined;
+
+  beforeEach(async () => {
+    tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "silo-http-config-test-"));
+    saved = process.env.SILO_HTTP_IDLE_TIMEOUT;
+    delete process.env.SILO_HTTP_IDLE_TIMEOUT;
+  });
+
+  afterEach(async () => {
+    if (saved === undefined) delete process.env.SILO_HTTP_IDLE_TIMEOUT;
+    else process.env.SILO_HTTP_IDLE_TIMEOUT = saved;
+    await fs.rm(tempDir, { recursive: true, force: true });
+  });
+
+  const writeConfig = async (toml: string): Promise<string> => {
+    const file = path.join(tempDir, "silo.toml");
+    await fs.writeFile(file, toml);
+    return file;
+  };
+
+  test("the default is far above the runtime's own", () => {
+    expect(ConfigLoader.defaultConfig().http.idle_timeout).toBe(HttpDefaults.IdleTimeout);
+    expect(HttpDefaults.IdleTimeout).toBeGreaterThan(10);
+  });
+
+  test("the file supplies it and the env var outranks the file", async () => {
+    const file = await writeConfig(`[http]\nidle_timeout = 90\n`);
+    expect((await ConfigLoader.loadConfig(file)).http.idle_timeout).toBe(90);
+
+    process.env.SILO_HTTP_IDLE_TIMEOUT = "45";
+    expect((await ConfigLoader.loadConfig(file)).http.idle_timeout).toBe(45);
+  });
+
+  test("a value above the runtime's ceiling is clamped, not refused", async () => {
+    // Failing to start over a config that is merely too generous would turn a
+    // cautious setting into an outage.
+    const file = await writeConfig(`[http]\nidle_timeout = 6000\n`);
+    expect((await ConfigLoader.loadConfig(file)).http.idle_timeout).toBe(HttpDefaults.MaxIdleTimeout);
+  });
+
+  test("zero is kept, because it is how the guard is switched off", async () => {
+    const file = await writeConfig(`[http]\nidle_timeout = 0\n`);
+    expect((await ConfigLoader.loadConfig(file)).http.idle_timeout).toBe(0);
+  });
+
+  test("an unparseable env var leaves the default in place", async () => {
+    process.env.SILO_HTTP_IDLE_TIMEOUT = "soon";
+    const config = await ConfigLoader.loadConfig(path.join(tempDir, "absent.toml"));
+    expect(config.http.idle_timeout).toBe(HttpDefaults.IdleTimeout);
   });
 });

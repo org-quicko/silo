@@ -32,8 +32,8 @@ Present a key as `Authorization: Bearer <key>` or `X-Api-Key: <key>`.
 | `GET` / `PUT` / `DELETE` | `/api/projects/{project}/envs/{env}/collections/{name}/schema` | fetch / update / delete a schema |
 | `GET` / `POST` | `/api/projects/{project}/envs/{env}/collections/{name}` | list entries (filter, sort, paginate) / create |
 | `GET` / `PUT` / `DELETE` | `/api/projects/{project}/envs/{env}/collections/{name}/{id}` | read / full replace / delete |
-| `GET` | `/api/export` | stream a `tar.gz` archive |
-| `POST` | `/api/import?mode=` | accept a `tar.gz` archive |
+| `GET` | `/api/export?include=&media=` | stream a `tar.gz` archive, whole or narrowed |
+| `POST` | `/api/import?mode=&include=&media=` | accept a `tar.gz` archive |
 | `POST` | `/api/copy` | pull and import another running silo |
 | `GET` / `POST` | `/api/keys` | list keys / create one. The secret is returned exactly once |
 | `DELETE` | `/api/keys/{id}` | revoke a key, and everything descended from it |

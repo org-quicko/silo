@@ -13,5 +13,13 @@ export interface ImportResult {
   rejected: number
   /** Which ones, capped by the server. `rejected` stays exact. */
   rejections: ImportRejection[]
+  /** What the run did about media bytes. Absent for a scope copy, which
+   *  touches none. */
+  media?: {
+    files: number
+    /** Whether the destination library was emptied first. Only a replace of a
+     *  whole-library archive does that. */
+    cleared: boolean
+  }
   scope_copy?: ScopeCopyPreview
 }

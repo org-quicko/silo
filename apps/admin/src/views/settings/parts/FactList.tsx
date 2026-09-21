@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, type ReactNode } from 'react'
 import { Check, Copy } from 'lucide-react'
 import { ToastManager } from '../../../utils/toast-manager'
 import styles from './SettingsLedger.module.css'
@@ -9,6 +9,15 @@ export interface Fact {
   /** Set for prose values — counts, dates — which are not machine truth and so
    *  are neither set in mono nor worth copying. */
   plain?: boolean
+  /**
+   * A control at the end of the row, for a value that cannot be said in one
+   * line. A row ellipsises rather than wraps, so a long value needs somewhere
+   * to be read in full rather than a taller row that still cuts it off.
+   *
+   * Only on a `plain` fact: a copyable one is itself a button, and a button
+   * inside a button is not a thing.
+   */
+  action?: ReactNode
 }
 
 /**
@@ -39,7 +48,7 @@ export function FactList({ facts }: { facts: Fact[] }) {
           <div key={fact.key} className={styles.fact}>
             <span className={styles.factKey}>{fact.key}</span>
             <span className={`${styles.factValue} ${styles.plain}`}>{fact.value}</span>
-            <span />
+            {fact.action ?? <span />}
           </div>
         ) : (
           <button

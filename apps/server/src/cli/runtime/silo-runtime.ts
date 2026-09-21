@@ -1,3 +1,4 @@
+import path from "path";
 import { SqliteStore } from "../../adapters/storage/sqlite/sqlite-store";
 import type { Config } from "../../config/config";
 import { SiloService } from "../../core/services/silo-service";
@@ -233,6 +234,11 @@ export class SiloRuntime {
       logger,
       blobStorage,
       searcher,
+      // Beside the data, not in the platform temp directory: an archive is
+      // unpacked before it is walked, and on a hardened unit `/tmp` is a
+      // RAM-backed tmpfs while the data directory is the disk provisioned for
+      // exactly this much content (§7.2).
+      stagingDir: path.join(config.storage.path, "transfer"),
       scan: {
         visitLimit: config.search.scan_limit,
         timeBudgetMs: config.search.scan_time_budget_ms,

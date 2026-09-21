@@ -110,7 +110,16 @@ export class ServeCommand {
     await plugins.activate();
 
     const { hostname, port } = ListenAddress.parse(config.listen);
-    const server = Bun.serve({ port, hostname, fetch: app.fetch });
+    // `idleTimeout` is passed explicitly because the runtime's own default is
+    // 10 seconds, which a transfer route can exceed before it says anything —
+    // and the socket closing mid-header reaches the caller as a proxy error
+    // naming the proxy rather than silo (§10.3, §7.1).
+    const server = Bun.serve({
+      port,
+      hostname,
+      idleTimeout: config.http.idle_timeout,
+      fetch: app.fetch,
+    });
 
     // Named after the bind, for the reason the run file is written after it:
     // a start that lost the port race must not announce that address anywhere.
