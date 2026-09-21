@@ -77,7 +77,7 @@
     },
     "packages/silo-client": {
       "name": "@org-quicko/silo-client",
-      "version": "1.1.0",
+      "version": "1.1.2",
       "dependencies": {
         "@isaacs/ttlcache": "^2.1.5",
       },
