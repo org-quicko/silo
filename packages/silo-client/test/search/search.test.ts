@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 
 import { Search } from "../../src/search/search";
 import { SearchReach } from "../../src/search/search-reach";
-import { FetchTransport as Transport } from "../../src/transport/fetch-transport";
+import { Transport } from "../../src/transport/transport";
 import { StubFetch } from "../support/stub-fetch";
 import { StubResponse } from "../support/stub-response";
 

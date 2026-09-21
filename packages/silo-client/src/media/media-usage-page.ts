@@ -38,7 +38,6 @@ export class MediaUsagePage extends Page<MediaUsage> {
     window: PageWindow,
     private readonly transport: Transport,
     private readonly assetId: string,
-    private readonly requestOptions: RequestOptions | undefined,
   ) {
     super(rows, total, window);
     this.visible = visible;
@@ -59,12 +58,12 @@ export class MediaUsagePage extends Page<MediaUsage> {
 
   async next(options?: RequestOptions): Promise<MediaUsagePage | null> {
     const window = this.windowForNext();
-    return window ? MediaUsagePage.loadWindow(this.transport, this.assetId, window, { ...this.requestOptions, ...options }) : null;
+    return window ? MediaUsagePage.loadWindow(this.transport, this.assetId, window, options) : null;
   }
 
   async previous(options?: RequestOptions): Promise<MediaUsagePage | null> {
     const window = this.window.previous();
-    return window ? MediaUsagePage.loadWindow(this.transport, this.assetId, window, { ...this.requestOptions, ...options }) : null;
+    return window ? MediaUsagePage.loadWindow(this.transport, this.assetId, window, options) : null;
   }
 
   /** `MediaAsset.usages()`'s entry point: builds the requested window itself,
@@ -91,9 +90,8 @@ export class MediaUsagePage extends Page<MediaUsage> {
       query: { limit: window.limit, offset: window.offset },
       signal: options?.signal,
       timeoutMilliseconds: options?.timeoutMilliseconds,
-      cache: options?.cache,
     });
     const mapped = MediaAssetMapper.toUsagePage(body);
-    return new MediaUsagePage(mapped.items, mapped.total, mapped.visible, mapped.visibleCapped, window, transport, assetId, options);
+    return new MediaUsagePage(mapped.items, mapped.total, mapped.visible, mapped.visibleCapped, window, transport, assetId);
   }
 }

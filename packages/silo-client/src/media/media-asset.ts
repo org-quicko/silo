@@ -138,7 +138,6 @@ export class MediaAsset {
       path: ApiPath.mediaAsset(this.id),
       signal: options?.signal,
       timeoutMilliseconds: options?.timeoutMilliseconds,
-      cache: options?.cache ?? "refresh",
     });
     this.record = MediaAssetMapper.toRecord(payload);
     return this;
