@@ -5,6 +5,9 @@ import { ValidationError } from "@silo/shared/validation-error";
 import { RouteAuth } from "../auth/route-auth";
 import { MediaInUseError } from "../../core/errors/media-in-use-error";
 import { MimeUtils } from "../../core/media/mime-utils";
+import { MediaDisposition } from "../../core/media/media-disposition";
+import { ByteRange } from "../../core/media/byte-range";
+import { ResponseSandbox } from "../response-sandbox";
 import { MediaDeleteBatch } from "./media-delete-batch";
 import { MediaInUseDetails } from "./media-in-use-details";
 
@@ -84,8 +87,10 @@ export class MediaRoutes {
       }
       const folder = typeof body["folder"] === "string" ? body["folder"] : undefined;
 
+      // `file.type` is deliberately not passed on: the part's declared type is
+      // the client's word, and the extension decides what is served (D83).
       const bytes = new Uint8Array(await file.arrayBuffer());
-      const asset = await service.media.save(file.name, bytes, file.type, folder);
+      const asset = await service.media.save(file.name, bytes, folder);
       return c.json(asset, 201);
     });
 
@@ -188,7 +193,7 @@ export class MediaRoutes {
       }
 
       const bytes = new Uint8Array(await file.arrayBuffer());
-      return c.json(await service.media.replaceContent(id, file.name, bytes, file.type));
+      return c.json(await service.media.replaceContent(id, file.name, bytes));
     });
 
     app.delete("/api/media/:id", async (c: Context) => {
@@ -232,29 +237,54 @@ export class MediaRoutes {
         return c.text("invalid media identifier", 400);
       }
 
-      const media = await service.media.bytes(idOrKey);
+      // Opened, not read: the body is a handle the runtime sends as it goes,
+      // so a request costs the bytes it asks for and never the whole file
+      // held in memory (D80). A `Range` is honoured, which is what lets a
+      // browser seek a video without fetching all of it each time.
+      const media = await service.media.open(idOrKey, ByteRange.parse(c.req.header("range")));
       if (!media) {
         return c.text("not found", 404);
       }
 
-      const headers: Record<string, string> = {
-        "Content-Type": media.contentType || MimeUtils.lookup(media.filename || idOrKey),
-        // Not `immutable` any more: an asset is addressed by a stable id, and
-        // what that id points at can be replaced. The hash gives revalidation
-        // something exact to compare (D23).
-        "Cache-Control": "public, max-age=3600",
-      };
+      // These bytes are somebody's upload served from the origin the admin
+      // lives on, so they leave with the two headers that stop a browser
+      // treating them as a page here (D83): `nosniff`, a `sandbox` policy, and
+      // an `attachment` disposition for anything a browser could execute.
+      const contentType = media.contentType || MimeUtils.lookup(media.filename || idOrKey);
+      const headers = ResponseSandbox.apply(
+        {
+          "Content-Type": contentType,
+          // Not `immutable` any more: an asset is addressed by a stable id, and
+          // what that id points at can be replaced. The hash gives revalidation
+          // something exact to compare (D23).
+          "Cache-Control": "public, max-age=3600",
+          "Accept-Ranges": "bytes",
+          "Content-Disposition": MediaDisposition.header(contentType, media.filename),
+        },
+        ResponseSandbox.MediaPolicy
+      );
       if (media.hash) {
         headers["ETag"] = `"${media.hash}"`;
         if (c.req.header("if-none-match") === `"${media.hash}"`) {
           return new Response(null, { status: 304, headers });
         }
       }
-      if (media.filename) {
-        headers["Content-Disposition"] =
-          `inline; filename*=UTF-8''${encodeURIComponent(media.filename)}`;
+      // Always a stream, never a `Blob` handed to the response: measured, the
+      // runtime reads a file handle whole per request where it forwards a
+      // stream as it goes. The length is stated here since a stream carries
+      // none, from the catalog or from the blob when a store answered one.
+      const length = media.range
+        ? media.range.end - media.range.start + 1
+        : media.size ?? (media.body instanceof Blob ? media.body.size : undefined);
+      if (length !== undefined) headers["Content-Length"] = String(length);
+      const body = media.body instanceof Blob ? media.body.stream() : media.body;
+
+      if (media.range) {
+        headers["Content-Range"] =
+          `bytes ${media.range.start}-${media.range.end}/${media.size ?? "*"}`;
+        return new Response(body, { status: 206, headers });
       }
-      return new Response(media.data, { headers });
+      return new Response(body, { headers });
     });
   }
 

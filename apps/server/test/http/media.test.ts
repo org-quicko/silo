@@ -41,7 +41,7 @@ describe("media catalog (D23)", () => {
     const content = new TextEncoder().encode("hello world media");
     const expectedHash = crypto.createHash("sha256").update(content).digest("hex");
 
-    const asset = await service.media.save("my photo.png", content, undefined, "/marketing");
+    const asset = await service.media.save("my photo.png", content, "/marketing");
 
     expect(asset.hash).toBe(expectedHash);
     expect(asset.filename).toBe("my photo.png");
@@ -223,9 +223,9 @@ describe("media catalog (D23)", () => {
   });
 
   test("search filters by name, type and folder", async () => {
-    await service.media.save("annual-report.pdf", new TextEncoder().encode("a"), "application/pdf", "/docs");
-    await service.media.save("hero.png", new TextEncoder().encode("b"), "image/png", "/marketing");
-    await service.media.save("banner.png", new TextEncoder().encode("c"), "image/png", "/marketing/launch");
+    await service.media.save("annual-report.pdf", new TextEncoder().encode("a"), "/docs");
+    await service.media.save("hero.png", new TextEncoder().encode("b"), "/marketing");
+    await service.media.save("banner.png", new TextEncoder().encode("c"), "/marketing/launch");
 
     expect((await service.media.list({ text: "hero" })).total).toBe(1);
     expect((await service.media.list({ type: "image/" })).total).toBe(2);
@@ -241,7 +241,7 @@ describe("media catalog (D23)", () => {
 
   test("folders exist when created or when an asset names one", async () => {
     await service.media.createFolder("/empty/shelf");
-    await service.media.save("hero.png", new TextEncoder().encode("b"), "image/png", "/marketing/launch");
+    await service.media.save("hero.png", new TextEncoder().encode("b"), "/marketing/launch");
 
     // Ancestors count as existing, so a tree renders without gaps.
     expect(await service.media.listFolders()).toEqual([
@@ -252,7 +252,11 @@ describe("media catalog (D23)", () => {
     ]);
 
     // Deleting a folder must never be a way around the reference guard.
-    await expect(service.media.deleteFolder("/marketing")).rejects.toThrow(ConflictError);
+    // Settled before `expect`: the check reads through the storage worker, and
+    // bun test's `.rejects` wait drops such replies (code-design.md, Tests).
+    const refused = service.media.deleteFolder("/marketing");
+    await refused.catch(() => {});
+    await expect(refused).rejects.toThrow(ConflictError);
     await service.media.deleteFolder("/empty");
     expect(await service.media.listFolders()).toEqual(["/marketing", "/marketing/launch"]);
   });
@@ -260,7 +264,7 @@ describe("media catalog (D23)", () => {
   test("folder paths are validated, not trusted", async () => {
     await expect(service.media.createFolder("../escape")).rejects.toThrow();
     await expect(service.media.createFolder("/a/../b")).rejects.toThrow();
-    await expect(service.media.save("x.png", new Uint8Array([1]), undefined, "/ok/../nope")).rejects.toThrow();
+    await expect(service.media.save("x.png", new Uint8Array([1]), "/ok/../nope")).rejects.toThrow();
   });
 
   test("export/import round trip preserves the catalog, not just the bytes", async () => {
@@ -268,7 +272,6 @@ describe("media catalog (D23)", () => {
     const asset = await service.media.save(
       "portable.txt",
       new TextEncoder().encode("portable content file"),
-      "text/plain",
       "/docs"
     );
 

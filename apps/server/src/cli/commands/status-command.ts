@@ -1,5 +1,4 @@
 import type { Config } from "../../config/config";
-import { Daemon } from "../../runtime/daemon";
 import { ListenAddress } from "../../runtime/listen-address";
 import { RunFile } from "../../runtime/run-file";
 
@@ -22,9 +21,10 @@ export class StatusCommand {
       process.exit(1);
     }
 
-    if (!Daemon.isAlive(state.pid)) {
+    const liveness = RunFile.liveness(state);
+    if (!liveness.live) {
       console.log(
-        `silo is not running (${config.storage.path}) — pid ${state.pid} is gone, ` +
+        `silo is not running (${config.storage.path}) — ${liveness.reason}, ` +
           `leaving a stale ${RunFile.Name}. "silo stop" clears it.`
       );
       process.exit(1);

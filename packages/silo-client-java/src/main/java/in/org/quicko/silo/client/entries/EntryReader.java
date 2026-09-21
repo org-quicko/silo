@@ -2,6 +2,7 @@ package in.org.quicko.silo.client.entries;
 
 import com.fasterxml.jackson.databind.JavaType;
 import com.fasterxml.jackson.databind.JsonNode;
+import in.org.quicko.silo.client.cache.Cache;
 import in.org.quicko.silo.client.pagination.PageWindow;
 import in.org.quicko.silo.client.pagination.RowBatch;
 import in.org.quicko.silo.client.pagination.RowLoader;
@@ -19,6 +20,11 @@ import java.util.List;
  * <p>What this class owns is the paging the four share and the one place
  * {@code variables} becomes a query parameter. Nothing else is mapped on the way
  * through: {@link EntryMapper} splits the envelope off and copies the rest.
+ *
+ * <p>{@code get} and {@code list} are the client's only cached reads;
+ * {@code all} and {@code pages} are cached because they page through
+ * {@code list}, not because they say so. Nothing is held unless a consumer
+ * asked for it.
  */
 public final class EntryReader<F> {
   private final ScopeReference scope;
@@ -31,15 +37,20 @@ public final class EntryReader<F> {
     this.fieldsType = fieldsType;
   }
 
+  @Cache()
   public Entry<F> get(String id, EntryReadOptions options) {
     JsonNode row = scope.transport().json(
         TransportRequest.get(ApiPath.entry(scope.project(), scope.environment(), collection, id))
             .query("variables", options.variables().wireValue())
             .options(options.request())
+            .cache()
             .build());
     return EntryMapper.read(row, fieldsType, codec());
   }
 
+  /** A shorter ttl than one entry's, because a page turns stale on any write in
+   *  the collection and not only on a write to a row it carries. */
+  @Cache()
   public EntryPage<F> list(EntryListQuery query, EntryReadOptions options) {
     JsonNode body = scope.transport().json(
         TransportRequest.get(ApiPath.entries(scope.project(), scope.environment(), collection))
@@ -49,6 +60,7 @@ public final class EntryReader<F> {
             .query("sort", query.sort())
             .query("variables", options.variables().wireValue())
             .options(options.request())
+            .cache()
             .build());
 
     PagePayload payload = PagePayload.read(body);

@@ -314,6 +314,11 @@ export function MediaPreviewDialog({ asset, assets, baseUrl, onClose, onNavigate
 
           {mediaType === 'pdf' && (
             <div className={styles.pdfViewerWrapper}>
+              {/* No `sandbox` attribute on purpose: measured on a Chromium
+                  browser, it blanks the PDF viewer. What keeps this frame from
+                  reaching the admin's storage is the server, which sends every
+                  `/media/{id}` answer with `Content-Security-Policy: sandbox`
+                  and `nosniff` (D83), and that holds wherever the URL is opened. */}
               <iframe src={fileUrl} title={asset.filename} className={styles.nativePdfIframe} />
             </div>
           )}

@@ -47,7 +47,8 @@ export class S3MockServer {
 
   private handle(req: Request): Response | Promise<Response> {
     const url = new URL(req.url);
-    this.requests.push(`${req.method} ${url.pathname}${url.search}`);
+    const range = req.headers.get("range");
+    this.requests.push(`${req.method} ${url.pathname}${url.search}${range ? ` range=${range}` : ""}`);
 
     // Path-style puts the bucket in the first segment; virtual-hosted leaves
     // it out. Stripping it only when it is actually there lets one server
@@ -82,14 +83,26 @@ export class S3MockServer {
         headers: { "content-type": "application/xml" },
       });
     }
-    return new Response(req.method === "HEAD" ? null : object.body, {
-      headers: {
-        "content-type": object.contentType ?? "application/octet-stream",
-        "content-length": String(object.body.length),
-        "last-modified": "Mon, 24 Aug 2026 10:00:00 GMT",
-        ETag: '"mock"',
-      },
-    });
+    const headers: Record<string, string> = {
+      "content-type": object.contentType ?? "application/octet-stream",
+      "content-length": String(object.body.length),
+      "last-modified": "Mon, 24 Aug 2026 10:00:00 GMT",
+      ETag: '"mock"',
+    };
+
+    // A ranged GetObject, as S3 answers one: 206 with the span it served. Only
+    // the single form the client sends, since that is what is under test.
+    const range = /^bytes=(\d+)-(\d*)$/.exec(req.headers.get("range") ?? "");
+    if (range && req.method === "GET") {
+      const start = Number(range[1]);
+      const end = range[2] === "" ? object.body.length - 1 : Math.min(Number(range[2]), object.body.length - 1);
+      const part = object.body.subarray(start, end + 1);
+      headers["content-length"] = String(part.length);
+      headers["content-range"] = `bytes ${start}-${end}/${object.body.length}`;
+      return new Response(part, { status: 206, headers });
+    }
+
+    return new Response(req.method === "HEAD" ? null : object.body, { headers });
   }
 
   /** `ListObjectsV2`, including the truncation and continuation tokens the

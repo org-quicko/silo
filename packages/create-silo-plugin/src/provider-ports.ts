@@ -104,6 +104,11 @@ export class ProviderPorts {
       params: "",
       note: "optional; the URL root a key is appended to for a reader outside silo, or null when silo serves the bytes",
     },
+    {
+      name: "stream",
+      params: "key, range",
+      note: "optional; returns { body, size?, contentType? } with the object, or the inclusive byte `range` of it, as a ReadableStream or Blob read as it is sent — silo falls back to `get` and slices when absent",
+    },
   ];
 
   static for(port: ProviderPort): readonly PortMethod[] {

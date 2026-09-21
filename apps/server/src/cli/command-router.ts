@@ -9,6 +9,7 @@ import { ImportCommand } from "./commands/import-command";
 import { InitCommand } from "./commands/init-command";
 import { KeysCommand } from "./commands/keys-command";
 import { LogsCommand } from "./commands/logs-command";
+import { McpCommand } from "./commands/mcp-command";
 import { MediaCommand } from "./commands/media-command";
 import { PluginCommand } from "./commands/plugin-command";
 import { SearchCommand } from "./commands/search-command";
@@ -23,7 +24,8 @@ import { UsageText } from "./usage-text";
  * Routes a subcommand, in three tiers that differ by how much they need to
  * exist first.
  *
- * 1. {@link runBeforeConfig} — `init` writes the file the others read.
+ * 1. {@link runBeforeConfig} — `init` writes the file the others read, and
+ *    `mcp` is a client of a running server that reads no file at all.
  * 2. {@link runWithoutStorage} — process management and `add`: none of these
  *    *is* the server, and asking whether one is running, or reading its log,
  *    must not create a data directory or take a handle on a database another
@@ -69,11 +71,19 @@ export class CommandRouter {
    * commands read, so an absent `--config` is the normal case rather than the
    * error `loadConfig` makes of it, and scaffolding a config must not create a
    * data dir as a side effect.
+   *
+   * `mcp` runs here too (D86): it talks to a running server over HTTP and
+   * owns no file and no data directory, so a harness may spawn it from any
+   * working directory.
    */
   private static async runBeforeConfig(
     invocation: CliInvocation,
     configPath: string
   ): Promise<boolean> {
+    if (invocation.command === "mcp") {
+      await CommandRouter.reportingFailure(() => McpCommand.run(invocation.values));
+      process.exit(0);
+    }
     if (invocation.command !== "init") return false;
 
     await CommandRouter.reportingFailure(async () => {
@@ -144,6 +154,10 @@ export class CommandRouter {
       await runtime.close();
       process.exit(1);
     }
+    // The success path closes too: the WAL is checkpointed and the read
+    // thread's connection released before the loop drains, rather than left to
+    // the exit. `serve` never reaches this line; it ends the process itself.
+    await runtime.close();
   }
 
   private static async runCommand(

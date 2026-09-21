@@ -123,6 +123,18 @@ describe("plugin routes (D36)", () => {
       expect(body.caller).toBeNull();
     });
 
+    /** A plugin route is an API answer and never a page (D83): whatever type
+     *  the plugin declares, a browser that opens the URL directly gets an
+     *  opaque origin with no script, so it cannot reach the admin's saved keys. */
+    test("every answer leaves as data, never as a page", async () => {
+      await load([greeter()]);
+
+      const response = await get("/api/ext/greeter/hello?who=world");
+      expect(response.status).toBe(200);
+      expect(response.headers.get("x-content-type-options")).toBe("nosniff");
+      expect(response.headers.get("content-security-policy")).toBe("default-src 'none'; sandbox");
+    });
+
     test("a key route refuses without one, and answers with one", async () => {
       await load([greeter()]);
 
