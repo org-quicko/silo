@@ -1,3 +1,5 @@
+import type { ImportMediaResult } from "./import-media-result";
+import type { ImportRejection } from "./import-rejection";
 import type { ScopeCopyPreview } from "./scope-copy-preview";
 
 export interface ImportResult {
@@ -7,6 +9,17 @@ export interface ImportResult {
   updated: number;
   deleted: number;
   skipped: number;
+  /**
+   * Entries the destination's schema refused (D70). Always present, and `0` on
+   * a clean import — a caller checking whether anything was dropped must not
+   * have to know the field is sometimes absent.
+   */
+  rejected: number;
+  /** Which ones, up to `Importer.RejectionLimit`. `rejected` stays exact. */
+  rejections: ImportRejection[];
+  /** What happened to the archive's media bytes. Absent when the run had no
+   *  blob store to write into — a scope copy, which touches no media at all. */
+  media?: ImportMediaResult;
   /** Present only for a scoped dry-run that asks for a bounded preview. */
   scope_copy?: ScopeCopyPreview;
 }

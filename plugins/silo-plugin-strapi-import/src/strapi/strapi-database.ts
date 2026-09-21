@@ -128,6 +128,19 @@ export class StrapiDatabase {
     return null
   }
 
+  /**
+   * The `_cmps` table `table`'s component children are named in, or `null` when
+   * it has none.
+   *
+   * Here rather than beside either of its two readers because it is the same
+   * storage fact as `table` above — a name Strapi derives and may then shorten —
+   * and because `StrapiShapes` imports `StrapiComponents`, so the two cannot
+   * share it between themselves.
+   */
+  joinTable(table: string): string | null {
+    return this.table(`${table}_cmps`)
+  }
+
   tables(prefix: string): string[] {
     return this.rows<{ name: string }>(
       `SELECT name FROM sqlite_master WHERE type = 'table' AND name LIKE ? ORDER BY name`,

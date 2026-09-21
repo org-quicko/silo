@@ -28,6 +28,7 @@ Usage:
   silo plugin grant <name> [--claims a,b]  approve what a plugin may do
   silo plugin revoke <name>              withdraw a plugin's stored grant
   silo plugin doctor                     load every plugin, report failures, exit
+  silo mcp --url u [--key k]             stdio MCP server bridging to a running silo
   silo version
   silo help
 
@@ -72,12 +73,17 @@ export:
   --dir path           export to directory layout
   --out path           export to .tar.gz tarball
   --with-keys          include API keys in export
+  --include rule       repeatable: project, project/env or project/env/collection.
+                       Omit for the whole instance.
+  --media s            all | referenced | none (default: all for a whole export,
+                       referenced once --include narrows it)
 
 import:
   --mode s             merge | replace (default merge)
-  --validate           strictly validate entries against schema (default false)
   --dry-run            verify import structure without writing (default false)
   --prefer s           local | remote (override conflict resolution)
+  --include rule       repeatable: load only this part of the archive
+  --media s            all | referenced | none. none ignores the archive bytes
 
 add: installs into <data>/plugins/ and appends a [[plugins]] block to the config.
   <spec> is a package name ("silo-plugin-slug", "@acme/x@^1"), a directory or
@@ -94,6 +100,13 @@ add: installs into <data>/plugins/ and appends a [[plugins]] block to the config
   --timeout-ms n   per-dispatch budget written into the block (default 5000)
   --on-error s     fail | skip, written into the block (default fail)
   --no-register    install the files, print the block, leave silo.toml alone
+
+mcp: speaks MCP on stdin/stdout for a client that spawns a process (Claude
+Desktop, Codex, any harness). Every message is forwarded to <url>/api/mcp with
+the key, so the tools are authorized exactly as the HTTP API would be. Clients
+that can open a URL should use POST <url>/api/mcp directly instead.
+  --url u          the running server, e.g. http://localhost:8090 (or SILO_URL)
+  --key k          the API key to present (or SILO_API_KEY; prefer the variable)
 
 Installing a plugin runs none of its code and no lifecycle script. What it
 downloads is checked against the registry's own digest; a plain URL is checked

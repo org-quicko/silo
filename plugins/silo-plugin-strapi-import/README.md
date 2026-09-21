@@ -70,6 +70,13 @@ all the way down.
   type's `document_id`, and silo's `x-silo-ref` has no integrity enforcement
   yet, so a faithful import would write ids that nothing resolves. Relations are
   reported under the inventory's `skipped`.
+- **A content type nothing can be written for is skipped, and the panel says
+  why.** A component's table is searched for and proved, and an export can fail
+  to name one. Where that component is the content type's only field, every
+  entry would import empty, so the content type is skipped instead. The reason
+  names the component, because finding its table is what makes the content type
+  importable. A content type that has a field beside it stays on the plan and
+  carries a note.
 
 ## Media
 
@@ -114,6 +121,27 @@ A file is uploaded once per run however many rows point at it, and before it
 uploads anything the plugin asks whether silo already holds those exact bytes,
 matched on sha256. Strapi's `alternative_text` has nowhere to go, and Strapi's
 generated size variants are not imported.
+
+## Two people at once
+
+**An import is yours.** The staged database, the uploads, the plan and the
+history all belong to the API key that sent them, so two people can import at
+the same time and neither sees the other's panel. Silo has no user model, so the
+key is the boundary: share a key and you share a session.
+
+The one thing that is refused is two runs writing **one collection** in one
+project and environment. Both would create it, both would read what is already
+there as zero, and both would write every row, so the second is refused and says
+which collection and which import holds it. Three imports run at once at most,
+because they all queue on silo's write lock.
+
+Staging is not kept for ever. A session nobody has come back to for
+`session_ttl_hours` is deleted, whole, and a session whose import is still
+running is never touched. So a migration that is abandoned halfway costs a day
+of disk rather than the life of the instance, which matters because the default
+staging directory is under the system temp directory. Point `work_dir` at a real
+disk for an uploads folder of any size: on many hosts the temp directory is
+memory.
 
 ## Install
 
@@ -164,7 +192,8 @@ and only link.
 | `media_base_url` | The Strapi instance still serving `/uploads/…`, used for a file you did not supply. Empty leaves the paths relative |
 | `media_folder` | Where supplied uploads land in silo’s media library, created on the first import. Empty, the default, is the library root |
 | `media_layout` | `single` (default): every upload in `media_folder`. `by-collection`: one folder per collection, plus `shared` |
-| `work_dir` | Where the export and the supplied uploads are staged. Defaults under the system temp directory, deliberately not the data directory |
+| `work_dir` | Where the export and the supplied uploads are staged, one directory per operator under it. Defaults under the system temp directory, deliberately not the data directory |
+| `session_ttl_hours` | How long a staged database and its uploads survive with no request reaching them. `24` by default, and `0` keeps them until someone removes them |
 | `version` | `published` (default) or `draft` |
 
 Nothing here names a target project or environment. That is chosen on the plan.
@@ -188,7 +217,7 @@ src/
 ├─ index.ts          activate/deactivate, and the four route groups on one object
 ├─ routes/           one file per group: source, uploads, plan, imports
 ├─ import/           the plan, and the run
-├─ worker/           the state one worker holds, and the configuration it read
+├─ worker/           one session per caller, the sessions map, and the configuration it read
 ├─ strapi/           reading the export: database, identifiers, versions, shapes, entries, media
 ├─ staging/          where the .db and the uploads live while a run needs them
 ├─ silo/             writing into silo: media, multipart, collection names, target scopes

@@ -6,12 +6,17 @@ JSON everywhere, and clean routes under `/api`. There is no URL versioning: a
 breaking change is a release-note event, and the data format carries its own
 version. CORS is enabled for `/api/*`.
 
+[docs/openapi.json](../openapi.json) is the same API as an OpenAPI 3.1
+description. Open it in Swagger UI or Redoc, or give it to a code generator to
+make a client. This page is the short version that you read.
+
 Present a key as `Authorization: Bearer <key>` or `X-Api-Key: <key>`.
 
 | Method | Path | Notes |
 |--------|------|-------|
 | `GET` | `/api/health` | liveness and version, never authenticated |
 | `GET` | `/api/session` | current key label, prefix, and effective claims |
+| `POST` | `/api/mcp` | MCP over Streamable HTTP: one JSON-RPC message, or a batch, in; the reply out. Needs a key. `GET` and `DELETE` answer `405`. See [mcp.md](mcp.md) |
 | `GET` / `POST` | `/api/projects` | list projects visible to the key / create `{id}` |
 | `PATCH` | `/api/projects/{project}` | rename a project, and rewrite the claims that name it (`?dry_run=true`) |
 | `DELETE` | `/api/projects/{project}` | delete a project, its environments and their collections (`?force=true`) |
@@ -28,8 +33,8 @@ Present a key as `Authorization: Bearer <key>` or `X-Api-Key: <key>`.
 | `GET` / `PUT` / `DELETE` | `/api/projects/{project}/envs/{env}/collections/{name}/schema` | fetch / update / delete a schema |
 | `GET` / `POST` | `/api/projects/{project}/envs/{env}/collections/{name}` | list entries (filter, sort, paginate) / create |
 | `GET` / `PUT` / `DELETE` | `/api/projects/{project}/envs/{env}/collections/{name}/{id}` | read / full replace / delete |
-| `GET` | `/api/export` | stream a `tar.gz` archive |
-| `POST` | `/api/import?mode=` | accept a `tar.gz` archive |
+| `GET` | `/api/export?include=&media=` | stream a `tar.gz` archive, whole or narrowed |
+| `POST` | `/api/import?mode=&include=&media=` | accept a `tar.gz` archive |
 | `POST` | `/api/copy` | pull and import another running silo |
 | `GET` / `POST` | `/api/keys` | list keys / create one. The secret is returned exactly once |
 | `DELETE` | `/api/keys/{id}` | revoke a key, and everything descended from it |
@@ -63,7 +68,7 @@ Present a key as `Authorization: Bearer <key>` or `X-Api-Key: <key>`.
 | `GET` | `/api/projects/{project}/envs/{env}/search` | search one environment |
 | `GET` | `/api/search` | search everything the key can read |
 | `POST` | `/api/search/reindex` | rebuild the search index |
-| `GET` | `/media/{filename}` | public asset streaming, with immutable cache headers |
+| `GET` | `/media/{id}` | public asset streaming. The file is read from the store as it is sent, never held whole. A single `Range: bytes=...` header answers `206` with `Content-Range`; a range past the end answers `416`. A whole answer has no `Content-Length`. Every answer carries `X-Content-Type-Options: nosniff` and `Content-Security-Policy: sandbox`. Images, video, audio and PDF are sent `inline`; an SVG and any other type is sent as an `attachment`, so a browser downloads it instead of showing it as a page. An `<img>` tag still displays it |
 
 `/environments` is accepted anywhere `/envs` appears. Collection, entry and
 environment-copy routes are scoped to a `(project, environment)` pair.
@@ -166,6 +171,13 @@ A `sort` beats relevance, so omit it to rank. Which fields are indexed is a
 schema decision, through `x-silo-search`. An anonymous caller reaches only the
 collections whose schema does not set `x-silo-auth`.
 
+## MCP
+
+`POST /api/mcp` is the same API for an AI client. Each tool is one of the
+routes above, called with the key the client presents, so the claims decide
+exactly as they do here. [mcp.md](mcp.md) lists the tools and shows how to
+connect Claude Code, Codex, Cursor and Claude Desktop.
+
 ## Optimistic concurrency
 
 `PUT` and `DELETE` on an entry require the revision you expect, as
@@ -180,8 +192,38 @@ admin tabs from overwriting each other in silence.
 ```
 
 The codes are `validation_failed` (400), `unauthorized` (401), `forbidden`
-(403), `not_found` (404), `conflict` (409) and `internal` (500). Validation
-details carry JSON Pointer paths from the validator.
+(403), `not_found` (404), `method_not_allowed` (405, only from `/api/mcp`),
+`conflict` (409), `payload_too_large` (413), `archive_too_large` (413),
+`internal` (500) and `busy` (503). Validation details carry JSON Pointer paths
+from the validator.
+
+A `503 busy` comes from an entry list or a search. A filter or a sort over
+entry data scans the collection. Those scans run on a separate storage thread
+with a queue of 64. When the queue is full the request is refused with
+`Retry-After: 1` instead of waiting. A filter may test at most 16 fields; more
+is a `400`.
+
+A `413` means the request body is larger than the route accepts. Routes that
+take a JSON document accept `[http] max_json_body_size_mb` (default 4 MB). The
+media upload, media replace, import and plugin install routes accept up to
+`[http] max_body_size_mb` (default 128 MB). See
+[configuration.md](configuration.md).
+
+A `413` with the code `archive_too_large` comes from an import or a copy. The
+archive is larger than `[transfer] max_archive_size_mb`, or it would unpack to
+more than `[transfer] max_extracted_size_mb`. The message names the setting.
+
+Every write is validated against the collection's schema. A read is not.
+
+A `PUT` to `/collections/{name}/schema` answers `409` if the collection holds
+entries and the new schema changes which entries are valid. The message gives
+the collection name and the entry count. A change to `x-silo-auth`,
+`x-silo-search`, `title`, `description`, `$comment` or `$schema` is always
+permitted, because those do not change what is valid.
+
+The admin UI makes the schema read-only while entries exist. It keeps the field
+descriptions and the privacy toggle editable. To change `x-silo-search` on such
+a collection, use this endpoint.
 
 Two failures have codes of their own, because they are neither a refusal nor a
 bug and a caller can act on them: `media_delete_stalled` (500) and

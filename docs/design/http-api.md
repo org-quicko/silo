@@ -29,9 +29,9 @@ Hono web framework on Bun. JSON everywhere. Admin UI served at `/`; API under `/
 | GET | `/api/projects/{project}/envs/{env}/search` | search one scope |
 | GET | `/api/search` | search the instance |
 | POST | `/api/search/reindex` | rebuild the index; export-level read claims |
-| GET | `/api/export` | streams tar.gz (`transfer:export`; `keys:export` when including keys) |
-| POST | `/api/import?mode=` | streams in a tar.gz — a raw body, or a `multipart/form-data` `file` part (`transfer:import` + `media:create`, plus `media:delete` in replace mode; archives containing keys also require `keys:import`) |
-| POST | `/api/copy` | pulls and imports another silo (`{source_url, source_api_key, mode, with_keys, dry_run, validate, prefer}`; `transfer:copy`) |
+| GET | `/api/export?include=&media=` | streams tar.gz as it is walked (§7.1); `include` is repeatable and narrows it, `media` is `all\|referenced\|none` (§7.6, §7.7). `transfer:export`, plus read permissions at the reach `include` names or instance-wide without one; `keys:export` and instance-wide read when including keys |
+| POST | `/api/import?mode=&include=&media=` | streams in a tar.gz — a raw body, or a `multipart/form-data` `file` part. `transfer:import` + write permissions at the same reach, `media:create` unless `media=none`, plus the delete permissions in replace mode; archives containing keys also require `keys:import`. `Accept: application/x-ndjson` answers with a progress stream (§7.8) |
+| POST | `/api/copy` | pulls and imports another silo (`{source_url, source_api_key, mode, with_keys, dry_run, prefer, include, media}`; `transfer:copy`). `include` is forwarded to the source's own export, and the progress stream applies here too |
 | GET / POST | `/api/keys` | list (`keys:read`) / create (`keys:create`); create returns the secret exactly once |
 | PATCH | `/api/keys/{id}` | edit a key's label and/or claims (`keys:create`, **and** the authority to have minted both what it holds and what it is being given — D63) |
 | DELETE | `/api/keys/{id}` | revoke a key (`keys:revoke`, **and** the authority to have minted it — D37) |
@@ -50,7 +50,7 @@ Hono web framework on Bun. JSON everywhere. Admin UI served at `/`; API under `/
 | GET / PUT | `/api/media/settings` | where media URLs point and what may be uploaded (`media:configure`) — see §8.3 |
 | GET | `/api/settings` | every other table of `silo.toml`, with what is in force and what a restart is owed for (`settings:configure`) — see §8.4 |
 | PUT | `/api/settings/{table}` | rewrite one of them (`settings:configure`) |
-| GET | `/media/{id}` | public asset streaming (pre-D23 `/media/{blobKey}` still resolves) |
+| GET | `/media/{id}` | public asset streaming, read from the store as it is sent and never held whole, one `Range` honoured as a `206` (D80; pre-D23 `/media/{blobKey}` still resolves). Every answer carries `nosniff` and `Content-Security-Policy: sandbox`; images, video, audio and PDF are `inline`, an SVG or any other type is a `Content-Disposition: attachment` (D83), because this origin also serves the admin and its saved keys |
 | GET | `/api/plugins` | plugin grants, state, the gap between requested and granted, what each package `contributes`, and the author's reason for every claim (`plugins:read`) |
 | GET | `/api/plugins/{name}` | one grant; carries `ETag: "<rev>"` for the mutations below |
 | PUT / DELETE | `/api/plugins/{name}/grant` | approve or narrow (body is the **complete** granted set; omitted means everything the package says it **requires**) / withdraw (`plugins:grant`, `If-Match` required) |
@@ -59,7 +59,7 @@ Hono web framework on Bun. JSON everywhere. Admin UI served at `/`; API under `/
 | POST | `/api/plugins/{name}/restart` | tear the worker down and bring it back (`plugins:enable`); writes no record, so no `If-Match` |
 | GET | `/api/plugins/{name}/ui` | the plugin's declared admin panel (`plugins:read`, D41). Answered as **JSON** (`{title, entry, html}`) with `nosniff`, `default-src 'none'; sandbox` and `no-store` — never as a document, because this origin also serves the admin SPA, which keeps an API key per configured server in its `localStorage`. Only the admin makes it a document, inside `sandbox="allow-scripts"` with no `allow-same-origin` |
 | POST | `/api/plugins/rescan` | re-read `silo.toml` and apply it (`plugins:enable`); reports per plugin rather than refusing on one |
-| ALL | `/api/ext/{name}/*` | the routes a plugin declares (D36); see the note below |
+| ALL | `/api/ext/{name}/*` | the routes a plugin declares (D36), every answer sent with `nosniff` and `default-src 'none'; sandbox` whatever type the plugin declared (D83); see the note below |
 | GET | `/api/audit` | authority changes, newest first (`audit:read`); `?subject=` filters to one key id or plugin name |
 | GET | `/api/observability` | bounded process-lifetime API, latency, memory/CPU, and local-storage metrics (`observability:read`) |
 
@@ -69,7 +69,7 @@ Hono web framework on Bun. JSON everywhere. Admin UI served at `/`; API under `/
 
 **Optimistic concurrency:** PUT/DELETE require the expected rev (`If-Match: "3"` or `?rev=3`); mismatch → `409` with the current entry. Prevents lost updates from two admin tabs — cheap now, painful to retrofit.
 
-**Errors:** `{"error": {"code": "validation_failed", "message": "...", "details": [...]}}`; validation details use JSON Pointer paths from the validator.
+**Errors:** `{"error": {"code": "validation_failed", "message": "...", "details": [...]}}`; validation details use JSON Pointer paths from the validator. Since D79 a body over its route class's ceiling is `413 payload_too_large`, answered from the headers before the route or auth runs (§10.4 in configuration.md). Since D81 an entry list or a search whose scan cannot be queued on the storage read worker is `503 busy` with `Retry-After: 1`, and a filter naming more than `MaxFilterLeaves` (16) field tests is a `400` (§6.2 in storage.md). Since D85 an import or a copy whose archive, or whose unpacked tree, is past `[transfer]`'s ceilings is `413 archive_too_large`, naming the setting (§10.5 in configuration.md).
 
 **Auth: claims-based API keys, Shlink-style.** No users or browser sessions: a presented key authenticates a request and its claims authorize individual operations. Claims are deny-by-default. Anonymous collection schema and entry reads remain public within their scope unless the schema sets `"x-silo-auth": true`. When a key is presented, its claims become the visibility boundary and even public collections require the corresponding read claim.
 
@@ -89,7 +89,7 @@ Hono web framework on Bun. JSON everywhere. Admin UI served at `/`; API under `/
 - **Operating metrics are aggregate and low-cardinality:** `GET /api/observability` groups requests by Hono's registered method and route pattern, never by the requested path. It retains process-lifetime counters and sixty one-minute chart buckets, with bounded latency histograms rather than individual requests. Query strings, route parameters, caller identities, bodies, credentials, content and filesystem paths never enter it. Latency percentiles are bucket upper bounds clamped to the slowest request observed, so one never reads above the `max` beside it. Memory and cumulative CPU time are sampled from the process; local directory size and filesystem capacity are cached background probes that do not follow symlinks and stop after 50,000 entries. The data and media directory figures are disjoint — the data walk skips the media subtree when the library is nested inside it, which it is by default. Remote-provider capacity is `null`, not guessed. `observability:read` is carried by `manage` and `root`, is grantable to a plugin, and has no write counterpart.
 - **Plugins reach this table in-process (D35):** a plugin's `ctx.fetch` is dispatched against the same Hono app, with its principal attached by the host on the `env` argument under a module-private symbol rather than presented as a header — so `AuthMiddleware` reads it *before* the `--no-auth` branch and every guard below applies unchanged. Two consequences for anyone adding a route: it is a plugin capability the moment it exists, so a route asking for less authority than it exercises is a plugin escalation and not merely a bug (D37); and a dispatched request has **no origin**, so `RequestUtils.getBaseUrl` returns `""` and media references reach a plugin as stored rather than expanded against a host that does not exist. Only `/api/` is reachable — the SPA fallback and `/media/{id}` sit outside the auth middleware entirely. §13.15 of [plugins.md](plugins.md).
 - **A default grant is what the package says it requires (D36):** a manifest splits its `permissions` into `required` and `optional`, each entry carrying the author's `reason`, and `PUT .../grant` with no `claims` approves the required half. It read *everything requested* before the split, which is the same answer for a package declaring nothing optional and the wrong one for a package that does — a default approving the optional half would make the word mean nothing. `required` is stored on the record beside `requested`, because this surface acts on the record and never on the filesystem (D38), and the reasons come from the package because they are documentation rather than authority. §13.19 of [plugins.md](plugins.md).
-- **Plugins also serve routes of their own, under `/api/ext/{name}/*` (D36):** declared statically in the manifest, gated by `http:route` — which since D36 is **derived** from the declared routes rather than written out by the author — and each declaring `auth: "key"` (any authenticated key) or `"public"` (no credential). silo matches them itself against that list rather than letting a plugin register anything, so a plugin can neither shadow nor reorder a route in this table, and the set is resolved per request — enable, disable, revoke and rescan therefore apply to routes as they do to hooks (D39). A handler runs with **the plugin's** authority and not the caller's, which is why exposure is a claim and why `public` is called out separately: it publishes whatever the plugin was granted at a URL anyone can reach. The caller's `Authorization`, `X-Api-Key` and `Cookie` are withheld from the handler, which receives an id, a label and claims instead. A thrown `ValidationError` or `ForbiddenError` maps to 400/403 through the same `onError` as everything else; a handler that misses `timeout_ms` is a 504 naming `POST /api/plugins/{name}/restart`; a request body is bounded by the route's own declared `body` — text and 1 MiB unless the manifest says `{"kind": "bytes", "max_bytes": n}` up to silo's 64 MiB ceiling (D41) — and **refused** past it rather than truncated, since a plugin cannot tell a body it was not given from one that was never sent. A `bytes` route is handed `request.bytes` and no text. `HEAD` reaches a declared `GET`, as it does everywhere else in this table. §13.18 of [plugins.md](plugins.md).
+- **Plugins also serve routes of their own, under `/api/ext/{name}/*` (D36):** declared statically in the manifest, gated by `http:route` — which since D36 is **derived** from the declared routes rather than written out by the author — and each declaring `auth: "key"` (any authenticated key) or `"public"` (no credential). silo matches them itself against that list rather than letting a plugin register anything, so a plugin can neither shadow nor reorder a route in this table, and the set is resolved per request — enable, disable, revoke and rescan therefore apply to routes as they do to hooks (D39). A handler runs with **the plugin's** authority and not the caller's, which is why exposure is a claim and why `public` is called out separately: it publishes whatever the plugin was granted at a URL anyone can reach. The caller's `Authorization`, `X-Api-Key` and `Cookie` are withheld from the handler, which receives an id, a label and claims instead. A thrown `ValidationError` or `ForbiddenError` maps to 400/403 through the same `onError` as everything else; a handler that misses `timeout_ms` is a 504 naming `POST /api/plugins/{name}/restart`; a request body is bounded by the route's own declared `body` — text and 1 MiB unless the manifest says `{"kind": "bytes", "max_bytes": n}` up to silo's 64 MiB ceiling (D41) — and **refused** past it rather than truncated, since a plugin cannot tell a body it was not given from one that was never sent. A `bytes` route is handed `request.bytes` and no text. `HEAD` reaches a declared `GET`, as it does everywhere else in this table. Every answer leaves with `X-Content-Type-Options: nosniff` and `Content-Security-Policy: default-src 'none'; sandbox`, replacing the plugin's own spelling of either (D83): a plugin route is an API answer and never a page, since this origin also holds the admin's saved keys. §13.18 of [plugins.md](plugins.md).
 - The UI stores each saved server's key in `localStorage` (`silo_servers`), verifies it with `GET /api/session`, and sends it as a header on every request; no cookies, so no CSRF surface. Any `401` returns the UI to the server manager.
 - **A project, environment or collection can be renamed (D51):** three `PATCH`
   routes taking `{name}`. Authority is `RenamePermissions =
@@ -217,10 +217,9 @@ nothing. Both take an ISO-8601 timestamp and are inclusive.
 path, which is what lets a rename leave every entry alone. Extraction is
 **structural**, not schema-driven: `MediaRefs.extract` walks the whole `data`
 value and collects every string that parses as a reference, regardless of what
-the schema says, because §7.2 lets an archive carry `content/<collection>/`
-with no schema at all and validation is off by default on import. A
-schema-driven walk would find nothing there and a missed reference deletes a
-live file. Over-capture (a free-text field holding a literal reference string)
+the schema says. A schema-driven walk would find nothing in a field the schema
+does not declare — and JSON Schema admits undeclared properties unless a schema
+says otherwise — so a missed reference would delete a live file. Over-capture (a free-text field holding a literal reference string)
 blocks a delete: visible and recoverable. Under-capture orphans: silent. Take
 the asymmetry.
 
@@ -241,8 +240,11 @@ remote object store cannot share a transaction:
 A crash between 3 and 4 leaves an asset in `deleting`; startup retries the
 idempotent blob delete and finishes. `Service` refuses to create a *new*
 reference to an asset in `deleting`, so the window cannot be re-entered.
-Import does **not** run that check — §7.2 is fidelity-first and validation is
-opt-in, so an archive is never rejected for naming an asset it also carries.
+Import does **not** run that check: an archive carries its assets alongside the
+entries naming them, so rejecting an entry for pointing at one mid-delete would
+refuse a restore for a state the restore itself resolves. This is the one thing
+§7.2 stayed fidelity-first about after D70 made entry validation unconditional —
+it is about reference *timing*, not about shape.
 
 **The abort.** A blob delete that fails *permanently* — rotated credentials, a
 changed bucket policy — would otherwise strand the asset in `deleting`
@@ -947,3 +949,67 @@ name already declared. None of it is audited: `AuditAction` is the trail of
 because `rev` and `updated_at` already record them. A variable's value is
 content, and every declaration carries its own `rev` and `updated_at` for the
 same reason an entry does.
+
+### 8.6 MCP: the API as a tool set (D86)
+
+`POST /api/mcp` speaks the Model Context Protocol over its Streamable HTTP
+transport, so an AI client — Claude Code, Codex, Cursor, or Claude Desktop
+through `silo mcp` — calls silo the way it calls any other tool server. The
+design is one dispatch and four refusals.
+
+**Every tool is a route, dispatched through the same app (the D35 move,
+again).** `McpToolRunner` turns a `tools/call` into a `Request` against the
+Hono app the MCP message arrived on, carrying the caller's own `Authorization`
+header, and `AuthMiddleware` and `RouteAuth` decide as they would for any
+request. A tool therefore cannot be more permissive than its route, because
+there is no second evaluator; a `read` key hands a model a CMS it can browse and
+cannot dent; a refusal reaches the model as the route's own message naming the
+missing claim; and a route added later is one catalog entry away from being a
+tool. The plugin dispatcher *injects* a synthesised principal because a worker
+holds no secret; the tool runner *forwards* the presented one because the caller
+does, and forwards `Host` and the `X-Forwarded-*` pair with it, so
+`RequestUtils.getBaseUrl` roots media URLs where the client reached the instance
+instead of answering `""` as it does for a plugin.
+
+**The catalog is hand-written, like `openapi.json`.** Nineteen tools in five
+groups — `InstanceTools`, `CollectionTools`, `EntryTools`, `SearchTools`,
+`MediaTools` — each a name, a description written for a model, a closed JSON
+Schema for its arguments, the spec's annotations, and the mapping to a request.
+Deriving them from the route table was considered and rejected: Hono has no
+table to read, and a good tool description is not a route summary — it says
+what to call first, what `rev` is for, and that `data` is the whole document.
+Arguments are checked against the tool's schema by AJV before anything is
+dispatched. A wrong shape is a JSON-RPC `-32602`, because the route was never
+reached and there is nothing it refused; a route's `4xx` is a *result* with
+`isError: true`, because that is the answer the model has to read and correct.
+Media has read tools only: a tool call carries JSON and an upload carries bytes.
+
+**Stateless, and a key is required.** No `Mcp-Session-Id` is issued, `GET` and
+`DELETE` answer `405`, and there is no SSE stream: the server never initiates a
+request, the tool list never changes while the process runs, and every message
+already carries the credential, so a session would be state with nothing to
+remember. A `POST` without a key is `401` with a `WWW-Authenticate: Bearer`
+challenge even where a plain `GET` would be public — a client with no key
+configured has nothing to call and should learn that at connect time, not as
+nineteen refusals. OAuth is not offered; the key is the credential, and every
+client silo documents has a place for a bearer header or an environment
+variable.
+
+**No SDK.** `@modelcontextprotocol/sdk` would bring zod and a transport layer
+to do what `McpRoutes` and `McpServer` do in two short files: parse JSON-RPC,
+answer `initialize`, `ping`, `tools/list` and `tools/call`, `202` a
+notification, `-32601` the rest. Version negotiation is the spec's — echo a
+known revision, else answer `McpProtocol.Latest`. Resources, prompts, sampling,
+elicitation and `listChanged` notifications are not implemented; a collection's
+schema is a tool's answer rather than a resource because the tool is the one
+call every client supports. The route sits under `/api/*` on purpose, so CORS,
+`BodyLimitMiddleware` and the auth middleware apply with no MCP-specific rule.
+
+**`silo mcp` is a client.** Some hosts spawn a process and speak
+newline-delimited JSON-RPC on its stdio. `McpStdioBridge` forwards each line to
+`/api/mcp` and writes the reply, turning an HTTP refusal or a connection failure
+into a JSON-RPC error for the request it answers. It is deliberately *not* an
+in-process server over the data directory: that would wire a second app per
+spawn, and a stdio process writing to a data directory a `serve` owns is the
+very thing D25 forbids. Being a client is also what lets it run from any working
+directory with no config file (§10.6).

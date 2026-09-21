@@ -13,6 +13,7 @@ import type { WriteContext } from "../hooks/write-context";
 import { WriteContexts } from "../hooks/write-contexts";
 import { CollectionSchemas } from "../schema/collection-schemas";
 import { SchemaBundler } from "../schema/schema-bundler";
+import { SchemaChangeGuard } from "../schema/schema-change-guard";
 import { SchemaRefRewrite } from "../schema/schema-ref-rewrite";
 import { CollectionEvents } from "./support/collection-events";
 import { CollectionEraser } from "./support/collection-eraser";
@@ -136,6 +137,11 @@ export class CollectionService {
     await this.context.schemaRegistry.checkSchemaDoc(scope, name, bundledSchema);
 
     return this.context.withWriteLock(async () => {
+      // Under the lock, and immediately before the write: the guard counts
+      // entries and then replaces the schema, so a create that won the race
+      // outside it would be filed under a schema that never judged it (D70).
+      await SchemaChangeGuard.assert(this.context.store, scope, name, bundledSchema);
+
       const record = await this.context.store.putSchema(scope, name, bundledSchema);
       this.context.schemaRegistry.invalidate();
       return { id: record.id, name: record.name, schema: record.schema };

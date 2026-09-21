@@ -188,7 +188,7 @@
     node.textContent = message
   }
 
-  const state = { source: null, inventory: null, files: null, plan: null, targets: [], job: null, timer: null }
+  const state = { source: null, inventory: null, files: null, plan: null, targets: [], job: null, timer: null, ttlHours: 0 }
 
   function bytes(n) {
     if (n < 1024) return n + ' B'
@@ -238,6 +238,7 @@
       if (!answer.ok) throw new Error((body && body.error && body.error.message) || 'upload failed')
       state.source = body.source
       state.inventory = body.inventory
+      state.ttlHours = body.ttlHours || 0
       await loadPlan()
     } catch (caught) {
       alert_(caught.message || String(caught))
@@ -889,6 +890,9 @@
       const notes = $('source-notes')
       const inventory = state.inventory || { lists: [], skipped: [], media: { files: 0, attached: 0 } }
       notes.innerHTML =
+        '<div class="dim">Staged for your API key alone' +
+        (state.ttlHours > 0 ? '. Removed after ' + state.ttlHours + ' h idle' : '') +
+        '.</div>' +
         '<div class="dim">' + inventory.lists.length + ' importable content type' +
         (inventory.lists.length === 1 ? '' : 's') + ' · reading the <b>' +
         text(inventory.version) + '</b> version · ' + inventory.media.files +
@@ -925,6 +929,7 @@
         const body = answer.json()
         state.source = body.source
         state.inventory = body.inventory
+        state.ttlHours = body.ttlHours || 0
         await loadPlan()
       }
       const jobs = await silo.json('/imports')

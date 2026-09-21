@@ -1,6 +1,8 @@
 import type { Config } from "../../config/config";
+import { HttpDefaults } from "../../config/http-defaults";
 import { SiloServer } from "../../http/server";
 import type { SiloRuntime } from "../runtime/silo-runtime";
+import { BootId } from "../../runtime/boot-id";
 import { ListenAddress } from "../../runtime/listen-address";
 import { ProcessTitle } from "../../runtime/process-title";
 import { RunFile } from "../../runtime/run-file";
@@ -16,6 +18,9 @@ import { Observability } from "../../observability";
  * drifting.
  */
 export class ServeCommand {
+  /** How long a shutdown may spend closing before the process ends regardless. */
+  static readonly ShutdownGraceMs = 5_000;
+
   /**
    * The whole runtime rather than four of its fields: since D35 this needs the
    * plugin registry as well, to hand it the app once it exists, and a sixth
@@ -28,7 +33,15 @@ export class ServeCommand {
     // Before anything is written. Two servers over one data directory hand out
     // duplicate `seq` values and defeat the process-local write mutex that
     // makes optimistic concurrency sound — see RunFile.assertNotRunning.
-    await RunFile.assertNotRunning(config.storage.path);
+    const stale = await RunFile.assertNotRunning(config.storage.path);
+    if (stale) {
+      const { reason } = RunFile.liveness(stale) as { live: false; reason: string };
+      logger.warn("replacing a run record a previous server left behind", {
+        pid: stale.pid,
+        started_at: stale.started_at,
+        reason,
+      });
+    }
 
     await service.scopes.initDefaults(config.default_project, config.default_env);
     const bootstrapKey = await service.keys.bootstrap();
@@ -81,6 +94,7 @@ export class ServeCommand {
       authDisabled: config.auth.disabled,
       logger,
       logRequests: config.log.requests,
+      http: config.http,
       // The management API acts on the live set, not on the record alone
       // (D39) — enabling a plugin starts it, and revoking a grant stops
       // delivery on the next hook rather than at the next start.
@@ -110,7 +124,20 @@ export class ServeCommand {
     await plugins.activate();
 
     const { hostname, port } = ListenAddress.parse(config.listen);
-    const server = Bun.serve({ port, hostname, fetch: app.fetch });
+    // `idleTimeout` is passed explicitly because the runtime's own default is
+    // 10 seconds, which a transfer route can exceed before it says anything —
+    // and the socket closing mid-header reaches the caller as a proxy error
+    // naming the proxy rather than silo (§10.3, §7.1).
+    // `maxRequestBodySize` is passed explicitly too: the runtime buffers a body
+    // nobody has asked for, so its ceiling is the memory one connection can hold
+    // (§10.4). The per-route ceilings live in `BodyLimitMiddleware`.
+    const server = Bun.serve({
+      port,
+      hostname,
+      idleTimeout: config.http.idle_timeout,
+      maxRequestBodySize: HttpDefaults.bytes(config.http.max_body_size_mb),
+      fetch: app.fetch,
+    });
 
     // Named after the bind, for the reason the run file is written after it:
     // a start that lost the port race must not announce that address anywhere.
@@ -118,15 +145,32 @@ export class ServeCommand {
 
     // Written after the bind succeeds, so a start that lost a port race never
     // leaves a record claiming the address.
-    await RunFile.write(config.storage.path, {
+    const startedAt = new Date().toISOString();
+    let record = await RunFile.heartbeat(config.storage.path, {
       pid: process.pid,
       version,
       listen: config.listen,
       data: config.storage.path,
       driver: config.storage.driver,
       log: logger.file,
-      started_at: new Date().toISOString(),
+      started_at: startedAt,
+      boot_id: BootId.current(),
     });
+    // Refreshed while the server lives, so a record nobody refreshes is a dead
+    // server's, whatever its recycled pid now points at (D82). `unref`, so a
+    // shutdown is not held open by the next beat.
+    const heartbeat = setInterval(() => {
+      RunFile.heartbeat(config.storage.path, record)
+        .then((refreshed) => {
+          record = refreshed;
+        })
+        .catch((caught: unknown) => {
+          logger.warn("could not refresh the run record", {
+            message: caught instanceof Error ? caught.message : String(caught),
+          });
+        });
+    }, RunFile.HeartbeatMs);
+    heartbeat.unref?.();
 
     logger.info("listening", {
       version,
@@ -138,20 +182,46 @@ export class ServeCommand {
     });
 
     let stopping = false;
-    const shutdown = async () => {
+    const shutdown = async (code = 0) => {
       // A second SIGTERM while the first is draining must not run this twice
       // and race the store closed underneath itself.
       if (stopping) return;
       stopping = true;
-      logger.info("shutting down");
-      server.stop();
-      await RunFile.remove(config.storage.path);
-      await store.close();
-      await logger.close();
-      process.exit(0);
+      // Whatever the teardown below does, the process ends: a close that hangs
+      // must not turn a crash into a server that is neither up nor gone.
+      setTimeout(() => process.exit(code), ServeCommand.ShutdownGraceMs).unref?.();
+      clearInterval(heartbeat);
+      try {
+        logger.info("shutting down");
+        server.stop();
+        await RunFile.remove(config.storage.path);
+        await store.close();
+        await logger.close();
+      } catch {
+        // Already on the way out; the timer above bounds what is left.
+      }
+      process.exit(code);
     };
-    process.on("SIGINT", shutdown);
-    process.on("SIGTERM", shutdown);
+    process.on("SIGINT", () => void shutdown(0));
+    process.on("SIGTERM", () => void shutdown(0));
+
+    // The runtime ends the process on either of these anyway. Doing it here
+    // instead means the run record is removed first, so the next start is not
+    // refused over a server that no longer exists (D82), and the reason lands
+    // in the log rather than only on a stream a supervisor may not keep.
+    const crash = (kind: string) => (cause: unknown) => {
+      try {
+        logger.error(`fatal: ${kind}`, {
+          message: cause instanceof Error ? cause.message : String(cause),
+          ...(cause instanceof Error && cause.stack ? { stack: cause.stack } : {}),
+        });
+      } catch {
+        // The log itself may be what failed.
+      }
+      void shutdown(1);
+    };
+    process.on("uncaughtException", crash("uncaught exception"));
+    process.on("unhandledRejection", crash("unhandled rejection"));
 
     // Prevent process exiting
     await new Promise(() => {});

@@ -3,6 +3,8 @@ import fs from "fs/promises";
 import path from "path";
 import os from "os";
 import { CliOptions } from "../../src/cli/cli-options";
+import { HttpDefaults } from "../../src/config/http-defaults";
+import { TransferDefaults } from "../../src/config/transfer-defaults";
 import { ConfigLoader } from "../../src/config/config-loader";
 
 /**
@@ -181,5 +183,192 @@ describe("ConfigLoader log settings", () => {
     process.env.SILO_LOG_MAX_SIZE_MB = "lots";
     const config = await ConfigLoader.loadConfig(path.join(tempDir, "absent.toml"), false);
     expect(config.log.max_size_mb).toBe(ConfigLoader.defaultConfig().log.max_size_mb);
+  });
+});
+
+/**
+ * The listener's idle timeout (§10.3). It exists because the runtime's own
+ * default is 10 seconds and a transfer route can legitimately say nothing for
+ * longer, and the socket closing mid-response reaches the caller as a proxy
+ * error naming the proxy rather than silo.
+ */
+describe("ConfigLoader http settings", () => {
+  let tempDir: string;
+  let saved: string | undefined;
+
+  beforeEach(async () => {
+    tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "silo-http-config-test-"));
+    saved = process.env.SILO_HTTP_IDLE_TIMEOUT;
+    delete process.env.SILO_HTTP_IDLE_TIMEOUT;
+  });
+
+  afterEach(async () => {
+    if (saved === undefined) delete process.env.SILO_HTTP_IDLE_TIMEOUT;
+    else process.env.SILO_HTTP_IDLE_TIMEOUT = saved;
+    await fs.rm(tempDir, { recursive: true, force: true });
+  });
+
+  const writeConfig = async (toml: string): Promise<string> => {
+    const file = path.join(tempDir, "silo.toml");
+    await fs.writeFile(file, toml);
+    return file;
+  };
+
+  test("the default is far above the runtime's own", () => {
+    expect(ConfigLoader.defaultConfig().http.idle_timeout).toBe(HttpDefaults.IdleTimeout);
+    expect(HttpDefaults.IdleTimeout).toBeGreaterThan(10);
+  });
+
+  test("the file supplies it and the env var outranks the file", async () => {
+    const file = await writeConfig(`[http]\nidle_timeout = 90\n`);
+    expect((await ConfigLoader.loadConfig(file)).http.idle_timeout).toBe(90);
+
+    process.env.SILO_HTTP_IDLE_TIMEOUT = "45";
+    expect((await ConfigLoader.loadConfig(file)).http.idle_timeout).toBe(45);
+  });
+
+  test("a value above the runtime's ceiling is clamped, not refused", async () => {
+    // Failing to start over a config that is merely too generous would turn a
+    // cautious setting into an outage.
+    const file = await writeConfig(`[http]\nidle_timeout = 6000\n`);
+    expect((await ConfigLoader.loadConfig(file)).http.idle_timeout).toBe(HttpDefaults.MaxIdleTimeout);
+  });
+
+  test("zero is kept, because it is how the guard is switched off", async () => {
+    const file = await writeConfig(`[http]\nidle_timeout = 0\n`);
+    expect((await ConfigLoader.loadConfig(file)).http.idle_timeout).toBe(0);
+  });
+
+  test("an unparseable env var leaves the default in place", async () => {
+    process.env.SILO_HTTP_IDLE_TIMEOUT = "soon";
+    const config = await ConfigLoader.loadConfig(path.join(tempDir, "absent.toml"));
+    expect(config.http.idle_timeout).toBe(HttpDefaults.IdleTimeout);
+  });
+});
+
+/**
+ * `[http] max_body_size_mb` and `max_json_body_size_mb` (§10.4): the ceiling
+ * the runtime buffers up to per connection, and the smaller one every JSON
+ * route gets. A value that names no bound at all falls back rather than
+ * switching the guard off, because there is no "unlimited" that is safe.
+ */
+describe("ConfigLoader [http] body ceilings", () => {
+  let tempDir: string;
+  const names = ["SILO_HTTP_MAX_BODY_SIZE_MB", "SILO_HTTP_MAX_JSON_BODY_SIZE_MB"] as const;
+  const saved: Partial<Record<(typeof names)[number], string | undefined>> = {};
+
+  beforeEach(async () => {
+    tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "silo-http-body-config-test-"));
+    for (const name of names) {
+      saved[name] = process.env[name];
+      delete process.env[name];
+    }
+  });
+
+  afterEach(async () => {
+    for (const name of names) {
+      if (saved[name] === undefined) delete process.env[name];
+      else process.env[name] = saved[name];
+    }
+    await fs.rm(tempDir, { recursive: true, force: true });
+  });
+
+  const writeConfig = async (toml: string): Promise<string> => {
+    const file = path.join(tempDir, "silo.toml");
+    await fs.writeFile(file, toml);
+    return file;
+  };
+
+  test("the defaults are the runtime's own ceiling and a small JSON ceiling", () => {
+    const http = ConfigLoader.defaultConfig().http;
+    expect(http.max_body_size_mb).toBe(HttpDefaults.MaxBodySizeMb);
+    expect(http.max_json_body_size_mb).toBe(HttpDefaults.MaxJsonBodySizeMb);
+    expect(http.max_json_body_size_mb).toBeLessThan(http.max_body_size_mb);
+  });
+
+  test("the file supplies both and the env var outranks the file", async () => {
+    const file = await writeConfig(`[http]\nmax_body_size_mb = 32\nmax_json_body_size_mb = 0.5\n`);
+    let http = (await ConfigLoader.loadConfig(file)).http;
+    expect(http.max_body_size_mb).toBe(32);
+    expect(http.max_json_body_size_mb).toBe(0.5);
+
+    process.env.SILO_HTTP_MAX_BODY_SIZE_MB = "16";
+    process.env.SILO_HTTP_MAX_JSON_BODY_SIZE_MB = "1";
+    http = (await ConfigLoader.loadConfig(file)).http;
+    expect(http.max_body_size_mb).toBe(16);
+    expect(http.max_json_body_size_mb).toBe(1);
+  });
+
+  test("zero, a negative number and an unparseable env var leave the default in place", async () => {
+    const file = await writeConfig(`[http]\nmax_body_size_mb = 0\nmax_json_body_size_mb = -3\n`);
+    process.env.SILO_HTTP_MAX_BODY_SIZE_MB = "plenty";
+    const http = (await ConfigLoader.loadConfig(file)).http;
+    expect(http.max_body_size_mb).toBe(HttpDefaults.MaxBodySizeMb);
+    expect(http.max_json_body_size_mb).toBe(HttpDefaults.MaxJsonBodySizeMb);
+  });
+
+  test("bytes round up, so a fractional megabyte never rounds to no bound", () => {
+    expect(HttpDefaults.bytes(1)).toBe(1024 * 1024);
+    expect(HttpDefaults.bytes(1 / 1024)).toBe(1024);
+    expect(HttpDefaults.bytes(0.0000001)).toBeGreaterThan(0);
+  });
+});
+
+/**
+ * `[transfer] max_archive_size_mb` and `max_extracted_size_mb` (§10.5): what a
+ * streamed archive may weigh and what it may expand to. The same shape as the
+ * body ceilings above, for the same reason — there is no safe "unlimited".
+ */
+describe("ConfigLoader [transfer] ceilings", () => {
+  let tempDir: string;
+  const names = ["SILO_TRANSFER_MAX_ARCHIVE_SIZE_MB", "SILO_TRANSFER_MAX_EXTRACTED_SIZE_MB"] as const;
+  const saved: Partial<Record<(typeof names)[number], string | undefined>> = {};
+
+  beforeEach(async () => {
+    tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "silo-transfer-config-test-"));
+    for (const name of names) {
+      saved[name] = process.env[name];
+      delete process.env[name];
+    }
+  });
+
+  afterEach(async () => {
+    for (const name of names) {
+      if (saved[name] === undefined) delete process.env[name];
+      else process.env[name] = saved[name];
+    }
+    await fs.rm(tempDir, { recursive: true, force: true });
+  });
+
+  const writeConfig = async (toml: string): Promise<string> => {
+    const file = path.join(tempDir, "silo.toml");
+    await fs.writeFile(file, toml);
+    return file;
+  };
+
+  test("the defaults hold an archive well under what it may expand to", () => {
+    const transfer = ConfigLoader.defaultConfig().transfer;
+    expect(transfer.max_archive_size_mb).toBe(TransferDefaults.MaxArchiveSizeMb);
+    expect(transfer.max_extracted_size_mb).toBe(TransferDefaults.MaxExtractedSizeMb);
+    expect(transfer.max_archive_size_mb).toBeLessThan(transfer.max_extracted_size_mb);
+  });
+
+  test("the file supplies both and the env var outranks the file", async () => {
+    const file = await writeConfig(`[transfer]\nmax_archive_size_mb = 256\nmax_extracted_size_mb = 512\n`);
+    let transfer = (await ConfigLoader.loadConfig(file)).transfer;
+    expect(transfer).toEqual({ max_archive_size_mb: 256, max_extracted_size_mb: 512 });
+
+    process.env.SILO_TRANSFER_MAX_ARCHIVE_SIZE_MB = "64";
+    process.env.SILO_TRANSFER_MAX_EXTRACTED_SIZE_MB = "128";
+    transfer = (await ConfigLoader.loadConfig(file)).transfer;
+    expect(transfer).toEqual({ max_archive_size_mb: 64, max_extracted_size_mb: 128 });
+  });
+
+  test("zero, a negative number and an unparseable env var leave the default in place", async () => {
+    const file = await writeConfig(`[transfer]\nmax_archive_size_mb = 0\nmax_extracted_size_mb = -3\n`);
+    process.env.SILO_TRANSFER_MAX_ARCHIVE_SIZE_MB = "plenty";
+    const transfer = (await ConfigLoader.loadConfig(file)).transfer;
+    expect(transfer.max_archive_size_mb).toBe(TransferDefaults.MaxArchiveSizeMb);
+    expect(transfer.max_extracted_size_mb).toBe(TransferDefaults.MaxExtractedSizeMb);
   });
 });

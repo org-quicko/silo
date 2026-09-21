@@ -1,5 +1,6 @@
 import { MediaField } from '@silo/shared/media-field'
 import { SchemaAccess } from '@silo/shared/schema-access'
+import { SchemaConstraints } from './schema-constraints'
 import {
   SchemaFieldLabels,
   type SchemaField,
@@ -35,6 +36,11 @@ export interface SchemaDraftState {
  * `enum` — and both are rebuilt from the one flag. The `any` kind is the other half of writing `type`
  * honestly: a property that declares none accepts anything, and the builder
  * says so and writes none back rather than settling on `string`.
+ *
+ * `SchemaConstraints` is written the same deliberate way and for the same
+ * reason: the kind decides which validation keywords a property may carry, so
+ * they are rewritten as a set rather than left to the `raw` spread, and a
+ * string that becomes a boolean does not keep the `maxLength` it had.
  */
 export class SchemaDraft {
   static readonly Default = {
@@ -115,6 +121,7 @@ export class SchemaDraft {
       description: '',
       enumValues: [],
       refTarget: '',
+      constraints: SchemaConstraints.empty(),
       nullable: false,
       raw: {},
     }
@@ -146,6 +153,7 @@ export class SchemaDraft {
         ? property.enum.filter((value: unknown) => value !== null).map(String)
         : [],
       refTarget: directRef || itemsRef,
+      constraints: SchemaConstraints.of(property),
       nullable: SchemaType.isNullable(property),
       raw: property || {},
       construct: SchemaDraft.constructOf(property, directRef || itemsRef),
@@ -184,6 +192,9 @@ export class SchemaDraft {
     if (field.construct) return SchemaDraft.withDescription(property, field.description)
 
     SchemaDraft.applyKind(property, field)
+    // After the kind, because the kind is what decides which constraints the
+    // property is allowed to carry at all.
+    SchemaConstraints.apply(property, field.kind, field.constraints)
     return SchemaDraft.withDescription(property, field.description)
   }
 
@@ -230,7 +241,15 @@ export class SchemaDraft {
         // one: `["string", "null"]` beside `["a", "b"]` validates nothing, and
         // an imported column whose rows are half empty would start failing on
         // the first save from this editor.
-        setType('string')
+        //
+        // But only where there is something to agree *with*. A bare `enum` is
+        // already a complete constraint — the members are the permitted values,
+        // and their types with them — so adding `type` to a property that never
+        // declared one narrows the schema on a save the author made for another
+        // reason entirely. Since D70 that is not merely untidy: the collection's
+        // shape is frozen once it holds entries, so a builder that cannot return
+        // a document unchanged cannot edit the description of one either.
+        if (field.nullable || "type" in property) setType("string")
         property.enum = field.nullable ? [...field.enumValues, null] : field.enumValues
         drop('$ref', 'items', MediaField.TypeKeyword)
         return

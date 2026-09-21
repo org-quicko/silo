@@ -8,6 +8,7 @@ import type { Query } from "../../../core/query/query";
 import { SqliteCompiler } from "./sqlite-compiler";
 import type { SqliteMediaReferenceStore } from "./sqlite-media-reference-store";
 import type { SqliteMetaStore } from "./sqlite-meta-store";
+import type { SqliteReadWorker } from "./sqlite-read-worker";
 import { SqliteRowMapper } from "./sqlite-row-mapper";
 import type { SqliteScopeResolver } from "./sqlite-scope-resolver";
 import type { SqliteSearchDocumentStore } from "./sqlite-search-document-store";
@@ -35,14 +36,18 @@ export class SqliteEntryStore {
   private readonly mediaReferences: SqliteMediaReferenceStore;
   private readonly searchDocuments: SqliteSearchDocumentStore;
   private readonly resolver: SqliteScopeResolver;
+  /** Where `list` runs its scans; `null` reads on the main connection (D81). */
+  private readonly reads: SqliteReadWorker | null;
 
   constructor(
     database: SqliteConnection,
     meta: SqliteMetaStore,
     mediaReferences: SqliteMediaReferenceStore,
     searchDocuments: SqliteSearchDocumentStore,
-    resolver: SqliteScopeResolver
+    resolver: SqliteScopeResolver,
+    reads: SqliteReadWorker | null = null
   ) {
+    this.reads = reads;
     this.database = database;
     this.meta = meta;
     this.mediaReferences = mediaReferences;
@@ -135,7 +140,16 @@ export class SqliteEntryStore {
     if (changes === 0) throw SqliteEntryStore.notFound(scope, collection, id);
   }
 
-  list(scope: Scope, collection: string, query: Query): { items: Entry[]; total: number } {
+  /**
+   * A page, with its total. The two statements run on the read worker where
+   * there is one (D81): a filter or a sort over `data` scans the collection,
+   * and that scan must not hold the thread every other request runs on.
+   */
+  async list(
+    scope: Scope,
+    collection: string,
+    query: Query
+  ): Promise<{ items: Entry[]; total: number }> {
     EntryUtils.assertSafeSegment(collection, "collection");
 
     const collectionId = this.resolver.collectionId(scope, collection);
@@ -149,25 +163,32 @@ export class SqliteEntryStore {
       whereArgs.push(...args);
     }
 
-    const countRow = this.database.once(`SELECT COUNT(*) as total FROM entries WHERE ${where}`,
-      (statement) => statement.get(...whereArgs)
-    ) as { total: number } | undefined;
-    const total = countRow ? countRow.total : 0;
-
     const { order, args: orderArgs } = SqliteCompiler.buildOrder(query.sort || []);
     const limit = query.limit > 0 ? query.limit : SqliteEntryStore.FallbackLimit;
     const offset = Math.max(query.offset, 0);
 
-    const rows = this.database.once(`SELECT ${SqliteEntryStore.Columns} FROM entries
+    const countSql = `SELECT COUNT(*) as total FROM entries WHERE ${where}`;
+    const pageSql = `SELECT ${SqliteEntryStore.Columns} FROM entries
          WHERE ${where}
          ORDER BY ${order}
-         LIMIT ? OFFSET ?`,
-      (statement) => statement.all(...whereArgs, ...orderArgs, limit, offset)
-    ) as any[];
+         LIMIT ? OFFSET ?`;
+    const pageArgs = [...whereArgs, ...orderArgs, limit, offset];
+
+    let countRows: any[];
+    let rows: any[];
+    if (this.reads) {
+      [countRows, rows] = await Promise.all([
+        this.reads.all(countSql, whereArgs),
+        this.reads.all(pageSql, pageArgs),
+      ]);
+    } else {
+      countRows = this.database.once(countSql, (statement) => statement.all(...whereArgs)) as any[];
+      rows = this.database.once(pageSql, (statement) => statement.all(...pageArgs)) as any[];
+    }
 
     return {
       items: rows.map((row) => SqliteRowMapper.toScopedEntry(row, scope, collection)),
-      total,
+      total: countRows[0]?.total ?? 0,
     };
   }
 

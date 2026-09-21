@@ -34,8 +34,19 @@ export class HttpSiloClient {
    * so an empty source is still a clear error rather than a tar failure, and
    * nothing beyond one chunk is held to find out.
    */
-  async exportArchiveStream(withKeys: boolean): Promise<ReadableStream<Uint8Array>> {
-    const url = `${this.baseUrl}/api/export?with_keys=${withKeys}`;
+  async exportArchiveStream(options: {
+    withKeys: boolean;
+    /** Forwarded so the **source** narrows its own walk — asking for one
+     *  collection and having the source build the whole instance first is the
+     *  cost a selection exists to avoid (§7.3). */
+    include?: readonly string[];
+    media?: string;
+  }): Promise<ReadableStream<Uint8Array>> {
+    const query = new URLSearchParams();
+    query.set("with_keys", String(options.withKeys));
+    for (const rule of options.include ?? []) query.append("include", rule);
+    if (options.media) query.set("media", options.media);
+    const url = `${this.baseUrl}/api/export?${query}`;
     let response: Response;
 
     try {

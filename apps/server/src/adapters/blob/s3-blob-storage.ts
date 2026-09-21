@@ -1,5 +1,12 @@
 import { S3Client, type S3Options } from "bun";
-import type { BlobStorage, BlobItem, BlobPutOptions, BlobGetResult } from "../../core/ports/blob-storage";
+import type {
+  BlobStorage,
+  BlobItem,
+  BlobPutOptions,
+  BlobGetResult,
+  BlobRange,
+  BlobStream,
+} from "../../core/ports/blob-storage";
 import { MimeUtils } from "../../core/media/mime-utils";
 import { S3PublicUrl } from "./s3-public-url";
 
@@ -113,6 +120,23 @@ export class S3BlobStorage implements BlobStorage {
       if (S3BlobStorage.isMissing(caught)) return null;
       throw caught;
     }
+  }
+
+  /**
+   * The object as a stream the runtime forwards as it arrives (D80); a slice
+   * becomes a ranged `GetObject`. Nothing is requested until the stream is
+   * read, so an absent key is not `null` but a body that fails on read — the
+   * alternative is a HEAD per read, which a policy granting `s3:GetObject`
+   * alone refuses (see `get`). `size` is left unknown for the same reason;
+   * the catalog has it. A stream rather than the handle itself, because the
+   * handle read through a `Response` outside the server gives nothing.
+   */
+  async stream(key: string, range?: BlobRange): Promise<BlobStream | null> {
+    const file = this.client.file(key);
+    return {
+      body: (range ? file.slice(range.start, range.end + 1) : file).stream(),
+      contentType: MimeUtils.lookup(key),
+    };
   }
 
   async delete(key: string): Promise<void> {

@@ -154,7 +154,9 @@ describe('reading a Strapi export', () => {
   test('finds a content type whose table name Strapi had to shorten', () => {
     read('published', (source) => {
       const inventory = StrapiInventory.read(source, 'published')
-      expect(inventory.skipped).toEqual([])
+      expect(inventory.skipped.map((entry) => entry.contentType)).toEqual([
+        StrapiDatabaseFixture.Expertise,
+      ])
 
       const list = inventory.lists.find((entry) => entry.id === StrapiDatabaseFixture.LongType)!
       expect(list.table).toBe(StrapiDatabaseFixture.LongStored)
@@ -173,6 +175,136 @@ describe('reading a Strapi export', () => {
       expect(list.shape.children[0]!.shapes[0]!.table).toBe(
         'components_org_quicko_payment_entities',
       )
+    })
+  })
+
+  /**
+   * **A renamed category leaves a uid and a table with nothing in common.**
+   *
+   * Strapi writes a component's `collectionName` when the component is created
+   * and never again, so renaming its category rewrites every reference to it and
+   * none of its storage. `org-quicko-workspace.bench` is in
+   * `components_seating_seats`, and no matcher over names — prefix, plural or
+   * shortened — proposes that table at all.
+   *
+   * The entry is asserted and not only the table, because the failure this
+   * covers was not an error. The list appeared on the plan, the import reported
+   * one entry written, and the entry was `{ seats: [] }`: the panel's note about
+   * an unresolved component was the only thing between an operator and content
+   * that had quietly not arrived.
+   */
+  test('resolves a component table whose name shares nothing with its uid', () => {
+    read('published', (source) => {
+      const list = listOf(source, StrapiDatabaseFixture.Desk)
+      expect(StrapiInventory.read(source, 'published').skipped.map((entry) => entry.contentType))
+        .toEqual([StrapiDatabaseFixture.Expertise])
+      expect(list.notes.join(' ')).not.toContain('No table could be proved')
+
+      const child = list.shape.children[0]!
+      expect(child.unresolved).toEqual([])
+      expect(child.shapes[0]!.table).toBe(StrapiDatabaseFixture.RenamedTable)
+
+      expect(StrapiRows.read(source, list, 'published')[0]!.entry).toEqual({
+        floor: 'Ground',
+        seats: [{ seat_label: 'Window' }, { seat_label: 'Aisle' }],
+      })
+    })
+  })
+
+  /**
+   * The fields are load-bearing, and the ids are not enough on their own.
+   *
+   * `components_seating_seats` holds `cmp_id`s 1 and 2, and so do three other
+   * component tables in this same database — a search proving a candidate only
+   * by the rows it contains has four answers and picks one of them. Deleting the
+   * component's content-manager record leaves the ids and takes the fields, and
+   * what has to happen then is `null`: the panel says a component could not be
+   * resolved, which is recoverable, where a wrong table would be an entry full of
+   * somebody else's rows.
+   */
+  test('refuses to guess that table when the export does not name its fields', () => {
+    const db = new Database(file)
+    db.run(`DELETE FROM strapi_core_store_settings WHERE key LIKE ?`, [
+      `%components::${StrapiDatabaseFixture.Renamed}`,
+    ])
+    db.close(true)
+
+    read('published', (source) => {
+      const child = listOf(source, StrapiDatabaseFixture.Desk).shape.children[0]!
+      expect(child.shapes).toEqual([])
+      expect(child.unresolved).toEqual([StrapiDatabaseFixture.Renamed])
+    })
+  })
+
+  /**
+   * **A content type whose every field is an unprovable component is skipped,
+   * not offered.**
+   *
+   * `StrapiShapes.isEmpty` used to count any child at all, so a content type
+   * with one attribute — a repeatable component no table could be proved for —
+   * reached the plan as an importable list. On a real export it did: the plan
+   * said one entry, the run reported one entry written, and the entry was
+   * `{ expertise: [] }`. A note on the panel was the only thing that said
+   * otherwise, and it sat next to a row that looked like every other row.
+   *
+   * So it is skipped, which is the same answer already given to a content type
+   * with no importable fields at all — and it is *skipped*, not omitted: the
+   * panel prints the list, and the reason names the component uid, because
+   * finding that component's table is the thing that makes the content type
+   * importable and nothing else is.
+   */
+  test('skips a content type whose only field is a component nothing proved a table for', () => {
+    read('published', (source) => {
+      const inventory = StrapiInventory.read(source, 'published')
+      expect(inventory.lists.map((list) => list.id)).not.toContain(StrapiDatabaseFixture.Expertise)
+
+      const skipped = inventory.skipped.find(
+        (entry) => entry.contentType === StrapiDatabaseFixture.Expertise,
+      )!
+      // The uid, because it is what an operator goes looking for, and the count,
+      // because skipping is what takes it off the plan.
+      expect(skipped.reason).toContain(StrapiDatabaseFixture.Unprovable)
+      expect(skipped.reason).toContain('1 empty entry')
+    })
+  })
+
+  /**
+   * The same content type with one scalar beside that component stays on the
+   * plan, and the note is what carries the warning.
+   *
+   * The line between the two is "would this import write anything", and a
+   * column is anything. Skipping this one would be the failure the design note
+   * on `StrapiInventory.skipped` is about — a content type gone from the plan
+   * whose rows were there to be had.
+   */
+  test('keeps a content type that has a scalar beside the unprovable component', () => {
+    const db = new Database(file)
+    db.run(`ALTER TABLE org_quicko_expertises ADD COLUMN headline VARCHAR(255)`)
+    db.run(`UPDATE org_quicko_expertises SET headline = 'Direct tax'`)
+    const key = 'strapi_content_types_schema'
+    const row = db.query(`SELECT value FROM strapi_core_store_settings WHERE key = ?`).get(key) as {
+      value: string
+    }
+    const schema = JSON.parse(row.value)
+    schema[StrapiDatabaseFixture.Expertise].__schema__.attributes.headline = { type: 'string' }
+    db.run(`UPDATE strapi_core_store_settings SET value = ? WHERE key = ?`, [
+      JSON.stringify(schema),
+      key,
+    ])
+    db.close(true)
+
+    read('published', (source) => {
+      const inventory = StrapiInventory.read(source, 'published')
+      expect(inventory.skipped).toEqual([])
+
+      const list = inventory.lists.find((entry) => entry.id === StrapiDatabaseFixture.Expertise)!
+      expect(list.notes.join(' ')).toContain(
+        `No table could be proved for ${StrapiDatabaseFixture.Unprovable}`,
+      )
+      expect(StrapiRows.read(source, list, 'published')[0]!.entry).toEqual({
+        headline: 'Direct tax',
+        expertise: [],
+      })
     })
   })
 
@@ -263,6 +395,10 @@ describe('reading a Strapi export', () => {
    * One file on two fields is **one** thing to ask the operator for — and the
    * nested component's file is asked for at all, which it was not while a
    * component two levels down was never reached.
+   *
+   * `seat_9f1e2a.svg` is in the list for the same reason one step further out: a
+   * component whose table could not be resolved is an owner nothing is scoped
+   * to, so its attachments were not asked for either.
    */
   test('the wanted-file list is deduplicated and covers nested components', () => {
     read('published', (source) => {
@@ -270,10 +406,12 @@ describe('reading a Strapi export', () => {
       const owners = StrapiInventory.ownersOf(inventory)
       expect(owners).toContain(StrapiDatabaseFixture.Component)
       expect(owners).toContain(StrapiDatabaseFixture.Nested)
+      expect(owners).toContain(StrapiDatabaseFixture.Renamed)
 
       const wanted = StrapiMedia.wantedBy(source, owners)
       expect(wanted.map((entry) => entry.name).sort()).toEqual([
         'npci_1b3c5d.svg',
+        'seat_9f1e2a.svg',
         'visa_0a2d4ecc.svg',
       ])
       // Nothing is wanted for an owner this import does not cover.

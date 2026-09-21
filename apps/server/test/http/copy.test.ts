@@ -163,7 +163,11 @@ describe("Server copy API", () => {
     expect(await response.json()).toMatchObject({ mode: "merge", added: 1 });
     expect((await destinationService.entries.get(Scope.Default, "notes", sourceEntry.id)).data.text).toBe("copied");
     expect((await destinationService.keys.authenticate(destinationKey)).claims).toEqual(["*"]);
-    await expect(destinationService.keys.authenticate(sourceKey)).rejects.toThrow();
+    // Settled before `expect`: authenticate reads through the storage worker,
+    // and bun test's `.rejects` wait drops such replies (code-design.md, Tests).
+    const stranger = destinationService.keys.authenticate(sourceKey);
+    await stranger.catch(() => {});
+    await expect(stranger).rejects.toThrow();
   });
 });
 
@@ -201,13 +205,13 @@ describe("the copy source client", () => {
     ];
     const client = clientFor(new Response(streamOf(chunks), { status: 200 }));
 
-    const archive = await drain(await client.exportArchiveStream(false));
+    const archive = await drain(await client.exportArchiveStream({ withKeys: false }));
     expect([...archive]).toEqual([0x1f, 0x8b, 0x08, 0x00, 1, 2, 3, 4, 5]);
   });
 
   test("refuses an archive with no bytes in it", async () => {
     const client = clientFor(new Response(streamOf([]), { status: 200 }));
-    await expect(client.exportArchiveStream(false)).rejects.toThrow(
+    await expect(client.exportArchiveStream({ withKeys: false })).rejects.toThrow(
       "empty export archive"
     );
   });
@@ -218,7 +222,7 @@ describe("the copy source client", () => {
     const client = clientFor(
       new Response(streamOf([new Uint8Array(), new Uint8Array()]), { status: 200 })
     );
-    await expect(client.exportArchiveStream(false)).rejects.toThrow(
+    await expect(client.exportArchiveStream({ withKeys: false })).rejects.toThrow(
       "empty export archive"
     );
   });
@@ -227,7 +231,7 @@ describe("the copy source client", () => {
     const client = clientFor(
       new Response(streamOf([new Uint8Array(), new Uint8Array([7, 8])]), { status: 200 })
     );
-    const archive = await drain(await client.exportArchiveStream(false));
+    const archive = await drain(await client.exportArchiveStream({ withKeys: false }));
     expect([...archive]).toEqual([7, 8]);
   });
 
@@ -235,7 +239,7 @@ describe("the copy source client", () => {
     const client = clientFor(
       new Response(JSON.stringify({ error: { message: "nope" } }), { status: 403 })
     );
-    await expect(client.exportArchiveStream(false)).rejects.toThrow(
+    await expect(client.exportArchiveStream({ withKeys: false })).rejects.toThrow(
       "source silo key must permit export"
     );
   });

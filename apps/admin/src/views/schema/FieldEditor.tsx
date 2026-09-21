@@ -3,6 +3,7 @@ import { Button } from '../../components/buttons/Button'
 import { Toggle } from '../../components/controls/Toggle'
 import type { SchemaField } from '../../schema/schema-field'
 import { EnumValues } from './EnumValues'
+import { FieldConstraints } from './FieldConstraints'
 import { FieldKindSelect } from './FieldKindSelect'
 import { RefTarget } from './RefTarget'
 import styles from './SchemaEditor.module.css'
@@ -12,12 +13,18 @@ interface Props {
   /** Ref targets: names only — choosing one writes a `silo://` URL, and
    *  nothing here reads the target's schema. */
   collections: readonly { name: string }[]
+  /**
+   * Entries exist, so everything that decides whether one of them is still
+   * valid is read-only (D70). The description is not one of those things, so it
+   * stays live — it is the only reason this panel opens at all when locked.
+   */
+  locked: boolean
   onChange: (patch: Partial<SchemaField>) => void
   onRemove: () => void
 }
 
 /** The expanded panel under a field row: everything about one property. */
-export function FieldEditor({ field, collections, onChange, onRemove }: Props) {
+export function FieldEditor({ field, collections, locked, onChange, onRemove }: Props) {
   const isReference = field.kind === 'ref' || field.kind === 'ref-array'
 
   return (
@@ -28,6 +35,8 @@ export function FieldEditor({ field, collections, onChange, onRemove }: Props) {
           <input
             className={`input mono ${styles.compactInput}`}
             value={field.name}
+            readOnly={locked}
+            disabled={locked}
             onChange={(event) =>
               onChange({ name: event.target.value.replace(/[^a-zA-Z0-9_-]/g, '') })
             }
@@ -38,6 +47,7 @@ export function FieldEditor({ field, collections, onChange, onRemove }: Props) {
           <FieldKindSelect
             kind={field.kind}
             construct={field.construct}
+            disabled={locked}
             onChange={(kind) => onChange({ kind })}
           />
         </div>
@@ -48,6 +58,7 @@ export function FieldEditor({ field, collections, onChange, onRemove }: Props) {
           <span className={styles.fieldEditorLabel}>Allowed values</span>
           <EnumValues
             values={field.enumValues}
+            disabled={locked}
             onChange={(enumValues) => onChange({ enumValues })}
           />
         </div>
@@ -58,9 +69,19 @@ export function FieldEditor({ field, collections, onChange, onRemove }: Props) {
           target={field.refTarget}
           collections={collections}
           isArray={field.kind === 'ref-array'}
+          disabled={locked}
           onChange={(refTarget) => onChange({ refTarget })}
         />
       )}
+
+      {/* Under the type, because the type is what decides which of these a
+          field carries at all, and above the description, because they are
+          still statements about the value rather than prose about it. */}
+      <FieldConstraints
+        field={field}
+        locked={locked}
+        onChange={(constraints) => onChange({ constraints })}
+      />
 
       <div className={styles.fieldEditorColumn}>
         <span className={styles.fieldEditorLabel}>Description</span>
@@ -74,17 +95,24 @@ export function FieldEditor({ field, collections, onChange, onRemove }: Props) {
 
       <div className={styles.toggleRow}>
         <span>Required field</span>
-        <Toggle size="sm" on={field.required} onChange={(required) => onChange({ required })} />
+        <Toggle
+          size="sm"
+          on={field.required}
+          disabled={locked}
+          onChange={(required) => onChange({ required })}
+        />
       </div>
 
-      <Button
-        className={styles.removeField}
-        variant="dangerGhost"
-        size="sm"
-        onClick={onRemove}
-      >
-        <Trash2 size={13} /> Remove field
-      </Button>
+      {!locked && (
+        <Button
+          className={styles.removeField}
+          variant="dangerGhost"
+          size="sm"
+          onClick={onRemove}
+        >
+          <Trash2 size={13} /> Remove field
+        </Button>
+      )}
     </div>
   )
 }

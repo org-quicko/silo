@@ -1,9 +1,9 @@
 import { Globe, Server as ServerIcon, Settings } from 'lucide-react'
-import { BrowserColumn } from './BrowserColumn'
-import { ColumnItem } from './ColumnItem'
-import { ColumnPlaceholder } from './ColumnPlaceholder'
+import { BrowserColumn } from '../../components/browser/BrowserColumn'
+import { ColumnItem } from '../../components/browser/ColumnItem'
+import { ColumnPlaceholder } from '../../components/browser/ColumnPlaceholder'
 import type { Server } from './server'
-import styles from './ServerManager.module.css'
+import styles from '../../components/browser/ScopeBrowser.module.css'
 
 interface Props {
   servers: Server[]

@@ -16,6 +16,11 @@ API is what creates it.
 # silo.toml — every key optional
 listen = ":8090"
 
+[http]
+idle_timeout = 120          # seconds a connection may go quiet; 0 disables, 255 is the ceiling
+max_body_size_mb      = 128 # the largest request body on any route: a media upload, an import
+max_json_body_size_mb = 4   # every other route: an entry, a schema, a list of ids
+
 [storage]
 driver = "sqlite"           # "sqlite" | "fs"
 path   = "./silo_data"      # dir; sqlite file lives at <path>/silo.db
@@ -176,3 +181,106 @@ able to switch off the authentication protecting it is a lock whose key opens
 itself; the tightening direction stays open, since an instance running with auth
 off is one where every caller is already root and turning it back on is a repair.
 
+### 10.3 `[http] idle_timeout` (D72)
+
+The runtime closes a connection that has gone quiet, and its own default is
+**10 seconds** — shorter than a whole-instance export took to say anything
+before §7.1, and shorter than a large import or a server-to-server copy takes
+to finish. Silo passes an explicit value instead, defaulting to 120 seconds.
+
+It is worth a setting, and worth this paragraph, because of how the failure
+presents. The socket closes mid-response, so a reverse proxy in front reports
+*its* view — `upstream prematurely closed connection while reading response
+header`, and a 502 or a 503 — and every symptom points at the proxy. Nothing in
+silo's log says anything went wrong: the handler runs to completion and records
+its own `200`, for a client that left a minute earlier. Behind no proxy at all
+the same thing reaches the caller as an empty reply. It was found by lining up
+three logs that each looked fine on their own.
+
+The runtime refuses a value above 255. A config that is merely too generous
+should not stop a server from starting, so `HttpDefaults.idleTimeout` **clamps**
+rather than refuses. `0` is kept as given: it is how the guard is switched off,
+which is a different answer from "unset". A change takes effect at the next
+start, since the value is read once at the bind.
+
+Raising it is not the fix for a slow transfer, and is deliberately not offered
+as one. §7.1 makes an export answer immediately and §7.8 makes an import and a
+copy keep talking while they work; this setting covers what those two do not,
+and is what an operator reaches for when a transfer still outlives it.
+
+### 10.4 `[http] max_body_size_mb` and `max_json_body_size_mb` (D79)
+
+The runtime buffers a request body whether or not the handler asks for it, up
+to `maxRequestBodySize`, whose own default is **128 MB**. Silo passed nothing,
+so that was the memory one connection could hold — and the 2026-09-18 audit
+measured eight concurrent unread 120 MB bodies taking a probe server from
+50 MB to a 1.4 GB peak, with no key and no valid route. On the 1 to 4 GB hosts
+silo is deployed to, that is an anonymous outage.
+
+Two ceilings rather than one, because one ceiling has to serve two shapes of
+request. A media upload or an import archive is legitimately large, and those
+four routes stream or spool what they are sent behind a claim check that
+answers before any body is read — so their bound is the listener's cap,
+`max_body_size_mb`, kept at the runtime's own 128 so an upload that worked
+before still works, and lowered by an operator who knows the host. Every other
+route takes a JSON document, and no entry, schema or list of ids needs more
+than a few megabytes — so those get `max_json_body_size_mb`, default **4**,
+enforced by `BodyLimitMiddleware` from `Content-Length` where there is one and
+by counting where there is not, and answered as `413 payload_too_large`
+**before** auth, since an oversize body must not be buffered for a handler that
+would never have run. Plugin routes keep their own `max_bytes` (D41), which
+`ExtRequest` now checks against the header before reading and enforces while
+reading rather than after.
+
+The measured runtime facts this rests on: a `Content-Length` above the cap is
+refused before the body arrives; a chunked body nobody reads is cut at the cap
+with a `413`; a chunked body a handler *consumes* as a stream is **not** bounded
+by the cap, which is what keeps a CLI import of any size working and is why the
+import route is exempt from the middleware rather than wrapped by it. A value
+of zero or less is not "unlimited" — there is no safe unlimited — and falls back
+to the default.
+
+### 10.5 `[transfer] max_archive_size_mb` and `max_extracted_size_mb` (D85)
+
+A gzip archive says nothing about its size until it is inflated, and a 128 MB
+upload — the most `max_body_size_mb` lets through — inflates to over a hundred
+gigabytes when it was built to. The 2026-09-18 audit (H4) found nothing between
+that and `ENOSPC` on the disk the database shares, with the write lock held
+throughout.
+
+Two ceilings, for the two things that have a size. `max_archive_size_mb`
+(default **1024**) is the archive itself, counted as the spool arrives; an
+upload is also held to `max_body_size_mb`, which is normally the lower of the
+two, while `POST /api/copy` has no request body and this is its only bound.
+`max_extracted_size_mb` (default **4096**) is the tree the archive expands to,
+counted from the tar headers before anything is written: tar hands each header
+to `ArchiveExtractor`'s filter, every entry costs its stated size or one 4 KB
+block, whichever is larger, plus its 512-byte header, and the first entry that
+would overspend aborts the parser. Charging a block per entry is what also
+refuses a million empty files, where the cost is inodes rather than bytes. Both
+answer `413 archive_too_large` naming the setting, take
+`SILO_TRANSFER_MAX_ARCHIVE_SIZE_MB` and `SILO_TRANSFER_MAX_EXTRACTED_SIZE_MB`,
+sit in `ConfigSections` under Transfers, and apply at the next start. Zero or
+less falls back to the default, as the body ceilings do.
+
+A tarball or directory named on the host's command line is not bounded. It is
+the operator's own file on the operator's own disk, and a ceiling there would
+only ever be raised.
+
+### 10.6 `silo mcp` (D86)
+
+The one subcommand that is neither the server nor a tool over the data
+directory. It bridges a client's stdio to a running instance's `/api/mcp`
+(§8.6), so it runs in `CommandRouter`'s first tier beside `init`: before any
+config is loaded, because it reads none, and before any storage is opened,
+because it opens none. An MCP host spawns it from whatever working directory it
+likes, and nothing there has to exist.
+
+Its two settings follow the `flags > env` half of the usual rule and stop
+there, since there is no file: `--url`, else `SILO_URL`; `--key`, else
+`SILO_API_KEY`. The variables are the documented way, because a host's config
+file has an `env` block and a process list shows argv. A missing URL is an
+error. A missing key is a warning on stderr and the bridge runs anyway, because
+an instance started with `[auth] disabled` needs none, and the `401` an
+authenticated instance answers reaches the client as a JSON-RPC error that
+says so. stdout is the protocol channel and carries nothing else.

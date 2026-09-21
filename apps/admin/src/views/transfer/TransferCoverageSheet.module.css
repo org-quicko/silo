@@ -1,0 +1,68 @@
+.groups {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+
+.group h3 {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  margin: 0 0 8px;
+  color: var(--text-2);
+  font-size: 12.5px;
+  font-weight: 600;
+}
+
+.group h3 svg {
+  color: var(--text-3);
+}
+
+/* The count, or "every environment", pushed to the far edge of the heading so
+   the names stay in one column down the sheet. */
+.group h3 small {
+  margin-left: auto;
+  color: var(--text-3);
+  font-size: 11px;
+  font-weight: 400;
+}
+
+.group ul {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 0;
+  margin: 0;
+  list-style: none;
+}
+
+.group li {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  border-radius: var(--r-1);
+  background: var(--panel-2);
+}
+
+.group li svg {
+  flex: none;
+  color: var(--text-4);
+}
+
+.group li code {
+  overflow: hidden;
+  flex: 1;
+  color: var(--text);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  letter-spacing: -0.02em;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.group li small {
+  flex: none;
+  color: var(--text-3);
+  font-size: 11px;
+}

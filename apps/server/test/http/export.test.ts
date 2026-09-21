@@ -6,6 +6,7 @@ import { SqliteStore } from "../../src/adapters/storage/sqlite/sqlite-store";
 import { FsStore } from "../../src/adapters/storage/fs/fs-store";
 import { Exporter } from "../../src/core/transfer/exporter";
 import { Importer } from "../../src/core/transfer/importer";
+import { ImportGrants } from "../../src/core/transfer/import-grants";
 import { AuditUtils } from "../../src/core/audit/audit-utils";
 import { SiloService } from "../../src/core/services/silo-service";
 import { FsBlobStorage } from "../../src/adapters/blob/fs-blob-storage";
@@ -96,7 +97,7 @@ describe("Export / Import Tests", () => {
       const fsDir = path.join(tempDir, "fs_data");
       const st2 = await FsStore.open(fsDir);
 
-      const response = await Importer.importTarGz(st2, tarPath, { mode: "replace", allowKeys: true });
+      const response = await Importer.importTarGz(st2, tarPath, { mode: "replace", grants: ImportGrants.Trusted });
       expect(response.added).toBe(1);
       expect(response.deleted).toBe(0);
 
@@ -122,7 +123,7 @@ describe("Export / Import Tests", () => {
       const destDb = path.join(tempDir, "dest.db");
       const st3 = await SqliteStore.open(destDb);
 
-      const res2 = await Importer.importTarGz(st3, tarPath2, { mode: "replace", allowKeys: true });
+      const res2 = await Importer.importTarGz(st3, tarPath2, { mode: "replace", grants: ImportGrants.Trusted });
       expect(res2.added).toBe(1);
 
       const schemaGot2 = await st3.getSchema(Scope.Default, "posts");
@@ -688,10 +689,10 @@ describe("the export tarball streams rather than buffering", () => {
       const store = await SqliteStore.open(path.join(tempDir, "src.db"));
       // An object with no write method reached the write call and failed as a
       // TypeError; a null writer threw before the check meant to catch it.
-      await expect(Exporter.exportTarGz(store, {}, {})).rejects.toThrow(
+      await expect(Exporter.exportTarGz(store, {} as any, {})).rejects.toThrow(
         "unsupported writer type"
       );
-      await expect(Exporter.exportTarGz(store, null, {})).rejects.toThrow(
+      await expect(Exporter.exportTarGz(store, null as any, {})).rejects.toThrow(
         "unsupported writer type"
       );
       await store.close();

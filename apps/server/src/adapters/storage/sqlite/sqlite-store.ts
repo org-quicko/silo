@@ -18,10 +18,17 @@ import { SqliteEntryStore } from "./sqlite-entry-store";
 import { SqliteMediaReferenceStore } from "./sqlite-media-reference-store";
 import { SqliteMetaStore } from "./sqlite-meta-store";
 import { SqliteMigrations } from "./sqlite-migrations";
+import { SqliteReadWorker } from "./sqlite-read-worker";
 import { SqliteScopeResolver } from "./sqlite-scope-resolver";
 import { SqliteScopeStore } from "./sqlite-scope-store";
 import { SqliteSearchDocumentStore } from "./sqlite-search-document-store";
 import { SqliteSearcher } from "./sqlite-searcher";
+
+/** How to open the store; each field has a default `open` explains. */
+export interface SqliteStoreOptions {
+  /** Run scans on the shared read thread (D81). See `readThreadDefault`. */
+  readThread?: boolean;
+}
 
 /**
  * The indexed adapter: one SQLite file, with a native FTS5 search index when
@@ -51,10 +58,19 @@ export class SqliteStore implements Storage {
   /** Set when the index has to be refilled before it can answer anything. */
   private rebuildDue: boolean;
 
-  private constructor(database: SqliteConnection, indexing: boolean, rebuildDue: boolean) {
+  /** The second connection scans run on (D81); `null` for an in-memory database. */
+  private readonly reads: SqliteReadWorker | null;
+
+  private constructor(
+    database: SqliteConnection,
+    indexing: boolean,
+    rebuildDue: boolean,
+    reads: SqliteReadWorker | null
+  ) {
     this.database = database;
     this.indexing = indexing;
     this.rebuildDue = rebuildDue;
+    this.reads = reads;
 
     this.meta_ = new SqliteMetaStore(database);
     this.resolver = new SqliteScopeResolver(database);
@@ -64,15 +80,34 @@ export class SqliteStore implements Storage {
       this.meta_,
       this.mediaReferences,
       new SqliteSearchDocumentStore(database, indexing),
-      this.resolver
+      this.resolver,
+      reads
     );
     this.scopes = new SqliteScopeStore(database, this.entries, this.resolver);
     this.collections = new SqliteCollectionStore(database, this.resolver, this.scopes);
   }
 
+  /**
+   * Whether scans run on the read thread (D81). `SILO_READ_THREAD=on|off`
+   * decides where set; otherwise off under `bun test`, whose `NODE_ENV` is
+   * `test`, and on everywhere else. Off under the runner because its
+   * `expect(...).rejects` wait does not deliver a `Worker`'s replies once the
+   * worker has answered twice before — see the Tests section of
+   * docs/context/code-design.md — and the one thread the process shares has
+   * always answered twice by the second test. The thread's own test turns it
+   * on; the server never runs under the runner.
+   */
+  static readThreadDefault(): boolean {
+    const explicit = process.env.SILO_READ_THREAD;
+    if (explicit === "on") return true;
+    if (explicit === "off") return false;
+    return process.env.NODE_ENV !== "test";
+  }
+
   static async open(
     filePath: string,
-    search: SearchIndexOptions = { enabled: true, tokenizer: "unicode61 remove_diacritics 2" }
+    search: SearchIndexOptions = { enabled: true, tokenizer: "unicode61 remove_diacritics 2" },
+    options: SqliteStoreOptions = {}
   ): Promise<SqliteStore> {
     const dir = path.dirname(filePath);
     if (dir !== ".") await fs.mkdir(dir, { recursive: true });
@@ -85,7 +120,13 @@ export class SqliteStore implements Storage {
       SqliteMigrations.assertIntegrity(database);
 
       const indexing = search.enabled && SearchIndex.available(database);
-      return new SqliteStore(database, indexing, SqliteStore.prepareIndex(database, search, indexing));
+      const readThread = options.readThread ?? SqliteStore.readThreadDefault();
+      return new SqliteStore(
+        database,
+        indexing,
+        SqliteStore.prepareIndex(database, search, indexing),
+        readThread ? SqliteReadWorker.for(filePath) : null
+      );
     } catch (error) {
       database.close();
       throw error;
@@ -93,6 +134,7 @@ export class SqliteStore implements Storage {
   }
 
   async close(): Promise<void> {
+    await this.reads?.close();
     this.database.close();
   }
 
@@ -119,7 +161,7 @@ export class SqliteStore implements Storage {
    * FTS5 degrades rather than fails (D30).
    */
   createSearcher(tokenizer: string): SqliteSearcher | null {
-    return this.indexing ? new SqliteSearcher(this.database, this, tokenizer) : null;
+    return this.indexing ? new SqliteSearcher(this.database, this, tokenizer, this.reads) : null;
   }
 
   /** Marks the index filled; called once a rebuild has run. */
