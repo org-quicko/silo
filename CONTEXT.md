@@ -25,8 +25,9 @@ something every operator builds for themselves, and the same image is on
 `ghcr.io/org-quicko/silo`, which until now only ever received alphas.
 `release.yml` gained two jobs. `image` builds one architecture per native
 runner — `ubuntu-24.04` and `ubuntu-24.04-arm`, because stage 1 of the
-Dockerfile is a Bun and Vite build of the admin UI and QEMU turns that from
-minutes into most of an hour — loads it, runs `silo version` inside it, and
+Dockerfile is a Bun and Vite build of the admin UI and emulating that is several
+times slower than a runner this repository gets free — loads it, runs
+`silo version` inside it, and
 pushes it *by digest* to both registries at once, so nothing a `docker pull`
 can reach exists yet. `publish-image` waits for the GitHub release, then joins
 the two digests into `:VERSION` and `:latest` in each registry with

@@ -9,8 +9,9 @@
   from the Dockerfile, and the only image it pushed was an amd64 alpha in GHCR
   that no release tag pointed at. `release.yml` gained `image`, which builds
   one architecture per native runner (`ubuntu-24.04`, `ubuntu-24.04-arm` —
-  emulating a Bun and Vite build of the admin UI costs half an hour where a
-  free arm64 runner costs minutes), runs `silo version` inside what it built,
+  each half builds in well under a minute there, and emulating a Bun and Vite
+  build of the admin UI is several times slower for a runner this repository
+  gets free), runs `silo version` inside what it built,
   and pushes it *by digest* to `docker.io/labsatquicko/silo` and
   `ghcr.io/org-quicko/silo` in one export; and `publish-image`, which waits for
   the GitHub release and then turns the two digests into `:VERSION` and

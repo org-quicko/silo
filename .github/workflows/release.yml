@@ -315,10 +315,11 @@ jobs:
 
   # The container image, one native runner per architecture. Emulation would do
   # it in a single job, but stage 1 of the Dockerfile builds the admin UI with
-  # Bun and Vite, and that is the part QEMU turns from minutes into most of an
-  # hour. arm64 is not optional: silo already ships linux-arm64 binaries and
-  # aarch64 RPMs, and a Pi, a Graviton box and an Apple laptop are all places
-  # a self-hosted CMS gets run.
+  # Bun and Vite, which is CPU-bound work QEMU makes several times slower for
+  # nothing — the arm64 runner is free to this repository, and each half builds
+  # in well under a minute on it. arm64 is not optional: silo already ships
+  # linux-arm64 binaries and aarch64 RPMs, and a Pi, a Graviton box and an
+  # Apple laptop are all places a self-hosted CMS gets run.
   #
   # Each half is pushed **by digest** — a manifest no tag points at, which no
   # `docker pull silo` can reach — and `publish-image` joins the two into the
