@@ -98,7 +98,14 @@ export class S3BlobStorage implements BlobStorage {
   }
 
   async put(key: string, data: Uint8Array, options?: BlobPutOptions): Promise<void> {
-    await this.client.write(key, data, { type: options?.contentType });
+    // `contentDisposition` is the one presentation header Bun's client can put
+    // on an object; there is no Cache-Control and no user metadata, so anything
+    // else silo sends on its own answers has to come from whatever fronts the
+    // bucket.
+    await this.client.write(key, data, {
+      type: options?.contentType,
+      contentDisposition: options?.contentDisposition,
+    });
   }
 
   async get(key: string): Promise<BlobGetResult | null> {

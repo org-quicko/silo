@@ -17,8 +17,12 @@
   loads to its own `<id><ext>` keys and a blob no row claims keeps its name —
   no `format_version` bump, and an older silo still reads a new archive. The
   extension rule on `replaceContent` stays, now resting on `content_type` being
-  read off the filename (D83) rather than on the key's tail. `silo media rekey`
-  moves what is already stored, in the order copy, repoint, remove, so an
+  read off the filename (D83) rather than on the key's tail. An object now also carries a
+  `Content-Disposition`, set at upload and at replace, because a bucket serving its
+  own bytes sends what is stored on it and nothing else -- without it a
+  bucket-served asset lost its filename and an SVG lost the `attachment` D83
+  put on it. `silo media rekey`
+  moves what is already stored, headers and all, in the order copy, repoint, remove, so an
   interrupted run leaves a duplicate or an orphan and never a record naming
   bytes that are not there; it is safe to run again and nothing depends on
   having run it.

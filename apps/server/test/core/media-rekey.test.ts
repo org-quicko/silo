@@ -110,6 +110,28 @@ describe("silo media rekey", () => {
     expect((await service.media.get(id)).blob_key).toBe(legacyKey);
   });
 
+  test("an upload tells the store how to present the object", async () => {
+    // The bucket is the one answering when it holds the object, and it sends
+    // what is stored on it and nothing else (D83, D88). Recorded through a stub
+    // store, because FsBlobStorage has nowhere to keep a header.
+    const puts: { key: string; contentType?: string; contentDisposition?: string }[] = [];
+    const store = service.blobStorage;
+    const real = store.put.bind(store);
+    (store as any).put = async (key: string, data: Uint8Array, options?: any) => {
+      puts.push({ key, ...options });
+      return real(key, data, options);
+    };
+
+    await service.media.save("diagram.svg", new TextEncoder().encode("<svg/>"));
+
+    expect(puts).toHaveLength(1);
+    expect(puts[0].contentType).toBe("image/svg+xml");
+    // An SVG is the one image a browser executes, so it is saved, not shown.
+    expect(puts[0].contentDisposition).toBe(
+      "attachment; filename*=UTF-8''diagram.svg"
+    );
+  });
+
   test("an asset already on the new key is left alone", async () => {
     const asset = await service.media.save("photo.png", new TextEncoder().encode("png-bytes"));
 

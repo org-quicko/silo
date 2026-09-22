@@ -1,4 +1,5 @@
 import { MediaCatalog } from "../../media/media-catalog";
+import { MediaDisposition } from "../../media/media-disposition";
 import { MediaPaths } from "../../media/media-paths";
 import type { MediaRekeyResult } from "../../media/media-rekey-result";
 import type { ServiceContext } from "../support/service-context";
@@ -50,7 +51,7 @@ export class MediaRekeyer {
         }
 
         try {
-          await this.move(entry.id, asset.blob_key, target, asset.content_type, result);
+          await this.move(entry.id, asset, target, result);
         } catch (caught: any) {
           result.failed.push({ id: entry.id, reason: caught?.message || String(caught) });
         }
@@ -80,11 +81,12 @@ export class MediaRekeyer {
    */
   private async move(
     id: string,
-    from: string,
+    asset: { blob_key: string; content_type: string; filename: string },
     to: string,
-    contentType: string,
     result: MediaRekeyResult
   ): Promise<void> {
+    const from = asset.blob_key;
+
     if (!(await this.context.blobStorage.exists(to))) {
       const blob = await this.context.blobStorage.get(from);
       if (!blob) {
@@ -94,12 +96,18 @@ export class MediaRekeyer {
         result.missing++;
         return;
       }
-      await this.context.blobStorage.put(to, blob.data, { contentType });
+      // The copy carries what the original was written with, so an asset that
+      // moves onto the new key does not lose the filename it saves under or
+      // the `attachment` that keeps a navigated SVG from running (D83).
+      await this.context.blobStorage.put(to, blob.data, {
+        contentType: asset.content_type,
+        contentDisposition: MediaDisposition.header(asset.content_type, asset.filename),
+      });
     }
 
     const entry = await this.catalog.asset(id);
-    const asset = MediaCatalog.toAsset(entry);
-    await this.catalog.putAsset(id, { ...asset, blob_key: to });
+    const current = MediaCatalog.toAsset(entry);
+    await this.catalog.putAsset(id, { ...current, blob_key: to });
     result.moved++;
 
     // Only now, with nothing pointing at it.

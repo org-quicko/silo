@@ -6,6 +6,7 @@ import { ConflictError } from "../../errors/conflict-error";
 import { MediaCatalog } from "../../media/media-catalog";
 import { MediaExtensions } from "../../media/media-extensions";
 import { MediaLinks } from "../../media/media-links";
+import { MediaDisposition } from "../../media/media-disposition";
 import { MediaPaths } from "../../media/media-paths";
 import { MimeUtils } from "../../media/mime-utils";
 import type { MediaAsset } from "../../media/media-asset";
@@ -183,7 +184,10 @@ export class MediaAssetService {
       // Bytes first: a blob with no catalog record is an orphan reconcile can
       // adopt or report, whereas a record with no bytes is a broken asset every
       // reader trips over.
-      await this.context.blobStorage.put(blobKey, fileData, { contentType });
+      await this.context.blobStorage.put(blobKey, fileData, {
+        contentType,
+        contentDisposition: MediaDisposition.header(contentType, filename),
+      });
 
       const asset: MediaAsset = {
         filename,
@@ -256,7 +260,10 @@ export class MediaAssetService {
       // is corrected the first time its bytes are replaced.
       const contentType = MimeUtils.lookup(asset.filename);
 
-      await this.context.blobStorage.put(asset.blob_key, fileData, { contentType });
+      await this.context.blobStorage.put(asset.blob_key, fileData, {
+        contentType,
+        contentDisposition: MediaDisposition.header(contentType, asset.filename),
+      });
 
       const replaced: MediaAsset = {
         ...asset,

@@ -33,7 +33,7 @@ keys, one written after loads under the prefix, and a blob no row claims keeps
 its name. No `format_version` bump, and an older silo still reads an archive
 written now. `replaceContent` still refuses an extension change, now because
 `content_type` is read off the filename (D83) rather than because the key
-carried it. **`silo media rekey`** moves what is already stored: copy, repoint,
+carried it. An object also carries **how it should be presented**: `contentDisposition` is set at upload and at replace and passed to the bucket, since a store serving its own bytes is the one answering and silo is not in that path -- without it a bucket-served asset loses its filename and an SVG loses the `attachment` that keeps a navigation from running it (D83). Bun's S3 client can store that and not `Cache-Control`, so a CDN in front of the bucket supplies the rest. **`silo media rekey`** moves what is already stored, headers and all: copy, repoint,
 remove, so an interrupted run leaves a duplicate or an orphan and never a record
 naming bytes that are not there. Safe to run again, and an optimisation an
 operator chooses rather than a migration an upgrade forces.
