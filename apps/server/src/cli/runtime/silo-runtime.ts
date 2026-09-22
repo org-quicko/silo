@@ -242,6 +242,8 @@ export class SiloRuntime {
       // What a streamed archive may weigh and expand to (D85); a file named on
       // the command line is the operator's and is not held to it.
       transfer: config.transfer,
+      // How long a delete stays recoverable (D91).
+      trash: config.trash,
       scan: {
         visitLimit: config.search.scan_limit,
         timeBudgetMs: config.search.scan_time_budget_ms,

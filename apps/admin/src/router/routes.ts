@@ -116,6 +116,12 @@ export class Routes {
     return q ? `${fullBase}?q=${encodeURIComponent(q)}` : fullBase
   }
 
+  /** The trash, instance-global like the media library and filtered in the
+   *  page rather than addressed per scope (D91). */
+  static trash(serverId: string): string {
+    return `/servers/${encodeURIComponent(serverId)}/trash`
+  }
+
   // ---- parsing ----
 
   /** `null` for anything unrecognised (including `/`); the caller redirects. */
@@ -135,6 +141,7 @@ export class Routes {
       const q = searchParams.get('q') || ''
       return { view: 'media', serverId, folder, q }
     }
+    if (segs[2] === 'trash' && segs.length === 3) return { view: 'trash', serverId }
     if (segs[2] === 'settings') return Routes.parseServerSettings(serverId, segs)
     if (segs[2] !== 'projects' || segs.length < 4) return null
 

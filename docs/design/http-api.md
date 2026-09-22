@@ -1014,3 +1014,172 @@ in-process server over the data directory: that would wire a second app per
 spawn, and a stdio process writing to a data directory a `serve` owns is the
 very thing D25 forbids. Being a client is also what lets it run from any working
 directory with no config file (§10.6).
+
+### 8.7 Trash: what a delete leaves behind (D91)
+
+A delete moves its subject into the trash instead of destroying it, and two
+routes take it out again: `POST /api/trash/{id}/restore` and, for good,
+`DELETE /api/trash/{id}`. Six kinds go in — project, environment, collection,
+entry, media asset, media folder — and one shape comes out.
+
+**The list is flat, and only the explicitly deleted thing is in it.** Deleting
+a collection that holds 300 entries writes *one* receipt saying "300 entries",
+not 301 receipts. This is the rule the FreeDesktop trash specification states
+for directories ("if a directory was trashed in its entirety, it is easiest to
+undelete it… only in its entirety as well") and the rule Google Drive encodes
+as `explicitlyTrashed` beside `trashed`. It is what keeps the list short, the
+payload small and a restore predictable: you restore the collection, and its
+entries come with it, because they were never separable in the first place.
+
+The flatness is also the answer to the obvious alternative, which is to draw
+the trash as a project → environment → collection tree. That tree is mostly
+empty nodes; the question anyone actually brings to a trash is "undo what I
+just did", which is time-ordered rather than place-ordered; and an entry whose
+collection was deleted afterwards has no node to hang under at all. So the
+hierarchy becomes a *filter* over a flat list, and reappears inside a receipt
+through `GET /api/trash/{id}/items` — the one place it is never empty.
+
+**Nothing is soft-deleted in place.** The obvious implementation is a
+`deleted_at` column on `projects`, `environments`, `collections` and `entries`,
+with every read filtering it out. It was rejected for five reasons that are all
+specific to this codebase. `SqliteMigrations.guardFormatVersion` refuses a data
+directory whose shape does not match and there is no migration path, so four new
+columns would push every existing install through an export/import cycle for a
+convenience feature. `FsLayout` *is* the export format (D5), and a
+deleted-but-present entry file has no honest representation in a tree meant to
+be read and diffed. Every query in two adapters would have to filter — `list`,
+`countEntries`, `listScopes`, `listEntryCollections`, `listCollections`, the
+usage queries, the FTS trigger, the export walker — and one missed filter is
+deleted content in an API response. `UNIQUE (env_id, name)` does not know about
+a flag, so a deleted `posts` would keep the name occupied until it expired.
+And `media_references` cascades from `entries`, so a soft-deleted entry would
+keep refusing an asset's deletion on behalf of content nobody can see.
+
+**Instead the content leaves the live tables and is parked**, in two system
+collections in `Scope.System` — the trick D12 used for `_keys`, D23 for
+`_media` and D34 for `_plugins`, which is what gives them both storage
+adapters, the conformance suite and the query layer for free. `_trash` holds one
+small receipt per deleted thing; `_trash_items` holds the records themselves,
+read only on a restore and never listed. That split is the FreeDesktop
+`$trash/info` and `$trash/files` split, adopted for the same reason: the thing
+you enumerate and the thing you move are different sizes and want different
+storage. Adding two system collections is two entries in
+`SystemCollections.All`, so **no DDL changes and `FormatVersion` does not
+move** — an instance upgraded in place keeps working and starts with an empty
+trash.
+
+The cost is that a restore replays records rather than flipping a flag, which
+for a large project is real work. It is the same work an import already does,
+and it is bounded by the retention window rather than by instance size.
+
+**Capture is copy-only, and runs before the delete it belongs to.**
+`TrashCapture` reads what is about to go and writes it into `_trash_items`; the
+existing erase then runs exactly as it always did, with its own ordering, counts
+and hooks. A collection's entries are therefore read twice. That was chosen
+deliberately over threading the trash through four delete paths: none of them
+had to be rewritten, so none of them could be broken. Media is the one
+exception and is handled by `MediaTrashService`, because the deletion saga
+exists to make the blob and the catalog record agree and the trash needs the
+opposite — the record goes, the bytes stay, and only a purge takes them.
+
+**A receipt anchors on ids and draws with names.** `origin` carries both.
+Names are mutable since D51, so a project renamed between the delete and the
+restore would send the content nowhere or somewhere wrong if the receipt held
+only a name; `TrashLocator` turns each id back into the name the `Storage` port
+addresses by, at the moment of the restore. The names are what a UI prints, and
+are allowed to go stale.
+
+**A missing container blocks the restore rather than orphaning the content.**
+This is the one place silo can clearly beat the products it is copying: Drive
+restores a file whose parent was purged as an orphan, which is the single most
+complained-about behaviour in any trash. `TrashBlockers` answers *why* instead —
+which container is gone, and whether it is itself in the trash. When it is,
+`{"chain": true}` restores the ancestors first, in order. When it was purged,
+the only honest offers are a different destination or a purge, and the API says
+so rather than inventing a home.
+
+**A collision is refused, never overwritten.** Parking frees a name at once,
+which is most of the point, so by the time someone restores `posts` there may be
+a new `posts`. `TrashRestorer` checks before every write — a project,
+environment or collection name, and an entry's id — and answers `409` with an
+offer to restore under another name. Restoring one thing by destroying another
+is not a restore, and the FreeDesktop spec's own rule that trashing a name twice
+must never overwrite the earlier copy is the same principle at the other end.
+
+**Restore reports what it cannot repair.** An entry's media references leave
+`media_references` when the entry does, so an asset can be deleted for good
+while the only thing naming it sits in the trash. The restore succeeds and
+`broken_media_refs` names what no longer resolves. Softening the media usage
+guard because the asset is now recoverable was considered and rejected: the
+reference breaks the moment the asset leaves the catalog, recoverable or not,
+and a broken image on a live site is the same problem either way.
+
+**Crash safety reuses the staging D23 and D49 already have.** A receipt carries
+a `state`: it opens `parking`, becomes `parked` when the copy is complete, and
+passes through `restoring` or `purging`. `TrashSweeper.resumePending` finishes
+or rolls back anything else at the next start, beside the two media resumes.
+
+#### Claims
+
+The feature adds **one** claim, and that is the whole of its authority story.
+
+**Reading has no claim.** A single `trash:read` was the obvious design and is
+wrong here, for the opposite of the reason `media:read` was retired in D58. The
+media catalog was an index of an open shelf; the trash is content that was
+removed from view, and one global listing would show entry data, collection
+names and filenames from every scope in the instance to anyone holding it.
+`TrashVisibility` instead gates each receipt on the read claim its **origin**
+already required — `entries:read` for an entry, `schema:read` for a collection,
+environment or project, nothing for media. A key sees exactly the deletions it
+could have seen the content of, `total` counts only those, and
+`GET /api/trash/{id}` answers `404` rather than `403` for the rest, because
+"forbidden" would confirm that something was deleted there. The behaviour to
+design around is that the trash is **per key**: two keys see two different
+trashes, and the count badge differs between them.
+
+**Sending something to the trash asks for nothing new.** It is the delete that
+already existed — `entries:delete`, `collection:delete`, `media:delete`, and
+`ForcedDeletePermissions` unchanged on `?force=true`. Adding a requirement would
+break every existing key on upgrade for an operation whose reach did not change.
+What `force` now *means* is softer (the entries go to the trash rather than
+being destroyed), but what it asks for is not, because the content still leaves
+the live instance and `collection:delete` alone should still not make 300
+entries disappear from every API response.
+
+**Restoring asks for the write claims at the destination.**
+`TrashRestoreAuthority` requires `entries:create` at the scope an entry lands
+in, and `collection:create` on top for a container. A `trash:restore` claim
+would let a key place content into a scope it cannot otherwise write to, which
+is precisely the escalation D37 measured for `keys:import`. Deriving the answer
+from the existing vocabulary is both tighter and one less string to hold.
+
+**Only `trash:purge` is new**, on `media:purge`'s argument exactly (D65):
+whoever deleted the content already spent their delete claim, and ending it
+forever is a second decision, usually by someone else and later. It gates
+`DELETE /api/trash/{id}`, `POST /api/trash/purge` — with the same typed
+confirmation `POST /api/media/purge` takes — and `?permanent=true` on any delete
+route, which is a purge fused to a delete. No preset but `root` carries it, the
+shape `media:purge`, `media:configure` and `settings:configure` already take.
+
+It is deliberately **not** in `PluginForbiddenClaims`. That list is for claims
+that let a plugin escape its own grant; `trash:purge` destroys data but widens
+nothing, and the test that list applies is escalation, not damage.
+
+#### The undo header
+
+`DELETE` on an entry and on a media asset answer their receipt's id in
+`X-Silo-Trash-Id`, exposed through CORS. A header rather than a body so the
+`204` contract does not move and a client that has never heard of the trash sees
+exactly the response it always saw. The admin hangs its undo toast off it, which
+is where most of this feature's value is actually collected: most mistakes are
+noticed within seconds, and an undo at that moment costs one click instead of a
+page visit and a search.
+
+#### Export and import
+
+`_trash` and `_trash_items` are excluded from an export, like
+`_media_folder_moves`: an export is what the instance holds, and a clone should
+not inherit its source's undo history. An import **never** accepts them, and the
+asymmetry is the point. A crafted `_trash_items` document is a way to plant
+content that a later restore writes into any scope, which is the `keys:import`
+escalation again; refusing the collection outright is cheaper than gating it.

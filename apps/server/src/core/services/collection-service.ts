@@ -15,17 +15,22 @@ import { CollectionSchemas } from "../schema/collection-schemas";
 import { SchemaBundler } from "../schema/schema-bundler";
 import { SchemaChangeGuard } from "../schema/schema-change-guard";
 import { SchemaRefRewrite } from "../schema/schema-ref-rewrite";
+import type { DeleteOptions } from "../trash/delete-options";
+import { DeleteOptionsUtils } from "../trash/delete-options";
 import { CollectionEvents } from "./support/collection-events";
 import { CollectionEraser } from "./support/collection-eraser";
 import { SchemaRegistry } from "./support/schema-registry";
 import type { ServiceContext } from "./support/service-context";
+import type { TrashService } from "./trash/trash-service";
 
 /** Collections and their JSON Schemas, within one scope. */
 export class CollectionService {
   private readonly context: ServiceContext;
+  private readonly trash: TrashService;
 
-  constructor(context: ServiceContext) {
+  constructor(context: ServiceContext, trash: TrashService) {
     this.context = context;
+    this.trash = trash;
   }
 
   /**
@@ -217,7 +222,8 @@ export class CollectionService {
     scope: Scope,
     name: string,
     force: boolean,
-    writeContext: WriteContext = WriteContexts.Api
+    writeContext: WriteContext = WriteContexts.Api,
+    options: DeleteOptions = {}
   ): Promise<void> {
     CollectionService.refuseSystemCollection(scope, name);
 
@@ -233,6 +239,17 @@ export class CollectionService {
       }
 
       if (!force) await this.refuseWhileReferenced(scope, name);
+
+      // Before the erase, so a `force` delete takes its entries into the trash
+      // with it rather than destroying them (D91).
+      if (this.trash.enabled && !DeleteOptionsUtils.isPermanent(options)) {
+        await this.trash.capture.collection(
+          scope,
+          name,
+          DeleteOptionsUtils.actorOf(options),
+          this.trash.expiryStamp()
+        );
+      }
 
       const count = await CollectionEraser.erase(this.context.store, scope, name);
       this.context.schemaRegistry.invalidate();

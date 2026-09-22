@@ -7,11 +7,12 @@ import { JsonPath } from '@silo/shared/json-path'
 import type { CollectionPermission } from '@silo/shared/collection-permission'
 import { api } from '../../api/silo-api'
 import { Formatters } from '../../utils/formatters'
-import { ToastManager } from '../../utils/toast-manager'
+import { TrashUndo } from '../trash/trash-undo'
 import type { Collection } from '../../api/types/collection'
 import type { Entry } from '../../api/types/entry'
 import type { ListQuery } from '../../router/list-query'
 import type { ScopeRef } from '../../api/types/scope-ref'
+import type { SessionInfo } from '../../api/types/session-info'
 import { Routes } from '../../router/routes'
 import { FilterModel, type FilterDraft } from '../../query/filter-model'
 import { PathLabel } from '../../query/path-label'
@@ -44,6 +45,11 @@ interface Props {
   apiKey: string
   scope: ScopeRef
   claims: string[]
+  /** Read by the delete dialog for whether this delete is recoverable (D91). */
+  session: SessionInfo | null
+  /** Changes when something outside this table restored an entry into it — the
+   *  undo toast from the entry form, which navigated away before it fired. */
+  refreshToken?: string
   /** Text, filter, sort, page and column selection live in the URL, so a view is linkable. */
   query: ListQuery
   onQueryChange: (next: ListQuery, replace?: boolean) => void
@@ -61,6 +67,8 @@ export function EntriesView({
   apiKey,
   scope,
   claims,
+  session,
+  refreshToken,
   query,
   onQueryChange,
   onEditSchema,
@@ -115,6 +123,7 @@ export function EntriesView({
     q: query.q,
     filter: parsed.filter,
     filterError: parsed.error,
+    refreshToken,
   })
 
   // Opening a row and coming back should land where you left, not at the top
@@ -165,11 +174,14 @@ export function EntriesView({
   const doDelete = async () => {
     if (!toDelete) return
     try {
-      await api.entries.delete(url, apiKey, scope, collection.name, toDelete.id, toDelete.rev)
+      const trashId = await api.entries.delete(url, apiKey, scope, collection.name, toDelete.id, toDelete.rev)
+      const subject = label(toDelete)
       setToDelete(null)
-      ToastManager.show('Entry deleted')
       await reload()
       onChanged()
+      TrashUndo.offer(trashId, subject, url, apiKey, () => {
+        void reload().then(onChanged)
+      })
     } catch (caught: any) {
       alert(caught.message || 'Delete failed')
     }
@@ -358,6 +370,7 @@ export function EntriesView({
           collectionName={collection.name}
           label={label(toDelete)}
           sub={sub}
+          session={session}
           onCancel={() => setToDelete(null)}
           onConfirm={doDelete}
         />

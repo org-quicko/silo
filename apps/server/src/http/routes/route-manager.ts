@@ -18,6 +18,7 @@ import { SearchRoutes } from "./search-routes";
 import { PluginRoutes } from "./plugin-routes";
 import { ExtRoutes } from "./ext-routes";
 import { AuditRoutes } from "./audit-routes";
+import { TrashRoutes } from "./trash-routes";
 import { ObservabilityRoutes } from "./observability-routes";
 import type { Observability } from "../../observability";
 
@@ -40,7 +41,7 @@ export class RouteManager {
     settings: ConfigSupervisor,
     observability: Observability
   ) {
-    SessionRoutes.register(app);
+    SessionRoutes.register(app, service);
     // Plugin *management* (D34/D38/D39), registered before the scoped param
     // routes for the same ordering reason the rest of this list exists.
     PluginRoutes.register(app, service, plugins);
@@ -49,6 +50,7 @@ export class RouteManager {
     // all of them — see `ExtRoutes` for why plugins are not let into this list.
     ExtRoutes.register(app, plugins);
     AuditRoutes.register(app, service);
+    TrashRoutes.register(app, service);
     ObservabilityRoutes.register(app, observability);
     SettingsRoutes.register(app, settings);
     KeysRoutes.register(app, service);

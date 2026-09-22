@@ -1,4 +1,5 @@
 import type { MediaAsset } from '../../api/types/media-asset'
+import type { SessionInfo } from '../../api/types/session-info'
 import { AssetInUseDialog } from './AssetInUseDialog'
 import { DeleteAssetDialog } from './DeleteAssetDialog'
 import { MediaContentAvailability } from './media-content-availability'
@@ -19,6 +20,8 @@ import type { useMediaReplaceFlow } from './use-media-replace-flow'
 
 interface Props {
   claims: string[]
+  /** Read by the delete dialog for whether a delete is recoverable (D91). */
+  session: SessionInfo | null
   baseUrl: string
   assets: MediaAsset[]
   editing: MediaAsset | null
@@ -59,6 +62,7 @@ interface Props {
  */
 export function MediaDialogs({
   claims,
+  session,
   baseUrl,
   assets,
   editing,
@@ -187,6 +191,7 @@ export function MediaDialogs({
         <DeleteAssetDialog
           subject={deleteFlow.subject}
           busy={deleteFlow.busy}
+          session={session}
           onConfirm={deleteFlow.confirm}
           onClose={deleteFlow.cancel}
         />

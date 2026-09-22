@@ -7,6 +7,7 @@ import { MediaDefaults } from "./media-defaults";
 import { MediaTable } from "./media-table";
 import type { PluginConfig } from "./plugin-config";
 import { TransferDefaults } from "./transfer-defaults";
+import { TrashDefaults } from "./trash-defaults";
 
 export class ConfigLoader {
   static defaultConfig(): Config {
@@ -20,6 +21,10 @@ export class ConfigLoader {
       transfer: {
         max_archive_size_mb: TransferDefaults.MaxArchiveSizeMb,
         max_extracted_size_mb: TransferDefaults.MaxExtractedSizeMb,
+      },
+      trash: {
+        enabled: TrashDefaults.Enabled,
+        retention_days: TrashDefaults.RetentionDays,
       },
       default_project: "default",
       default_env: "prod",
@@ -139,6 +144,17 @@ export class ConfigLoader {
               config.http.max_json_body_size_mb = HttpDefaults.bodySizeMb(
                 parsed.http.max_json_body_size_mb,
                 HttpDefaults.MaxJsonBodySizeMb
+              );
+            }
+          }
+          if (parsed.trash && typeof parsed.trash === "object") {
+            if (typeof parsed.trash.enabled === "boolean") {
+              config.trash.enabled = parsed.trash.enabled;
+            }
+            if (typeof parsed.trash.retention_days === "number") {
+              config.trash.retention_days = TrashDefaults.days(
+                parsed.trash.retention_days,
+                TrashDefaults.RetentionDays
               );
             }
           }
@@ -290,6 +306,15 @@ export class ConfigLoader {
       config.transfer.max_extracted_size_mb = TransferDefaults.sizeMb(
         Number(process.env.SILO_TRANSFER_MAX_EXTRACTED_SIZE_MB),
         config.transfer.max_extracted_size_mb
+      );
+    }
+    if (process.env.SILO_TRASH_ENABLED) {
+      config.trash.enabled = process.env.SILO_TRASH_ENABLED !== "false";
+    }
+    if (process.env.SILO_TRASH_RETENTION_DAYS) {
+      config.trash.retention_days = TrashDefaults.days(
+        Number(process.env.SILO_TRASH_RETENTION_DAYS),
+        config.trash.retention_days
       );
     }
     if (process.env.SILO_DEFAULT_PROJECT) {

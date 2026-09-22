@@ -12,6 +12,7 @@ import { ValidationError } from "@silo/shared/validation-error";
 import { ForbiddenError } from "../../core/errors/forbidden-error";
 import { UnauthorizedError } from "../../core/errors/unauthorized-error";
 import type { MediaService } from "../../core/services/media/media-service";
+import type { DeleteOptions } from "../../core/trash/delete-options";
 
 export class RouteAuth {
   static getScope(c: Context): Scope {
@@ -157,6 +158,20 @@ export class RouteAuth {
       }
     }
     return key;
+  }
+
+  /**
+   * The delete options a request carries: who asked, and whether it wants the
+   * trash skipped (D91).
+   *
+   * `?permanent=true` is a purge fused to a delete, so it asks for
+   * `trash:purge` — the same claim emptying the trash asks for. Without it a
+   * delete is recoverable and needs nothing it did not need before.
+   */
+  static getDeleteOptions(c: Context): DeleteOptions {
+    const permanent = c.req.query("permanent") === "true";
+    if (permanent) RouteAuth.requireClaim(c, Claims.TrashPurge);
+    return { actor: RouteAuth.getActor(c), permanent };
   }
 
   static requireForcedDelete(

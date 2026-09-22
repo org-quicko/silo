@@ -1,6 +1,7 @@
 import type { ResponseCache } from "./cache/ResponseCache.js";
 import type { HealthReport } from "./instance/health-report.js";
 import { Media } from "./media/media.js";
+import { Trash } from "./trash/trash.js";
 import type { RequestOptions } from "./request-options.js";
 import { ProjectHandle } from "./scope/project-handle.js";
 import { Projects } from "./scope/projects.js";
@@ -26,6 +27,8 @@ export class Silo {
   readonly projects: Projects;
   /** The media catalog. Media is instance-global, so it takes no scope. */
   readonly media: Media;
+  /** What a delete left behind (D91). Instance-global like media. */
+  readonly trash: Trash;
 
   private readonly options: SiloOptions;
   private readonly transport: Transport;
@@ -35,6 +38,7 @@ export class Silo {
     this.transport = new Transport(options);
     this.projects = new Projects(this.transport);
     this.media = new Media(this.transport);
+    this.trash = new Trash(this.transport);
   }
 
   /** One project, by the name every path addresses it with. */

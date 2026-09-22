@@ -8,7 +8,10 @@ import { WriteContexts } from "../hooks/write-contexts";
 import { MediaRefs } from "../media/media-refs";
 import type { Query } from "../query/query";
 import { QueryUtils } from "../query/query-utils";
+import type { DeleteOptions } from "../trash/delete-options";
+import { DeleteOptionsUtils } from "../trash/delete-options";
 import type { MediaService } from "./media/media-service";
+import type { TrashService } from "./trash/trash-service";
 import { DerivedIndexBuilder } from "./support/derived-index-builder";
 import { EntryEvents } from "./support/entry-events";
 import type { ServiceContext } from "./support/service-context";
@@ -18,11 +21,13 @@ import type { ServiceContext } from "./support/service-context";
 export class EntryService {
   private readonly context: ServiceContext;
   private readonly media: MediaService;
+  private readonly trash: TrashService;
   private readonly derivedIndex: DerivedIndexBuilder;
 
-  constructor(context: ServiceContext, media: MediaService) {
+  constructor(context: ServiceContext, media: MediaService, trash: TrashService) {
     this.context = context;
     this.media = media;
+    this.trash = trash;
     this.derivedIndex = new DerivedIndexBuilder(context.store);
   }
 
@@ -151,13 +156,19 @@ export class EntryService {
     return written;
   }
 
+  /**
+   * `options.permanent` skips the trash (D91). The hooks fire either way: from
+   * a plugin's side the entry has left the live instance, and a mirrored index
+   * should drop it whether or not it is recoverable.
+   */
   async delete(
     scope: Scope,
     collection: string,
     id: string,
     expectedRev: number,
-    writeContext: WriteContext = WriteContexts.Api
-  ): Promise<void> {
+    writeContext: WriteContext = WriteContexts.Api,
+    options: DeleteOptions = {}
+  ): Promise<string | null> {
     EntryService.refuseSystemCollection(scope, collection);
 
     // Read before the lock purely to give the veto hook the entry it is being
@@ -166,16 +177,27 @@ export class EntryService {
     const doomed = await this.context.store.get(scope, collection, id);
     await this.context.hooks.beforeDelete(EntryEvents.deleting(writeContext, doomed));
 
-    const rev = await this.context.withWriteLock(async () => {
+    const { rev, receipt } = await this.context.withWriteLock(async () => {
       const current = await this.context.store.get(scope, collection, id);
       EntryService.assertRev(current.rev, expectedRev);
+      let receiptId: string | null = null;
+      if (this.trash.enabled && !DeleteOptionsUtils.isPermanent(options)) {
+        receiptId = await this.trash.capture.entry(
+          scope,
+          collection,
+          current,
+          DeleteOptionsUtils.actorOf(options),
+          this.trash.expiryStamp()
+        );
+      }
       await this.context.store.delete(scope, collection, id);
-      return current.rev;
+      return { rev: current.rev, receipt: receiptId };
     });
 
     await this.context.hooks.afterDelete(
       EntryEvents.deleted(writeContext, scope, collection, id, rev)
     );
+    return receipt;
   }
 
   /**

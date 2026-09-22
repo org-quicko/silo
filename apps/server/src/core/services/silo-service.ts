@@ -1,6 +1,7 @@
 import { FsBlobStorage } from "../../adapters/blob/fs-blob-storage";
 import type { MediaConfig } from "../../config/media-config";
 import type { TransferConfig } from "../../config/transfer-config";
+import type { TrashConfig } from "../../config/trash-config";
 import { Logger } from "../../logging/logger";
 import type { Meta } from "../domain/meta";
 import type { Hooks } from "../hooks/hooks";
@@ -23,6 +24,7 @@ import { SchemaRegistry } from "./support/schema-registry";
 import { ScopeRenameCascade } from "./support/scope-rename-cascade";
 import { ServiceContext } from "./support/service-context";
 import { TransferService } from "./transfer-service";
+import { TrashService } from "./trash/trash-service";
 import { VariableService } from "./variable-service";
 
 /** How to build a `SiloService`. Everything is optional; the defaults are what
@@ -40,6 +42,9 @@ export interface SiloServiceOptions extends SchemaValidatorOptions {
   /** How large a streamed archive may be and how much it may expand to
    *  (D85). Absent leaves a streamed import unbounded. */
   transfer?: TransferConfig;
+  /** How long a deleted thing stays recoverable (D91). Absent leaves the
+   *  defaults: on, thirty days. */
+  trash?: TrashConfig;
   /** Bounds for the portable engine; ignored when a native one is given. */
   scan?: { visitLimit?: number; timeBudgetMs?: number };
   /** Where an audit append that fails is reported (D38). Silent by default, so
@@ -78,6 +83,8 @@ export class SiloService {
   /** Variables: declared per project, valued per environment, substituted into
    *  `{{NAME}}` on the way out (D57). */
   readonly variables: VariableService;
+  /** What a delete leaves behind, and the two ways out of it (D91). */
+  readonly trash: TrashService;
 
   private readonly context: ServiceContext;
   private readonly renameCascade: ScopeRenameCascade;
@@ -102,7 +109,11 @@ export class SiloService {
     this.store = store;
 
     this.renameCascade = new ScopeRenameCascade(this.context);
-    this.collections = new CollectionService(this.context);
+    // Before every service that deletes: each captures into the trash before
+    // it erases anything (D91).
+    this.trash = new TrashService(this.context);
+    if (options.trash) this.trash.useConfig(options.trash);
+    this.collections = new CollectionService(this.context, this.trash);
     // Before `scopes`, which holds it: deleting a project or an environment
     // has to take that scope's declarations and values with it (D57).
     this.variables = new VariableService(this.context);
@@ -110,10 +121,11 @@ export class SiloService {
       this.context,
       this.collections,
       this.renameCascade,
-      this.variables
+      this.variables,
+      this.trash
     );
-    this.media = new MediaService(this.context);
-    this.entries = new EntryService(this.context, this.media);
+    this.media = new MediaService(this.context, this.trash);
+    this.entries = new EntryService(this.context, this.media, this.trash);
     this.search = new SearchService(this.context);
     this.audit = new AuditService(this.context, options.logger ?? Logger.silent());
     this.keys = new KeyService(this.context, this.audit);
@@ -137,6 +149,12 @@ export class SiloService {
    */
   resumePendingRenames(): Promise<{ resumed: number; failed: number }> {
     return this.renameCascade.resumePending();
+  }
+
+  /** Finishes any trash capture, restore or purge a crash left half-done
+   *  (D91). */
+  resumePendingTrash(): Promise<{ finished: number; failed: number }> {
+    return this.trash.resumePending();
   }
 
   /**

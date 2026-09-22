@@ -8,7 +8,9 @@ import { ModalHeader } from '../../components/modal/ModalHeader'
 import { ModalIcon } from '../../components/modal/ModalIcon'
 import { ModalSubject } from '../../components/modal/ModalSubject'
 import { Formatters } from '../../utils/formatters'
+import { TrashCopy } from '../trash/trash-copy'
 import type { Entry } from '../../api/types/entry'
+import type { SessionInfo } from '../../api/types/session-info'
 
 /** The delete-confirmation modal for one row, out of `Entries.tsx` for the same reason `RowMenu` already is. */
 export function DeleteEntryModal({
@@ -16,6 +18,7 @@ export function DeleteEntryModal({
   collectionName,
   label,
   sub,
+  session,
   onCancel,
   onConfirm,
 }: {
@@ -24,6 +27,9 @@ export function DeleteEntryModal({
   label: string
   /** The subtitle field's name, when the schema has one — shown beside the id. */
   sub: string | null
+  /** Read for whether this delete is recoverable, which is an instance
+   *  setting rather than something the dialog can assume (D91). */
+  session: SessionInfo | null
   onCancel: () => void
   onConfirm: () => void
 }) {
@@ -36,8 +42,8 @@ export function DeleteEntryModal({
         <ModalCopy>
           <h3>Delete this entry?</h3>
           <ModalBody>
-            You're about to delete <b>“{label}”</b> from <b>{collectionName}</b>. The row is removed immediately and
-            can't be recovered.
+            You're about to delete <b>“{label}”</b> from <b>{collectionName}</b>.{' '}
+            {TrashCopy.reassurance(session)}
           </ModalBody>
         </ModalCopy>
       </ModalHeader>
@@ -56,7 +62,7 @@ export function DeleteEntryModal({
           Cancel
         </Button>
         <Button variant="danger" onClick={onConfirm}>
-          Delete entry
+          {TrashCopy.enabled(session) ? 'Move to trash' : 'Delete entry'}
         </Button>
       </ModalActions>
     </Modal>

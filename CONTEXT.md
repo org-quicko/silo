@@ -17,7 +17,47 @@ can be cloned with one command.
 
 ## Where things stand
 
-*Last updated: 2026-09-22 (a release publishes a container image)*
+*Last updated: 2026-09-22 (a delete goes to the trash)*
+
+**A delete goes to the trash, and one new claim takes it out for good (D91).**
+Deleting a project, an environment, a collection, an entry, a media asset or a
+media folder no longer destroys it. The content leaves the live tables and is
+parked in two new system collections in `Scope.System`: `_trash` holds one small
+receipt per **explicitly** deleted thing, `_trash_items` holds the records
+themselves, read only on a restore. That is the trick D12 used for `_keys` and
+D23 for `_media`, so the trash gets both storage adapters, the conformance suite
+and the query layer for free — and because adding it is two entries in
+`SystemCollections.All`, **no DDL changed and `FormatVersion` did not move**. An
+instance upgraded in place keeps working and starts with an empty trash.
+
+The receipt is per thing you deleted *on purpose*: a collection deleted with 300
+entries under it is one item saying "300 entries", not 301, and restoring it
+brings all 300 back. So the trash list is flat and newest-first, with the
+project/environment/collection hierarchy as a filter over it rather than a tree
+drawn through it, and the hierarchy reappears inside a receipt through
+`GET /api/trash/{id}/items`. `TrashCapture` is **copy-only** and runs before the
+erase it belongs to, so none of the four delete paths was rewritten; media is the
+exception (`MediaTrashService`), because the D23 saga exists to make the blob and
+the record agree and the trash needs the record gone and the bytes kept. A
+receipt anchors on record **ids** and draws with names, so a rename between the
+delete and the restore does not misfile the content. A missing container blocks
+the restore and says which one is in the way rather than orphaning the content;
+`{"chain": true}` restores the ancestors first when they are in the trash too,
+and a name taken since is refused with a 409 and an offer to rename.
+
+**Reading the trash needs no claim, and restoring needs no claim of its own.**
+`TrashVisibility` gates each receipt on the read claim its origin already
+required, so the trash is per key and `GET /api/trash/{id}` answers 404 rather
+than 403 for anything else. `TrashRestoreAuthority` asks for the write claims at
+the destination, because restoring an entry into `prod` is writing to `prod`.
+The one new claim is **`trash:purge`**, carried by no preset but `root`, gating
+`DELETE /api/trash/{id}`, the `{"confirm": "empty"}` purge and `?permanent=true`
+on any delete route. `[trash] enabled` and `retention_days = 30` stamp an
+`expires_at` per receipt, swept hourly; `enabled = false` restores the old
+behaviour exactly. `DELETE` on an entry or an asset answers its receipt in
+`X-Silo-Trash-Id`, which is what the admin's undo toast hangs off. The admin has
+a Trash page beside Media, every delete dialog now says whether the delete can be
+undone, and `silo.trash` is on the client SDK.
 
 **A release publishes a multi-arch container image to Docker Hub and GHCR
 (D90).** `docker run labsatquicko/silo` is now an install method rather than

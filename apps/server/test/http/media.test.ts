@@ -91,7 +91,9 @@ describe("media catalog (D23)", () => {
     expect((await service.media.get(asset.id)).usage_count).toBe(1);
 
     await service.entries.update(Scope.Default, "posts", entry.id, {}, entry.rev);
-    await service.media.delete(asset.id);
+    // `permanent`, so the blob goes: the trash path keeps the bytes until a
+    // purge, which `trash.test.ts` covers (D91).
+    await service.media.delete(asset.id, { permanent: true });
 
     await expect(service.media.get(asset.id)).rejects.toThrow(NotFoundError);
     expect(await service.blobStorage.exists(asset.blob_key)).toBe(false);
@@ -105,7 +107,7 @@ describe("media catalog (D23)", () => {
     // Unforced still refuses, exactly as before.
     await expect(service.media.delete(asset.id)).rejects.toThrow(MediaInUseError);
 
-    await service.media.delete(asset.id, { force: true });
+    await service.media.delete(asset.id, { force: true, permanent: true });
     await expect(service.media.get(asset.id)).rejects.toThrow(NotFoundError);
     expect(await service.blobStorage.exists(asset.blob_key)).toBe(false);
 
@@ -339,9 +341,12 @@ describe("media catalog (D23)", () => {
     };
 
     // The failure carries its own remedy rather than surfacing as a bare 500.
-    await expect(service.media.delete(asset.id)).rejects.toThrow(MediaDeleteStalledError);
+    // The saga is the `permanent` path since D91; the trash never stages.
+    await expect(service.media.delete(asset.id, { permanent: true })).rejects.toThrow(
+      MediaDeleteStalledError
+    );
     try {
-      await service.media.delete(asset.id);
+      await service.media.delete(asset.id, { permanent: true });
     } catch (caught) {
       const stalled = caught as MediaDeleteStalledError;
       expect(stalled.mediaId).toBe(asset.id);

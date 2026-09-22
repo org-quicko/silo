@@ -60,6 +60,25 @@ export class HttpTransport {
     return (await response.text()) as unknown as T
   }
 
+  /**
+   * An authenticated request that answers the response headers instead of the
+   * body — for a 204 that carries its result in one, which is how a delete
+   * reports the trash receipt it made (D91).
+   */
+  async requestHeaders(
+    url: string,
+    key: string,
+    path: string,
+    init?: RequestInit,
+  ): Promise<Headers> {
+    const response = await fetch(`${HttpTransport.baseUrl(url)}${path}`, {
+      ...init,
+      headers: HttpTransport.authHeaders(key, init?.headers as any),
+    })
+    if (!response.ok) throw await this.fail(response)
+    return response.headers
+  }
+
   /** The raw `Response`, for the calls that want a blob or their own status
    *  handling. Errors are still parsed the same way. */
   async fetchRaw(url: string, path: string, init?: RequestInit): Promise<Response> {

@@ -3,6 +3,7 @@ import { FolderPlus, LayoutGrid, List, MoreVertical, Plus, Settings, Trash2 } fr
 import { Claims } from '@silo/shared/claims'
 import type { MediaAsset } from '../../api/types/media-asset'
 import type { ScopeRef } from '../../api/types/scope-ref'
+import type { SessionInfo } from '../../api/types/session-info'
 import { Button } from '../../components/buttons/Button'
 import { Segmented } from '../../components/controls/Segmented'
 import { Breadcrumb } from '../../components/navigation/Breadcrumb'
@@ -51,6 +52,8 @@ interface Props {
   url: string
   apiKey: string
   claims: string[]
+  /** Read by the delete dialog for whether a delete is recoverable (D91). */
+  session: SessionInfo | null
   /** A search carried in by the URL — the command palette links assets this way. */
   initialQuery?: string
   /** Directory folder carried in by the URL path. */
@@ -75,6 +78,7 @@ export function MediaLibraryView({
   url,
   apiKey,
   claims,
+  session,
   initialQuery = '',
   initialFolder = '',
   onFolderChange,
@@ -338,6 +342,7 @@ export function MediaLibraryView({
 
       <MediaDialogs
         claims={claims}
+        session={session}
         baseUrl={baseUrl}
         assets={library.assets}
         editing={editing}

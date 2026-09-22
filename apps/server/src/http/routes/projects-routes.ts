@@ -124,7 +124,12 @@ export class ProjectsRoutes {
       if (force) {
         RouteAuth.requireForcedDelete(c, "deleting a project", project, "*", "*");
       }
-      await service.scopes.deleteProject(project, force, RouteAuth.getWriteContext(c));
+      await service.scopes.deleteProject(
+        project,
+        force,
+        RouteAuth.getWriteContext(c),
+        RouteAuth.getDeleteOptions(c)
+      );
       return c.body(null, 204);
     });
 
@@ -218,7 +223,8 @@ export class ProjectsRoutes {
         scope.project,
         scope.env,
         force,
-        RouteAuth.getWriteContext(c)
+        RouteAuth.getWriteContext(c),
+        RouteAuth.getDeleteOptions(c)
       );
       return c.body(null, 204);
     });

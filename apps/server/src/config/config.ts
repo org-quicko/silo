@@ -8,6 +8,7 @@ import type { LogConfig } from "./log-config";
 import type { SearchConfig } from "./search-config";
 import type { PluginConfig } from "./plugin-config";
 import type { TransferConfig } from "./transfer-config";
+import type { TrashConfig } from "./trash-config";
 
 export interface Config {
   listen: string;
@@ -15,6 +16,8 @@ export interface Config {
   http: HttpConfig;
   /** How large an archive arriving over the network may be and expand to (D85). */
   transfer: TransferConfig;
+  /** How long a deleted thing stays recoverable (D91). */
+  trash: TrashConfig;
   default_project: string;
   default_env: string;
   storage: StorageConfig;

@@ -3,6 +3,7 @@ import { Claims } from "@silo/shared/claims";
 import { SiloService } from "../../core/services/silo-service";
 import { ValidationError } from "@silo/shared/validation-error";
 import { RouteAuth } from "../auth/route-auth";
+import { TrashHeader } from "./trash-header";
 import { MediaInUseError } from "../../core/errors/media-in-use-error";
 import { MimeUtils } from "../../core/media/mime-utils";
 import { MediaDisposition } from "../../core/media/media-disposition";
@@ -40,8 +41,12 @@ export class MediaRoutes {
         await RouteAuth.requireMediaContentAuthority(c, "bulk media delete with force", service.media, ids);
       }
 
-      const batch = await MediaDeleteBatch.run(service, ids, force, (id, caught) =>
-        MediaInUseDetails.build(c, service, id, caught)
+      const batch = await MediaDeleteBatch.run(
+        service,
+        ids,
+        force,
+        (id, caught) => MediaInUseDetails.build(c, service, id, caught),
+        RouteAuth.getDeleteOptions(c)
       );
 
       // Always 200: the request itself succeeded, and each id's outcome is
@@ -70,8 +75,18 @@ export class MediaRoutes {
       const result = await service.media.purge(
         force,
         (ids) => RouteAuth.requireMediaContentAuthority(c, "purge with force", service.media, ids),
+        // Permanent, never parked: a purge is the caller asking for the bytes
+        // to be gone, and filling the trash with the whole library would double
+        // its footprint to undo a request that already asked for `media:purge`
+        // (D91).
         (ids, forced) =>
-          MediaDeleteBatch.run(service, ids, forced, (id, caught) => MediaInUseDetails.build(c, service, id, caught))
+          MediaDeleteBatch.run(
+            service,
+            ids,
+            forced,
+            (id, caught) => MediaInUseDetails.build(c, service, id, caught),
+            { actor: RouteAuth.getActor(c), permanent: true }
+          )
       );
 
       return c.json(result, 200);
@@ -208,7 +223,11 @@ export class MediaRoutes {
         await RouteAuth.requireMediaContentAuthority(c, "media delete with force", service.media, [id]);
       }
       try {
-        await service.media.delete(id, { force });
+        const receipt = await service.media.delete(id, {
+          force,
+          ...RouteAuth.getDeleteOptions(c),
+        });
+        if (receipt) c.header(TrashHeader.Name, receipt);
       } catch (caught) {
         if (caught instanceof MediaInUseError) {
           return c.json(

@@ -14,6 +14,7 @@ import { Search } from "../search/search.js";
 import type { SearchPage } from "../search/search-page.js";
 import type { SearchQuery } from "../search/search-query.js";
 import { SearchReach } from "../search/search-reach.js";
+import { TrashHeader } from "../trash-header.js";
 import { ApiPath } from "../transport/api-path.js";
 import { TransportRequest } from "../transport/transport-request.js";
 import { CollectionSchema } from "./collection-schema.js";
@@ -80,14 +81,17 @@ export class CollectionHandle<Fields = Record<string, unknown>> {
     );
   }
 
-  async delete(id: string, rev: number, options: RequestOptions = {}): Promise<void> {
-    await this.scope.transport.empty(
+  /** Answers the trash receipt's id, or null when the delete was permanent or
+   *  the instance keeps no trash (D91). */
+  async delete(id: string, rev: number, options: RequestOptions = {}): Promise<string | null> {
+    const headers = await this.scope.transport.emptyWithHeaders(
       TransportRequest.of("DELETE", ApiPath.entry(this.scope.project, this.scope.environment, this.name, id))
         .query("rev", rev)
         .options(options)
         .evicts(this.entries())
         .build(),
     );
+    return TrashHeader.read(headers);
   }
 
   search(query: SearchQuery, options: RequestOptions = {}): Promise<SearchPage> {

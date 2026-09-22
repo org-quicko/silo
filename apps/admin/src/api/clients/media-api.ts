@@ -100,7 +100,7 @@ export class MediaApi {
 
   /** Rejects with a 409 `media_in_use` while any entry still references it,
    *  unless `force` is set (D48), which deletes over a live reference. */
-  async delete(url: string, key: string, id: string, force = false): Promise<void> {
+  async delete(url: string, key: string, id: string, force = false): Promise<string | null> {
     const asset = await this.transport.silo(url, key).media.get(id)
     return asset.delete({ force })
   }

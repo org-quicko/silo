@@ -55,6 +55,9 @@ export type Route =
   | { view: 'entry'; serverId: string; project: string; env: string; collection: string; entryId: string | null }
   | { view: 'schema'; serverId: string; project: string; env: string; collection: string | null }
   | { view: 'media'; serverId: string; folder: string; q: string }
+  /** What a delete left behind (D91). Instance-global like media, so it is
+   *  server-level and filtered rather than one page per scope. */
+  | { view: 'trash'; serverId: string }
 
 /** Any settings route, at whichever scope. */
 export type SettingsRoute = Extract<
@@ -69,5 +72,5 @@ export type SettingsRoute = Extract<
  */
 export type ServerRoute = Extract<
   Route,
-  { view: 'collections' | 'entries' | 'entry' | 'schema' | 'media' }
+  { view: 'collections' | 'entries' | 'entry' | 'schema' | 'media' | 'trash' }
 >

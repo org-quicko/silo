@@ -28,6 +28,9 @@ import { MediaValue } from '../../forms/widgets/media-value'
 import { SiloRefs } from '../../schema/silo-refs'
 import { useVariables } from '../../store/use-variables'
 import { ToastManager } from '../../utils/toast-manager'
+import type { SessionInfo } from '../../api/types/session-info'
+import { TrashCopy } from '../trash/trash-copy'
+import { TrashUndo } from '../trash/trash-undo'
 import { TopBar } from '../shell/TopBar'
 import { SmartSearch } from '../search/SmartSearch'
 import { useEscapeToDiscard } from '../use-escape-to-discard'
@@ -68,7 +71,13 @@ interface Props {
   backTo: string
   onSaved: () => void
   onCancel: () => void
+  /** Read for whether this delete is recoverable, which is an instance
+   *  setting rather than something the form can assume (D91). */
+  session: SessionInfo | null
   onDeleted: () => void
+  /** Called when the undo toast puts the entry back. The form has navigated
+   *  away by then, so the list it returned to is what needs refreshing. */
+  onRestored: () => void
 }
 
 export function EntryForm({
@@ -83,7 +92,9 @@ export function EntryForm({
   backTo,
   onSaved,
   onCancel,
+  session,
   onDeleted,
+  onRestored,
 }: Props) {
   // SiloRefs inlines silo://collections/* refs as internal pointers (RJSF and
   // its ajv8 validator only follow #/... pointers) and strips $schema, which
@@ -175,9 +186,11 @@ export function EntryForm({
   const doDelete = async () => {
     if (!entry) return
     try {
-      await api.entries.delete(url, apiKey, scope, collection.name, entry.id, entry.rev)
+      const trashId = await api.entries.delete(url, apiKey, scope, collection.name, entry.id, entry.rev)
       setShowDelete(false)
-      ToastManager.show('Entry deleted')
+      // The toast outlives the route change, so the callback refreshes the
+      // list the form returned to rather than this form.
+      TrashUndo.offer(trashId, 'entry', url, apiKey, onRestored)
       onDeleted()
     } catch (caught: any) {
       alert(caught.message || 'Delete failed')
@@ -327,7 +340,8 @@ export function EntryForm({
                     <Trash2 size={14} /> Delete entry
                   </Button>
                   <span className={styles.caption}>
-                    Deleting removes the row and bumps the collection revision. This can't be undone.
+                    Deleting removes the row and bumps the collection revision.{' '}
+                    {TrashCopy.reassurance(session)}
                   </span>
                 </>
               )}
@@ -345,8 +359,8 @@ export function EntryForm({
             <ModalCopy>
               <h3>Delete this entry?</h3>
               <ModalBody>
-                You're about to delete this entry from <b>{collection.name}</b>. The row is removed immediately and
-                can't be recovered.
+                You're about to delete this entry from <b>{collection.name}</b>.{' '}
+                {TrashCopy.reassurance(session)}
               </ModalBody>
             </ModalCopy>
           </ModalHeader>
@@ -360,7 +374,7 @@ export function EntryForm({
               Cancel
             </Button>
             <Button variant="danger" onClick={doDelete}>
-              Delete entry
+              {TrashCopy.enabled(session) ? 'Move to trash' : 'Delete entry'}
             </Button>
           </ModalActions>
         </Modal>

@@ -44,6 +44,7 @@ export function useEntriesData({
   q,
   filter,
   filterError,
+  refreshToken,
 }: {
   serverId: string
   url: string
@@ -60,6 +61,10 @@ export function useEntriesData({
   filter: Filter | null
   /** Set when the URL's `?filter=` could not be read at all. Refuses to load rather than showing an unfiltered list under a URL that claims to be filtered. */
   filterError: string | null
+  /** Bumped by something outside this table that changed what it should show —
+   *  an undo toast restoring an entry after the form navigated away (D91).
+   *  `useResource`'s `watch`, so the same key is asked again in place. */
+  refreshToken?: string
 }): EntriesDataState {
   const query: EntriesPageQuery = { offset, limit, sort: explicitSort, desc, q: q.trim(), filter }
   const key = filterError ? null : StoreKeys.entryPage(serverId, scope, collection, query)
@@ -67,7 +72,7 @@ export function useEntriesData({
   const state = useResource(
     key,
     () => EntriesPageRequest.load(url, apiKey, scope, collection, query),
-    { keepPrevious: true },
+    { keepPrevious: true, watch: refreshToken },
   )
 
   const reload = useCallback(

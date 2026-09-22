@@ -1,5 +1,5 @@
 import { useState, useMemo, useCallback, useRef, useEffect } from 'react'
-import { Plus, Image, ChevronsUpDown, Settings, Search, X, Shield } from 'lucide-react'
+import { Plus, Image, ChevronsUpDown, Settings, Search, X, Shield, Trash2 } from 'lucide-react'
 import { Claims } from '@silo/shared/claims'
 import { SiloMark } from '../../components/brand/SiloMark'
 import { Link } from '../../router/Link'
@@ -34,7 +34,7 @@ export function Sidebar({
   serverId: string
   collections: SidebarCollection[]
   activeCollection: string | null
-  activePanel: 'keys' | 'transfer' | 'media' | 'settings' | null
+  activePanel: 'keys' | 'transfer' | 'media' | 'trash' | 'settings' | null
   claims: string[]
   version: string
   instanceLabel: string
@@ -275,6 +275,15 @@ export function Sidebar({
         >
           <span className={styles.itemIcon}><Image size={15} /></span>
           <span className={styles.itemName}>Media Library</span>
+        </Link>
+        {/* Never hidden either: the server filters the list per key, so a
+            caller who can read nothing sees an empty trash rather than a 403. */}
+        <Link
+          to={Routes.trash(serverId)}
+          className={`${styles.item} ${activePanel === 'trash' ? styles.active : ''}`}
+        >
+          <span className={styles.itemIcon}><Trash2 size={15} /></span>
+          <span className={styles.itemName}>Trash</span>
         </Link>
         <Link
           to={Routes.projectSettings(serverId, scope.project, 'general')}

@@ -41,8 +41,8 @@ describe("bulk media delete (D48)", () => {
     });
   };
 
-  const post = (body: unknown) =>
-    app.request("/api/media/delete", {
+  const post = (body: unknown, query = "") =>
+    app.request(`/api/media/delete${query}`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(body),
@@ -156,7 +156,9 @@ describe("bulk media delete (D48)", () => {
       throw new Error("AccessDenied");
     };
 
-    const response = await post({ ids: [asset.id] });
+    // `?permanent=true`, because stalling is a state of the deletion saga and
+    // a delete into the trash never touches the blob store (D91).
+    const response = await post({ ids: [asset.id] }, "?permanent=true");
     expect(response.status).toBe(200);
     const body = (await response.json()) as any;
     expect(body.deleted).toEqual([]);

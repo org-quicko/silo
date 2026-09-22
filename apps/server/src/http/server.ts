@@ -1,5 +1,6 @@
 import { Hono } from "hono";
 import { cors } from "hono/cors";
+import { TrashHeader } from "./routes/trash-header";
 import type { SiloService } from "../core/services/silo-service";
 import { RouteManager } from "./routes/route-manager";
 import { LoggingMiddleware } from "./middleware/logging-middleware";
@@ -152,8 +153,10 @@ export class SiloServer {
     // be switched from the settings API without a restart (D47).
     app.use("*", LoggingMiddleware.create(this.logger, this.observability));
 
-    // Enable CORS
-    app.use("/api/*", cors());
+    // Enable CORS. `exposeHeaders` names the trash receipt id (D91): a
+    // cross-origin admin cannot read a response header it is not told about,
+    // and without it every delete would lose its undo.
+    app.use("/api/*", cors({ exposeHeaders: [TrashHeader.Name] }));
 
     // Before auth, so an oversize body is refused from its headers alone and
     // never buffered for a handler that would not have run (§10.4).

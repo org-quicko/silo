@@ -284,3 +284,43 @@ error. A missing key is a warning on stderr and the bridge runs anyway, because
 an instance started with `[auth] disabled` needs none, and the `401` an
 authenticated instance answers reaches the client as a JSON-RPC error that
 says so. stdout is the protocol channel and carries nothing else.
+
+### 10.7 `[trash] enabled` and `retention_days` (D91)
+
+Two fields, because "how long" and "at all" are different questions and only one
+of them can have zero. `retention_days = 0` means *keep until someone purges it*
+— an operator who wants a permanent record of what was deleted — so the switch
+that turns the feature off has to be its own boolean. `enabled = false` restores
+silo's pre-D91 behaviour exactly: the delete paths never capture, the trash
+routes answer as though it were empty, and a CI instance that creates and tears
+down scopes all day pays nothing.
+
+**The expiry is stamped per receipt, not compared against the live setting.**
+`TrashService.expiryStamp` writes `expires_at` at the moment of the delete, and
+`TrashSweeper` only ever compares that stamp to the clock. The alternative —
+deriving the deadline from the current `retention_days` at sweep time — means
+lowering the setting retroactively destroys content somebody was still counting
+on, which is a configuration change with the blast radius of a purge. Raising it
+does not extend what is already in the trash either, and that asymmetry is
+deliberate: the promise a receipt carries is the one it was given.
+
+**The sweep is a timer, not a request hook.** A receipt expires by wall clock
+rather than by traffic, and an instance nobody is using is exactly the one whose
+trash should still empty. It runs hourly beside the run-file heartbeat and is
+`unref`'d for the same reason, so a shutdown is not held open by the next sweep.
+Retention is measured in days, so an hour is fine grained and costs one filtered
+list of a collection bounded by that retention.
+
+`[trash]` is a `ConfigSections` table like `[transfer]`, so it is read and
+written through `GET /api/settings` and `PUT /api/settings/trash` (D47) and
+appears on **Settings > Configuration** with the rest of the file. Both fields
+are `restart: true`, honestly: `TrashService` takes its config once at
+construction, and the settings API writes the file rather than repointing a
+running service.
+
+`GET /api/session` additionally answers `{enabled, retention_days}`. That is not
+a second source of truth but a different question — not "what does the file say"
+but "may this delete dialog promise a restore" — and it needs no
+`settings:configure`, which a key that merely deletes things does not hold. A
+dialog promising a restore on an instance running with `enabled = false` is
+worse than one promising nothing.

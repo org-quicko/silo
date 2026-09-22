@@ -6,6 +6,7 @@ import { ValidationError } from "@silo/shared/validation-error";
 import { QueryUtils } from "../../core/query/query-utils";
 import { EntryUtils } from "../../core/domain/entry-utils";
 import { RouteAuth } from "../auth/route-auth";
+import { TrashHeader } from "./trash-header";
 import { RequestUtils } from "./request-utils";
 
 export class EntriesRoutes {
@@ -154,7 +155,17 @@ export class EntriesRoutes {
         Claims.CollectionEntriesDelete,
       );
       const rev = RouteAuth.getExpectedRev(c);
-      await service.entries.delete(scope, name, id, rev, RouteAuth.getWriteContext(c));
+      const receipt = await service.entries.delete(
+        scope,
+        name,
+        id,
+        rev,
+        RouteAuth.getWriteContext(c),
+        RouteAuth.getDeleteOptions(c)
+      );
+      // A header rather than a body, so the 204 contract is unchanged and an
+      // older client sees exactly what it saw before (D91).
+      if (receipt) c.header(TrashHeader.Name, receipt);
       return c.body(null, 204);
     };
 

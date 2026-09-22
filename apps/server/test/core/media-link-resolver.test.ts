@@ -97,7 +97,11 @@ describe("media field resolution: null when a reference does not resolve (D48)",
     service.blobStorage.delete = async () => {
       throw new Error("AccessDenied");
     };
-    await expect(service.media.delete(asset.id, { force: true })).rejects.toThrow();
+    // `permanent`, because `deleting` is a state of the saga and the trash
+    // never enters it (D91).
+    await expect(
+      service.media.delete(asset.id, { force: true, permanent: true })
+    ).rejects.toThrow();
     expect((await service.media.get(asset.id)).state).toBe("deleting");
 
     const data = { cover: MediaRef.url(asset.id) };

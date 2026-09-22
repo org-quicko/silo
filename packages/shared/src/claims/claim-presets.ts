@@ -90,6 +90,10 @@ export class ClaimPresets {
    * at every scope referring to the asset, and a `manage` key holds that only
    * on its own targets. The preset says what a key may do; the reach check
    * says where it may land.
+   *
+   * `trash:purge` (D91) is the sixth, on `media:purge`'s argument exactly:
+   * every preset that can delete can already fill the trash, and emptying it
+   * for good is a separate decision.
    */
   private static readonly Fixed: Record<
     Exclude<ClaimPreset, "root">,

@@ -86,6 +86,7 @@ max_files   = 5               # kept as silo.log.1 ... silo.log.5
 | `SILO_HTTP_IDLE_TIMEOUT` | `[http] idle_timeout` |
 | `SILO_HTTP_MAX_BODY_SIZE_MB`, `SILO_HTTP_MAX_JSON_BODY_SIZE_MB` | `[http] max_body_size_mb`, `[http] max_json_body_size_mb` |
 | `SILO_TRANSFER_MAX_ARCHIVE_SIZE_MB`, `SILO_TRANSFER_MAX_EXTRACTED_SIZE_MB` | `[transfer] max_archive_size_mb`, `[transfer] max_extracted_size_mb` |
+| `SILO_TRASH_ENABLED`, `SILO_TRASH_RETENTION_DAYS` | `[trash] enabled`, `[trash] retention_days` |
 | `SILO_READ_THREAD` | `on` or `off`: whether entry lists and searches on SQLite run on a separate storage thread. On by default; off under the test runner. Not in the file |
 | `SILO_DEFAULT_PROJECT`, `SILO_DEFAULT_ENV` | `default_project`, `default_env` |
 | `SILO_STORAGE_DRIVER`, `SILO_STORAGE_PATH` | `[storage]` |
@@ -161,6 +162,42 @@ The message names the setting to raise. Raise both to copy a large instance.
 An archive or directory you name on the command line with `silo import` is
 not checked. Both take effect at the next restart, and both are on
 **Settings > Configuration > Transfers**.
+
+## How long a delete can be undone
+
+A delete moves its subject to the trash instead of destroying it. This applies
+to a project, an environment, a collection, an entry, a media asset and a media
+folder. `GET /api/trash` lists what is there, and the admin shows the same list
+under **Trash** in the sidebar.
+
+```toml
+[trash]
+enabled = true
+retention_days = 30
+```
+
+`enabled` decides whether a delete is recoverable at all. Set it to `false` and
+every delete is permanent, which is how silo behaved before this setting
+existed. Use that for a CI instance that creates and tears down scopes, where a
+trash only fills the disk.
+
+`retention_days` is how long an item stays before silo deletes it for good. The
+default is 30. The server checks once an hour. Set it to `0` to keep items until
+someone deletes them by hand.
+
+The expiry date is stamped on each item when you delete it. If you shorten
+`retention_days` later, items already in the trash keep the date they were
+given, so a change to this setting never destroys something that was already
+safe.
+
+Both fields are also on **Settings > Configuration > Trash**, behind the
+`settings:configure` claim. They take effect at the next restart.
+
+Deleting from the trash needs the `trash:purge` claim, which only a `root` key
+has. The same claim lets a delete skip the trash with `?permanent=true`.
+
+Content in the trash still uses disk. A trashed media asset keeps its file until
+the item is purged, and a trashed project keeps a copy of every entry it held.
 
 ## Media, from the admin
 

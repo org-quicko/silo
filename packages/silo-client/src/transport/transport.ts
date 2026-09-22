@@ -57,6 +57,14 @@ export class Transport {
     await ResponseDecoder.decode(response, request, false);
   }
 
+  /** `empty`, but answering the response headers — for a 204 that carries its
+   *  result in one, which is how a delete reports its trash receipt (D91). */
+  async emptyWithHeaders(request: TransportRequest): Promise<Headers> {
+    const response = await this.execute(request);
+    await ResponseDecoder.decode(response, request, false);
+    return response.headers;
+  }
+
   async stream(request: TransportRequest): Promise<ReadableStream<Uint8Array> | null> {
     const response = await this.execute(request);
     return response.body;

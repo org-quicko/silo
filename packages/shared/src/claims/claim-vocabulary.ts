@@ -98,6 +98,21 @@ export class ClaimVocabulary {
   static readonly PluginsGrant = "plugins:grant";
   static readonly PluginsEnable = "plugins:enable";
 
+  /**
+   * Destroying trashed content for good (D91) — purging one item, emptying the
+   * trash, and `?permanent=true` on a delete route.
+   *
+   * Sending something to the trash asks for the delete claim it always asked
+   * for, and restoring asks for the write claims at the destination, so this is
+   * the only claim the feature adds. It is separate for `media:purge`'s reason
+   * (D65): whoever deleted the thing already spent their delete claim, and
+   * ending it forever is a second decision. Carried by no preset but `root`.
+   *
+   * Absent from `PluginForbiddenClaims` on purpose: it destroys data but grants
+   * no way out of a plugin's own grant, which is the test that list applies.
+   */
+  static readonly TrashPurge = "trash:purge";
+
   // The trail of authority changes (D38). Read-only by construction: nothing
   // updates or deletes an audit event, so there is no `audit:write` for a claim
   // to guard and inventing one would imply a capability that does not exist.
@@ -164,6 +179,7 @@ export class ClaimVocabulary {
     [ClaimVocabulary.PluginsConfigure]: true,
     [ClaimVocabulary.PluginsGrant]: true,
     [ClaimVocabulary.PluginsEnable]: true,
+    [ClaimVocabulary.TrashPurge]: true,
     [ClaimVocabulary.AuditRead]: true,
     [ClaimVocabulary.ObservabilityRead]: true,
     [ClaimVocabulary.HttpRoute]: true,

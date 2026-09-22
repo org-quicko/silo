@@ -189,7 +189,13 @@ export class CollectionsRoutes {
       if (force) {
         RouteAuth.requireForcedDelete(c, "deleting a collection", scope.project, scope.env, name);
       }
-      await service.collections.delete(scope, name, force, RouteAuth.getWriteContext(c));
+      await service.collections.delete(
+        scope,
+        name,
+        force,
+        RouteAuth.getWriteContext(c),
+        RouteAuth.getDeleteOptions(c)
+      );
       return c.body(null, 204);
     };
 

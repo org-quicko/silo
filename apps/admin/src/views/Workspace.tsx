@@ -8,6 +8,7 @@ import type { ListQuery } from '../router/list-query'
 import type { ServerRoute } from '../router/route'
 import type { Server } from './servers/server'
 import { ServerManager } from './servers/ServerManager'
+import { api } from '../api/silo-api'
 import type { ScopeRef } from '../api/types/scope-ref'
 import { ScopeMemory } from '../utils/scope-memory'
 import { CollectionVisits } from '../utils/collection-visits'
@@ -20,6 +21,7 @@ import { EntriesView } from './entries/Entries'
 import { SchemaEditorView } from './schema/SchemaEditor'
 import { EntryForm } from './entries/EntryForm'
 import { MediaLibraryView } from './media/MediaLibrary'
+import { Trash } from './trash/Trash'
 import styles from './Workspace.module.css'
 import { buildSessionBadge } from './shell/build-session-badge'
 import { useCollectionSchema } from '../store/use-collection-schema'
@@ -52,6 +54,9 @@ export function Workspace({
     : (ScopeMemory.get(serverId) ?? { project: 'default', env: 'production' })
 
   const [showServerBrowser, setShowServerBrowser] = useState(false)
+  /** Bumped when an undo toast restores an entry after the form navigated away,
+   *  so the list it returned to asks again (D91). */
+  const [entriesRefresh, setEntriesRefresh] = useState('')
 
   // Both belong to the shell rather than to a page: the shortcut list covers
   // the whole app, and Settings is a detour from wherever you are.
@@ -131,7 +136,7 @@ export function Workspace({
         serverId={serverId}
         collections={collections.map((c) => ({ name: c.name, count: c.entries }))}
         activeCollection={route.view === 'entries' || route.view === 'entry' ? activeName : null}
-        activePanel={route.view === 'media' ? 'media' : null}
+        activePanel={route.view === 'media' ? 'media' : route.view === 'trash' ? 'trash' : null}
         claims={claims}
         version={version}
         instanceLabel={server.name}
@@ -151,12 +156,17 @@ export function Workspace({
             url={url}
             apiKey={apiKey}
             claims={claims}
+            session={sessionInfo}
             initialQuery={route.q}
             initialFolder={route.folder}
             onFolderChange={(folder) => {
               router.navigate(Routes.media(serverId, undefined, folder))
             }}
           />
+        )}
+
+        {route.view === 'trash' && (
+          <Trash api={api} url={url} apiKey={apiKey} claims={claims} />
         )}
 
         {route.view === 'schema' && route.collection !== null && !activeCollection && (
@@ -209,6 +219,11 @@ export function Workspace({
             scope={scope}
             entry={entry}
             claims={claims}
+            session={sessionInfo}
+            onRestored={() => {
+              afterEntriesChange(activeCollection.name)
+              setEntriesRefresh(String(Date.now()))
+            }}
             backTo={Routes.entries(serverId, scope.project, scope.env, activeCollection.name)}
             onSaved={() => {
               afterEntriesChange(activeCollection.name)
@@ -240,6 +255,8 @@ export function Workspace({
             apiKey={apiKey}
             scope={scope}
             claims={claims}
+            session={sessionInfo}
+            refreshToken={entriesRefresh}
             query={route.query}
             onQueryChange={(next: ListQuery, replace?: boolean) =>
               router.navigate(Routes.entries(serverId, scope.project, scope.env, activeCollection.name, next), { replace })

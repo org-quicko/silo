@@ -1,6 +1,7 @@
 import type { RequestOptions } from "../request-options.js";
 import { ApiPath } from "../transport/api-path.js";
 import type { Transport } from "../transport/transport.js";
+import { TrashHeader } from "../trash-header.js";
 import { MediaAssetMapper } from "./media-asset-mapper.js";
 import type { MediaAssetPayload } from "./media-asset-payload.js";
 import type { MediaDeleteOptions } from "./media-delete-options.js";
@@ -117,15 +118,17 @@ export class MediaAsset {
   }
 
   /** Refused while an entry references it; `{ force: true }` also needs
-   * `entries:update` on every scope this asset reaches. */
-  async delete(options?: MediaDeleteOptions): Promise<void> {
-    await this.transport.empty({
+   * `entries:update` on every scope this asset reaches. Answers the trash
+   * receipt's id, or null when nothing was kept (D91). */
+  async delete(options?: MediaDeleteOptions): Promise<string | null> {
+    const headers = await this.transport.emptyWithHeaders({
       method: "DELETE",
       path: ApiPath.mediaAsset(this.id),
       query: options?.force ? { force: true } : undefined,
       signal: options?.signal,
       timeoutMilliseconds: options?.timeoutMilliseconds,
     });
+    return TrashHeader.read(headers);
   }
 
   usages(query: MediaUsageQuery = {}, options?: RequestOptions): Promise<MediaUsagePage> {

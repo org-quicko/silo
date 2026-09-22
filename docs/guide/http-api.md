@@ -45,6 +45,12 @@ Present a key as `Authorization: Bearer <key>` or `X-Api-Key: <key>`.
 | `PATCH` / `DELETE` | `/api/plugins/{name}/config` | change its config / return it to `silo.toml` |
 | `POST` | `/api/plugins/{name}/restart` | bring a dead worker back |
 | `POST` | `/api/plugins/rescan` | re-read `silo.toml` and apply it |
+| `GET` | `/api/trash` | what has been deleted and can still be restored (`?kind=&project=&env=&collection=&q=`) |
+| `GET` | `/api/trash/{id}` | one trash item |
+| `GET` | `/api/trash/{id}/items` | the records that item parked, read only |
+| `POST` | `/api/trash/{id}/restore` | put it back (`{rename?, chain?}`). Asks for the write claims at the destination |
+| `DELETE` | `/api/trash/{id}` | destroy one trash item for good (`trash:purge`) |
+| `POST` | `/api/trash/purge` | empty the trash (`{confirm: "empty"}`, `trash:purge`) |
 | `GET` | `/api/audit` | who changed what authority, and when |
 | `GET` | `/api/observability` | aggregate API traffic, errors, latency, process resources, and local storage (`observability:read`) |
 | `GET` / `POST` | `/api/media` | list / upload media |
@@ -177,6 +183,119 @@ collections whose schema does not set `x-silo-auth`.
 routes above, called with the key the client presents, so the claims decide
 exactly as they do here. [mcp.md](mcp.md) lists the tools and shows how to
 connect Claude Code, Codex, Cursor and Claude Desktop.
+
+## Trash
+
+A delete does not destroy the content. It moves it to the trash, where you can
+restore it. This applies to a project, an environment, a collection, an entry, a
+media asset and a media folder.
+
+The trash keeps one item for each thing you deleted on purpose. If you delete a
+collection that holds 300 entries, the trash shows one item that says
+"300 entries". It does not show 301 items. When you restore that item, all 300
+entries come back with it.
+
+`GET /api/session` tells you whether this instance keeps a trash, and for how
+many days.
+
+### Read the trash
+
+```sh
+curl http://localhost:8090/api/trash \
+  -H "Authorization: Bearer $SILO_KEY"
+```
+
+Narrow the list with `?kind=`, `?project=`, `?env=`, `?collection=`, `?q=`,
+`?deleted_after=` and `?deleted_before=`. Page it with `?limit=` and `?offset=`.
+
+There is no `trash:read` claim. The server shows you each item only if you can
+read the content it came from. A key with `entries:read` on `default/prod/posts`
+sees entries deleted from that collection, and no others. Two keys see two
+different trashes.
+
+Each item tells you where the content was, what rode along with it, who deleted
+it, and when it expires:
+
+```json
+{
+  "id": "01JBX...",
+  "kind": "collection",
+  "subject_name": "posts",
+  "origin": { "project_name": "default", "env_name": "prod" },
+  "contents": { "collections": 1, "entries": 300, "assets": 0, "bytes": 124400 },
+  "deleted_at": "2026-09-22T09:14:03.000Z",
+  "deleted_by": { "kind": "key", "label": "ci-deploy" },
+  "expires_at": "2026-10-22T09:14:03.000Z",
+  "restorable": true
+}
+```
+
+### Restore
+
+```sh
+curl -X POST http://localhost:8090/api/trash/01JBX.../restore \
+  -H "Authorization: Bearer $SILO_KEY"
+```
+
+Restoring writes the content back. It therefore asks for the write claims at the
+destination, not for a claim of its own. To restore an entry into `default/prod`
+you need `entries:create` there. To restore a collection you also need `create`.
+
+The content goes back to the same place, addressed by record id. If someone
+renamed the project, the environment or the collection while the content was in
+the trash, the restore still finds it.
+
+Two things can stop a restore:
+
+- **The container is gone.** You cannot restore an entry into a collection that
+  no longer exists. The item says so in `blocked_by`, and `restorable` is
+  `false`. If the container is in the trash too, send `{"chain": true}` to
+  restore the container first and then the content.
+- **The name or the id is taken.** A trashed collection frees its name at once,
+  so someone can create a new `posts` while the old one is in the trash. The
+  restore then answers `409` instead of writing over the new one. Send
+  `{"rename": "posts-restored"}` to bring it back under a different name.
+
+A restore reports what it could not repair. If a media asset was deleted while
+an entry that references it sat in the trash, the entry comes back and
+`broken_media_refs` names the reference that no longer resolves.
+
+### Delete for good
+
+```sh
+curl -X DELETE http://localhost:8090/api/trash/01JBX... \
+  -H "Authorization: Bearer $SILO_KEY"
+
+curl -X POST http://localhost:8090/api/trash/purge \
+  -H "Authorization: Bearer $SILO_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"confirm": "empty"}'
+```
+
+Both need `trash:purge`. No preset carries it except `root`. Whoever deleted the
+content already used their delete claim. Destroying it forever is a second
+decision.
+
+To skip the trash on the way in, add `?permanent=true` to any delete route. That
+also needs `trash:purge`.
+
+### Retention
+
+Items expire after 30 days and the server then deletes them. Change this in
+`silo.toml`:
+
+```toml
+[trash]
+enabled = true
+retention_days = 30
+```
+
+Set `enabled = false` to make every delete permanent, which is how silo behaved
+before the trash. Set `retention_days = 0` to keep items until someone purges
+them by hand.
+
+The expiry is stamped on each item when you delete it. If you shorten
+`retention_days` later, content already in the trash keeps the date it was given.
 
 ## Optimistic concurrency
 

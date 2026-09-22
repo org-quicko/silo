@@ -141,6 +141,31 @@ export class ConfigSections {
       ],
     },
     {
+      table: "trash",
+      title: "Trash",
+      summary: "How long a deleted project, collection, entry or media file can be restored.",
+      writable: true,
+      fields: [
+        {
+          key: "enabled",
+          type: "boolean",
+          env: "SILO_TRASH_ENABLED",
+          restart: true,
+          label: "Keep deleted items",
+          help: "Off makes every delete permanent, which is what a CI instance wants.",
+        },
+        {
+          key: "retention_days",
+          type: "number",
+          min: 0,
+          env: "SILO_TRASH_RETENTION_DAYS",
+          restart: true,
+          label: "Keep for",
+          help: "Days before silo deletes an item for good. 0 keeps it until someone purges it.",
+        },
+      ],
+    },
+    {
       table: "search",
       title: "Search",
       summary: "The full-text index, and the budget for instances running without one.",

@@ -88,6 +88,7 @@ export class ClaimWords {
     [Claims.PluginsConfigure]: 'configure plugins',
     [Claims.PluginsGrant]: 'approve what a plugin may do',
     [Claims.PluginsEnable]: 'turn plugins on and off',
+    [Claims.TrashPurge]: 'permanently delete trashed items',
     [Claims.AuditRead]: 'read the authority trail',
     [Claims.ObservabilityRead]: 'read aggregate server health and API metrics',
     [Claims.HttpRoute]: 'serve its own HTTP routes',
@@ -106,6 +107,7 @@ export class ClaimWords {
     Claims.MediaPurge,
     Claims.MediaConfigure,
     Claims.SettingsConfigure,
+    Claims.TrashPurge,
     Claims.TransferImport,
     Claims.TransferCopy,
   ])

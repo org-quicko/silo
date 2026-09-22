@@ -86,6 +86,8 @@ export class EntriesApi {
     return EntryMapper.fromApiEntry(entry, collection)
   }
 
+  /** Answers the trash receipt's id, or null when nothing was kept (D91) —
+   *  which is what the undo toast hangs off. */
   delete(
     url: string,
     key: string,
@@ -93,7 +95,7 @@ export class EntriesApi {
     collection: string,
     id: string,
     rev: number,
-  ): Promise<void> {
+  ): Promise<string | null> {
     const handle = this.transport.silo(url, key).scope(scope.project, scope.env).collection(collection)
     return handle.delete(id, rev)
   }

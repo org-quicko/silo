@@ -83,6 +83,11 @@ max_archive_size_mb   = ${config.transfer.max_archive_size_mb}  # an import uplo
 max_extracted_size_mb = ${config.transfer.max_extracted_size_mb}  # what it may expand to on disk, counted before anything is written
 # A file named on the command line is not held to either; raise both to copy a large instance.
 
+[trash]
+enabled        = ${config.trash.enabled}   # off makes every delete permanent, as it was before this setting
+retention_days = ${config.trash.retention_days}   # days a deleted item stays restorable; 0 keeps it until purged
+# Trashed content still costs disk: a trashed file keeps its bytes until it is purged.
+
 [storage]
 driver = ${s(config.storage.driver)}       # "sqlite" (indexed, fast) | "fs" (plain JSON files, git/rsync friendly)
 path   = ${s(config.storage.path)}  # data dir; the sqlite database lives at <path>/silo.db

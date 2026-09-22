@@ -6,12 +6,17 @@ import { ModalBody } from '../../components/modal/ModalBody'
 import { ModalCopy } from '../../components/modal/ModalCopy'
 import { ModalHeader } from '../../components/modal/ModalHeader'
 import { ModalIcon } from '../../components/modal/ModalIcon'
+import type { SessionInfo } from '../../api/types/session-info'
+import { TrashCopy } from '../trash/trash-copy'
 import type { DeleteSubject } from './use-media-delete-flow'
 import { MediaPath } from './media-path'
 
 interface Props {
   subject: DeleteSubject
   busy: boolean
+  /** Read for whether this delete is recoverable, which is an instance
+   *  setting rather than something the dialog can assume (D91). */
+  session: SessionInfo | null
   onConfirm: () => void
   onClose: () => void
 }
@@ -26,7 +31,7 @@ interface Props {
  * recursive, or a selection spanning both — rather than a dialog pair per
  * kind (D49).
  */
-export function DeleteAssetDialog({ subject, busy, onConfirm, onClose }: Props) {
+export function DeleteAssetDialog({ subject, busy, session, onConfirm, onClose }: Props) {
   const count =
     subject.kind === 'assets'
       ? subject.assets.length
@@ -48,13 +53,16 @@ export function DeleteAssetDialog({ subject, busy, onConfirm, onClose }: Props) 
         ? <strong>{subject.assets[0].filename}</strong>
         : `these ${count} items`
 
+  const recoverable = TrashCopy.enabled(session)
   const confirmLabel = busy
     ? 'Deleting…'
-    : subject.kind === 'folder'
-      ? 'Delete folder'
-      : count === 1
-        ? 'Delete file'
-        : `Delete ${count} items`
+    : recoverable
+      ? 'Move to trash'
+      : subject.kind === 'folder'
+        ? 'Delete folder'
+        : count === 1
+          ? 'Delete file'
+          : `Delete ${count} items`
 
   return (
     <Modal onClose={busy ? () => {} : onClose}>
@@ -66,17 +74,21 @@ export function DeleteAssetDialog({ subject, busy, onConfirm, onClose }: Props) 
           <h3>{title}</h3>
           <ModalBody>
             {subject.kind === 'folder' ? (
-              'Delete this folder and everything inside it, permanently. If anything inside is still referenced by an entry, you will be asked before forcing the delete.'
+              <>
+                Delete this folder and everything inside it. {TrashCopy.reassurance(session)} If
+                anything inside is still referenced by an entry, you will be asked before forcing
+                the delete.
+              </>
             ) : subject.kind === 'mixed' ? (
               <>
-                Delete {target} permanently — folders are removed with everything inside them. If
-                anything is still referenced by an entry, you will be asked before forcing the
-                delete.
+                Delete {target} — folders go with everything inside them.{' '}
+                {TrashCopy.reassurance(session)} If anything is still referenced by an entry, you
+                will be asked before forcing the delete.
               </>
             ) : (
               <>
-                Delete {target} permanently. If any is still referenced by an entry, you will be
-                asked before forcing the delete.
+                Delete {target}. {TrashCopy.reassurance(session)} If any is still referenced by an
+                entry, you will be asked before forcing the delete.
               </>
             )}
           </ModalBody>
