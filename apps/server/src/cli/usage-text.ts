@@ -21,7 +21,7 @@ Usage:
   silo export [flags]                    export schemas and entries
   silo import [flags] <dir|tarball>      import schemas and entries
   silo media reconcile [flags]           repair the media catalog against stored blobs
-  silo media rekey [flags]               move pre-D88 blobs onto media/<id> keys
+  silo media rekey [--rewrite]           move pre-D88 blobs onto media/<id> keys
   silo search reindex [--check]          rebuild the search index (--check validates it too)
   silo add [flags] <name|path|url>       install a plugin and list it in silo.toml
   silo plugin list                       configured plugins and what they attach to

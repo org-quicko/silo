@@ -21,6 +21,17 @@ export interface MediaRekeyResult {
   /** Assets already on the key D88 gives them, so nothing was done. */
   current: number;
   /**
+   * Assets whose bytes were written back unmoved, under `--rewrite`, so the
+   * object carries the headers silo would put on it today.
+   *
+   * Separate from `moved` because it is a different repair: the key was already
+   * right and what was stale was `Content-Disposition`, which an object written
+   * before silo started sending it does not have and which nothing can detect
+   * from outside -- `BlobStorage` reports a key's bytes and its type, never how
+   * it was told to present them. So this is asked for rather than found.
+   */
+  rewritten: number;
+  /**
    * Assets whose record named bytes the store does not hold, so there was
    * nothing to copy. Left exactly as they are: a record with no blob is
    * `reconcile`'s to judge, not this command's.

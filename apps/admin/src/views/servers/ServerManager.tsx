@@ -17,6 +17,11 @@ interface Props {
   onConnect: (serverId: string, project: string, env: string) => void
   onAddServer: (server: Server) => void
   onOpenStatus: (serverId: string) => void
+  /** The per-row settings affordance, one per column. Three callbacks rather
+   *  than one, because each scope is addressed by a different number of names
+   *  and a settings route takes all of them. */
+  onOpenProjectSettings: (serverId: string, project: string) => void
+  onOpenEnvSettings: (serverId: string, project: string, env: string) => void
   initialServerId?: string | null
   initialProject?: string | null
   initialEnv?: string | null
@@ -37,6 +42,8 @@ export function ServerManager({
   onConnect,
   onAddServer,
   onOpenStatus,
+  onOpenProjectSettings,
+  onOpenEnvSettings,
   initialServerId,
   initialProject,
   initialEnv,
@@ -120,6 +127,9 @@ export function ServerManager({
           loading={browser.loadingProjects}
           onSelect={browser.selectProject}
           onCreate={browser.createProject}
+          onOpenSettings={(project) =>
+            browser.serverId && onOpenProjectSettings(browser.serverId, project)
+          }
         />
         <EnvironmentColumn
           key={JSON.stringify([browser.serverId, browser.project])}
@@ -131,6 +141,11 @@ export function ServerManager({
           onSelect={browser.selectEnv}
           onCreate={browser.createEnvironment}
           onActivate={connect}
+          onOpenSettings={(env) =>
+            browser.serverId &&
+            browser.project &&
+            onOpenEnvSettings(browser.serverId, browser.project, env)
+          }
         />
       </BrowserColumns>
 

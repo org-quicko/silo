@@ -16,6 +16,9 @@
 /* A key whose claims have moved since it was minted. The secret in circulation
    is unchanged, so the row has to say the record is not what was handed out. */
 .edited { color: var(--text-3); font-size: 10.5px; letter-spacing: 0.03em; text-transform: uppercase; }
+/* `flex: none` on the buttons: a flex item may shrink below its own content,
+   and a shrunken button loses its padding before it loses its label. */
 .actions { display: flex; align-items: center; justify-content: flex-end; gap: 8px; }
+.actions > * { flex: none; }
 .current { color: var(--text-3); font-size: 12px; }
 .empty { display: flex; align-items: center; justify-content: center; gap: 8px; padding: 44px 16px; color: var(--text-3); }

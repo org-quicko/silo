@@ -47,6 +47,7 @@ export class CliOptions {
     lines: { type: "string", short: "n" },
     timeout: { type: "string" },
     check: { type: "boolean" },
+    rewrite: { type: "boolean" },
     yes: { type: "boolean", short: "y" },
     ref: { type: "string" },
     integrity: { type: "string" },

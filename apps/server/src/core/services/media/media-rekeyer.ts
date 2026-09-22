@@ -23,11 +23,12 @@ export class MediaRekeyer {
     this.catalog = catalog;
   }
 
-  async run(): Promise<MediaRekeyResult> {
+  async run(options: { rewrite?: boolean } = {}): Promise<MediaRekeyResult> {
     return this.context.withWriteLock(async () => {
       const result: MediaRekeyResult = {
         moved: 0,
         current: 0,
+        rewritten: 0,
         missing: 0,
         removed: 0,
         failed: [],
@@ -37,7 +38,7 @@ export class MediaRekeyer {
         const asset = MediaCatalog.toAsset(entry);
         const target = MediaPaths.blobKey(entry.id);
 
-        if (asset.blob_key === target) {
+        if (asset.blob_key === target && !options.rewrite) {
           result.current++;
           continue;
         }
@@ -51,7 +52,7 @@ export class MediaRekeyer {
         }
 
         try {
-          await this.move(entry.id, asset, target, result);
+          await this.move(entry.id, asset, target, result, options.rewrite === true);
         } catch (caught: any) {
           result.failed.push({ id: entry.id, reason: caught?.message || String(caught) });
         }
@@ -83,11 +84,15 @@ export class MediaRekeyer {
     id: string,
     asset: { blob_key: string; content_type: string; filename: string },
     to: string,
-    result: MediaRekeyResult
+    result: MediaRekeyResult,
+    rewrite: boolean
   ): Promise<void> {
     const from = asset.blob_key;
 
-    if (!(await this.context.blobStorage.exists(to))) {
+    // A rewrite writes the bytes back even where the key is already right,
+    // because what it is repairing is the headers on the object and those
+    // cannot be read back to compare against.
+    if (rewrite || !(await this.context.blobStorage.exists(to))) {
       const blob = await this.context.blobStorage.get(from);
       if (!blob) {
         // The record names bytes that are not there. Untouched on purpose:
@@ -105,15 +110,20 @@ export class MediaRekeyer {
       });
     }
 
+    if (from === to) {
+      // Nothing to repoint and nothing to remove: the record already names this
+      // key and the bytes were just written back over themselves.
+      result.rewritten++;
+      return;
+    }
+
     const entry = await this.catalog.asset(id);
     const current = MediaCatalog.toAsset(entry);
     await this.catalog.putAsset(id, { ...current, blob_key: to });
     result.moved++;
 
     // Only now, with nothing pointing at it.
-    if (from !== to) {
-      await this.context.blobStorage.delete(from);
-      result.removed++;
-    }
+    await this.context.blobStorage.delete(from);
+    result.removed++;
   }
 }

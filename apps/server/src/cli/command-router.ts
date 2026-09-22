@@ -182,7 +182,7 @@ export class CommandRouter {
       case "import":
         return ImportCommand.run(service, store, positionals, values);
       case "media":
-        return MediaCommand.run(service, positionals);
+        return MediaCommand.run(service, positionals, values);
       case "search":
         return SearchCommand.run(service, positionals, values);
       default:

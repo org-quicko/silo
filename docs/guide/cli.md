@@ -28,7 +28,7 @@ silo keys revoke <id>              revoke a key
 silo export [flags]                export schemas, entries, and media
 silo import [flags] <dir|tarball>  import an export
 silo media reconcile               repair the media catalog against stored blobs
-silo media rekey                   move old media keys to the media/<id> form
+silo media rekey [--rewrite]       move old media keys to the media/<id> form
 silo search reindex [--check]      rebuild the search index, and verify it
 silo add <spec> [flags]            install a plugin and list it in silo.toml
 silo plugin list                   configured plugins, and what they attach to

@@ -4,6 +4,70 @@
 > The *current* state is [CONTEXT.md](../../CONTEXT.md); this is how it got
 > there.
 
+- **The transfer scope picker opens empty, with a select-all box per column
+  (2026-09-22, D89).** It opened with every box already checked, because an
+  empty `include` *is* the whole instance on the wire and the screen had
+  inherited the wire's spelling — so narrowing an export began with unchecking,
+  the affordance the picker exists to avoid, and D74 needed a rule that wrote
+  the implied selection out in full before the first uncheck could subtract from
+  it. `TransferInclude` is literal now: `covered` is a plain prefix test,
+  `collapse` rolls a complete set of children up into the parent that stands for
+  them (stopping below the instance, which has no rule string), and
+  `wire(rules, tree)` is the single place a selection covering every project
+  becomes the empty list the route reads. That deletes the first-uncheck rule
+  and moves the translation to the one call that talks to the API. Each column
+  now carries its own box at the far end of its header, opposite the title,
+  through `BrowserColumn`'s new `headerAction` slot; the box is the rule of the
+  *level above* it, so all environments is the project and the project row moves
+  with it, and the roll-up keeps the tri-states from disagreeing when a column
+  is checked wholesale. An empty selection is a real state on both tabs that
+  browse: Export disables Download and says "Check what to export first", Copy
+  disables Preview and refuses the request, and the fact list reads "Nothing
+  selected" rather than counting the instance.
+
+- **The server manager's rows reach their own settings, and an environment
+  opens on a second click (2026-09-22).** Only the server column had a settings
+  affordance, so a project or an environment could be configured only by opening
+  the workspace first and going back out through the sidebar.
+  `components/browser/ColumnSettingsButton.tsx` is now that affordance for all
+  three columns — hidden until its row is hovered, stopping the click before the
+  row sees it — rather than the server column's copy being written out twice
+  more. A project's goes to `projectSettings(…, 'general')` and an
+  environment's to `envSettings(…, 'general')`, neither needing the row selected
+  first; `ServerManager` takes one callback per scope, since each settings route
+  is addressed by a different number of names. Environments also open on a click
+  that selects what is already selected, beside the existing double-click: it is
+  the last column, so that click has nothing else it could mean, and the footer
+  button after it answers nothing. The first click still only selects.
+  `BrowserRouter.navigate` already returns early on the current URL, so the
+  click-click-dblclick sequence adds one history entry, not three. Environment
+  rows gained the chevron the other two columns carry, that row now leading
+  somewhere as well.
+
+- **The browser tab is named after the route (2026-09-22).** Every page carried
+  the same "silo admin", so a row of tabs said nothing about which server or
+  scope each was open on. `router/document-title.ts` maps a route to
+  `silo - <server> - <project>/<env>`, `silo - <server> - Media Library <folder>`
+  or `silo - <server> - Settings - <tab>`, with the settings tab spelled as the
+  nav spells it and a project or environment page carrying its scope, since the
+  nav nests *General* under both. Pure, and beside `Routes` because a title is a
+  second rendering of the route; `App` is the only caller, so no view can leave
+  the wrong name behind when another mounts. The gate keeps the served "silo - admin",
+  having no server to name.
+
+- **Two admin fixes on the API keys screens (2026-09-22).** The key list sized
+  its action column at a fixed 150px and `.cell` hides its overflow, so a row
+  carrying Edit beside Revoke had its buttons clipped; the track is 180px, wide
+  enough for the busiest row, and stays fixed rather than content-sized because
+  each row is its own grid and `max-content` would let every row pick a
+  different width. On the key form's Advanced tab, each capability checkbox is a
+  hidden `position: absolute` input inside its label, but the label was not
+  positioned — so the input's containing block was the initial one, outside
+  `.content`'s scroller, and it stopped moving when the page scrolled.
+  Measured in the running admin: the input sat 1306px from its own label, and
+  clicking the label focused it and threw the scroller back to where it had been
+  left behind. `.capability` is `position: relative`.
+
 - **A blob key is `media/<assetId>` (2026-09-22, D88).** D23's key was
   `<assetId><ext>`, so `/media/<id>` addressed an object called `<id>.jpg` and
   only a catalog lookup joined the two — which is what stopped a bucket, or a

@@ -132,6 +132,36 @@ describe("silo media rekey", () => {
     );
   });
 
+  test("--rewrite writes a current asset back so the object gains today's headers", async () => {
+    // The state the origin group exposed: right key, but stored before silo
+    // sent Content-Disposition, and nothing can read that back to detect it.
+    const asset = await service.media.save("diagram.svg", new TextEncoder().encode("<svg/>"));
+
+    const store = service.blobStorage;
+    const real = store.put.bind(store);
+    const puts: { key: string; contentDisposition?: string }[] = [];
+    (store as any).put = async (key: string, data: Uint8Array, options?: any) => {
+      puts.push({ key, ...options });
+      return real(key, data, options);
+    };
+
+    const plain = await service.media.rekey();
+    expect(plain.current).toBe(1);
+    expect(puts).toHaveLength(0);
+
+    const forced = await service.media.rekey({ rewrite: true });
+
+    expect(forced.rewritten).toBe(1);
+    expect(forced.moved).toBe(0);
+    expect(forced.removed).toBe(0);
+    expect(puts).toHaveLength(1);
+    expect(puts[0].key).toBe(MediaPaths.blobKey(asset.id));
+    expect(puts[0].contentDisposition).toBe("attachment; filename*=UTF-8''diagram.svg");
+
+    // The record is untouched -- there was nothing to repoint.
+    expect((await service.media.get(asset.id)).blob_key).toBe(MediaPaths.blobKey(asset.id));
+  });
+
   test("an asset already on the new key is left alone", async () => {
     const asset = await service.media.save("photo.png", new TextEncoder().encode("png-bytes"));
 

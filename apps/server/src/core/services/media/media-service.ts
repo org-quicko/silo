@@ -184,8 +184,8 @@ export class MediaService {
   /** Moves assets stored under a pre-D88 key onto `media/<id>`, so the store
    *  holding them can answer `/media/<id>` itself. One-off, and safe to run
    *  again. */
-  rekey(): Promise<MediaRekeyResult> {
-    return this.rekeyer.run();
+  rekey(options: { rewrite?: boolean } = {}): Promise<MediaRekeyResult> {
+    return this.rekeyer.run(options);
   }
 
   /** The true, unfiltered scopes an operation on `ids` would change the

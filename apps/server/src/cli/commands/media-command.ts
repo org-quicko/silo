@@ -18,17 +18,21 @@ import { SiloService } from "../../core/services/silo-service";
  * chooses, not a migration an upgrade forces.
  */
 export class MediaCommand {
-  static async run(service: SiloService, positionals: string[]): Promise<void> {
+  static async run(
+    service: SiloService,
+    positionals: string[],
+    values: { rewrite?: boolean } = {}
+  ): Promise<void> {
     // positionals[0] is "media" — the subcommand is the one after it, same as
     // `silo keys <create|list|revoke>`.
     const sub = positionals[1];
     if (sub !== "reconcile" && sub !== "rekey") {
-      console.error(`usage: silo media <reconcile|rekey> [flags]`);
+      console.error(`usage: silo media reconcile | silo media rekey [--rewrite]`);
       process.exit(1);
     }
 
     if (sub === "rekey") {
-      await MediaCommand.rekey(service);
+      await MediaCommand.rekey(service, values.rewrite === true);
       return;
     }
 
@@ -67,14 +71,27 @@ export class MediaCommand {
    * Moves what is still on a pre-D88 key. Safe to run again, and the counts say
    * what it found rather than what it hoped for.
    */
-  private static async rekey(service: SiloService): Promise<void> {
-    const response = await service.media.rekey();
+  private static async rekey(service: SiloService, rewrite: boolean): Promise<void> {
+    const response = await service.media.rekey({ rewrite });
 
     console.log(
-      `moved ${response.moved}, already current ${response.current}, removed ${response.removed} old object${
+      `moved ${response.moved}, rewritten ${response.rewritten}, already current ${response.current}, removed ${response.removed} old object${
         response.removed === 1 ? "" : "s"
       }`
     );
+
+    if (!rewrite && response.current > 0) {
+      // An object written before silo sent Content-Disposition has no way to
+      // report that, so a run that only moves keys leaves it as it is.
+      console.log(
+        `
+${response.current} asset${response.current === 1 ? " is" : "s are"} already on the right key and ${
+          response.current === 1 ? "was" : "were"
+        } not touched. If ${
+          response.current === 1 ? "it was" : "they were"
+        } stored before silo began sending Content-Disposition, the object still has none and nothing can detect that from outside. Run again with --rewrite to write every asset back with the headers silo sends today.`
+      );
+    }
 
     if (response.missing > 0) {
       console.log(
