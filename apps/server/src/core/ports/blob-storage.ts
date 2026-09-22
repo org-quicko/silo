@@ -7,6 +7,21 @@ export interface BlobItem {
 
 export interface BlobPutOptions {
   contentType?: string;
+
+  /**
+   * How a browser should present the object, `Content-Disposition`'s value.
+   *
+   * Stored on the object rather than decided at read time, because a store that
+   * serves its own bytes is the one answering the request and silo is not in it
+   * (D58, D88). Without this an asset a bucket delivers loses the filename it
+   * saves under, and an SVG loses the `attachment` that keeps a navigation from
+   * running it (D83) -- both of which silo puts on its own `/media` answers and
+   * neither of which a bucket invents.
+   *
+   * A store with nowhere to keep it ignores it: a file on disk has no headers,
+   * and `FsBlobStorage` is read through silo, which sets them itself.
+   */
+  contentDisposition?: string;
 }
 
 export interface BlobGetResult {

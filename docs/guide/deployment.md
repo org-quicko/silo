@@ -12,6 +12,35 @@ with it. Leave `[log] file` unset in both places, so the log reaches
 ## Docker
 
 ```sh
+docker run -p 8090:8090 -v silo_data:/data labsatquicko/silo
+```
+
+The image is on Docker Hub as `labsatquicko/silo`, and on the GitHub registry
+as `ghcr.io/org-quicko/silo`. The two are the same image. Each release has a
+tag with its version, such as `labsatquicko/silo:1.3.0`, and `:latest` points
+at the newest release. Each tag holds an amd64 image and an arm64 image, and
+Docker pulls the one your machine needs.
+
+The image is signed. To check the signature before you run it:
+
+```sh
+cosign verify docker.io/labsatquicko/silo:1.3.0 \
+  --certificate-identity-regexp '^https://github\.com/org-quicko/silo/\.github/workflows/release\.yml@' \
+  --certificate-oidc-issuer https://token.actions.githubusercontent.com
+```
+
+It also carries build provenance, which names the workflow that made it:
+
+```sh
+gh attestation verify oci://docker.io/labsatquicko/silo:1.3.0 --repo org-quicko/silo
+```
+
+An image that you build yourself reports a version that ends in `-dev`. A
+released image reports the release version.
+
+To build the image from a source tree instead:
+
+```sh
 docker build --pull -t silo .
 docker run -p 8090:8090 -v silo_data:/data silo
 ```

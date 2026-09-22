@@ -39,6 +39,17 @@ file makes dnf verify each of them.
 ### Docker
 
 ```sh
+docker run -p 8090:8090 -v silo_data:/data labsatquicko/silo
+```
+
+The image is on [Docker Hub](https://hub.docker.com/r/labsatquicko/silo) as
+`labsatquicko/silo`, and on the GitHub registry as `ghcr.io/org-quicko/silo`.
+Every release is tagged with its version, `:latest` points at the newest one,
+and each tag carries both an amd64 and an arm64 image, signed with Sigstore and
+carrying build provenance. [Deployment](docs/guide/deployment.md) has the two
+commands that check them. To build it yourself instead:
+
+```sh
 docker build --pull -t silo .
 docker run -p 8090:8090 -v silo_data:/data silo
 ```

@@ -17,7 +17,100 @@ can be cloned with one command.
 
 ## Where things stand
 
-*Last updated: 2026-09-21 (Node client caching, Java caching, MCP and server updates)*
+*Last updated: 2026-09-22 (a release publishes a container image)*
+
+**A release publishes a multi-arch container image to Docker Hub and GHCR
+(D90).** `docker run labsatquicko/silo` is now an install method rather than
+something every operator builds for themselves, and the same image is on
+`ghcr.io/org-quicko/silo`, which until now only ever received alphas.
+`release.yml` gained two jobs. `image` builds one architecture per native
+runner — `ubuntu-24.04` and `ubuntu-24.04-arm`, because stage 1 of the
+Dockerfile is a Bun and Vite build of the admin UI and emulating that is several
+times slower than a runner this repository gets free — loads it, runs
+`silo version` inside it, and
+pushes it *by digest* to both registries at once, so nothing a `docker pull`
+can reach exists yet. `publish-image` waits for the GitHub release, then joins
+the two digests into `:VERSION` and `:latest` in each registry with
+`docker buildx imagetools create`, signs each index with cosign keyless and
+attests its provenance — the same two signatures the tarballs carry, over the
+digest a tag resolves to, so one of each covers both architectures. A
+`workflow_dispatch` builds and smoke-tests both halves and pushes nothing.
+Docker Hub needs an organisation-wide `DOCKERHUB_TOKEN` secret and a
+`DOCKERHUB_USERNAME` variable; GHCR keeps using `GITHUB_TOKEN`.
+`release-docker-snapshot.yml` now writes `:alpha` instead of `:latest`, since
+`latest` names a release.
+
+**And a released image says which release it is.** The image runs the server
+from source, where the `--define SILO_VERSION` a compiled binary carries cannot
+reach it, so every image ever built reported `<version>-dev` — including the
+published ones, whose whole point is to be the artifact nobody built themselves.
+`version.ts` now falls back to `process.env.SILO_VERSION` when the define is
+absent, the Dockerfile bakes that in from a `SILO_VERSION` build arg, and the
+release passes the version it is cutting. Nothing else passes it, so a
+`docker build` on a laptop still produces a `-dev` image, which is what D28 put
+the marker there to say. A compiled binary always carries the define and never
+reads the environment.
+
+**The transfer scope picker opens with nothing checked, and each column has a
+select-all box (D89).** It used to open with every box checked, because an empty
+`include` *is* the whole instance on the wire and the screen had inherited the
+wire's spelling — so "export part of this" began with unchecking, and D74 needed
+a rule that wrote the implied selection out in full before the first uncheck
+could subtract from it. `TransferInclude` is literal now: an empty list is an
+empty selection, `collapse` rolls a complete set of children up into the parent
+that stands for them, and `wire(rules, tree)` is the single place a selection
+covering every project becomes the empty list the route reads as the whole
+instance. Each column carries its own box at the far end of its header, opposite
+the title, through `BrowserColumn`'s new `headerAction` slot; that box is the
+rule of the *level above* it, so all environments is the project and the project
+row moves with it. An empty selection is a real state on both tabs that browse:
+Export disables Download, Copy disables Preview, and each says what is missing
+rather than quietly moving everything.
+
+**The server manager's rows reach their own settings, and an environment opens
+on a second click.** Every row in all three columns carries a settings button
+that appears on hover (`ColumnSettingsButton`, shared rather than copied): a
+server's goes to its connection page, a project's and an environment's to their
+own settings, without selecting the row first. Environments still open on a
+double-click and now also on a click that selects what is already selected —
+it is the last column, so that click has nothing else it could mean. The first
+click only selects, and `BrowserRouter.navigate` already no-ops on the current
+URL, so a double-click still adds one history entry rather than three.
+
+**The browser tab is named after the route**, as
+`silo - <server> - <project>/<env>`, `silo - <server> - Media Library <folder>`
+or `silo - <server> - Settings - <tab>`, instead of the fixed "silo admin" every
+page carried. `router/document-title.ts` is the pure mapping, beside `Routes`
+because a title is a second rendering of the route, and `App` is the only caller
+so no view can leave the wrong name behind it. A settings page under a project
+or an environment carries its scope, since the nav nests *General* under both.
+
+Two admin fixes ride with it. The API key list sized its action column at a
+fixed 150px, which clipped a row carrying Edit beside Revoke, since `.cell`
+hides its overflow. And every checkbox on the key form's Advanced tab is a
+hidden `position: absolute` input inside its label, but the label was not
+positioned — so the input was laid out against the initial containing block and
+stopped scrolling with the page, and clicking one threw the form back to
+wherever the input had been left behind.
+
+**A blob key is `media/<assetId>` (D88).** D23's key was `<assetId><ext>`, so
+`/media/<id>` addressed an object called `<id>.jpg` and only a catalog lookup
+joined the two — which is what stopped a bucket, or a CDN in front of one, ever
+answering that URL itself. The key is now the URL path minus its leading slash.
+`blob_key` is stored rather than derived, so every key written before this goes
+on resolving beside the new ones and **nothing is migrated in place**; an asset
+uploaded before D88 is still served by silo rather than by the bucket. The
+archive keeps the flat `media/<name>` layout D23 fixed: the prefix is stripped
+on export and `ImportMedia` maps each entry back through the archive's own
+`_media` rows, so an archive written before D88 loads to its own `<id><ext>`
+keys, one written after loads under the prefix, and a blob no row claims keeps
+its name. No `format_version` bump, and an older silo still reads an archive
+written now. `replaceContent` still refuses an extension change, now because
+`content_type` is read off the filename (D83) rather than because the key
+carried it. An object also carries **how it should be presented**: `contentDisposition` is set at upload and at replace and passed to the bucket, since a store serving its own bytes is the one answering and silo is not in that path -- without it a bucket-served asset loses its filename and an SVG loses the `attachment` that keeps a navigation from running it (D83). Bun's S3 client can store that and not `Cache-Control`, so a CDN in front of the bucket supplies the rest. **`silo media rekey`** moves what is already stored, headers and all, and `--rewrite` writes every asset back even where the key is already right -- the only way to repair an object stored before silo sent a disposition, which nothing can detect from outside: copy, repoint,
+remove, so an interrupted run leaves a duplicate or an orphan and never a record
+naming bytes that are not there. Safe to run again, and an optimisation an
+operator chooses rather than a migration an upgrade forces.
 
 **silo releases only `vMAJOR.MINOR.PATCH`, and its suite passes on Bun 1.4
 (2026-09-19).** `release.yml` triggers on `v[0-9]+.[0-9]+.[0-9]+`, so an
@@ -593,8 +686,9 @@ without one of them being rewritten (D67). It takes a `media:replace` claim
 — carried by `manage` but not by `write`, since `media:create` is what an
 upload integration holds — and, wherever the asset is actually referenced,
 the same `entries:update`-at-every-referring-scope check a force delete
-passes. The blob key and the extension stay put, which is what keeps a
-bucket-backed instance's public URL stable and leaves nothing to clean up.
+passes. The blob key and the extension stay put — the key because a
+bucket-backed instance's public URL is built from it, the extension because
+`content_type` is read off the filename (D83) — and nothing is left to clean up.
 
 **Projects and environments can be searched within the server browser
 (2026-09-16).** Each reachable column has a compact, labelled search field

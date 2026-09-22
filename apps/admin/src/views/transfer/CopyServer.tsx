@@ -13,6 +13,7 @@ import type { ImportResult } from '../../api/types/import-result'
 import type { MediaMode } from '../../api/types/media-mode'
 import type { TransferProgress } from '../../api/transport/progress-reader'
 import { MediaModeRow } from './MediaModeRow'
+import { TransferInclude } from './transfer-include'
 import { TransferScopePicker } from './TransferScopePicker'
 import { useTransferTree } from './use-transfer-tree'
 import { SettingsAlert } from '../settings/parts/SettingsAlert'
@@ -75,11 +76,20 @@ export function CopyServerPanel({
     setError('')
   }
 
+  // The picker opens with nothing checked (D89), so browsing and choosing
+  // nothing is a real state and has to block the copy rather than quietly
+  // meaning the whole source.
+  const nothingChosen = browsing && include.length === 0
+
   const copy = async (dryRun: boolean) => {
     const cleanUrl = sourceUrl.trim()
     const cleanKey = sourceApiKey.trim()
     if (!cleanUrl || !cleanKey) {
       setError('Enter the source server URL and a key that permits export.')
+      return
+    }
+    if (nothingChosen) {
+      setError('Check what to copy from the source, or switch back to Everything.')
       return
     }
 
@@ -97,7 +107,7 @@ export function CopyServerPanel({
         prefer,
         withKeys,
         dryRun,
-        include,
+        include: browsing && sourceTree ? TransferInclude.wire(include, sourceTree) : [],
         media,
         onProgress: setProgress,
       })
@@ -233,7 +243,7 @@ export function CopyServerPanel({
             label="Source scope"
             help={
               include.length === 0
-                ? 'Everything is checked. Uncheck to copy only part of the source.'
+                ? 'Nothing is checked. Check what to copy, or use All.'
                 : `${include.length} selected.`
             }
             stack
@@ -243,7 +253,9 @@ export function CopyServerPanel({
               rules={include}
               onChange={(next) => {
                 setInclude(next)
-                if (media === 'all' && next.length > 0) setMedia('referenced')
+                const narrowed =
+                  next.length > 0 && (!sourceTree || !TransferInclude.everything(next, sourceTree))
+                if (media === 'all' && narrowed) setMedia('referenced')
                 invalidatePreview()
               }}
               disabled={busy}
@@ -331,11 +343,15 @@ export function CopyServerPanel({
             </>
           ) : (
             <>
-              <span className={ledger.sectionNote}>Runs a dry run first — nothing is written</span>
+              <span className={ledger.sectionNote}>
+                {nothingChosen
+                  ? 'Check what to copy first'
+                  : 'Runs a dry run first — nothing is written'}
+              </span>
               <Button
                 variant="primary"
                 onClick={() => copy(true)}
-                disabled={busy || !sourceUrl.trim() || !sourceApiKey.trim()}
+                disabled={busy || !sourceUrl.trim() || !sourceApiKey.trim() || nothingChosen}
               >
                 {busy ? <RefreshCw size={14} className="spin" /> : <Copy size={14} />} Preview copy
               </Button>

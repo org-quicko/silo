@@ -1,0 +1,110 @@
+name: release-snapshot
+
+on:
+  push:
+    tags: ["v*-alpha*"]
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version to build, without the leading v. No image is pushed to GHCR."
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+env:
+  BUN_VERSION: "1.4.0"
+
+concurrency:
+  group: release-snapshot-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  version:
+    runs-on: ubuntu-24.04
+    outputs:
+      version: ${{ steps.resolve.outputs.version }}
+      prerelease: ${{ steps.resolve.outputs.prerelease }}
+    steps:
+      - uses: actions/checkout@v7
+      - id: resolve
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            version="${{ inputs.version }}"
+          else
+            version="${GITHUB_REF_NAME#v}"
+          fi
+
+          case "$version" in
+            [0-9]*.[0-9]*.[0-9]*) ;;
+            *) echo "::error::'$version' is not a semantic version" && exit 1 ;;
+          esac
+
+          case "$version" in
+            *-*) prerelease=true ;;
+            *) prerelease=false ;;
+          esac
+
+          declared=$(jq -r .version package.json)
+          if [ "$declared" != "$version" ]; then
+            if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+              echo "::warning::building $version from a tree that declares $declared — fine for a rehearsal, not for a tag"
+            else
+              echo "::error::tag v$version does not match package.json ($declared). Run: bun run set-version $version"
+              exit 1
+            fi
+          fi
+
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "prerelease=$prerelease" >> "$GITHUB_OUTPUT"
+          echo "silo $version (prerelease=$prerelease, declared=$declared)"
+
+  verify:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: ${{ env.BUN_VERSION }}
+      - run: bun install --frozen-lockfile
+      - name: Type-check
+        run: bunx tsc -b
+      - name: Build silo-client
+        run: bun run --cwd packages/silo-client build
+      - name: Test
+        run: bun test
+
+  ghcr:
+    needs: [version, verify]
+    if: startsWith(github.ref, 'refs/tags/')
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: docker/setup-buildx-action@v3
+
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: true
+          # An alpha is still an artifact somebody pulled rather than built, so
+          # it says which alpha it is instead of appending `-dev` (D90).
+          build-args: |
+            SILO_VERSION=${{ needs.version.outputs.version }}
+          # `:alpha`, not `:latest`. Since release.yml publishes the same
+          # repository (D90), `latest` names a release, and an alpha pushed
+          # after one would otherwise hand every `docker pull` a pre-release
+          # amd64 image.
+          tags: |
+            ghcr.io/org-quicko/silo:${{ needs.version.outputs.version }}
+            ghcr.io/org-quicko/silo:alpha

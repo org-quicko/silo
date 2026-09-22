@@ -4,6 +4,134 @@
 > The *current* state is [CONTEXT.md](../../CONTEXT.md); this is how it got
 > there.
 
+- **A release publishes a multi-arch container image to Docker Hub and GHCR
+  (2026-09-22, D90).** The only image silo had was the one an operator built
+  from the Dockerfile, and the only image it pushed was an amd64 alpha in GHCR
+  that no release tag pointed at. `release.yml` gained `image`, which builds
+  one architecture per native runner (`ubuntu-24.04`, `ubuntu-24.04-arm` —
+  each half builds in well under a minute there, and emulating a Bun and Vite
+  build of the admin UI is several times slower for a runner this repository
+  gets free), runs `silo version` inside what it built,
+  and pushes it *by digest* to `docker.io/labsatquicko/silo` and
+  `ghcr.io/org-quicko/silo` in one export; and `publish-image`, which waits for
+  the GitHub release and then turns the two digests into `:VERSION` and
+  `:latest` in both registries with `docker buildx imagetools create`. Until
+  that last step nothing is reachable by name, so a failed architecture leaves
+  no half-published tag behind. A `workflow_dispatch` builds and smoke-tests
+  both halves without pushing, which is how a Dockerfile change is rehearsed.
+  The release notes and the install docs name the image, Docker Hub
+  authenticates with an organisation-wide `DOCKERHUB_TOKEN` secret and a
+  `DOCKERHUB_USERNAME` variable, and `release-docker-snapshot.yml` moved its
+  moving tag to `:alpha` so an alpha can no longer take `latest` away from a
+  release.
+  - **The index is signed twice, like the tarballs.** `cosign sign` keyless over
+    the index digest in each registry, and `actions/attest-build-provenance`
+    over the same digest into GitHub's own store, so
+    `cosign verify labsatquicko/silo:1.3.0` and
+    `gh attestation verify oci://labsatquicko/silo:1.3.0` both answer. The index
+    digest and not the per-architecture ones, because that is what a
+    `docker pull` of a tag resolves to; one signature therefore covers both
+    halves. The signature lands beside the image as a `sha256-….sig` tag, which
+    is how the registry stores one.
+  - **A released image reports the release version.** It runs from source, where
+    the `--define SILO_VERSION` a compiled binary carries cannot reach it, so
+    every image ever built said `<version>-dev` — including the published ones,
+    which exist precisely to be the artifact nobody built themselves.
+    `version.ts` falls back to `process.env.SILO_VERSION` when the define is
+    absent, the Dockerfile bakes it in from a build arg, and the release passes
+    the version it is cutting. A `docker build` with no arg gets an empty
+    string, reads as absent, and keeps the `-dev` that D28 put there to separate
+    a published artifact from a laptop's. A compiled binary always has the
+    define, so it never reads the environment; the suite proves the new path by
+    spawning `main.ts version` with the variable set.
+
+- **The transfer scope picker opens empty, with a select-all box per column
+  (2026-09-22, D89).** It opened with every box already checked, because an
+  empty `include` *is* the whole instance on the wire and the screen had
+  inherited the wire's spelling — so narrowing an export began with unchecking,
+  the affordance the picker exists to avoid, and D74 needed a rule that wrote
+  the implied selection out in full before the first uncheck could subtract from
+  it. `TransferInclude` is literal now: `covered` is a plain prefix test,
+  `collapse` rolls a complete set of children up into the parent that stands for
+  them (stopping below the instance, which has no rule string), and
+  `wire(rules, tree)` is the single place a selection covering every project
+  becomes the empty list the route reads. That deletes the first-uncheck rule
+  and moves the translation to the one call that talks to the API. Each column
+  now carries its own box at the far end of its header, opposite the title,
+  through `BrowserColumn`'s new `headerAction` slot; the box is the rule of the
+  *level above* it, so all environments is the project and the project row moves
+  with it, and the roll-up keeps the tri-states from disagreeing when a column
+  is checked wholesale. An empty selection is a real state on both tabs that
+  browse: Export disables Download and says "Check what to export first", Copy
+  disables Preview and refuses the request, and the fact list reads "Nothing
+  selected" rather than counting the instance.
+
+- **The server manager's rows reach their own settings, and an environment
+  opens on a second click (2026-09-22).** Only the server column had a settings
+  affordance, so a project or an environment could be configured only by opening
+  the workspace first and going back out through the sidebar.
+  `components/browser/ColumnSettingsButton.tsx` is now that affordance for all
+  three columns — hidden until its row is hovered, stopping the click before the
+  row sees it — rather than the server column's copy being written out twice
+  more. A project's goes to `projectSettings(…, 'general')` and an
+  environment's to `envSettings(…, 'general')`, neither needing the row selected
+  first; `ServerManager` takes one callback per scope, since each settings route
+  is addressed by a different number of names. Environments also open on a click
+  that selects what is already selected, beside the existing double-click: it is
+  the last column, so that click has nothing else it could mean, and the footer
+  button after it answers nothing. The first click still only selects.
+  `BrowserRouter.navigate` already returns early on the current URL, so the
+  click-click-dblclick sequence adds one history entry, not three. Environment
+  rows gained the chevron the other two columns carry, that row now leading
+  somewhere as well.
+
+- **The browser tab is named after the route (2026-09-22).** Every page carried
+  the same "silo admin", so a row of tabs said nothing about which server or
+  scope each was open on. `router/document-title.ts` maps a route to
+  `silo - <server> - <project>/<env>`, `silo - <server> - Media Library <folder>`
+  or `silo - <server> - Settings - <tab>`, with the settings tab spelled as the
+  nav spells it and a project or environment page carrying its scope, since the
+  nav nests *General* under both. Pure, and beside `Routes` because a title is a
+  second rendering of the route; `App` is the only caller, so no view can leave
+  the wrong name behind when another mounts. The gate keeps the served "silo - admin",
+  having no server to name.
+
+- **Two admin fixes on the API keys screens (2026-09-22).** The key list sized
+  its action column at a fixed 150px and `.cell` hides its overflow, so a row
+  carrying Edit beside Revoke had its buttons clipped; the track is 180px, wide
+  enough for the busiest row, and stays fixed rather than content-sized because
+  each row is its own grid and `max-content` would let every row pick a
+  different width. On the key form's Advanced tab, each capability checkbox is a
+  hidden `position: absolute` input inside its label, but the label was not
+  positioned — so the input's containing block was the initial one, outside
+  `.content`'s scroller, and it stopped moving when the page scrolled.
+  Measured in the running admin: the input sat 1306px from its own label, and
+  clicking the label focused it and threw the scroller back to where it had been
+  left behind. `.capability` is `position: relative`.
+
+- **A blob key is `media/<assetId>` (2026-09-22, D88).** D23's key was
+  `<assetId><ext>`, so `/media/<id>` addressed an object called `<id>.jpg` and
+  only a catalog lookup joined the two — which is what stopped a bucket, or a
+  CDN in front of one, from answering that URL itself, and what made an origin
+  group with S3 primary and silo failover impossible, since a group sends one
+  URI to both origins. The key is now the URL path minus its leading slash.
+  `blob_key` is stored rather than derived, so keys written before this go on
+  resolving and nothing is migrated in place. The archive keeps its flat
+  `media/<name>` layout: the prefix is stripped on export and `ImportMedia` maps
+  each entry back through the archive's own `_media` rows, so a pre-D88 archive
+  loads to its own `<id><ext>` keys and a blob no row claims keeps its name —
+  no `format_version` bump, and an older silo still reads a new archive. The
+  extension rule on `replaceContent` stays, now resting on `content_type` being
+  read off the filename (D83) rather than on the key's tail. An object now also carries a
+  `Content-Disposition`, set at upload and at replace, because a bucket serving its
+  own bytes sends what is stored on it and nothing else -- without it a
+  bucket-served asset lost its filename and an SVG lost the `attachment` D83
+  put on it. `silo media rekey`
+  moves what is already stored, headers and all, in the order copy, repoint, remove, so an
+  interrupted run leaves a duplicate or an orphan and never a record naming
+  bytes that are not there; it is safe to run again and nothing depends on
+  having run it.
+
 - **Releases are `vMAJOR.MINOR.PATCH` only; media streams open on first read
   (2026-09-19).** `release.yml` triggered on `v*` and routed a suffixed tag to
   a GitHub pre-release kept off the tap and the dnf repo. It now triggers on
