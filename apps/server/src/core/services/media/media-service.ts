@@ -6,6 +6,7 @@ import type { MediaStream } from "../../media/media-stream";
 import type { ByteRangeRequest } from "../../media/byte-range";
 import type { MediaQuery } from "../../media/media-query";
 import type { MediaReconcileResult } from "../../media/media-reconcile-result";
+import type { MediaRekeyResult } from "../../media/media-rekey-result";
 import type { MediaUsage } from "../../media/media-usage";
 import type { ServiceContext } from "../support/service-context";
 import type { MediaAssetPatchInput } from "./media-asset-patch";
@@ -25,6 +26,7 @@ import { MediaUsageScopes } from "./media-usage-scopes";
 import type { MediaPurgeOutcome, MediaPurgeResult } from "./media-purge-service";
 import { MediaPurgeService } from "./media-purge-service";
 import { MediaReconciler } from "./media-reconciler";
+import { MediaRekeyer } from "./media-rekeyer";
 import { MediaReferenceGuard } from "./media-reference-guard";
 import { MediaUsageCounter } from "./media-usage-counter";
 
@@ -42,6 +44,7 @@ export class MediaService {
   private readonly folderMove: MediaFolderMoveService;
   private readonly deletion: MediaDeletionService;
   private readonly reconciler: MediaReconciler;
+  private readonly rekeyer: MediaRekeyer;
   private readonly linkResolver: MediaLinkResolver;
   private readonly usageScopes: MediaUsageScopes;
   private readonly purgeService: MediaPurgeService;
@@ -58,6 +61,7 @@ export class MediaService {
     this.folderMove = new MediaFolderMoveService(context, catalog);
     this.deletion = new MediaDeletionService(context, catalog);
     this.reconciler = new MediaReconciler(context, catalog, this.deletion);
+    this.rekeyer = new MediaRekeyer(context, catalog);
     this.referenceGuard = new MediaReferenceGuard(catalog);
     this.linkResolver = new MediaLinkResolver(context, catalog);
     this.usageScopes = new MediaUsageScopes(context, catalog);
@@ -175,6 +179,13 @@ export class MediaService {
 
   reconcile(): Promise<MediaReconcileResult> {
     return this.reconciler.run();
+  }
+
+  /** Moves assets stored under a pre-D88 key onto `media/<id>`, so the store
+   *  holding them can answer `/media/<id>` itself. One-off, and safe to run
+   *  again. */
+  rekey(): Promise<MediaRekeyResult> {
+    return this.rekeyer.run();
   }
 
   /** The true, unfiltered scopes an operation on `ids` would change the

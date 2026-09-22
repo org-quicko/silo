@@ -176,7 +176,7 @@ export class MediaAssetService {
     MediaExtensions.assert(this.context.mediaConfig.extensions, filename);
 
     const id = EntryUtils.newID();
-    const blobKey = MediaPaths.blobKey(id, filename);
+    const blobKey = MediaPaths.blobKey(id);
     const contentType = MimeUtils.lookup(filename);
 
     return this.context.withWriteLock(async () => {
@@ -216,11 +216,13 @@ export class MediaAssetService {
    * nothing to adopt or report, and means there is no second object to clean
    * up after — no staged marker, no saga.
    *
-   * Which in turn is why the extension may not change: the key's own suffix
-   * is derived from the filename at upload (`MediaPaths.blobKey`), and it is
-   * the visible tail of the URL in bucket mode. A `.png` key serving WebP
-   * bytes is a URL that lies. Converting a file is a new asset, not a
-   * replacement of this one.
+   * The extension may not change either, though since D88 that is no longer
+   * because the key carries one — it does not. It is the record: an asset's
+   * `content_type` is read off its filename and off nothing else (D83), and
+   * the filename is what a replacement keeps. A `.png` asset serving WebP
+   * bytes answers every reader with a type that is wrong, and the store was
+   * handed the same wrong type when the bytes went in. Converting a file is a
+   * new asset, not a replacement of this one.
    *
    * Bytes first, then the record, the same order `save` takes and for a
    * sharper reason here: `MediaReconciler` *prunes* a record whose blob has
@@ -291,8 +293,8 @@ export class MediaAssetService {
   }
 
   /** Refuses a replacement that would change the file's type. See
-   *  {@link replaceContent} for why the blob key, and therefore the
-   *  extension, has to stay put. */
+   *  {@link replaceContent} for why the filename, and therefore the type every
+   *  reader is told, has to stay put. */
   private static assertSameExtension(current: string, incoming: string): void {
     const want = MediaExtensions.of(current);
     const got = MediaExtensions.of(incoming);

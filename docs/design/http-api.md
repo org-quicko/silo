@@ -407,9 +407,10 @@ survives anything, but a bucket-backed instance addresses objects by key
 (D58), so re-keying would move the public URL out from under whoever already
 holds it. Staying put also keeps the pre-D23 `blob:` usage token matching,
 leaves `reconcile` nothing to adopt or report, and leaves no second object to
-clean up, so a replace needs no staged marker and no saga. The consequence is
-that **the extension may not change**: the key's suffix is derived from the
-filename at upload, and on a bucket it is the visible tail of the URL, so a
+clean up, so a replace needs no staged marker and no saga. **The extension may
+not change** either, though since D88 that is no longer because the key carries
+one — it does not. It is the record: an asset's `content_type` is read off its
+filename and off nothing else (D83), and a replacement keeps the filename, so a
 `.png` asset takes a `.png` replacement and a `400` says so. Converting a file
 is a new upload, not a replacement of this one. The library's extension
 allowlist is checked here too, exactly as it is at upload and at rename, so an

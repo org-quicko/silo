@@ -50,7 +50,7 @@ describe("media catalog (D23)", () => {
     expect(asset.state).toBe("active");
     // Addressed by catalog id, not by a path derived from the name.
     expect(asset.url).toBe(`/media/${asset.id}`);
-    expect(asset.blob_key).toBe(`${asset.id}.png`);
+    expect(asset.blob_key).toBe(`media/${asset.id}`);
 
     const fetched = await service.media.bytes(asset.id);
     expect(fetched).not.toBeNull();
@@ -94,7 +94,7 @@ describe("media catalog (D23)", () => {
     await service.media.delete(asset.id);
 
     await expect(service.media.get(asset.id)).rejects.toThrow(NotFoundError);
-    expect(await service.media.bytes(asset.blob_key)).toBeNull();
+    expect(await service.blobStorage.exists(asset.blob_key)).toBe(false);
   });
 
   test("force delete succeeds over a live reference, and leaves the usage row behind (D48)", async () => {
@@ -107,7 +107,7 @@ describe("media catalog (D23)", () => {
 
     await service.media.delete(asset.id, { force: true });
     await expect(service.media.get(asset.id)).rejects.toThrow(NotFoundError);
-    expect(await service.media.bytes(asset.blob_key)).toBeNull();
+    expect(await service.blobStorage.exists(asset.blob_key)).toBe(false);
 
     // The entry is untouched — no rewrite, dangling reference and all.
     const after = await service.entries.get(Scope.Default, "posts", entry.id);

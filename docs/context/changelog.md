@@ -4,6 +4,25 @@
 > The *current* state is [CONTEXT.md](../../CONTEXT.md); this is how it got
 > there.
 
+- **A blob key is `media/<assetId>` (2026-09-22, D88).** D23's key was
+  `<assetId><ext>`, so `/media/<id>` addressed an object called `<id>.jpg` and
+  only a catalog lookup joined the two — which is what stopped a bucket, or a
+  CDN in front of one, from answering that URL itself, and what made an origin
+  group with S3 primary and silo failover impossible, since a group sends one
+  URI to both origins. The key is now the URL path minus its leading slash.
+  `blob_key` is stored rather than derived, so keys written before this go on
+  resolving and nothing is migrated in place. The archive keeps its flat
+  `media/<name>` layout: the prefix is stripped on export and `ImportMedia` maps
+  each entry back through the archive's own `_media` rows, so a pre-D88 archive
+  loads to its own `<id><ext>` keys and a blob no row claims keeps its name —
+  no `format_version` bump, and an older silo still reads a new archive. The
+  extension rule on `replaceContent` stays, now resting on `content_type` being
+  read off the filename (D83) rather than on the key's tail. `silo media rekey`
+  moves what is already stored, in the order copy, repoint, remove, so an
+  interrupted run leaves a duplicate or an orphan and never a record naming
+  bytes that are not there; it is safe to run again and nothing depends on
+  having run it.
+
 - **Releases are `vMAJOR.MINOR.PATCH` only; media streams open on first read
   (2026-09-19).** `release.yml` triggered on `v*` and routed a suffixed tag to
   a GitHub pre-release kept off the tap and the dnf repo. It now triggers on

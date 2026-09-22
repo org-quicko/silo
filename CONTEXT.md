@@ -17,7 +17,26 @@ can be cloned with one command.
 
 ## Where things stand
 
-*Last updated: 2026-09-21 (Node client caching, Java caching, MCP and server updates)*
+*Last updated: 2026-09-22 (blob keys are the media route's own path)*
+
+**A blob key is `media/<assetId>` (D88).** D23's key was `<assetId><ext>`, so
+`/media/<id>` addressed an object called `<id>.jpg` and only a catalog lookup
+joined the two — which is what stopped a bucket, or a CDN in front of one, ever
+answering that URL itself. The key is now the URL path minus its leading slash.
+`blob_key` is stored rather than derived, so every key written before this goes
+on resolving beside the new ones and **nothing is migrated in place**; an asset
+uploaded before D88 is still served by silo rather than by the bucket. The
+archive keeps the flat `media/<name>` layout D23 fixed: the prefix is stripped
+on export and `ImportMedia` maps each entry back through the archive's own
+`_media` rows, so an archive written before D88 loads to its own `<id><ext>`
+keys, one written after loads under the prefix, and a blob no row claims keeps
+its name. No `format_version` bump, and an older silo still reads an archive
+written now. `replaceContent` still refuses an extension change, now because
+`content_type` is read off the filename (D83) rather than because the key
+carried it. **`silo media rekey`** moves what is already stored: copy, repoint,
+remove, so an interrupted run leaves a duplicate or an orphan and never a record
+naming bytes that are not there. Safe to run again, and an optimisation an
+operator chooses rather than a migration an upgrade forces.
 
 **silo releases only `vMAJOR.MINOR.PATCH`, and its suite passes on Bun 1.4
 (2026-09-19).** `release.yml` triggers on `v[0-9]+.[0-9]+.[0-9]+`, so an
@@ -593,8 +612,9 @@ without one of them being rewritten (D67). It takes a `media:replace` claim
 — carried by `manage` but not by `write`, since `media:create` is what an
 upload integration holds — and, wherever the asset is actually referenced,
 the same `entries:update`-at-every-referring-scope check a force delete
-passes. The blob key and the extension stay put, which is what keeps a
-bucket-backed instance's public URL stable and leaves nothing to clean up.
+passes. The blob key and the extension stay put — the key because a
+bucket-backed instance's public URL is built from it, the extension because
+`content_type` is read off the filename (D83) — and nothing is left to clean up.
 
 **Projects and environments can be searched within the server browser
 (2026-09-16).** Each reachable column has a compact, labelled search field

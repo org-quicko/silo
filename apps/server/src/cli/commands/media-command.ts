@@ -1,7 +1,7 @@
 import { SiloService } from "../../core/services/silo-service";
 
 /**
- * `silo media reconcile` — the standing repair for the media catalog (D23).
+ * `silo media <reconcile|rekey>` — the repairs the media catalog has (D23, D88).
  *
  * Runs against the data dir with no server, like every other CLI command, so
  * it is also the recovery path when an instance will not start. Reconcile is
@@ -10,15 +10,26 @@ import { SiloService } from "../../core/services/silo-service";
  * bytes are gone, and reports bytes no record claims — without deleting them,
  * because a blob with no record is also what a half-finished upload looks
  * like.
+ *
+ * `rekey` is the one-off beside it: it moves assets stored under a pre-D88 key
+ * onto `media/<id>`, which is what lets a bucket answer `/media/<id>` itself
+ * instead of every read going through silo. Nothing depends on it having been
+ * run — an old key still resolves — so it is an optimisation an operator
+ * chooses, not a migration an upgrade forces.
  */
 export class MediaCommand {
   static async run(service: SiloService, positionals: string[]): Promise<void> {
     // positionals[0] is "media" — the subcommand is the one after it, same as
     // `silo keys <create|list|revoke>`.
     const sub = positionals[1];
-    if (sub !== "reconcile") {
-      console.error(`usage: silo media reconcile [flags]`);
+    if (sub !== "reconcile" && sub !== "rekey") {
+      console.error(`usage: silo media <reconcile|rekey> [flags]`);
       process.exit(1);
+    }
+
+    if (sub === "rekey") {
+      await MediaCommand.rekey(service);
+      return;
     }
 
     const response = await service.media.reconcile();
@@ -49,6 +60,42 @@ export class MediaCommand {
       for (const key of response.orphans) {
         console.log(`  ${key}`);
       }
+    }
+  }
+
+  /**
+   * Moves what is still on a pre-D88 key. Safe to run again, and the counts say
+   * what it found rather than what it hoped for.
+   */
+  private static async rekey(service: SiloService): Promise<void> {
+    const response = await service.media.rekey();
+
+    console.log(
+      `moved ${response.moved}, already current ${response.current}, removed ${response.removed} old object${
+        response.removed === 1 ? "" : "s"
+      }`
+    );
+
+    if (response.missing > 0) {
+      console.log(
+        `
+${response.missing} asset${response.missing === 1 ? "" : "s"} named bytes the store does not hold, so ${
+          response.missing === 1 ? "it was" : "they were"
+        } left alone. Run "silo media reconcile" to decide what happens to ${
+          response.missing === 1 ? "that record" : "those records"
+        }.`
+      );
+    }
+
+    if (response.failed.length > 0) {
+      console.log(`
+${response.failed.length} could not be moved:`);
+      for (const failure of response.failed) {
+        console.log(`  ${failure.id}  ${failure.reason}`);
+      }
+      console.log(`
+Their old keys still resolve, so nothing is broken. Run again once the cause is fixed.`);
+      process.exit(1);
     }
   }
 }
