@@ -100,6 +100,7 @@ max_files   = 5               # kept as silo.log.1 ... silo.log.5
 | `SILO_LOG_REQUESTS`, `SILO_LOG_MAX_SIZE_MB`, `SILO_LOG_MAX_FILES` | `[log]` |
 | `SILO_MEDIA_BASE_URL`, `SILO_MEDIA_BASE_URL_TARGET` | `[media]` |
 | `SILO_MEDIA_EXTENSIONS` | `[media]`, comma-separated |
+| `SILO_VERSION` | the version silo reports. It is not configuration and it is not in the file. The release sets it in the container image, which runs from source and has no other way to know which release it is. A binary ignores it. If you set it, silo tells you a version that it is not |
 
 ## Connections that go quiet
 

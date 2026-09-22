@@ -17,7 +17,38 @@ can be cloned with one command.
 
 ## Where things stand
 
-*Last updated: 2026-09-22 (the transfer scope picker opens empty)*
+*Last updated: 2026-09-22 (a release publishes a container image)*
+
+**A release publishes a multi-arch container image to Docker Hub and GHCR
+(D90).** `docker run labsatquicko/silo` is now an install method rather than
+something every operator builds for themselves, and the same image is on
+`ghcr.io/org-quicko/silo`, which until now only ever received alphas.
+`release.yml` gained two jobs. `image` builds one architecture per native
+runner — `ubuntu-24.04` and `ubuntu-24.04-arm`, because stage 1 of the
+Dockerfile is a Bun and Vite build of the admin UI and QEMU turns that from
+minutes into most of an hour — loads it, runs `silo version` inside it, and
+pushes it *by digest* to both registries at once, so nothing a `docker pull`
+can reach exists yet. `publish-image` waits for the GitHub release, then joins
+the two digests into `:VERSION` and `:latest` in each registry with
+`docker buildx imagetools create`, signs each index with cosign keyless and
+attests its provenance — the same two signatures the tarballs carry, over the
+digest a tag resolves to, so one of each covers both architectures. A
+`workflow_dispatch` builds and smoke-tests both halves and pushes nothing.
+Docker Hub needs an organisation-wide `DOCKERHUB_TOKEN` secret and a
+`DOCKERHUB_USERNAME` variable; GHCR keeps using `GITHUB_TOKEN`.
+`release-docker-snapshot.yml` now writes `:alpha` instead of `:latest`, since
+`latest` names a release.
+
+**And a released image says which release it is.** The image runs the server
+from source, where the `--define SILO_VERSION` a compiled binary carries cannot
+reach it, so every image ever built reported `<version>-dev` — including the
+published ones, whose whole point is to be the artifact nobody built themselves.
+`version.ts` now falls back to `process.env.SILO_VERSION` when the define is
+absent, the Dockerfile bakes that in from a `SILO_VERSION` build arg, and the
+release passes the version it is cutting. Nothing else passes it, so a
+`docker build` on a laptop still produces a `-dev` image, which is what D28 put
+the marker there to say. A compiled binary always carries the define and never
+reads the environment.
 
 **The transfer scope picker opens with nothing checked, and each column has a
 select-all box (D89).** It used to open with every box checked, because an empty

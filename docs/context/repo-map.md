@@ -40,7 +40,7 @@ script.
 | `IMPLEMENTATION.md` | Vision, the decisions log, and the index into `docs/design/` |
 | `CLAUDE.md` | Standing instructions for AI assistants |
 | `silo.toml` | A commented example config; every key is optional |
-| `Dockerfile` | Two stages — build `@org-quicko/silo-client` then the admin UI, then a runtime image with only the server's dependencies. Each stage copies the manifests of the workspaces it installs and of those they depend on, and no others: Bun skips a `bun.lock` workspace missing from the context, but aborts when a present one depends on it |
+| `Dockerfile` | Two stages — build `@org-quicko/silo-client` then the admin UI, then a runtime image with only the server's dependencies. Each stage copies the manifests of the workspaces it installs and of those they depend on, and no others: Bun skips a `bun.lock` workspace missing from the context, but aborts when a present one depends on it. The runtime stage runs the server *from source*, where no `--define` can reach `SiloVersion`, so a `SILO_VERSION` build arg is baked into the image's `ENV`: the release passes the version it is cutting, nothing else passes anything, and an image built on a laptop goes on saying `-dev` (D90) |
 | `.gitattributes` | `* text=auto eol=lf`. What it fixes is the *working tree* on Windows, where `core.autocrlf=true` would otherwise check the repo out as CRLF and break the byte-for-byte drift test between the scaffolder's `silo-api.d.ts` and the host's copy |
 
 ## `apps/server/src/`
@@ -144,12 +144,14 @@ not ask for. The measuring is silo's; the plugin only draws it:
 
 Two releases, cut apart on purpose: one ships a binary an operator installs,
 the other a library on somebody else's dependency graph. They share no tag, no
-version and no job. Beside them, the forms a stranger fills in before either
-release is anybody's problem.
+version and no job. A third workflow is the alpha lane, where a `v*-alpha*` tag
+publishes a container image and nothing else. Beside them, the forms a stranger
+fills in before either release is anybody's problem.
 
 | Path | What it is |
 |------|------------|
-| `workflows/release.yml` | silo itself, on a `vMAJOR.MINOR.PATCH` tag and nothing else — a `-rc.1`, `-beta` or `-SNAPSHOT` tag starts no run, and a dispatch refuses such a version: one executable per platform, checksummed, signed by cosign and GPG, published as a GitHub release, then the Homebrew tap and the dnf repo index. It refuses a tag that disagrees with the root `package.json` (D28), and builds the client before `bun test`, since the admin suites import it. `workflow_dispatch` builds and uploads to the run without publishing |
+| `workflows/release.yml` | silo itself, on a `vMAJOR.MINOR.PATCH` tag and nothing else — a `-rc.1`, `-beta` or `-SNAPSHOT` tag starts no run, and a dispatch refuses such a version: one executable per platform, checksummed, signed by cosign and GPG, published as a GitHub release, then the Homebrew tap, the dnf repo index and the container image. It refuses a tag that disagrees with the root `package.json` (D28), and builds the client before `bun test`, since the admin suites import it. The image is built once per architecture on a native runner, stamped with the version it is cutting, smoke-tested there and pushed by digest to Docker Hub and GHCR at once; `publish-image` names the two digests `:VERSION` and `:latest` in both registries, signs each index with cosign and attests its provenance, and waits for the GitHub release before any of it (D90). `workflow_dispatch` builds and uploads to the run without publishing, image included. Needs `DOCKERHUB_TOKEN` and the `DOCKERHUB_USERNAME` variable, both organisation-wide |
+| `workflows/release-docker-snapshot.yml` | The alpha lane, on a `v*-alpha*` tag — which `release.yml`'s filter cannot catch, so an alpha builds no executables, cuts no GitHub release and reaches no tap. It type-checks, tests, and pushes one amd64 image to `ghcr.io/org-quicko/silo:<version>` and `:alpha`, never `:latest` and never Docker Hub, since `latest` in that registry is now a real release (D90). `workflow_dispatch` runs the checks and pushes nothing |
 | `workflows/release-silo-client.yml` | `packages/silo-client` to npm, on a `silo-client-v*` tag — which `release.yml`'s filter cannot catch, so a client release builds no binaries and touches no tap. The version gate reads the *package's* manifest, a pre-release goes out under the `next` dist-tag, and the gate before publishing is the package's own `test:packaged` over the packed tarball. `workflow_dispatch` runs the same checks and `npm publish --dry-run`. Needs one secret, `NPM_TOKEN` |
 | `ISSUE_TEMPLATE/bug_report.yml` | The bug form. Required: two preflight checks, what happened, what was expected, steps, area, version, install method, platform. Optional: storage driver, logs (`render: shell`), `silo.toml` with secrets removed (`render: toml`), anything else. Labels the issue `bug` |
 | `ISSUE_TEMPLATE/feature_request.yml` | The feature form: problem before solution, what was tried instead, area, and a willing-to-PR box. Labels the issue `enhancement` |

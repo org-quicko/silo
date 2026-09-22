@@ -97,6 +97,14 @@ jobs:
         with:
           context: .
           push: true
+          # An alpha is still an artifact somebody pulled rather than built, so
+          # it says which alpha it is instead of appending `-dev` (D90).
+          build-args: |
+            SILO_VERSION=${{ needs.version.outputs.version }}
+          # `:alpha`, not `:latest`. Since release.yml publishes the same
+          # repository (D90), `latest` names a release, and an alpha pushed
+          # after one would otherwise hand every `docker pull` a pre-release
+          # amd64 image.
           tags: |
             ghcr.io/org-quicko/silo:${{ needs.version.outputs.version }}
-            ghcr.io/org-quicko/silo:latest
+            ghcr.io/org-quicko/silo:alpha

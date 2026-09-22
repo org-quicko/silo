@@ -38,7 +38,10 @@ RUN bun install --frozen-lockfile --production
 COPY --chown=bun:bun apps/server/src/ ./apps/server/src/
 COPY --chown=bun:bun --from=ui /app/apps/admin/dist ./apps/admin/dist
 
+ARG SILO_VERSION=""
+
 ENV NODE_ENV=production \
+    SILO_VERSION=${SILO_VERSION} \
     SILO_CONFIG=/data/silo.toml \
     SILO_STORAGE_PATH=/data \
     SILO_BLOB_PATH=/data/media \

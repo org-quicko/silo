@@ -4,6 +4,46 @@
 > The *current* state is [CONTEXT.md](../../CONTEXT.md); this is how it got
 > there.
 
+- **A release publishes a multi-arch container image to Docker Hub and GHCR
+  (2026-09-22, D90).** The only image silo had was the one an operator built
+  from the Dockerfile, and the only image it pushed was an amd64 alpha in GHCR
+  that no release tag pointed at. `release.yml` gained `image`, which builds
+  one architecture per native runner (`ubuntu-24.04`, `ubuntu-24.04-arm` —
+  emulating a Bun and Vite build of the admin UI costs half an hour where a
+  free arm64 runner costs minutes), runs `silo version` inside what it built,
+  and pushes it *by digest* to `docker.io/labsatquicko/silo` and
+  `ghcr.io/org-quicko/silo` in one export; and `publish-image`, which waits for
+  the GitHub release and then turns the two digests into `:VERSION` and
+  `:latest` in both registries with `docker buildx imagetools create`. Until
+  that last step nothing is reachable by name, so a failed architecture leaves
+  no half-published tag behind. A `workflow_dispatch` builds and smoke-tests
+  both halves without pushing, which is how a Dockerfile change is rehearsed.
+  The release notes and the install docs name the image, Docker Hub
+  authenticates with an organisation-wide `DOCKERHUB_TOKEN` secret and a
+  `DOCKERHUB_USERNAME` variable, and `release-docker-snapshot.yml` moved its
+  moving tag to `:alpha` so an alpha can no longer take `latest` away from a
+  release.
+  - **The index is signed twice, like the tarballs.** `cosign sign` keyless over
+    the index digest in each registry, and `actions/attest-build-provenance`
+    over the same digest into GitHub's own store, so
+    `cosign verify labsatquicko/silo:1.3.0` and
+    `gh attestation verify oci://labsatquicko/silo:1.3.0` both answer. The index
+    digest and not the per-architecture ones, because that is what a
+    `docker pull` of a tag resolves to; one signature therefore covers both
+    halves. The signature lands beside the image as a `sha256-….sig` tag, which
+    is how the registry stores one.
+  - **A released image reports the release version.** It runs from source, where
+    the `--define SILO_VERSION` a compiled binary carries cannot reach it, so
+    every image ever built said `<version>-dev` — including the published ones,
+    which exist precisely to be the artifact nobody built themselves.
+    `version.ts` falls back to `process.env.SILO_VERSION` when the define is
+    absent, the Dockerfile bakes it in from a build arg, and the release passes
+    the version it is cutting. A `docker build` with no arg gets an empty
+    string, reads as absent, and keeps the `-dev` that D28 put there to separate
+    a published artifact from a laptop's. A compiled binary always has the
+    define, so it never reads the environment; the suite proves the new path by
+    spawning `main.ts version` with the variable set.
+
 - **The transfer scope picker opens empty, with a select-all box per column
   (2026-09-22, D89).** It opened with every box already checked, because an
   empty `include` *is* the whole instance on the wire and the screen had

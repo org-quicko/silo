@@ -1,4 +1,5 @@
 import { describe, test, expect } from "bun:test";
+import path from "path";
 import { SiloVersion, PackageVersion } from "../src/version";
 
 /**
@@ -37,11 +38,27 @@ describe("version", () => {
   });
 
   test("a build that is not a release says so", () => {
-    // `SILO_VERSION` is defined only by a release build, so anything running
-    // this suite — from source, or a local compile — must carry the marker.
-    // Without it a developer's binary is indistinguishable from a published
-    // one, which is how a bug report ends up against the wrong artifact.
+    // `SILO_VERSION` is set only by a release build, so anything running this
+    // suite — from source, or a local compile — must carry the marker. Without
+    // it a developer's binary is indistinguishable from a published one, which
+    // is how a bug report ends up against the wrong artifact.
     expect(SiloVersion).toBe(`${PackageVersion}-dev`);
+  });
+
+  test("a release that cannot carry a define says so through the environment", async () => {
+    // The container image runs `bun run main.ts` over this very tree, where no
+    // `--define` reaches the constant, so the release stamps the environment at
+    // image build time instead (D90). Spawned rather than re-imported, because
+    // `SiloVersion` is decided once, when the module is first evaluated.
+    const entry = path.join(import.meta.dir, "..", "src", "main.ts");
+    const proc = Bun.spawn([process.execPath, entry, "version"], {
+      stdout: "pipe",
+      stderr: "ignore",
+      env: { ...process.env, SILO_VERSION: "9.9.9", NO_COLOR: "1" },
+    });
+    const [stdout] = await Promise.all([new Response(proc.stdout).text(), proc.exited]);
+
+    expect(stdout.trim()).toBe("silo 9.9.9");
   });
 
   test("no source file still carries a hard-coded version", async () => {
