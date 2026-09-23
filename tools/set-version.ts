@@ -37,7 +37,8 @@ export class SetVersion {
    * `packages/silo-client-java` is absent for the same reason, one step
    * further: its version lives in a `pom.xml` this list of JSON manifests
    * could not describe anyway, and its release tag is `silo-client-java-v*`.
-   * Its `<version>` is bumped by hand too.
+   * Its `<version>` is bumped by hand too, and so is `packages/silo-client-dart`'s
+   * `pubspec.yaml`, tagged `silo-client-dart-v*`.
    */
   private static readonly manifests = [
     "package.json",
