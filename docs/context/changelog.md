@@ -4,6 +4,11 @@
 > The *current* state is [CONTEXT.md](../../CONTEXT.md); this is how it got
 > there.
 
+- **A Dart client (2026-09-23, D91).** `packages/silo-client-dart`, published
+  as `silo_client`: the TypeScript and Java surface for Dart and Flutter, on
+  `package:http` and `package:clock`, tested on `MockClient` and held to the
+  TypeScript route inventory and filter operators by a drift test.
+
 - **A release publishes a multi-arch container image to Docker Hub and GHCR
   (2026-09-22, D90).** The only image silo had was the one an operator built
   from the Dockerfile, and the only image it pushed was an amd64 alpha in GHCR

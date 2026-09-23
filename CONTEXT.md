@@ -17,7 +17,17 @@ can be cloned with one command.
 
 ## Where things stand
 
-*Last updated: 2026-09-22 (a release publishes a container image)*
+*Last updated: 2026-09-23 (a Dart client)*
+
+**silo has a Dart client (D91).** `packages/silo-client-dart`, published to
+pub.dev as `silo_client`, for the Dart VM, Flutter and the web, on
+`package:http` and `package:clock`. Same surface as the TypeScript and Java
+clients; `route_inventory_drift_test.dart` holds its routes and filter
+operators to the TypeScript lists. Where Dart forces a difference it follows
+Java: `Entry<F>` beside the fields (typed by `withConverter`), untyped filters,
+`...Exception` names. `all()`/`pages()` are `Stream`s and `CancellationSignal`
+rides `package:http`'s `abortTrigger`. Tag `silo-client-dart-v*`, published by
+hand.
 
 **A release publishes a multi-arch container image to Docker Hub and GHCR
 (D90).** `docker run labsatquicko/silo` is now an install method rather than
@@ -661,7 +671,8 @@ way out, and it is the only thing that keeps silo in the read path (D59).
 There is now a **published TypeScript client** for the data half of the API,
 `packages/silo-client` (D61), and it **releases independently of silo**: its
 own tag, its own version, its own workflow. A **Java client** sits beside it,
-`packages/silo-client-java` (D69), on the same terms.
+`packages/silo-client-java` (D69), and a **Dart client**,
+`packages/silo-client-dart` (D91), both on the same terms.
 
 An API key is no longer write-once: `PATCH /api/keys/{id}` changes its label,
 its claims, or both, leaving the secret alone, and the admin's key form now does
