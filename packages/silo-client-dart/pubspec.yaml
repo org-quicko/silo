@@ -1,8 +1,8 @@
 name: silo_client
 description: A typed, object-oriented Dart client for silo's HTTP API.
 version: 1.0.0
-homepage: https://github.com/org-quicko/silo#silo-client-dart
-repository: https://github.com/org-quicko/silo/tree/main/packages/silo-client-dart
+homepage: https://quicko.company/labs/silo
+repository: https://github.com/org-quicko/silo
 
 environment:
   sdk: ^3.9.0
