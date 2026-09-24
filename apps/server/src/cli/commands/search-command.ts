@@ -20,7 +20,7 @@ export class SearchCommand {
     }
 
     const engine = service.search.capabilities().engine;
-    if (engine !== "fts5") {
+    if (engine === "scan") {
       // Not an error: an un-indexed instance searches by scanning, so there is
       // simply nothing to rebuild. Saying which engine is in use is more
       // useful than a silent success.
@@ -40,7 +40,7 @@ export class SearchCommand {
 
     if (!values.check) return;
 
-    const integrity = service.search.check();
+    const integrity = await service.search.check();
     if (!integrity) return;
 
     // Two checks, because FTS5's own compares the index against its content

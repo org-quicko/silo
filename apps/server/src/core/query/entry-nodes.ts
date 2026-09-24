@@ -1,6 +1,7 @@
 import { JsonPath } from "@silo/shared/json-path";
 import type { PathSelector } from "@silo/shared/path-selector";
 import type { Entry } from "../domain/entry";
+import { CodepointOrder } from "./codepoint-order";
 import { QueryUtils } from "./query-utils";
 
 /**
@@ -79,19 +80,27 @@ export class EntryNodes {
     return v instanceof Date ? v.toISOString() : String(v);
   }
 
+  /**
+   * The sort order every adapter answers in (D92): missing and JSON null first,
+   * then numbers, strings (codepoint order), booleans, arrays and objects.
+   * Values of one type compare by value, except arrays and objects, which tie
+   * and fall through to the next sort key.
+   */
   static compare(a: any, b: any): number {
-    if (a === null || a === undefined) return b === null || b === undefined ? 0 : -1;
-    if (b === null || b === undefined) return 1;
+    const byType = EntryNodes.typeRank(a) - EntryNodes.typeRank(b);
+    if (byType !== 0) return byType;
 
-    if (typeof a === "number" && typeof b === "number") {
-      return a - b;
-    }
-    if (typeof a === "string" && typeof b === "string") {
-      return a.localeCompare(b);
-    }
-    if (typeof a === "boolean" && typeof b === "boolean") {
-      return a === b ? 0 : a ? 1 : -1;
-    }
+    if (typeof a === "number") return a - b;
+    if (typeof a === "string") return CodepointOrder.compare(a, b);
+    if (typeof a === "boolean") return a === b ? 0 : a ? 1 : -1;
     return 0;
+  }
+
+  private static typeRank(value: any): number {
+    if (value === null || value === undefined) return 0;
+    if (typeof value === "number") return 1;
+    if (typeof value === "string") return 2;
+    if (typeof value === "boolean") return 3;
+    return Array.isArray(value) ? 4 : 5;
   }
 }

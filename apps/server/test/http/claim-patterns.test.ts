@@ -58,7 +58,7 @@ describe.each(["scan", "fts5"] as const)("claim prefix patterns (%s engine)", (e
     service = new SiloService(store, {
       mediaDir: path.join(tempDir, "media"),
       searcher:
-        engine === "fts5" ? store.createSearcher("unicode61 remove_diacritics 2")! : undefined,
+        engine === "fts5" ? store.createSearcher()! : undefined,
     });
     rootKey = await service.keys.bootstrap();
 

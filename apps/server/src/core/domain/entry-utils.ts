@@ -56,6 +56,11 @@ export class EntryUtils {
     if (/[/\\\0]/.test(value)) {
       throw new ValidationError(`invalid ${label} "${value}": must not contain "/", "\\", or a NUL byte`);
     }
+    // Every adapter encodes a segment as UTF-8, which has no spelling for a
+    // lone surrogate: one store would substitute U+FFFD and another refuse (D92).
+    if (!value.isWellFormed()) {
+      throw new ValidationError(`invalid ${label} ${JSON.stringify(value)}: contains an unpaired surrogate`);
+    }
   }
 
   /**

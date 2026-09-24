@@ -2,6 +2,7 @@ import { EntryUtils } from "../domain/entry-utils";
 import type { Entry } from "../domain/entry";
 import { Scope } from "../domain/scope";
 import type { Storage } from "../ports/storage";
+import { CodepointOrder } from "../query/codepoint-order";
 import { EntryNodes } from "../query/entry-nodes";
 import { CollectionSchemas } from "../schema/collection-schemas";
 import { ClaimSegment } from "@silo/shared/claim-segment";
@@ -66,7 +67,7 @@ export class ScanSearcher implements Searcher {
     return { collections: 0, entries: 0 };
   }
 
-  check(): null {
+  async check(): Promise<null> {
     return null;
   }
 
@@ -228,13 +229,15 @@ export class ScanSearcher implements Searcher {
           EntryNodes.compare(
             EntryNodes.sortValue(b.hit.entry, JsonPath.UpdatedAt),
             EntryNodes.sortValue(a.hit.entry, JsonPath.UpdatedAt)
-          ) || a.hit.entry.id.localeCompare(b.hit.entry.id)
+          ) || CodepointOrder.compare(a.hit.entry.id, b.hit.entry.id)
       );
       return;
     }
 
     if (!sort) {
-      scored.sort((a, b) => b.score - a.score || a.hit.entry.id.localeCompare(b.hit.entry.id));
+      scored.sort(
+        (a, b) => b.score - a.score || CodepointOrder.compare(a.hit.entry.id, b.hit.entry.id)
+      );
       return;
     }
 
@@ -246,7 +249,7 @@ export class ScanSearcher implements Searcher {
         );
         if (cmp !== 0) return key.desc ? -cmp : cmp;
       }
-      return a.hit.entry.id.localeCompare(b.hit.entry.id);
+      return CodepointOrder.compare(a.hit.entry.id, b.hit.entry.id);
     });
   }
 }

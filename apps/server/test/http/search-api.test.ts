@@ -51,7 +51,7 @@ describe.each(["scan", "fts5"] as const)("search API (%s engine)", (engine) => {
     });
     service = new SiloService(store, {
       mediaDir: path.join(tempDir, "media"),
-      searcher: engine === "fts5" ? store.createSearcher("unicode61 remove_diacritics 2")! : undefined,
+      searcher: engine === "fts5" ? store.createSearcher()! : undefined,
     });
     rootKey = await service.keys.bootstrap();
 

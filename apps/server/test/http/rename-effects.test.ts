@@ -29,7 +29,7 @@ describe("what a rename affects", () => {
 
   test("the native search index follows a renamed scope", async () => {
     const store = await SqliteStore.open(path.join(tempDir, "silo.db"));
-    const searcher = store.createSearcher("unicode61 remove_diacritics 2");
+    const searcher = store.createSearcher();
     const service = new SiloService(store, {
       mediaDir: path.join(tempDir, "media"),
       searcher: searcher ?? undefined,
@@ -68,7 +68,7 @@ describe("what a rename affects", () => {
 
       // ...and the integrity check still sees no drift, which is what would
       // catch an index row orphaned by the rename.
-      const report = searcher!.check();
+      const report = await searcher!.check();
       expect(report.orphanDocuments).toBe(0);
       expect(report.missingDocuments).toBe(0);
     } finally {

@@ -220,7 +220,7 @@ export class SqliteSearcher implements Searcher {
    * has vanished — or an entry with no document row — is invisible to it and
    * needs the second, hand-written anti-join.
    */
-  check(): SearchIntegrity {
+  async check(): Promise<SearchIntegrity> {
     let index = "ok";
     try {
       this.db.exec(`INSERT INTO ${SearchIndex.Fts}(${SearchIndex.Fts}) VALUES('integrity-check')`);

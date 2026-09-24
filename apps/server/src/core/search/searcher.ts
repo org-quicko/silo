@@ -36,5 +36,5 @@ export interface Searcher {
    * index against its content table and stops there, so an index document
    * whose entry has vanished is invisible to it.
    */
-  check(): SearchIntegrity | null;
+  check(): Promise<SearchIntegrity | null>;
 }

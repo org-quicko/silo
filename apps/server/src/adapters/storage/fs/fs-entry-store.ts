@@ -2,8 +2,10 @@ import fs from "fs/promises";
 import path from "path";
 import type { Entry } from "../../../core/domain/entry";
 import { EntryUtils } from "../../../core/domain/entry-utils";
+import { PortableData } from "../../../core/domain/portable-data";
 import type { Scope } from "../../../core/domain/scope";
 import { NotFoundError } from "../../../core/errors/not-found-error";
+import { CodepointOrder } from "../../../core/query/codepoint-order";
 import { EntryNodes } from "../../../core/query/entry-nodes";
 import type { Query } from "../../../core/query/query";
 import { FsFilter } from "./fs-filter";
@@ -45,6 +47,7 @@ export class FsEntryStore {
     EntryUtils.assertSafeSegment(entry.env, "env");
     EntryUtils.assertSafeSegment(entry.collection, "collection");
     EntryUtils.assertSafeSegment(entry.id, "id");
+    PortableData.assert(entry.data);
 
     // The collection has to exist as a record. Its schema is `NOT NULL`, so
     // nothing here could create one, and an entry in a collection with no
@@ -61,6 +64,17 @@ export class FsEntryStore {
       );
     }
 
+    const filePath = path.join(
+      this.layout.envDir(entry.project, entry.env),
+      "content",
+      entry.collection,
+      `${entry.id}${FsLayout.EntrySuffix}`
+    );
+    // An entry is created once: an overwrite keeps the first write's
+    // `created_at`, as SQLite's upsert does (D92).
+    const createdAt =
+      (await FsEntryStore.storedCreatedAt(filePath)) ?? FsEntryStore.isoDate(entry.created_at);
+
     entry.seq = await this.manifest.nextSeq();
 
     const document = {
@@ -70,17 +84,10 @@ export class FsEntryStore {
       collection: entry.collection,
       rev: entry.rev,
       seq: entry.seq,
-      created_at: FsEntryStore.isoDate(entry.created_at),
+      created_at: createdAt,
       updated_at: FsEntryStore.isoDate(entry.updated_at),
       data: entry.data,
     };
-
-    const filePath = path.join(
-      this.layout.envDir(entry.project, entry.env),
-      "content",
-      entry.collection,
-      `${entry.id}${FsLayout.EntrySuffix}`
-    );
     await FsFiles.writeAtomic(filePath, JSON.stringify(document, null, 2));
   }
 
@@ -145,7 +152,7 @@ export class FsEntryStore {
         names.push(dirent.name);
       }
     }
-    return names.sort();
+    return names.sort(CodepointOrder.compare);
   }
 
   /** Counted from the directory listing rather than by reading entries: the
@@ -188,7 +195,7 @@ export class FsEntryStore {
         );
         if (comparison !== 0) return key.desc ? -comparison : comparison;
       }
-      return left.id.localeCompare(right.id);
+      return CodepointOrder.compare(left.id, right.id);
     });
   }
 
@@ -215,6 +222,18 @@ export class FsEntryStore {
       updated_at: new Date(parsed.updated_at),
       data: parsed.data,
     };
+  }
+
+  /** The `created_at` already on disk for this entry, or null when it is new.
+   *  A file that does not parse is treated as new, so the write repairs it. */
+  private static async storedCreatedAt(filePath: string): Promise<string | null> {
+    try {
+      const stored = JSON.parse(await fs.readFile(filePath, "utf8"));
+      return typeof stored?.created_at === "string" ? stored.created_at : null;
+    } catch (error: any) {
+      if (error.code === "ENOENT" || error instanceof SyntaxError) return null;
+      throw error;
+    }
   }
 
   private static isoDate(value: Date | string): string {

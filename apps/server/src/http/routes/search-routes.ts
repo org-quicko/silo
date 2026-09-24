@@ -113,7 +113,7 @@ export class SearchRoutes {
       const report = await service.search.reindex();
       return c.json({
         ...report,
-        integrity: service.search.check(),
+        integrity: await service.search.check(),
         engine: service.search.capabilities().engine,
       });
     });

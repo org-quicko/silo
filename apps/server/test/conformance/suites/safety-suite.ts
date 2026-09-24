@@ -64,10 +64,49 @@ export class SafetySuite {
 
         await expect(store.put(entryWith({ project: "../evil" }), { usages: [], search: null })).rejects.toThrow();
         await expect(store.put(entryWith({ env: "../evil" }), { usages: [], search: null })).rejects.toThrow();
+        // A lone surrogate has no UTF-8 spelling, so one store would rename it
+        // to U+FFFD and another refuse it (D92).
+        await expect(store.put(entryWith({ id: "a\ud800" }), { usages: [], search: null })).rejects.toThrow("unpaired surrogate");
 
         // The store must still work normally after rejecting malformed input.
         const ok = await putEntry(store, scope, "posts", 2, { title: "fine" });
         expect((await store.get(scope, "posts", ok.id)).data.title).toBe("fine");
+      });
+
+      test("RejectsDataNoAdapterCanHold", async () => {
+        // Postgres's jsonb stores neither a NUL character nor a lone surrogate,
+        // so every adapter refuses both, in keys and in values (D92).
+        const store = await getFreshStore();
+        const scope = Scope.Default;
+        await context.ensureCollection(store, scope, "posts");
+        const ts = new Date(Date.UTC(2026, 0, 1));
+        const write = (data: any) =>
+          store.put(
+            {
+              id: EntryUtils.newID(),
+              project: scope.project,
+              env: scope.env,
+              collection: "posts",
+              rev: 1,
+              seq: 0,
+              created_at: ts,
+              updated_at: ts,
+              data,
+            },
+            { usages: [], search: null }
+          );
+
+        await expect(write({ title: "a\0b" })).rejects.toThrow("$.title contains a NUL character");
+        await expect(write({ ["a\0"]: 1 })).rejects.toThrow("NUL character");
+        await expect(write({ title: "\ud800" })).rejects.toThrow("unpaired surrogate");
+        await expect(write({ tags: ["ok", "\udc00"] })).rejects.toThrow("$.tags[1]");
+        await expect(write({ nested: { deep: "x\ud83d" } })).rejects.toThrow("$.nested.deep");
+        expect((await store.list(scope, "posts", { limit: 50, offset: 0 })).total).toBe(0);
+
+        // A surrogate *pair* is an ordinary character.
+        await write({ title: "\u{1F600}" });
+        const { items } = await store.list(scope, "posts", { limit: 50, offset: 0 });
+        expect(items.map((item) => item.data.title)).toEqual(["\u{1F600}"]);
       });
 
       // ---- Media usages (D23) ----

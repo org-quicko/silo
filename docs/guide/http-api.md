@@ -90,6 +90,13 @@ curl -X POST http://localhost:8090/api/projects/default/envs/prod/collections/po
 An entry is returned flattened: its `id`, then its own fields, then
 `created_at` and `updated_at`. The rest of the envelope stays internal.
 
+`created_at` is set when the entry is first written. A later write does not
+change it.
+
+A write is refused with `400` if a key or a string value contains a NUL
+character (U+0000) or an unpaired surrogate. Not every storage driver can keep
+them, so no driver accepts them.
+
 ## Variables
 
 Every `{{NAME}}` an entry holds is replaced with this environment's value before
@@ -133,6 +140,16 @@ Leaf operators are `eq`, `neq`, `gt`, `gte`, `lt`, `lte`, `in`, `contains` and
 A leaf is true when **any** node the path selects satisfies it, and any over
 nothing is false. So `neq($.data.tags[*], "x")` means *some tag is not "x"*,
 while `not(eq($.data.tags[*], "x"))` means *no tag is*.
+
+Types are strict. `eq`, `neq` and `in` match a value only of the same JSON
+type, so `true` does not match `1` and `"1"` does not match `1`. `gt`, `gte`,
+`lt` and `lte` compare numbers with numbers and strings with strings. Any other
+pair does not match.
+
+Strings compare and sort by Unicode codepoint. So `"B"` comes before `"a"`. A
+sort puts types in this order: missing or null, numbers, strings, booleans,
+arrays, objects. Arrays and objects are equal to each other within their type,
+so the next sort key decides.
 
 A sort path must select at most one node. The default limit is 50 and the
 maximum is 500. The response is

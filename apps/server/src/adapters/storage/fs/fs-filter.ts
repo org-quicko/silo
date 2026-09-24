@@ -1,4 +1,5 @@
 import type { Entry } from "../../../core/domain/entry";
+import { CodepointOrder } from "../../../core/query/codepoint-order";
 import { EntryNodes } from "../../../core/query/entry-nodes";
 import { QueryUtils } from "../../../core/query/query-utils";
 import type { Filter } from "@silo/shared/filter";
@@ -59,22 +60,26 @@ export class FsFilter {
   }
 
   private static greater(actual: any, expected: any, orEqual: boolean): boolean {
-    if (typeof actual === "number" && typeof expected === "number") {
-      return orEqual ? actual >= expected : actual > expected;
-    }
-    if (typeof actual === "string" && typeof expected === "string") {
-      return orEqual ? actual >= expected : actual > expected;
-    }
-    return false;
+    const order = FsFilter.order(actual, expected);
+    if (order === null) return false;
+    return orEqual ? order >= 0 : order > 0;
   }
 
   private static less(actual: any, expected: any, orEqual: boolean): boolean {
+    const order = FsFilter.order(actual, expected);
+    if (order === null) return false;
+    return orEqual ? order <= 0 : order < 0;
+  }
+
+  /** Numbers against numbers and strings against strings, in codepoint order;
+   *  `null` for any other pairing, which no comparison matches (D92). */
+  private static order(actual: any, expected: any): number | null {
     if (typeof actual === "number" && typeof expected === "number") {
-      return orEqual ? actual <= expected : actual < expected;
+      return actual - expected;
     }
     if (typeof actual === "string" && typeof expected === "string") {
-      return orEqual ? actual <= expected : actual < expected;
+      return CodepointOrder.compare(actual, expected);
     }
-    return false;
+    return null;
   }
 }

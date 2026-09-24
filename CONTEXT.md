@@ -17,7 +17,28 @@ can be cloned with one command.
 
 ## Where things stand
 
-*Last updated: 2026-09-23 (a Dart client)*
+*Last updated: 2026-09-24 (the storage contract, tightened for Postgres)*
+
+**Both storage adapters now answer every query the same way, ahead of a
+Postgres adapter (D92).** SQLite and the fs adapter disagreed in eight places no
+test looked, so a third adapter had nothing definite to match. The contract now
+says: equality and `in` are **type-strict** (`eq true` no longer matches `1`,
+`in [null]` matches JSON null), range operators compare only number with number
+and string with string, strings compare and sort in **codepoint order**
+(`CodepointOrder`, which is SQLite's `BINARY` and Postgres's `COLLATE "C"`), and
+a sort ranks types before values (missing and null, numbers, strings, booleans,
+arrays, objects). An overwrite keeps the entry's first `created_at`. The SQLite
+compiler holds this with a `json_type` guard on every leaf and a type rank on
+every sort key; the fs adapter changed its string order and every listing sort
+from `localeCompare`. `QueryTypesSuite` pins all of it, and the code before this
+change fails it eight times. Entry data must also be **portable**: `PortableData`
+refuses a NUL character or an unpaired surrogate in any key or value (a `400`
+from the API, a rejection on import, and again in every adapter's `put`), since
+jsonb stores neither. Native search is now a capability the store offers,
+`IndexedStorage`, rather than `instanceof SqliteStore` in the runtime, and
+`Searcher.check()` is async. See §6.1 in
+[docs/design/storage.md](docs/design/storage.md). The Postgres adapter itself is
+not written yet; this is its Phase 1.
 
 **silo has a Dart client (D91).** `packages/silo-client-dart`, published to
 pub.dev as `silo_client`, for the Dart VM, Flutter and the web, on
