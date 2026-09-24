@@ -1,12 +1,12 @@
 import path from "path";
-import { SqliteStore } from "../../adapters/storage/sqlite/sqlite-store";
 import type { Config } from "../../config/config";
 import { SiloService } from "../../core/services/silo-service";
-import { SearchTokenizers } from "../../core/search/search-tokenizers";
 import { Logger } from "../../logging/logger";
 import { PluginLoader, PluginRegistry, PluginSupervisor, ProviderRegistry } from "../../plugins";
 import { ConfigSupervisor, MediaPolicySupervisor, MediaStorageSupervisor } from "../../settings";
+import type { IndexedStorage } from "../../core/ports/indexed-storage";
 import type { Storage } from "../../core/ports/storage";
+import type { Searcher } from "../../core/search/searcher";
 
 /**
  * Everything a data-directory subcommand needs, wired from config: the storage
@@ -221,13 +221,12 @@ export class SiloRuntime {
     const store = await providers.openStorage(config);
     const blobStorage = providers.openBlob(config.blob_storage);
 
-    // The native engine when this build has FTS5 and search is on, the portable
-    // one otherwise (D30). `createSearcher` returns null rather than throwing,
-    // because a SQLite without FTS5 cannot be repaired at runtime — the shipped
-    // build sets OMIT_LOAD_EXTENSION — so it must degrade.
-    const tokenizer = SearchTokenizers.sqlite(config.search.tokenizer);
-    const searcher =
-      store instanceof SqliteStore ? (store.createSearcher(tokenizer) ?? undefined) : undefined;
+    // The store's own engine when it keeps an index, the portable one otherwise
+    // (D30, D92). `createSearcher` returns null rather than throwing, because a
+    // SQLite without FTS5 cannot be repaired at runtime — the shipped build sets
+    // OMIT_LOAD_EXTENSION — so it must degrade.
+    const indexed = SiloRuntime.indexed(store);
+    const searcher = indexed?.createSearcher() ?? undefined;
 
     const service = new SiloService(store, {
       allowRemoteRefs: config.schema.allow_remote_refs,
@@ -252,8 +251,15 @@ export class SiloRuntime {
       store,
       service,
       providers,
-      rebuildNotice: await SiloRuntime.rebuildIndex(store, searcher),
+      rebuildNotice: await SiloRuntime.rebuildIndex(indexed, searcher),
     };
+  }
+
+  /** The store as one that keeps its own search index, or null (D92). */
+  private static indexed(store: Storage): IndexedStorage | null {
+    return typeof (store as Partial<IndexedStorage>).createSearcher === "function"
+      ? (store as IndexedStorage)
+      : null;
   }
 
   /**
@@ -263,10 +269,10 @@ export class SiloRuntime {
    * normal start does no work.
    */
   private static async rebuildIndex(
-    store: Storage,
-    searcher: { reindex: () => Promise<{ collections: number; entries: number }> } | undefined
+    store: IndexedStorage | null,
+    searcher: Searcher | undefined
   ): Promise<string | null> {
-    if (!(store instanceof SqliteStore) || !store.needsSearchRebuild() || !searcher) return null;
+    if (!store || !searcher || !store.needsSearchRebuild()) return null;
 
     const report = await searcher.reindex();
     store.searchRebuilt();

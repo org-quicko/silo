@@ -6,6 +6,7 @@ import { ReservedFieldNames } from "@silo/shared/reserved-field-names";
 import { ValidationError } from "@silo/shared/validation-error";
 import type { ValidationDetail } from "@silo/shared/validation-detail";
 import type { Storage } from "../ports/storage";
+import { PortableData } from "../domain/portable-data";
 import type { Scope } from "../domain/scope";
 import { CollectionSchemas } from "./collection-schemas";
 import { RemoteSchemaLoader } from "./remote-schema-loader";
@@ -59,6 +60,9 @@ export class SchemaValidator {
     // entry data through here, which is what makes this the one place that
     // closes all of them (D62).
     ReservedFieldNames.assertNonePresent(data);
+    // Also a protocol rule: what every adapter can store (D92). The adapters
+    // check it again, since system writes do not come through here.
+    PortableData.assert(data);
 
     const cacheKey = `${scope.key()}:${collection}`;
     let validateFn = this.cache.get(cacheKey);

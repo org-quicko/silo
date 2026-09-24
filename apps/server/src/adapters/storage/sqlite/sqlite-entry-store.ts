@@ -1,6 +1,7 @@
 import type { SqliteConnection } from "./sqlite-connection";
 import type { Entry } from "../../../core/domain/entry";
 import { EntryUtils } from "../../../core/domain/entry-utils";
+import { PortableData } from "../../../core/domain/portable-data";
 import type { Scope } from "../../../core/domain/scope";
 import { NotFoundError } from "../../../core/errors/not-found-error";
 import type { DerivedIndex } from "../../../core/ports/derived-index";
@@ -68,6 +69,7 @@ export class SqliteEntryStore {
     EntryUtils.assertSafeSegment(entry.env, "env");
     EntryUtils.assertSafeSegment(entry.collection, "collection");
     EntryUtils.assertSafeSegment(entry.id, "id");
+    PortableData.assert(entry.data);
 
     const address = this.resolver.requireCollectionIn(
       entry.project,

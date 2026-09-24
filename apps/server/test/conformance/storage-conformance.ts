@@ -4,6 +4,7 @@ import { StorageTestContext } from "./storage-test-context";
 import { EntrySuite } from "./suites/entry-suite";
 import { MediaUsageSuite } from "./suites/media-usage-suite";
 import { QuerySuite } from "./suites/query-suite";
+import { QueryTypesSuite } from "./suites/query-types-suite";
 import { RenameSuite } from "./suites/rename-suite";
 import { SafetySuite } from "./suites/safety-suite";
 import { SchemaSuite } from "./suites/schema-suite";
@@ -28,6 +29,7 @@ export function runStorageTestSuite(
     SchemaSuite.register(context);
     EntrySuite.register(context);
     QuerySuite.register(context);
+    QueryTypesSuite.register(context);
     ScopeExistenceSuite.register(context);
     ScopeIsolationSuite.register(context);
     RenameSuite.register(context);

@@ -4,6 +4,19 @@
 > The *current* state is [CONTEXT.md](../../CONTEXT.md); this is how it got
 > there.
 
+- **The storage contract says one thing per query (2026-09-24, D92).** Ahead
+  of a Postgres adapter, the places SQLite and fs disagreed are settled and
+  pinned by `QueryTypesSuite`: type-strict `eq`/`neq`/`in`, range operators
+  within one type, codepoint string order (`CodepointOrder`) for comparisons,
+  sorts and listings, a type rank on every sort, and `created_at` kept on an
+  overwrite. SQLite gained `json_type` guards and a sort rank; fs moved off
+  `localeCompare`, so its lists can reorder (`B` now sorts before `a`).
+  `PortableData` refuses NUL characters and unpaired surrogates in entry data,
+  and `assertSafeSegment` refuses unpaired surrogates. Search is found through
+  `IndexedStorage` rather than `instanceof SqliteStore`; `Searcher.check()` is
+  async; `SqliteStore.createSearcher()` takes no tokenizer, using the one it was
+  opened with.
+
 - **A Dart client (2026-09-23, D91).** `packages/silo-client-dart`, published
   as `silo_client`: the TypeScript and Java surface for Dart and Flutter, on
   `package:http` and `package:clock`, tested on `MockClient` and held to the

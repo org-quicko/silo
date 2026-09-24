@@ -303,8 +303,9 @@ there is no store for it to reach. See §13.19.
 
 **`Searcher` is a port but not a provider port**, though D30 makes it one of the
 three. Two reasons, and the second is the real one. Nothing selects a searcher
-by name — `[search]` has no `driver` key, and `Cli` derives the engine from the
-store's own type — so the value would name a capability with no path behind it,
+by name — `[search]` has no `driver` key, and the runtime asks the store itself
+whether it keeps an index (`IndexedStorage`, D92) — so the value would name a
+capability with no path behind it,
 which is the speculative interface D7 rejects. And an external engine could not
 stay correct if it were selected: D30 keeps the FTS index *inside*
 `SqliteStore`, maintained by triggers in the same transactions as
@@ -316,7 +317,9 @@ drifts silently makes content unfindable and reports nothing, so the honest
 prerequisite is the change feed (§12.1) rather than a config key. Until then a
 third-party search backend is §12.8 work, and `ProviderPort` stays two values —
 adding one back is additive, removing one after 1.0 freezes the manifest would
-not be.
+not be. A provider's *store* may still implement `IndexedStorage`: an index kept
+inside that store's own writes is the arrangement D30 asks for, and the objection
+here is only to an engine outside them.
 
 This is the trick D12 used for `_keys` and D18 for `Scope.System`: one code
 path rather than two. Default installs are unchanged and need no network, and

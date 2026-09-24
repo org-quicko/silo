@@ -100,7 +100,7 @@ export class SearchService {
     return this.context.searcher.reindex(target);
   }
 
-  check(): SearchIntegrity | null {
+  async check(): Promise<SearchIntegrity | null> {
     return this.context.searcher.check();
   }
 

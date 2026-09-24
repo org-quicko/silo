@@ -4501,7 +4501,7 @@
                 "schema": {
                     "type": "string"
                 },
-                "description": "Comma-separated RFC 9535 paths over the API response shape, each\noptionally prefixed with `-` for descending, e.g.\n`-$.updated_at,$.data.title`. A wildcard path is refused: it selects\nmany nodes and has no deterministic order.\n"
+                "description": "Comma-separated RFC 9535 paths over the API response shape, each\noptionally prefixed with `-` for descending, e.g.\n`-$.updated_at,$.data.title`. A wildcard path is refused: it selects\nmany nodes and has no deterministic order. Strings sort by Unicode\ncodepoint, and types sort as missing or null, numbers, strings,\nbooleans, arrays, objects (D92).\n"
             },
             "Variables": {
                 "name": "variables",
@@ -4862,7 +4862,7 @@
             },
             "Filter": {
                 "type": "object",
-                "description": "One node of the query AST (D29). Leaf ops address the virtual entry\ndocument with an RFC 9535 path; group ops combine completed predicates.\n",
+                "description": "One node of the query AST (D29). Leaf ops address the virtual entry\ndocument with an RFC 9535 path; group ops combine completed predicates.\nComparisons are type-strict: `eq`, `neq` and `in` match only the value's\nown JSON type, and `gt`/`gte`/`lt`/`lte` compare numbers with numbers and\nstrings with strings, by Unicode codepoint (D92).\n",
                 "required": [
                     "op"
                 ],
