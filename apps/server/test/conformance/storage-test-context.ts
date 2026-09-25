@@ -23,9 +23,21 @@ export class StorageTestContext {
 
   /** Discards the previous store and opens a new one. */
   async fresh(): Promise<Storage> {
-    if (this.current) await this.cleanup(this.current);
+    await this.dispose();
     this.current = await this.open();
     return this.current;
+  }
+
+  /**
+   * Discards the last store, after the final suite. Without it the last
+   * test's store stays open, which for a pooled adapter keeps the test
+   * process alive after every test has finished.
+   */
+  async dispose(): Promise<void> {
+    if (!this.current) return;
+    const store = this.current;
+    this.current = null;
+    await this.cleanup(store);
   }
 
   /**

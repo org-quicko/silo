@@ -17,22 +17,19 @@ can be cloned with one command.
 
 ## Where things stand
 
-*Last updated: 2026-09-25 (field order comes from the schema)*
+*Last updated: 2026-09-25 (Postgres adapter core)*
 
-**An entry's fields leave silo in schema order, whichever store holds them
-(D93).** The API and the archive give the fields in the order the collection's
-schema declares them, at every depth, then every field the schema does not
-name in codepoint order. `SchemaOrder` (`core/schema/`) does it once in
-`EntryUtils.toApiResponse` and once in `ExportEntryFile`, following `$ref`
-through the bundled schema and gathering `allOf`/`anyOf`/`oneOf` declarations;
-array elements keep their order. Storage order is no longer part of the
-contract, which is what lets the coming Postgres adapter store plain `jsonb`
-(which keeps its own key order) instead of a second, order-keeping copy of
-every document — measured at +40% disk and +50% write time. Visible on SQLite
-and fs only where a client wrote fields in another order than the schema's.
-`field-order.test.ts` holds both adapters to it. The Bun.SQL spike (Phase 0)
-also ran and passed; its rules for the adapter are in the Postgres plan, not
-yet in the repo.
+**A Postgres storage adapter passes the conformance suite, but is not yet
+selectable (D93).** `PgStore` (`adapters/storage/postgres/`) keeps silo's
+tables in one schema (`silo` by default) with SQLite's shape, `COLLATE "C"`
+text and `jsonb` data. All SQL is hand-written behind `PgConnection`, the one
+file that imports `Bun.SQL`. It checks for Postgres 14+, runs the DDL under a
+schema-scoped advisory lock and refuses a foreign or wrongly stamped schema.
+It maps driver errors to 409/404/400/503, and offers `claimOwnership`, a
+per-schema owner lock (D25). Search falls back to `ScanSearcher`.
+`SILO_TEST_PG_URL` runs 71 Postgres tests. Unset, they are skipped. The
+`[storage]` keys, the registry entry, `serve`'s use of the lock, the pool
+settings and retries come in P3. See `docs/design/storage.md` §6.6.
 
 **Both storage adapters now answer every query the same way, ahead of a
 Postgres adapter (D92).** SQLite and the fs adapter disagreed in eight places no
