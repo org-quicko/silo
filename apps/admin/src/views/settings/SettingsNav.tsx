@@ -12,11 +12,15 @@ import {
   Server as ServerIcon,
   SlidersHorizontal,
   Variable,
+  Sun,
+  Moon,
 } from 'lucide-react'
 import { useState } from 'react'
 import type { ScopeRef } from '../../api/types/scope-ref'
 import type { SettingsRoute } from '../../router/route'
 import { Routes } from '../../router/routes'
+import { useThemeMode } from '../../utils/use-theme-mode'
+import { ThemeManager } from '../../utils/theme-manager'
 import { ScopeSwitcher } from './ScopeSwitcher'
 import styles from './SettingsNav.module.css'
 import { SettingsNavItem } from './SettingsNavItem'
@@ -79,6 +83,7 @@ export function SettingsNav({
   // Projects itself has no collapse of its own — it is the one group always
   // worth seeing into.
   const [environmentOpen, setEnvironmentOpen] = useState(false)
+  const mode = useThemeMode()
 
   return (
     <div className={styles.navColumn}>
@@ -105,6 +110,15 @@ export function SettingsNav({
             <span className={styles.navTitle}>All servers</span>
           </button>
         )}
+        <button
+          type="button"
+          className={styles.headerIcon}
+          onClick={() => ThemeManager.setMode(mode === 'light' ? 'dark' : 'light')}
+          title={mode === 'light' ? 'Switch to dark mode' : 'Switch to light mode'}
+          aria-label={mode === 'light' ? 'Switch to dark mode' : 'Switch to light mode'}
+        >
+          {mode === 'light' ? <Sun size={14} /> : <Moon size={14} />}
+        </button>
       </div>
 
       <nav className={styles.scroll}>

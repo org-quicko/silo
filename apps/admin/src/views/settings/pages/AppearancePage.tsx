@@ -1,9 +1,9 @@
 import React, { useState, useEffect } from 'react'
-import { RotateCcw } from 'lucide-react'
+import { RotateCcw, Sun, Moon } from 'lucide-react'
 import { Button } from '../../../components/buttons/Button'
 import { Breadcrumb } from '../../../components/navigation/Breadcrumb'
 import { TopBar } from '../../shell/TopBar'
-import { ThemeManager, type ThemeSettings, type ThemePreset } from '../../../utils/theme-manager'
+import { ThemeManager, type ThemeSettings, type ThemePreset, type ThemeMode } from '../../../utils/theme-manager'
 import { ToastManager } from '../../../utils/toast-manager'
 import { SettingsPageHead } from '../parts/SettingsPageHead'
 import { SettingsRow } from '../parts/SettingsRow'
@@ -30,10 +30,25 @@ export function AppearancePage({ serverName }: { serverName: string }) {
   }, [])
 
   useEffect(() => {
+    return ThemeManager.subscribe((newSettings) => {
+      setSettings(newSettings)
+      setCustomHexInput(newSettings.accent)
+    })
+  }, [])
+
+  useEffect(() => {
     setCustomHexInput(settings.accent)
   }, [settings.accent])
 
   const applied = (what: string) => ToastManager.show(what)
+
+  const selectMode = (mode: ThemeMode) => {
+    ThemeManager.setMode(mode)
+    const updated = ThemeManager.getSettings()
+    setSettings(updated)
+    setCustomHexInput(updated.accent)
+    applied(mode === 'light' ? 'Light mode applied' : 'Dark mode applied')
+  }
 
   const selectFont = (fontName: string) => {
     ThemeManager.setFont(fontName)
@@ -91,9 +106,25 @@ export function AppearancePage({ serverName }: { serverName: string }) {
         <SettingsPageHead title="Appearance" />
 
         <SettingsSection title="Theme">
+          <SettingsRow
+            label="Theme mode"
+            help="Switch between dark and parchment light appearance for this browser."
+            inline
+          >
+            <button
+              type="button"
+              className={styles.themeToggleBtn}
+              onClick={() => selectMode(settings.mode === 'light' ? 'dark' : 'light')}
+              title={settings.mode === 'light' ? 'Switch to dark mode' : 'Switch to light mode'}
+              aria-label={settings.mode === 'light' ? 'Switch to dark mode' : 'Switch to light mode'}
+            >
+              {settings.mode === 'light' ? <Sun size={15} /> : <Moon size={15} />}
+            </button>
+          </SettingsRow>
+
           <SettingsRow label="Presets" help="Choose a theme for Silo on this device." inline>
             <div className={styles.swatches}>
-              {ThemeManager.THEME_PRESETS.map((theme) => (
+              {ThemeManager.getPresets(settings.mode).map((theme) => (
                 <button
                   key={theme.name}
                   type="button"

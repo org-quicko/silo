@@ -17,6 +17,7 @@ import { TopBar } from '../shell/TopBar'
 import { SmartSearch } from '../search/SmartSearch'
 import { RenameForm } from '../settings/rename/RenameForm'
 import { useEscapeToDiscard } from '../use-escape-to-discard'
+import { useThemeMode } from '../../utils/use-theme-mode'
 import { CollectionRail } from './CollectionRail'
 import { FieldList } from './FieldList'
 import styles from './SchemaEditor.module.css'
@@ -62,6 +63,7 @@ export function SchemaEditorView({
   const [showDelete, setShowDelete] = useState(false)
   const [deleting, setDeleting] = useState(false)
   const [deleteError, setDeleteError] = useState('')
+  const mode = useThemeMode()
 
   // Escape is Cancel, unless the delete dialog is up — that one's Escape closes
   // the dialog rather than the page under it.
@@ -323,7 +325,7 @@ export function SchemaEditorView({
             <CodeMirror
               value={draft.text}
               height="420px"
-              theme="dark"
+              theme={mode}
               readOnly={frozen}
               extensions={[jsonLang()]}
               onChange={(value) => draft.setText(value)}

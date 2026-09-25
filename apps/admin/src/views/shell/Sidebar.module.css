@@ -1,12 +1,22 @@
 .sidebar {
-  position: relative;
+  background: var(--panel);
+  border-right: 1px solid var(--line);
   display: flex;
-  width: 248px;
-  min-height: 0;
   flex: none;
   flex-direction: column;
-  border-right: 1px solid var(--line);
-  background: var(--sidebar);
+  font-family: var(--font-ui);
+  min-height: 0;
+  position: relative;
+  width: 248px;
+}
+
+.header {
+  align-items: center;
+  background: color-mix(in oklab, var(--ink-2) 60%, transparent);
+  border-bottom: 1px solid var(--line);
+  display: flex;
+  height: 56px;
+  padding: 0 16px;
 }
 
 .resizer {
@@ -26,13 +36,13 @@
   background: var(--accent);
 }
 
-
 .brand {
-  display: flex;
   align-items: center;
-  gap: 10px;
-  padding: 18px 16px 0;
   color: inherit;
+  display: flex;
+  flex: 1;
+  gap: 10px;
+  min-width: 0;
   text-decoration: none;
 }
 
@@ -69,19 +79,19 @@
 }
 
 .instance {
-  display: flex;
-  margin: 12px 16px 0;
+  background: var(--ink-2);
   border: 1px solid var(--line);
   border-radius: var(--radius-sm);
-  background: var(--sidebar-hover);
-  color: var(--sidebar-text);
+  color: var(--text);
+  display: flex;
+  margin: 12px 16px 0;
   text-align: left;
   transition: all 0.15s ease;
 }
 
 .instance:hover {
-  border-color: var(--accent);
-  background: color-mix(in oklab, var(--accent) 5%, var(--sidebar-hover));
+  background: color-mix(in oklab, var(--accent) 5%, var(--ink-2));
+  border-color: color-mix(in oklab, var(--accent) 45%, var(--line));
 }
 
 .instanceBtn {
@@ -281,6 +291,39 @@
   padding: 0 8px;
 }
 
+.settingsRow {
+  align-items: center;
+  display: flex;
+  gap: 2px;
+}
+
+.settingsLink {
+  flex: 1;
+  min-width: 0;
+}
+
+.themeToggleBtn {
+  align-items: center;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  color: var(--sidebar-dim);
+  cursor: pointer;
+  display: flex;
+  flex: none;
+  height: 32px;
+  justify-content: center;
+  padding: 0;
+  transition: color 0.15s ease, background-color 0.15s ease, border-color 0.15s ease;
+  width: 32px;
+}
+
+.themeToggleBtn:hover {
+  background: var(--ink-2);
+  border-color: var(--line);
+  color: var(--sidebar-text);
+}
+
 .item {
   display: flex;
   width: 100%;
@@ -298,7 +341,7 @@
 }
 
 .item:hover {
-  background: color-mix(in oklab, var(--sidebar-hover) 70%, transparent);
+  background: var(--ink-2);
 }
 
 .itemName {
@@ -335,18 +378,18 @@
 }
 
 .avatar {
-  display: flex;
-  width: 22px;
-  height: 22px;
-  flex: none;
   align-items: center;
-  justify-content: center;
+  background: var(--ink-2);
   border: 1px solid var(--line);
   border-radius: 6px;
-  background: var(--sidebar-hover);
   color: var(--sidebar-dim);
+  display: flex;
+  flex: none;
   font-family: var(--font-ui);
   font-size: 10.5px;
+  height: 22px;
+  justify-content: center;
+  width: 22px;
 }
 
 
