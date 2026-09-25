@@ -4,6 +4,14 @@
 > The *current* state is [CONTEXT.md](../../CONTEXT.md); this is how it got
 > there.
 
+- **Field order comes from the schema (2026-09-25, D93).** An entry's fields
+  leave the API and the archive in schema order, then undeclared fields in
+  codepoint order, at every depth (`SchemaOrder`, applied in
+  `EntryUtils.toApiResponse` and `ExportEntryFile`). Storage order stops being
+  part of the contract, so a Postgres store can use plain `jsonb`. Responses
+  on SQLite and fs change only where a client wrote fields in another order
+  than the schema's.
+
 - **The storage contract says one thing per query (2026-09-24, D92).** Ahead
   of a Postgres adapter, the places SQLite and fs disagreed are settled and
   pinned by `QueryTypesSuite`: type-strict `eq`/`neq`/`in`, range operators

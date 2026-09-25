@@ -1,5 +1,6 @@
 import type { Entry } from "../domain/entry";
 import type { Scope } from "../domain/scope";
+import { SchemaOrder } from "../schema/schema-order";
 
 /**
  * One entry as the archive holds it: its path in the tree, and the JSON inside.
@@ -13,7 +14,9 @@ export class ExportEntryFile {
     return `projects/${scope.project}/${scope.env}/content/${collection}/${id}.json`;
   }
 
-  static text(entry: Entry): string {
+  /** `schema` orders the data as the API does (D93), so an archive reads the
+   *  same whichever store it was exported from. */
+  static text(entry: Entry, schema?: any): string {
     return JSON.stringify(
       {
         id: entry.id,
@@ -24,7 +27,7 @@ export class ExportEntryFile {
         seq: entry.seq,
         created_at: ExportEntryFile.instant(entry.created_at),
         updated_at: ExportEntryFile.instant(entry.updated_at),
-        data: entry.data,
+        data: SchemaOrder.apply(entry.data, schema),
       },
       null,
       2

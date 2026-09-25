@@ -9,6 +9,7 @@
 
 - `silo export --dir <path>` writes the §6.3 tree — every scope that holds content, plus `_system` when `--with-keys` is set (the `--with-keys` rule for `_keys` is otherwise unchanged). `--include` narrows it; see §7.6.
 - `silo export --out <file>.tar.gz` writes the same tree as a tarball, entries ordered by (collection, id) so archives are reproducible byte-for-byte given identical data.
+- Each entry's `data` is written in its schema's field order, then undeclared fields in codepoint order, as the API answers it (D93, §5.1). That is what makes "identical data" mean the same bytes whichever store it came from: without it, an archive taken from a Postgres `jsonb` store would reorder every file in a git history kept of it. A live fs data directory keeps the order each field was written in, so it can differ from an export of itself in key order and in nothing else.
 - If the running instance already uses the fs adapter, export is effectively a copy — and users can skip export entirely and `rsync` the data dir.
 
 `manifest.json` is written **last**, which is what lets every number in it count what was actually written rather than what was expected to be. It records `exported_at`, `silo_version`, the `selection` this archive was taken under (absent means the whole instance — §7.6), a `media` block (§7.7), and per-collection entry counts — since D18, `collections` is keyed by `"<project>/<env>/<collection>"` rather than by bare collection name, so the same name in two scopes gets two independent counts.

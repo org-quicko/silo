@@ -17,7 +17,22 @@ can be cloned with one command.
 
 ## Where things stand
 
-*Last updated: 2026-09-24 (the storage contract, tightened for Postgres)*
+*Last updated: 2026-09-25 (field order comes from the schema)*
+
+**An entry's fields leave silo in schema order, whichever store holds them
+(D93).** The API and the archive give the fields in the order the collection's
+schema declares them, at every depth, then every field the schema does not
+name in codepoint order. `SchemaOrder` (`core/schema/`) does it once in
+`EntryUtils.toApiResponse` and once in `ExportEntryFile`, following `$ref`
+through the bundled schema and gathering `allOf`/`anyOf`/`oneOf` declarations;
+array elements keep their order. Storage order is no longer part of the
+contract, which is what lets the coming Postgres adapter store plain `jsonb`
+(which keeps its own key order) instead of a second, order-keeping copy of
+every document — measured at +40% disk and +50% write time. Visible on SQLite
+and fs only where a client wrote fields in another order than the schema's.
+`field-order.test.ts` holds both adapters to it. The Bun.SQL spike (Phase 0)
+also ran and passed; its rules for the adapter are in the Postgres plan, not
+yet in the repo.
 
 **Both storage adapters now answer every query the same way, ahead of a
 Postgres adapter (D92).** SQLite and the fs adapter disagreed in eight places no
