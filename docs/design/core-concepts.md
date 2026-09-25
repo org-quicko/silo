@@ -45,6 +45,27 @@ type Entry struct {
   for an entry carrying one, which is the choke point the write paths and the
   importer share. Until D62 they were instead deleted from the response, which
   stored a field silo would never answer and told nobody it had done so.
+- **Field order is decided where an entry leaves silo, not where it is
+  stored (D93).** The API and the archive give an entry's fields in the order
+  its schema declares them, at every depth, followed by every field the schema
+  does not name, in codepoint order (`SchemaOrder`). Storage order is not part
+  of the contract: SQLite and the fs adapter keep the order a field was written
+  in, and Postgres's `jsonb` keeps its own (shorter keys first), so an order
+  taken from storage would make the same entry read differently on each
+  driver. Taken from the schema, every driver answers the same bytes, and a
+  Postgres store can use `jsonb` rather than paying for a second, order-keeping
+  copy of every document (measured: +40% disk, +50% write time). What the
+  schema cannot order still has a fixed order — silo's own system documents,
+  whose schema declares nothing, the open objects the Strapi importer writes,
+  a free-form JSON field, and any field a client sends that the schema does
+  not declare. Array elements are data and keep their order. Integer-like keys
+  come first in ascending order on every driver, because that is how
+  JavaScript objects enumerate them. `$ref` is followed through the bundled
+  schema (`#/...` pointers, and `silo://` or remote refs to `$defs`), and
+  `allOf`/`anyOf`/`oneOf`/`then`/`else` add their declarations after the node's
+  own. The cost is one walk per entry read, compiled once per schema node.
+  Reordering a schema's `properties` reorders every entry's output, which is
+  the point.
 
 ### 5.2 Collections & schemas (full JSON Schema)
 

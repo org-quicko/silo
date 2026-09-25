@@ -90,6 +90,12 @@ curl -X POST http://localhost:8090/api/projects/default/envs/prod/collections/po
 An entry is returned flattened: its `id`, then its own fields, then
 `created_at` and `updated_at`. The rest of the envelope stays internal.
 
+The fields come in the order that the collection's schema declares them. Fields
+that the schema does not declare come after, sorted by Unicode codepoint. This
+is true at every level of nesting. The order does not depend on the order in
+which you wrote the fields, or on the storage driver. The elements of an array
+keep their order.
+
 `created_at` is set when the entry is first written. A later write does not
 change it.
 

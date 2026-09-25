@@ -2,6 +2,7 @@ import { ulid } from "ulidx";
 import { ValidationError } from "@silo/shared/validation-error";
 import { MediaResolver } from "../media/media-resolver";
 import type { MediaLinks } from "../media/media-links";
+import { SchemaOrder } from "../schema/schema-order";
 import { VariableResolver } from "../variables/variable-resolver";
 import type { VariableValues } from "../variables/variable-values";
 import type { Entry } from "./entry";
@@ -95,9 +96,11 @@ export class EntryUtils {
         ? e.updated_at
         : new Date(e.updated_at).toISOString();
 
+    // In the schema's order, whatever order the store kept (D93). First, since
+    // both passes below keep the keys where they find them.
     let userFields =
       e.data && typeof e.data === "object" && !Array.isArray(e.data)
-        ? { ...e.data }
+        ? SchemaOrder.apply(e.data, schema)
         : {};
 
     if (schema && links) {
