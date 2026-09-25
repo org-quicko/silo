@@ -1,3 +1,4 @@
+import type { SearchEngine } from "./search-engine";
 import type { SearchHit } from "./search-hit";
 
 export interface SearchResult {
@@ -11,5 +12,5 @@ export interface SearchResult {
    * counts what was examined rather than what exists.
    */
   truncated: boolean;
-  engine: "fts5" | "scan";
+  engine: SearchEngine;
 }

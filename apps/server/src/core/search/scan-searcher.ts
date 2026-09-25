@@ -8,6 +8,7 @@ import { CollectionSchemas } from "../schema/collection-schemas";
 import { ClaimSegment } from "@silo/shared/claim-segment";
 import { JsonPath } from "@silo/shared/json-path";
 import type { SearchAccess } from "./search-access";
+import type { SearchEngine } from "./search-engine";
 import type { SearchHit } from "./search-hit";
 import type { SearchRequest } from "./search-request";
 import type { SearchResult } from "./search-result";
@@ -58,7 +59,7 @@ export class ScanSearcher implements Searcher {
     this.timeBudgetMs = options.timeBudgetMs ?? ScanSearcher.DefaultTimeBudgetMs;
   }
 
-  capabilities(): { engine: "fts5" | "scan"; snippets: boolean } {
+  capabilities(): { engine: SearchEngine; snippets: boolean } {
     return { engine: "scan", snippets: true };
   }
 

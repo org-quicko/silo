@@ -26,8 +26,14 @@ max_archive_size_mb   = 1024  # an import upload, or the export a copy pulls
 max_extracted_size_mb = 4096  # what it may unpack to on disk, checked before anything is written
 
 [storage]
-driver = "sqlite"       # "sqlite" | "fs"
+driver = "sqlite"       # "sqlite" | "fs" | "postgres"
 path   = "./silo_data"  # data dir; the sqlite file lives at <path>/silo.db
+# postgres driver:
+# url       = "postgres://silo@db.example.com:5432/silo"  # use SILO_STORAGE_URL: it can hold the password
+# schema    = "silo"    # the tables go here; one server owns a schema at a time
+# pool_size = 10        # connections; two are kept free for writes
+# statement_timeout = 30  # seconds; a slower query answers 503. 0 = no limit
+# startup_wait      = 60  # seconds a start keeps trying a server that is not there yet
 
 [blob_storage]
 driver = "fs"                 # "fs" | "s3"
@@ -89,6 +95,8 @@ max_files   = 5               # kept as silo.log.1 ... silo.log.5
 | `SILO_READ_THREAD` | `on` or `off`: whether entry lists and searches on SQLite run on a separate storage thread. On by default; off under the test runner. Not in the file |
 | `SILO_DEFAULT_PROJECT`, `SILO_DEFAULT_ENV` | `default_project`, `default_env` |
 | `SILO_STORAGE_DRIVER`, `SILO_STORAGE_PATH` | `[storage]` |
+| `SILO_STORAGE_URL`, `SILO_STORAGE_SCHEMA`, `SILO_STORAGE_POOL_SIZE` | `[storage]`, `postgres` driver |
+| `SILO_STORAGE_CONNECT_TIMEOUT`, `SILO_STORAGE_STARTUP_WAIT`, `SILO_STORAGE_IDLE_TIMEOUT`, `SILO_STORAGE_MAX_LIFETIME`, `SILO_STORAGE_STATEMENT_TIMEOUT`, `SILO_STORAGE_IDLE_IN_TRANSACTION_TIMEOUT` | `[storage]`, `postgres` driver, in seconds |
 | `SILO_BLOB_DRIVER`, `SILO_BLOB_PATH` | `[blob_storage]` |
 | `SILO_BLOB_S3_BUCKET`, `SILO_BLOB_S3_REGION`, `SILO_BLOB_S3_ENDPOINT` | `[blob_storage]` |
 | `SILO_BLOB_S3_ACCESS_KEY_ID`, `SILO_BLOB_S3_SECRET_ACCESS_KEY` | `[blob_storage]` |
@@ -101,6 +109,55 @@ max_files   = 5               # kept as silo.log.1 ... silo.log.5
 | `SILO_MEDIA_BASE_URL`, `SILO_MEDIA_BASE_URL_TARGET` | `[media]` |
 | `SILO_MEDIA_EXTENSIONS` | `[media]`, comma-separated |
 | `SILO_VERSION` | the version silo reports. It is not configuration and it is not in the file. The release sets it in the container image, which runs from source and has no other way to know which release it is. A binary ignores it. If you set it, silo tells you a version that it is not |
+
+## Keeping content in Postgres
+
+Set `driver = "postgres"` and give the database URL. Use
+`SILO_STORAGE_URL` for the URL, because the URL can hold the password and the
+file is not a secret store. silo needs Postgres 14 or later. On the first start,
+silo makes its tables in the schema that `schema` names. The default schema is
+`silo`. If the schema does not exist, silo makes it. The role needs the
+permission to do this, or an administrator must make the schema first.
+
+The data directory stays. silo keeps the run file, the logs, the plugins,
+the transfer staging area and the fs media there. Your content goes into the
+database.
+
+One server owns a schema at a time. A second server that uses the same schema
+stops at start, and its message names the schema. Two servers can use one
+database if they use different schemas.
+
+| Key | Default | What it does |
+|-----|---------|--------------|
+| `url` | none | The database. The settings page shows it without the password. |
+| `schema` | `silo` | Where the tables are. |
+| `pool_size` | 10 | The connections one server keeps. Two are kept free for writes, so many slow lists cannot stop a save. |
+| `connect_timeout` | 10 | Seconds for one connection attempt. |
+| `startup_wait` | 60 | Seconds a start keeps trying when the server is not there yet, for example in a container that starts before the database. A wrong password or a missing database stops the start immediately. |
+| `idle_timeout` | 60 | Seconds before silo closes a connection that it does not use. |
+| `max_lifetime` | 1800 | Seconds before silo replaces a connection, so that silo finds a new server after a failover. |
+| `statement_timeout` | 30 | Seconds one query can run. A slower query answers 503. |
+| `idle_in_transaction_timeout` | 60 | Seconds before the server ends a transaction that does nothing. |
+
+`0` switches off a limit. A change takes effect at the next restart.
+
+Search uses Postgres's own text search, with the same rules as on SQLite. The
+order of results can be different from SQLite. `[search] tokenizer = "trigram"`
+needs the `pg_trgm` extension. silo does not install it. If it is missing, the
+start stops and tells you to run `CREATE EXTENSION pg_trgm;` in the database.
+
+When the database is busy or not available, a request answers 503 with a
+`Retry-After` header. It does not answer 500. If the connection breaks before a
+write is saved, silo tries the write again. If the connection breaks while
+silo saves the write, silo cannot know if the write was saved. It answers 503
+and tells you to read the entry before you try again.
+
+**Behind PgBouncer**, use session mode. In transaction mode the owner lock does
+not work, because the lock must stay on one server connection. PgBouncer also
+refuses the two timeouts that silo sends when it connects. Add
+`statement_timeout` and `idle_in_transaction_session_timeout` to its
+`ignore_startup_parameters`, and set them on the database role. silo is not
+tested with PgBouncer yet.
 
 ## Connections that go quiet
 

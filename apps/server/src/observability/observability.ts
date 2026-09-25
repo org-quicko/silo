@@ -1,3 +1,4 @@
+import type { StorageMeasurement } from "../core/ports/storage-measurement";
 import { RequestMetrics } from "./request-metrics";
 import { StorageMetrics } from "./storage-metrics";
 
@@ -6,6 +7,8 @@ interface ObservabilityOptions {
   mediaDirectory?: string;
   storageDriver?: string;
   blobDriver?: string;
+  /** The store's own report, when it lives outside the data directory. */
+  measure?: () => Promise<StorageMeasurement>;
   now?: () => number;
 }
 

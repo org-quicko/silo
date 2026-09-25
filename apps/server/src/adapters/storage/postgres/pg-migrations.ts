@@ -21,7 +21,7 @@ import { PgTables } from "./pg-tables";
  *   is the admin form's field order.
  */
 export class PgMigrations {
-  /** `client_connection_check_interval`, which ends a query whose client has gone, arrived in 14. */
+  /** The oldest release the Postgres project still supports; 13 and older are past their end of life. */
   static readonly MinimumServerVersion = 140000;
 
   static async assertServerVersion(database: PgQueryable): Promise<void> {

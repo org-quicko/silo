@@ -40,7 +40,9 @@ export class PgScopeStore {
 
   async createProject(name: string, id?: string): Promise<ProjectRecord> {
     EntryUtils.assertSafeSegment(name, "project");
-    return this.resolver.invalidating(() => this.insertProject(this.connection, name, id));
+    return this.resolver.invalidating(() =>
+      this.connection.transaction((transaction) => this.insertProject(transaction, name, id))
+    );
   }
 
   async listProjects(): Promise<ProjectRecord[]> {

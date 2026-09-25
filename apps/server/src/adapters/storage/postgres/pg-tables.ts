@@ -32,6 +32,9 @@ export class PgTables {
   readonly collections: string;
   readonly entries: string;
   readonly mediaReferences: string;
+  /** The search documents (D30). Not in {@link PgTables.Names}: it exists only
+   *  while search is on, so its absence is no sign of an incomplete schema. */
+  readonly searchDocuments: string;
 
   private constructor(schema: string) {
     this.schema = schema;
@@ -42,6 +45,7 @@ export class PgTables {
     this.collections = this.qualify("collections");
     this.entries = this.qualify("entries");
     this.mediaReferences = this.qualify("media_references");
+    this.searchDocuments = this.qualify("entry_search");
   }
 
   static for(schema: string): PgTables {

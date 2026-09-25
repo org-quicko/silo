@@ -92,6 +92,41 @@ describe("ClaimSegment.sql", () => {
   });
 });
 
+describe("ClaimSegment.postgres", () => {
+  /** Binds the way `PgParams` does: numbered, in order. */
+  const binder = () => {
+    const values: string[] = [];
+    return {
+      values,
+      bind: (value: string) => {
+        values.push(value);
+        return `$${values.length}`;
+      },
+    };
+  };
+
+  test("a wildcard emits no clause and binds nothing", () => {
+    const { values, bind } = binder();
+    expect(ClaimSegment.postgres("p.project_name", "*", bind)).toBeNull();
+    expect(values).toEqual([]);
+  });
+
+  test("a literal compares for equality", () => {
+    const { values, bind } = binder();
+    expect(ClaimSegment.postgres("p.project_name", "acme", bind)).toBe("p.project_name = $1");
+    expect(values).toEqual(["acme"]);
+  });
+
+  /** `starts_with` reads the prefix literally, so an id's `_` stays a character. */
+  test("a prefix compares with starts_with, binding the prefix without the star", () => {
+    const { values, bind } = binder();
+    expect(ClaimSegment.postgres("p.project_name", "acme_*", bind)).toBe(
+      "starts_with(p.project_name, $1)"
+    );
+    expect(values).toEqual(["acme_"]);
+  });
+});
+
 describe("the grammar", () => {
   test("accepts a prefix pattern in any of the three segments", () => {
     expect(Claims.isValid("collections:acme*/prod/*:entries:read")).toBe(true);

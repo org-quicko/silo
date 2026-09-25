@@ -46,7 +46,7 @@ Present a key as `Authorization: Bearer <key>` or `X-Api-Key: <key>`.
 | `POST` | `/api/plugins/{name}/restart` | bring a dead worker back |
 | `POST` | `/api/plugins/rescan` | re-read `silo.toml` and apply it |
 | `GET` | `/api/audit` | who changed what authority, and when |
-| `GET` | `/api/observability` | aggregate API traffic, errors, latency, process resources, and local storage (`observability:read`) |
+| `GET` | `/api/observability` | aggregate API traffic, errors, latency, process resources, local storage, and the database pool when the driver is `postgres` (`observability:read`) |
 | `GET` / `POST` | `/api/media` | list / upload media |
 | `GET` | `/api/media/extensions` | the file extensions the library actually holds, for the Type filter |
 | `GET` | `/api/media/{id}` | one asset's catalog record |
@@ -180,9 +180,12 @@ A snippet is three strings. The fragment is `before + match + after`, and
 `match` is the run to highlight, so text that contains brackets of its own needs
 no escaping.
 
-`engine` is `fts5` when SQLite's full-text index answered, and `scan` when the
-portable engine walked the entries instead. `truncated` is true only for the
-second, and it means `total` counts what was examined.
+`engine` is `fts5` when SQLite's full-text index answered, `postgres` when
+Postgres's text search answered, and `scan` when the portable engine walked the
+entries instead. `truncated` is true only for `scan`, and it means `total`
+counts what was examined. The order of the results can be different between
+engines. On all engines, a match in a label field comes before a match in the
+body.
 
 A `sort` beats relevance, so omit it to rank. Which fields are indexed is a
 schema decision, through `x-silo-search`. An anonymous caller reaches only the

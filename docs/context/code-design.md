@@ -59,7 +59,10 @@
   and drops it, so a run leaves the database as it found it; a killed run can
   leave some behind, safe to drop by that prefix. A pooled store keeps the
   process alive until it is closed, so a test must close every store it opens —
-  the conformance context closes its last one in an `afterAll`.
+  the conformance context closes its last one in an `afterAll`. The trigram
+  search tests need `pg_trgm`: missing, it is installed into a
+  `silo_test_trgm_<ulid>` schema and that schema is dropped at the end; a role
+  that may not install it skips them.
 - **Take a Postgres rejection with `try`/`catch`, not `expect(...).rejects`.**
   Under Bun 1.4.2 on Windows, `.rejects` awaiting a refused `PgStore.open` after
   the conformance run crashed the runner — a segfault, or a spin at full CPU

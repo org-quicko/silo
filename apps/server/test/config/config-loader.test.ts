@@ -4,6 +4,7 @@ import path from "path";
 import os from "os";
 import { CliOptions } from "../../src/cli/cli-options";
 import { HttpDefaults } from "../../src/config/http-defaults";
+import { StorageDefaults } from "../../src/config/storage-defaults";
 import { TransferDefaults } from "../../src/config/transfer-defaults";
 import { ConfigLoader } from "../../src/config/config-loader";
 
@@ -370,5 +371,87 @@ describe("ConfigLoader [transfer] ceilings", () => {
     const transfer = (await ConfigLoader.loadConfig(file)).transfer;
     expect(transfer.max_archive_size_mb).toBe(TransferDefaults.MaxArchiveSizeMb);
     expect(transfer.max_extracted_size_mb).toBe(TransferDefaults.MaxExtractedSizeMb);
+  });
+});
+
+describe("ConfigLoader [storage] Postgres settings", () => {
+  let tempDir: string;
+  const names = [
+    "SILO_STORAGE_URL",
+    "SILO_STORAGE_SCHEMA",
+    "SILO_STORAGE_POOL_SIZE",
+    "SILO_STORAGE_STATEMENT_TIMEOUT",
+    "SILO_STORAGE_STARTUP_WAIT",
+  ] as const;
+  const saved: Partial<Record<(typeof names)[number], string | undefined>> = {};
+
+  beforeEach(async () => {
+    tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "silo-storage-config-test-"));
+    for (const name of names) {
+      saved[name] = process.env[name];
+      delete process.env[name];
+    }
+  });
+
+  afterEach(async () => {
+    for (const name of names) {
+      if (saved[name] === undefined) delete process.env[name];
+      else process.env[name] = saved[name];
+    }
+    await fs.rm(tempDir, { recursive: true, force: true });
+  });
+
+  const writeConfig = async (toml: string): Promise<string> => {
+    const file = path.join(tempDir, "silo.toml");
+    await fs.writeFile(file, toml);
+    return file;
+  };
+
+  test("the defaults need no url, and every other driver ignores them", () => {
+    const storage = ConfigLoader.defaultConfig().storage;
+    expect(storage.url).toBeUndefined();
+    expect(storage.schema).toBe(StorageDefaults.Schema);
+    expect(storage.pool_size).toBe(StorageDefaults.PoolSize);
+    expect(storage.statement_timeout).toBe(StorageDefaults.StatementTimeout);
+  });
+
+  test("the file supplies them and the env vars outrank the file", async () => {
+    const file = await writeConfig(
+      `[storage]\ndriver = "postgres"\nurl = "postgres://file@db/silo"\nschema = "cms"\npool_size = 4\nstatement_timeout = 5\n`
+    );
+    let storage = (await ConfigLoader.loadConfig(file)).storage;
+    expect(storage).toMatchObject({
+      driver: "postgres",
+      url: "postgres://file@db/silo",
+      schema: "cms",
+      pool_size: 4,
+      statement_timeout: 5,
+    });
+
+    process.env.SILO_STORAGE_URL = "postgres://env@db/silo";
+    process.env.SILO_STORAGE_SCHEMA = "from_env";
+    process.env.SILO_STORAGE_POOL_SIZE = "20";
+    process.env.SILO_STORAGE_STATEMENT_TIMEOUT = "0";
+    storage = (await ConfigLoader.loadConfig(file)).storage;
+    expect(storage).toMatchObject({
+      url: "postgres://env@db/silo",
+      schema: "from_env",
+      pool_size: 20,
+      statement_timeout: 0,
+    });
+  });
+
+  test("a pool below one, a negative duration and an unparseable env var leave the default", async () => {
+    const file = await writeConfig(`[storage]\npool_size = 0\nstartup_wait = -1\n`);
+    process.env.SILO_STORAGE_STATEMENT_TIMEOUT = "soon";
+    const storage = (await ConfigLoader.loadConfig(file)).storage;
+    expect(storage.pool_size).toBe(StorageDefaults.PoolSize);
+    expect(storage.startup_wait).toBe(StorageDefaults.StartupWait);
+    expect(storage.statement_timeout).toBe(StorageDefaults.StatementTimeout);
+  });
+
+  test("an empty url in the file is no url", async () => {
+    const file = await writeConfig(`[storage]\nurl = ""\n`);
+    expect((await ConfigLoader.loadConfig(file)).storage.url).toBeUndefined();
   });
 });

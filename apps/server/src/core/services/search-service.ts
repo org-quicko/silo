@@ -4,6 +4,7 @@ import { SchemaAccess } from "@silo/shared/schema-access";
 import { EntryUtils } from "../domain/entry-utils";
 import { QueryUtils } from "../query/query-utils";
 import type { SearchAccess } from "../search/search-access";
+import type { SearchEngine } from "../search/search-engine";
 import type { SearchIntegrity } from "../search/search-integrity";
 import type { SearchRequest } from "../search/search-request";
 import type { SearchResult } from "../search/search-result";
@@ -92,7 +93,7 @@ export class SearchService {
     );
   }
 
-  capabilities(): { engine: "fts5" | "scan"; snippets: boolean } {
+  capabilities(): { engine: SearchEngine; snippets: boolean } {
     return this.context.searcher.capabilities();
   }
 

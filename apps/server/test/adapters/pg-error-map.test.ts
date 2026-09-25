@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { ValidationError } from "@silo/shared/validation-error";
 import { PgErrorMap } from "../../src/adapters/storage/postgres/pg-error-map";
+import { PgUnavailableError } from "../../src/adapters/storage/postgres/pg-unavailable-error";
 import { ConflictError } from "../../src/core/errors/conflict-error";
 import { NotFoundError } from "../../src/core/errors/not-found-error";
 import { StorageBusyError } from "../../src/core/errors/storage-busy-error";
@@ -12,6 +13,10 @@ function driverError(message: string, code: string, errno?: string): Error {
 
 const server = (message: string, errno: string) =>
   driverError(message, "ERR_POSTGRES_SERVER_ERROR", errno);
+
+/** The failure a translated error carries, or null when it is not unavailable. */
+const failureOf = (error: unknown) =>
+  error instanceof PgUnavailableError ? error.failure : null;
 
 describe("PgErrorMap", () => {
   test("a unique violation is a conflict", () => {
@@ -30,12 +35,32 @@ describe("PgErrorMap", () => {
     expect(ValidationError.is(translated)).toBe(true);
   });
 
-  test("timeouts, a full server and lost connections are a retryable 503", () => {
-    for (const errno of ["57014", "53300", "57P01", "08006", "40001", "40P01"]) {
-      expect(PgErrorMap.translate(server("not now", errno))).toBeInstanceOf(StorageBusyError);
+  test("everything that means 'not now' is a 503, labelled with what may be done about it", () => {
+    const cases: [Error, PgUnavailableError["failure"]][] = [
+      [server("canceling statement due to statement timeout", "57014"), "busy"],
+      [server("too many connections", "53300"), "busy"],
+      [server("terminating connection due to administrator command", "57P01"), "connection"],
+      [server("connection failure", "08006"), "connection"],
+      [server("the database system is starting up", "57P03"), "unreachable"],
+      [server("could not serialize access", "40001"), "contention"],
+      [server("deadlock detected", "40P01"), "contention"],
+      [driverError("Connection closed", "ERR_POSTGRES_CONNECTION_CLOSED"), "connection"],
+      // What a statement inside a transaction sees when its backend is killed.
+      [driverError("Failed to read data", "ERR_POSTGRES_EXPECTED_REQUEST"), "connection"],
+      [driverError("Failed to connect", "ERR_POSTGRES_CONNECTION_REFUSED"), "unreachable"],
+    ];
+    for (const [error, failure] of cases) {
+      const translated = PgErrorMap.translate(error);
+      expect(translated).toBeInstanceOf(StorageBusyError);
+      expect(failureOf(translated)).toBe(failure);
     }
-    const closed = driverError("Connection closed", "ERR_POSTGRES_CONNECTION_CLOSED");
-    expect(PgErrorMap.translate(closed)).toBeInstanceOf(StorageBusyError);
+  });
+
+  test("a wrong password or a missing database stays itself, so a start fails at once", () => {
+    const password = server("password authentication failed", "28P01");
+    const database = server('database "x" does not exist', "3D000");
+    expect(PgErrorMap.translate(password)).toBe(password);
+    expect(PgErrorMap.translate(database)).toBe(database);
   });
 
   test("anything else passes through unchanged, so a bug in the SQL stays a 500", () => {

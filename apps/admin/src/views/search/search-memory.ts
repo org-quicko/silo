@@ -6,7 +6,7 @@ export interface SearchState {
   chip: string | null
   hits: SearchHit[]
   assets: MediaAsset[]
-  engine: 'fts5' | 'scan' | null
+  engine: 'fts5' | 'postgres' | 'scan' | null
   truncated: boolean
   error: string
 }

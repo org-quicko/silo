@@ -9,6 +9,7 @@ import { AsyncMutex } from "../core/services/support/async-mutex";
 import type { SiloService } from "../core/services/silo-service";
 import type { Logger } from "../logging/logger";
 import { ConfigFileAccess } from "./config-file-access";
+import { ConfigSecrets } from "./config-secrets";
 import { ConfigSectionSettings } from "./config-section-settings";
 import type { ConfigSectionView } from "./config-section-view";
 import type { ConfigSettingsView } from "./config-settings-view";
@@ -113,8 +114,10 @@ export class ConfigSupervisor {
       title: section.title,
       summary: section.summary,
       fields: section.fields,
-      file: file ?? {},
-      in_force: inForce,
+      // Redacted on the way out only: the override and restart checks below
+      // compare the real values.
+      file: ConfigSecrets.redact(section, file ?? {}),
+      in_force: ConfigSecrets.redact(section, inForce),
       overrides: ConfigSectionSettings.overrides(section, file, inForce),
       writable: section.writable && fileWritable,
       // Against the file rather than against a fresh reload, so a table edited

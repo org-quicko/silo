@@ -37,6 +37,13 @@ export interface ConfigField {
    * than pretend they do not exist.
    */
   readOnly?: boolean;
+  /**
+   * Never reported as it is. The settings API answers a secret with its
+   * value redacted (`ConfigSecrets`) — a URL keeps its host and database but
+   * not its password — so a page can show which database an instance uses
+   * without handing the credentials to every admin session.
+   */
+  secret?: boolean;
   label: string;
   help?: string;
   /** Numbers only: the smallest accepted value. */

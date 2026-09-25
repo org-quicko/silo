@@ -60,7 +60,7 @@ export function SmartSearch({
   const [highlightedMention, setHighlightedMention] = useState(0)
   const [hits, setHits] = useState<SearchHit[]>(saved?.hits ?? [])
   const [assets, setAssets] = useState<MediaAsset[]>(saved?.assets ?? [])
-  const [engine, setEngine] = useState<'fts5' | 'scan' | null>(saved?.engine ?? null)
+  const [engine, setEngine] = useState<'fts5' | 'postgres' | 'scan' | null>(saved?.engine ?? null)
   const [truncated, setTruncated] = useState(saved?.truncated ?? false)
   const [error, setError] = useState(saved?.error ?? '')
   const [loading, setLoading] = useState(false)

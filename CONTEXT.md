@@ -12,24 +12,34 @@
 A minimal, self-hostable headless CMS. Users define collections with JSON
 Schema, get auto-generated forms and a CRUD API, and can move all their data
 anywhere via first-class export/import. The differentiator is **portability**:
-standard schemas, pluggable storage (SQLite, plain files), and instances that
+standard schemas, pluggable storage (SQLite, plain files, Postgres), and instances that
 can be cloned with one command.
 
 ## Where things stand
 
-*Last updated: 2026-09-25 (Postgres adapter core)*
+*Last updated: 2026-09-25 (Postgres search)*
 
-**A Postgres storage adapter passes the conformance suite, but is not yet
-selectable (D93).** `PgStore` (`adapters/storage/postgres/`) keeps silo's
-tables in one schema (`silo` by default) with SQLite's shape, `COLLATE "C"`
-text and `jsonb` data. All SQL is hand-written behind `PgConnection`, the one
-file that imports `Bun.SQL`. It checks for Postgres 14+, runs the DDL under a
-schema-scoped advisory lock and refuses a foreign or wrongly stamped schema.
-It maps driver errors to 409/404/400/503, and offers `claimOwnership`, a
-per-schema owner lock (D25). Search falls back to `ScanSearcher`.
-`SILO_TEST_PG_URL` runs 71 Postgres tests. Unset, they are skipped. The
-`[storage]` keys, the registry entry, `serve`'s use of the lock, the pool
-settings and retries come in P3. See `docs/design/storage.md` §6.6.
+**Content can live in Postgres: `[storage] driver = "postgres"` (D93–D95).**
+`PgStore` (`adapters/storage/postgres/`) keeps silo's tables in one schema
+(`silo` by default) with SQLite's shape, `COLLATE "C"` text and `jsonb` data,
+and passes the same conformance suite. All SQL is hand-written behind
+`PgConnection`, the one file that imports `Bun.SQL`. `[storage]` gains `url`
+(masked in the settings API), `schema`, `pool_size` and six timeouts in
+seconds, each with a `SILO_STORAGE_*` variable. A start waits up to
+`startup_wait` for a server that is not up yet, checks for Postgres 14+, and
+runs the DDL under a schema-scoped advisory lock. A broken connection or a
+serialization failure is retried when nothing can have committed; a
+connection lost during a commit answers 503 saying so. Lists leave two
+connections free for writes and shed past 64 waiting. `serve` claims a
+per-schema owner lock (`OwnedStorage`, D25), whose heartbeat retakes it or
+stops the server if another took it. Close drains for up to four seconds.
+`GET /api/observability` reports the pool (`MeasuredStorage`). Search is
+`PgSearcher` (engine `postgres`): a `tsvector` written from silo's own tokens,
+ranked 10:1 label to body, or `pg_trgm` substrings under `trigram`, kept in
+the entry's own transaction and rebuilt when its stamp moves.
+`SILO_TEST_PG_URL` runs the Postgres tests,
+including killed backends, timeouts and a rival owner; unset, they are
+skipped. See `docs/design/storage.md` §6.6.
 
 **Both storage adapters now answer every query the same way, ahead of a
 Postgres adapter (D92).** SQLite and the fs adapter disagreed in eight places no

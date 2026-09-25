@@ -6,6 +6,7 @@ import { HttpDefaults } from "./http-defaults";
 import { MediaDefaults } from "./media-defaults";
 import { MediaTable } from "./media-table";
 import type { PluginConfig } from "./plugin-config";
+import { StorageDefaults } from "./storage-defaults";
 import { TransferDefaults } from "./transfer-defaults";
 
 export class ConfigLoader {
@@ -23,9 +24,19 @@ export class ConfigLoader {
       },
       default_project: "default",
       default_env: "prod",
+      // No url: it is a secret with no sane default, and only `postgres` reads
+      // it, so an unset one is what every other driver should see.
       storage: {
         driver: "sqlite",
         path: "./silo_data",
+        schema: StorageDefaults.Schema,
+        pool_size: StorageDefaults.PoolSize,
+        connect_timeout: StorageDefaults.ConnectTimeout,
+        startup_wait: StorageDefaults.StartupWait,
+        idle_timeout: StorageDefaults.IdleTimeout,
+        max_lifetime: StorageDefaults.MaxLifetime,
+        statement_timeout: StorageDefaults.StatementTimeout,
+        idle_in_transaction_timeout: StorageDefaults.IdleInTransactionTimeout,
       },
       blob_storage: {
         // No path: an unset fs path means "wherever the data dir is", resolved
@@ -66,6 +77,20 @@ export class ConfigLoader {
       plugins: [],
     };
   }
+
+  /**
+   * `[storage]`'s durations, each with the variable that outranks it. Written
+   * out as literals rather than derived from the key, so a search for a
+   * `SILO_*` name finds where it is read.
+   */
+  private static readonly StorageSeconds = [
+    { key: "connect_timeout", env: "SILO_STORAGE_CONNECT_TIMEOUT" },
+    { key: "startup_wait", env: "SILO_STORAGE_STARTUP_WAIT" },
+    { key: "idle_timeout", env: "SILO_STORAGE_IDLE_TIMEOUT" },
+    { key: "max_lifetime", env: "SILO_STORAGE_MAX_LIFETIME" },
+    { key: "statement_timeout", env: "SILO_STORAGE_STATEMENT_TIMEOUT" },
+    { key: "idle_in_transaction_timeout", env: "SILO_STORAGE_IDLE_IN_TRANSACTION_TIMEOUT" },
+  ] as const;
 
   /** Default per-dispatch budget. Generous enough for a hook that calls out to
    *  something, short enough that a hung plugin is noticed rather than endured
@@ -168,6 +193,23 @@ export class ConfigLoader {
             }
             if (typeof parsed.storage.path === "string") {
               config.storage.path = parsed.storage.path;
+            }
+            if (typeof parsed.storage.url === "string" && parsed.storage.url !== "") {
+              config.storage.url = parsed.storage.url;
+            }
+            if (typeof parsed.storage.schema === "string") {
+              config.storage.schema = parsed.storage.schema;
+            }
+            if (typeof parsed.storage.pool_size === "number") {
+              config.storage.pool_size = StorageDefaults.poolSize(
+                parsed.storage.pool_size,
+                config.storage.pool_size
+              );
+            }
+            for (const { key } of ConfigLoader.StorageSeconds) {
+              if (typeof parsed.storage[key] === "number") {
+                config.storage[key] = StorageDefaults.seconds(parsed.storage[key], config.storage[key]);
+              }
             }
           }
           if (parsed.blob_storage && typeof parsed.blob_storage === "object") {
@@ -303,6 +345,22 @@ export class ConfigLoader {
     }
     if (process.env.SILO_STORAGE_PATH) {
       config.storage.path = process.env.SILO_STORAGE_PATH;
+    }
+    if (process.env.SILO_STORAGE_URL) {
+      config.storage.url = process.env.SILO_STORAGE_URL;
+    }
+    if (process.env.SILO_STORAGE_SCHEMA) {
+      config.storage.schema = process.env.SILO_STORAGE_SCHEMA;
+    }
+    if (process.env.SILO_STORAGE_POOL_SIZE) {
+      config.storage.pool_size = StorageDefaults.poolSize(
+        Number(process.env.SILO_STORAGE_POOL_SIZE),
+        config.storage.pool_size
+      );
+    }
+    for (const { key, env } of ConfigLoader.StorageSeconds) {
+      const raw = process.env[env];
+      if (raw) config.storage[key] = StorageDefaults.seconds(Number(raw), config.storage[key]);
     }
     if (process.env.SILO_MEDIA_BASE_URL) {
       config.media.base_url = process.env.SILO_MEDIA_BASE_URL;
