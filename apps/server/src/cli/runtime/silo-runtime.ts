@@ -5,7 +5,10 @@ import { Logger } from "../../logging/logger";
 import { PluginLoader, PluginRegistry, PluginSupervisor, ProviderRegistry } from "../../plugins";
 import { ConfigSupervisor, MediaPolicySupervisor, MediaStorageSupervisor } from "../../settings";
 import type { IndexedStorage } from "../../core/ports/indexed-storage";
+import type { MeasuredStorage } from "../../core/ports/measured-storage";
+import type { OwnedStorage } from "../../core/ports/owned-storage";
 import type { Storage } from "../../core/ports/storage";
+import type { StorageMeasurement } from "../../core/ports/storage-measurement";
 import type { Searcher } from "../../core/search/searcher";
 
 /**
@@ -41,6 +44,10 @@ export class SiloRuntime {
    *  waiting for a restart from one already in force. */
   readonly settings: ConfigSupervisor;
 
+  /** What happens when another server takes this one's storage (D25). Until
+   *  `serve` installs its orderly shutdown, the process logs and exits. */
+  private storageLost: (reason: Error) => void;
+
   private constructor(
     store: Storage,
     service: SiloService,
@@ -59,6 +66,19 @@ export class SiloRuntime {
     this.mediaStorage = mediaStorage;
     this.mediaPolicy = mediaPolicy;
     this.settings = settings;
+    this.storageLost = (reason) => SiloRuntime.abandon(logger, reason);
+  }
+
+  /** Replaces what happens when storage ownership is lost; `serve` shuts down. */
+  whenStorageLost(handler: (reason: Error) => void): void {
+    this.storageLost = handler;
+  }
+
+  /** The store's own report, when it keeps one (`MeasuredStorage`), for the
+   *  observability snapshot. */
+  static measurer(store: Storage): (() => Promise<StorageMeasurement>) | undefined {
+    const measured = store as Partial<MeasuredStorage>;
+    return typeof measured.measure === "function" ? () => measured.measure!() : undefined;
   }
 
   /**
@@ -85,6 +105,21 @@ export class SiloRuntime {
       config,
       logger
     );
+
+    // Before anything is written — the rename resume below included — because
+    // a store another server owns must not be written to at all (D25). A store
+    // with no owner lock of its own leaves this to `RunFile`, in `serve`.
+    let runtime: SiloRuntime | null = null;
+    if (command === "serve") {
+      try {
+        await SiloRuntime.claim(store, (reason) =>
+          runtime ? runtime.storageLost(reason) : SiloRuntime.abandon(logger, reason)
+        );
+      } catch (error) {
+        await store.close().catch(() => {});
+        throw error;
+      }
+    }
 
     if (rebuildNotice && command === "serve") console.error(rebuildNotice);
 
@@ -181,7 +216,7 @@ export class SiloRuntime {
       reload,
       configPath,
     });
-    return new SiloRuntime(
+    runtime = new SiloRuntime(
       store,
       service,
       logger,
@@ -191,6 +226,7 @@ export class SiloRuntime {
       mediaPolicy,
       settings
     );
+    return runtime;
   }
 
   async close(): Promise<void> {
@@ -253,6 +289,22 @@ export class SiloRuntime {
       providers,
       rebuildNotice: await SiloRuntime.rebuildIndex(indexed, searcher),
     };
+  }
+
+  /** Claims the store for this process when it has an owner lock (`OwnedStorage`). */
+  private static async claim(store: Storage, lost: (reason: Error) => void): Promise<void> {
+    const owned = store as Partial<OwnedStorage>;
+    if (typeof owned.claimOwnership === "function") await owned.claimOwnership(lost);
+  }
+
+  /** Nothing may write without ownership, and nothing here can stop the writes
+   *  more surely than ending the process. */
+  private static abandon(logger: Logger, reason: Error): void {
+    try {
+      logger.error("fatal: lost ownership of storage", { message: reason.message });
+    } finally {
+      process.exit(1);
+    }
   }
 
   /** The store as one that keeps its own search index, or null (D92). */

@@ -138,10 +138,10 @@ Search is a separate port, not an operator. §5.3's "every op is forever" rule i
 ```
 Searcher.search(request, access)   ->  { data: hit[], total, limit, offset, truncated, engine }
 Searcher.reindex(target?)          ->  report
-Searcher.capabilities()            ->  { engine: "fts5" | "scan", snippets }
+Searcher.capabilities()            ->  { engine: "fts5" | "postgres" | "scan", snippets }
 ```
 
-Two implementations. **`ScanSearcher`** works on every adapter by reading entries and matching in memory — O(N), the character §6.3 already commits the fs adapter to. **`SqliteSearcher`** uses FTS5. The portable one ships first, so search exists everywhere and FTS5 makes it fast rather than possible. It stops at a visit cap **and** a time budget, reporting `truncated` — a count cap alone is not enough, because one collection of very large documents exhausts a request's patience well before its entry count. Both are checked per entry rather than per page, or a single page could overrun the cap by its whole size. FTS5 is probed at open inside a savepoint; a build without it falls back to the scan engine and logs once, because the shipped SQLite sets `OMIT_LOAD_EXTENSION` and no runtime repair is possible.
+Three implementations. **`ScanSearcher`** works on every adapter by reading entries and matching in memory — O(N), the character §6.3 already commits the fs adapter to. **`SqliteSearcher`** uses FTS5, and **`PgSearcher`** Postgres's text search over a `tsvector` written from the same tokens (§6.6 of storage.md, D95). The portable one ships first, so search exists everywhere and FTS5 makes it fast rather than possible. It stops at a visit cap **and** a time budget, reporting `truncated` — a count cap alone is not enough, because one collection of very large documents exhausts a request's patience well before its entry count. Both are checked per entry rather than per page, or a single page could overrun the cap by its whole size. FTS5 is probed at open inside a savepoint; a build without it falls back to the scan engine and logs once, because the shipped SQLite sets `OMIT_LOAD_EXTENSION` and no runtime repair is possible.
 
 **What gets indexed** is derived by the caller — the extractor needs the schema, the adapter must not have it. It reaches an adapter through the port (`Storage.put(e, { usages, search })`), exactly as media usages do (D23), from the point an engine actually stores it; `ScanSearcher` extracts at query time and needs no stored text. An `x-silo-search` keyword at the schema root selects the text with D29 paths:
 

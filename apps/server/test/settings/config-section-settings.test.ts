@@ -141,6 +141,9 @@ describe("ConfigSections", () => {
         // `[log] file` is the documented exception: it has no default, because a
         // literal there would be indistinguishable from a path someone chose.
         if (section.table === "log" && field.key === "file") continue;
+        // `[storage] url` is the other: a secret that only `postgres` reads, with
+        // no value that could stand in for one nobody set.
+        if (section.table === "storage" && field.key === "url") continue;
         expect(config[section.table]?.[field.key]).toBeDefined();
       }
     }

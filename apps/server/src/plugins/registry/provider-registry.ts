@@ -5,6 +5,7 @@ import type { Storage } from "../../core/ports/storage";
 import type { BlobStorage } from "../../core/ports/blob-storage";
 import { SqliteStore } from "../../adapters/storage/sqlite/sqlite-store";
 import { FsStore } from "../../adapters/storage/fs/fs-store";
+import { PgStore, type PgStoreOptions } from "../../adapters/storage/postgres/pg-store";
 import { FsBlobStorage } from "../../adapters/blob/fs-blob-storage";
 import { S3BlobStorage } from "../../adapters/blob/s3-blob-storage";
 import { SearchTokenizers } from "../../core/search/search-tokenizers";
@@ -28,7 +29,7 @@ export class ProviderRegistry {
   /** Names a plugin may never take. Shadowing `sqlite` would let an installed
    *  package silently become the store an existing instance already has data
    *  in — a data-loss shape, not a naming inconvenience. */
-  static readonly Reserved: readonly string[] = ["sqlite", "fs", "s3"];
+  static readonly Reserved: readonly string[] = ["sqlite", "fs", "postgres", "s3"];
 
   private readonly stores = new Map<string, StorageFactory>();
   private readonly blobs = new Map<string, BlobFactory>();
@@ -43,6 +44,7 @@ export class ProviderRegistry {
       })
     );
     registry.stores.set("fs", async (config) => await FsStore.open(config.storage.path));
+    registry.stores.set("postgres", async (config) => await PgStore.open(ProviderRegistry.postgres(config)));
 
     registry.blobs.set("fs", (config) => new FsBlobStorage(config.path || "./silo_data/media"));
     registry.blobs.set("s3", (config) => {
@@ -95,6 +97,27 @@ export class ProviderRegistry {
   /** Driver names currently registered, for `silo plugin list` and error text. */
   drivers(): { storage: string[]; blob: string[] } {
     return { storage: [...this.stores.keys()].sort(), blob: [...this.blobs.keys()].sort() };
+  }
+
+  /** `[storage]` as the Postgres adapter's options. The URL has no default, so
+   *  a `postgres` driver without one is refused here, naming both ways to set it. */
+  private static postgres(config: Config): PgStoreOptions {
+    const storage = config.storage;
+    if (!storage.url) {
+      throw new Error(`storage driver "postgres" needs a URL: set [storage] url, or SILO_STORAGE_URL`);
+    }
+    return {
+      url: storage.url,
+      schema: storage.schema,
+      poolSize: storage.pool_size,
+      connectTimeout: storage.connect_timeout,
+      startupWait: storage.startup_wait,
+      idleTimeout: storage.idle_timeout,
+      maxLifetime: storage.max_lifetime,
+      statementTimeout: storage.statement_timeout,
+      idleInTransactionTimeout: storage.idle_in_transaction_timeout,
+      search: { enabled: config.search.enabled, tokenizer: config.search.tokenizer },
+    };
   }
 
   private static assertAvailable(driver: string, taken: boolean, from: string): void {

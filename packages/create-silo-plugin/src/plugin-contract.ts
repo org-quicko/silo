@@ -60,7 +60,7 @@ export class PluginContract {
   /** Driver names the built-in adapters hold. `ProviderRegistry` refuses a
    *  plugin that takes one, so refusing it here turns a failed start into a
    *  question asked while the author is still at the keyboard. */
-  static readonly ReservedDrivers = ["sqlite", "fs", "s3"] as const;
+  static readonly ReservedDrivers = ["sqlite", "fs", "postgres", "s3"] as const;
 
   /**
    * A short menu of the claims a plugin usually wants, plus the freeform

@@ -28,6 +28,13 @@ export class SearchText {
    *  from crowding out the fields that matter. */
   static readonly DefaultMaxBytes = 64 * 1024;
 
+  /**
+   * Bumped when `extract` would produce different text. Every engine's index
+   * stamp carries it, so a change rebuilds every index — which is why it lives
+   * here, beside the extractor, rather than in one engine.
+   */
+  static readonly Version = 1;
+
   private static readonly Empty: ExtractedText = { label: "", body: "", fields: [] };
 
   static extract(data: unknown, schema?: unknown, maxBytes = SearchText.DefaultMaxBytes): ExtractedText {

@@ -5,8 +5,8 @@ You get an admin UI with generated forms, a REST API, and data you can move
 anywhere.
 
 silo is one TypeScript process on [Bun](https://bun.com), with six runtime
-dependencies. It keeps content as plain JSON documents in SQLite or in flat
-files, it serves its own React admin UI, and each moving part sits behind an
+dependencies. It keeps content as plain JSON documents in SQLite, in flat
+files or in Postgres, it serves its own React admin UI, and each moving part sits behind an
 interface you can replace. There is no proprietary field language, query
 language, or file format in it. What silo stores, your other tools can already
 read.
@@ -169,7 +169,7 @@ engine handle them with no special code.
   `/api/mcp` with an API key and the model gets silo's tools: browse projects
   and schemas, read, search, create and update entries. Every tool is one API
   route called with that key, so the key's claims decide what the model may do.
-- **Replaceable parts.** Storage is SQLite, flat files, or your own driver.
+- **Replaceable parts.** Storage is SQLite, flat files, Postgres, or your own driver.
   Media is local disk or any S3-compatible bucket (AWS S3, MinIO, Cloudflare R2,
   DigitalOcean Spaces). The admin UI is an ordinary client of the public API, so
   you can extend it, fork it, or write your own.

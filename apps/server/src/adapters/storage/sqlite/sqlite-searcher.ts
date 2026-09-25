@@ -5,6 +5,7 @@ import type { Entry } from "../../../core/domain/entry";
 import { Scope } from "../../../core/domain/scope";
 import type { Storage } from "../../../core/ports/storage";
 import type { SearchAccess } from "../../../core/search/search-access";
+import type { SearchEngine } from "../../../core/search/search-engine";
 import type { SearchHit } from "../../../core/search/search-hit";
 import type { SearchIntegrity } from "../../../core/search/search-integrity";
 import type { SearchRequest } from "../../../core/search/search-request";
@@ -79,7 +80,7 @@ export class SqliteSearcher implements Searcher {
     this.reads = reads;
   }
 
-  capabilities(): { engine: "fts5" | "scan"; snippets: boolean } {
+  capabilities(): { engine: SearchEngine; snippets: boolean } {
     return { engine: "fts5", snippets: true };
   }
 

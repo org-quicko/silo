@@ -12,6 +12,8 @@ import type { PgMetaStore } from "./pg-meta-store";
 import { PgParams } from "./pg-params";
 import type { PgQueryable } from "./pg-queryable";
 import { PgRowMapper } from "./pg-row-mapper";
+import type { PgScanGate } from "./pg-scan-gate";
+import type { PgSearchDocumentStore } from "./pg-search-document-store";
 import type { PgScopeResolver } from "./pg-scope-resolver";
 import type { PgTables } from "./pg-tables";
 
@@ -28,14 +30,20 @@ export class PgEntryStore {
   private readonly meta: PgMetaStore;
   private readonly mediaReferences: PgMediaReferenceStore;
   private readonly resolver: PgScopeResolver;
+  private readonly scans: PgScanGate;
+  private readonly searchDocuments: PgSearchDocumentStore;
 
   constructor(
     connection: PgConnection,
     tables: PgTables,
     meta: PgMetaStore,
     mediaReferences: PgMediaReferenceStore,
-    resolver: PgScopeResolver
+    resolver: PgScopeResolver,
+    scans: PgScanGate,
+    searchDocuments: PgSearchDocumentStore
   ) {
+    this.scans = scans;
+    this.searchDocuments = searchDocuments;
     this.connection = connection;
     this.tables = tables;
     this.meta = meta;
@@ -44,7 +52,7 @@ export class PgEntryStore {
   }
 
   /**
-   * The entry and its media references, in one transaction. The collection
+   * The entry, its media references and its search row, in one transaction. The collection
    * has to exist (D51); one deleted between the lookup and the insert is
    * caught by the foreign key and reported as not found.
    *
@@ -90,6 +98,7 @@ export class PgEntryStore {
         ]
       );
       await this.mediaReferences.replaceForEntry(transaction, address, entry.id, derived.usages);
+      await this.searchDocuments.write(transaction, address, entry.id, derived.search);
       return seq;
     });
   }
@@ -118,9 +127,13 @@ export class PgEntryStore {
     const collectionId = await this.resolver.collectionId(scope, collection);
     if (collectionId === null) throw PgEntryStore.notFound(scope, collection, id);
 
-    const removed = await this.connection.query(
-      `DELETE FROM ${this.tables.entries} WHERE collection_id = $1 AND id = $2 RETURNING id`,
-      [collectionId, id]
+    // In a transaction, one statement though it is, so a connection that broke
+    // before the delete ran is retried rather than answered as a 503.
+    const removed = await this.connection.transaction((transaction) =>
+      transaction.query(
+        `DELETE FROM ${this.tables.entries} WHERE collection_id = $1 AND id = $2 RETURNING id`,
+        [collectionId, id]
+      )
     );
     if (removed.length === 0) throw PgEntryStore.notFound(scope, collection, id);
   }
@@ -130,6 +143,10 @@ export class PgEntryStore {
    * and one round trip. The count is a subquery beside the page, which leaves
    * it unknown only when the page is empty; past the last page it is then
    * asked for on its own.
+   *
+   * Both run through the scan gate: a filter or a sort over `data`, and the
+   * count, read the whole collection, and the gate keeps two connections free
+   * for writes however many of these arrive.
    */
   async list(
     scope: Scope,
@@ -148,29 +165,31 @@ export class PgEntryStore {
     const limit = query.limit > 0 ? Math.floor(query.limit) : PgEntryStore.FallbackLimit;
     const offset = Math.max(Math.floor(query.offset) || 0, 0);
 
-    const rows = await this.connection.query(
-      `SELECT (SELECT count(*) FROM ${this.tables.entries} WHERE ${where}) AS total,
-              ${PgRowMapper.Columns}
-       FROM ${this.tables.entries}
-       WHERE ${where}
-       ORDER BY ${order}
-       LIMIT ${limit} OFFSET ${offset}`,
-      params.values
-    );
-
-    let total = rows.length > 0 ? Number(rows[0].total) : 0;
-    if (rows.length === 0 && offset > 0) {
-      const [counted] = await this.connection.query<{ total: string }>(
-        `SELECT count(*) AS total FROM ${this.tables.entries} WHERE ${where}`,
+    return this.scans.run(async () => {
+      const rows = await this.connection.query(
+        `SELECT (SELECT count(*) FROM ${this.tables.entries} WHERE ${where}) AS total,
+                ${PgRowMapper.Columns}
+         FROM ${this.tables.entries}
+         WHERE ${where}
+         ORDER BY ${order}
+         LIMIT ${limit} OFFSET ${offset}`,
         params.values
       );
-      total = Number(counted.total);
-    }
 
-    return {
-      items: rows.map((row) => PgRowMapper.toScopedEntry(row, scope, collection)),
-      total,
-    };
+      let total = rows.length > 0 ? Number(rows[0].total) : 0;
+      if (rows.length === 0 && offset > 0) {
+        const [counted] = await this.connection.query<{ total: string }>(
+          `SELECT count(*) AS total FROM ${this.tables.entries} WHERE ${where}`,
+          params.values
+        );
+        total = Number(counted.total);
+      }
+
+      return {
+        items: rows.map((row) => PgRowMapper.toScopedEntry(row, scope, collection)),
+        total,
+      };
+    });
   }
 
   /** Collection **names** that hold at least one entry, in codepoint order. */

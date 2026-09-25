@@ -1,7 +1,7 @@
 import { ValidationError } from "@silo/shared/validation-error";
 import { ConflictError } from "../../../core/errors/conflict-error";
 import { NotFoundError } from "../../../core/errors/not-found-error";
-import { StorageBusyError } from "../../../core/errors/storage-busy-error";
+import { PgUnavailableError } from "./pg-unavailable-error";
 
 /**
  * A driver error, as the error the rest of silo already answers.
@@ -12,28 +12,28 @@ import { StorageBusyError } from "../../../core/errors/storage-busy-error";
  * for a bug in the SQL (docs/design/storage.md §6.6).
  */
 export class PgErrorMap {
-  /** Bun's labels for a connection that is gone or never came up. */
+  /**
+   * Bun's labels for a connection that broke. `EXPECTED_REQUEST` is what a
+   * statement inside a transaction sees when its backend is killed.
+   */
   private static readonly ConnectionLost = new Set([
     "ERR_POSTGRES_CONNECTION_CLOSED",
     "ERR_POSTGRES_CONNECTION_TIMEOUT",
     "ERR_POSTGRES_IDLE_TIMEOUT",
     "ERR_POSTGRES_LIFETIME_TIMEOUT",
+    "ERR_POSTGRES_EXPECTED_REQUEST",
   ]);
 
-  /**
-   * SQLSTATEs that say "not now" rather than "no": a statement timeout, too
-   * many connections, a server shutting down, a serialization failure or a
-   * deadlock. Each is a 503 with a retry hint.
-   */
-  private static readonly Unavailable = new Set([
-    "57014",
-    "53300",
-    "57P01",
-    "57P02",
-    "57P03",
-    "40001",
-    "40P01",
-  ]);
+  /** SQLSTATEs that say "not now" rather than "no", by what may be done about it. */
+  private static readonly States: Record<string, PgUnavailableError["failure"]> = {
+    "57014": "busy", // statement timeout
+    "53300": "busy", // too many connections
+    "57P01": "connection", // admin shutdown, or pg_terminate_backend
+    "57P02": "connection", // crash shutdown
+    "57P03": "unreachable", // the server is starting up
+    "40001": "contention", // serialization failure
+    "40P01": "contention", // deadlock
+  };
 
   static translate(error: unknown): unknown {
     if (!PgErrorMap.isDriverError(error)) return error;
@@ -48,14 +48,24 @@ export class PgErrorMap {
     if (state === "22021" || state === "22P05") {
       return new ValidationError("the request holds a NUL character, which storage cannot hold");
     }
-    if (
-      PgErrorMap.Unavailable.has(state) ||
-      state.startsWith("08") ||
-      PgErrorMap.ConnectionLost.has(PgErrorMap.label(error))
-    ) {
-      return new StorageBusyError("storage is unavailable; retry shortly");
-    }
+
+    const failure = PgErrorMap.failure(error, state);
+    if (failure) return new PgUnavailableError(PgErrorMap.describe(failure), failure);
     return error;
+  }
+
+  /** Why storage is unavailable, or null when this is not that kind of error. */
+  private static failure(error: Error, state: string): PgUnavailableError["failure"] | null {
+    const label = PgErrorMap.label(error);
+    if (label === "ERR_POSTGRES_CONNECTION_REFUSED") return "unreachable";
+    if (PgErrorMap.ConnectionLost.has(label) || state.startsWith("08")) return "connection";
+    return Object.hasOwn(PgErrorMap.States, state) ? PgErrorMap.States[state] : null;
+  }
+
+  private static describe(failure: PgUnavailableError["failure"]): string {
+    if (failure === "busy") return "storage is busy; retry shortly";
+    if (failure === "unreachable") return "storage cannot be reached; retry shortly";
+    return "storage is unavailable; retry shortly";
   }
 
   /** True for an error the driver raised, which is the only kind translated. */

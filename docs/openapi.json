@@ -4907,9 +4907,10 @@
                 "type": "string",
                 "enum": [
                     "fts5",
+                    "postgres",
                     "scan"
                 ],
-                "description": "`scan` means there is no index, so the answer may be truncated."
+                "description": "`fts5` is SQLite's index and `postgres` is Postgres's text search; ranks differ between them. `scan` means there is no index, so the answer may be truncated."
             },
             "SearchSnippet": {
                 "type": "object",
@@ -5856,6 +5857,10 @@
                     "readOnly": {
                         "type": "boolean"
                     },
+                    "secret": {
+                        "type": "boolean",
+                        "description": "Never reported in full. The section's `file` and `in_force` carry it redacted: a URL keeps its host, port, database and user, with the password and any credential in its query string replaced by `*****`; any other value is `*****`."
+                    },
                     "min": {
                         "type": "number"
                     },
@@ -6717,8 +6722,93 @@
                                         "type": "null"
                                     }
                                 ]
+                            },
+                            "database": {
+                                "description": "The store's own report when it lives in a database (`postgres`), sampled with the directories; `null` for `sqlite` and `fs`, and until the first sample.",
+                                "oneOf": [
+                                    {
+                                        "$ref": "#/components/schemas/StorageMeasurement"
+                                    },
+                                    {
+                                        "type": "null"
+                                    }
+                                ]
                             }
                         }
+                    }
+                }
+            },
+            "StorageMeasurement": {
+                "type": "object",
+                "required": [
+                    "bytes",
+                    "pool",
+                    "owner"
+                ],
+                "properties": {
+                    "bytes": {
+                        "description": "What silo's tables and their indexes take, or `null` when it could not be read.",
+                        "oneOf": [
+                            {
+                                "type": "integer"
+                            },
+                            {
+                                "type": "null"
+                            }
+                        ]
+                    },
+                    "pool": {
+                        "oneOf": [
+                            {
+                                "type": "object",
+                                "properties": {
+                                    "size": {
+                                        "type": "integer"
+                                    },
+                                    "in_use": {
+                                        "type": "integer"
+                                    },
+                                    "scans_active": {
+                                        "type": "integer"
+                                    },
+                                    "scans_waiting": {
+                                        "type": "integer"
+                                    },
+                                    "shed": {
+                                        "type": "integer",
+                                        "description": "Lists and searches refused as `503 busy` since the start."
+                                    },
+                                    "retries": {
+                                        "type": "integer",
+                                        "description": "Statements and transactions run again since the start."
+                                    },
+                                    "failures": {
+                                        "type": "integer",
+                                        "description": "Calls that failed as unavailable since the start."
+                                    }
+                                }
+                            },
+                            {
+                                "type": "null"
+                            }
+                        ]
+                    },
+                    "owner": {
+                        "description": "Whether this server holds the store's owner lock: `held`; `retaking` while its connection is replaced, when writes answer 503; `lost` when another server took it and this one is stopping; `not_claimed` for a process that is not a server.",
+                        "oneOf": [
+                            {
+                                "type": "string",
+                                "enum": [
+                                    "held",
+                                    "retaking",
+                                    "lost",
+                                    "not_claimed"
+                                ]
+                            },
+                            {
+                                "type": "null"
+                            }
+                        ]
                     }
                 }
             },

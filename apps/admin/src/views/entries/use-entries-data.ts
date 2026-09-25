@@ -13,7 +13,7 @@ export interface EntriesDataState {
   snippets: Record<string, SearchSnippet[]>
   total: number
   truncated: boolean
-  engine: 'fts5' | 'scan' | null
+  engine: 'fts5' | 'postgres' | 'scan' | null
   error: string
   loading: boolean
   reload: () => Promise<void>

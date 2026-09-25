@@ -84,8 +84,15 @@ max_extracted_size_mb = ${config.transfer.max_extracted_size_mb}  # what it may 
 # A file named on the command line is not held to either; raise both to copy a large instance.
 
 [storage]
-driver = ${s(config.storage.driver)}       # "sqlite" (indexed, fast) | "fs" (plain JSON files, git/rsync friendly)
-path   = ${s(config.storage.path)}  # data dir; the sqlite database lives at <path>/silo.db
+driver = ${s(config.storage.driver)}       # "sqlite" (indexed, fast) | "fs" (plain JSON files, git/rsync friendly) | "postgres"
+path   = ${s(config.storage.path)}  # data dir; the sqlite database lives at <path>/silo.db. With postgres it still holds logs, plugins and fs media.
+#
+# postgres driver:
+# url    = "postgres://silo@db.example.com:5432/silo"  # prefer SILO_STORAGE_URL: it may carry the password
+# schema = "silo"            # silo's tables live here; one server owns a schema at a time
+# pool_size = 10             # connections; two are kept free for writes
+# statement_timeout = 30     # seconds; a slower query answers 503. 0 = no limit
+# startup_wait = 60          # seconds a start keeps retrying an unreachable server
 
 [blob_storage]
 driver = ${s(config.blob_storage.driver)}           # "fs" (local directory) | "s3" (S3 or S3-compatible)

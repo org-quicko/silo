@@ -622,18 +622,61 @@ three Postgres choices:
   admin form's field order;
 - `rev` and `seq` are `bigint`, which the driver returns as strings.
 
-There is no search table yet: the store is a plain `Storage`, so the runtime
-answers search with `ScanSearcher` and `DerivedIndex.search` is not stored.
-`PgSearcher` over `tsvector` adds it, with its own stamp, as SQLite's
-`SearchIndex` does.
+**Search is `PgSearcher` (D95)**, an `IndexedStorage` engine like FTS5, over
+one more table, `entry_search`, keyed like `media_references` and cascading
+from `entries`. Its row is written inside `put`'s transaction from
+`DerivedIndex.search`, so an entry and its index row land together; system
+data is refused there as well as by the caller.
+
+- **`unicode61` is a hand-written `tsvector`** (`PgSearchDocument`): the
+  terms `SearchTokens.tokenize` gives — folded, split on anything not a letter
+  or a number, never stemmed — each with its positions, the label's weight A
+  and the body's B. Not `to_tsvector`: Postgres's parser keeps a URL, an
+  e-mail address or `e-mail` whole and would need a configuration chosen to
+  stem nothing, a second tokenizer to keep in step with the first. The query
+  is a hand-written `tsquery` from the same `SearchTokens.parseQuery` — every
+  term required, the last a prefix (`:*`) — so a user typing `not` searches
+  for "not", and no configuration can read the two sides differently. A term
+  longer than a lexeme's 2047 bytes is left out of the index, and a query
+  holding one matches nothing.
+- **Ranking** is `ts_rank_cd` with weights `{0, 0, 0.1, 1}`, the 10:1 label to
+  body that bm25 and the scan use (measured: 1.0 for a label hit, 0.1 for a
+  body one). It is not FTS5's score, and the tests compare which entries come
+  back and that a label hit ranks first, never scores.
+- **`trigram` is `pg_trgm`**: the folded label and body are stored as text,
+  with a GIN `gin_trgm_ops` index on each, and every term must be a substring
+  of one of them (`LIKE '%term%'`; a term under three characters is still
+  answered, by scanning). A label match counts 10 and a body match 1. Folding
+  both sides makes `cafe` find `Café`, which SQLite's `trigram` tokenizer does
+  not do. Without the extension the store refuses to open and names the
+  `CREATE EXTENSION`, rather than install one into the operator's database
+  unasked; the operator class is qualified with the extension's own schema.
+- **The stamp** is `postgres-<engine>:<SearchText.Version>:<tokenizer>` in
+  `meta`. A moved stamp drops and recreates the table under the DDL lock, and
+  the store reports a rebuild due whenever nothing is indexed while a user
+  collection holds entries — which `SiloRuntime` runs before the bind, as it
+  does for FTS5. Search off clears the stamp and drops nothing, for the reason
+  `SearchIndex.disable` gives.
+- **The query** joins the index row to its entry and to the three record
+  tables through renamed subqueries (`SqliteSearcher.Joins` explains why), and
+  takes the access plan in the same statement through `ClaimSegment.postgres`,
+  which is `ClaimSegment.sql` with numbered placeholders and `starts_with`
+  for a prefix (Postgres has no `GLOB`; `LIKE` would read an id's `_` as a
+  wildcard). Page and total are one statement, as in `list`, and a search takes
+  a scan slot like one.
+- **`reindex`** pages each collection through the store and writes 200 rows
+  per statement from one JSON parameter, skipping a row whose entry went since
+  the page was read. **`check`** reports rows missing their tokenizer's text,
+  and the two anti-joins `SqliteSearcher.check` runs.
 
 **Every table is qualified in the SQL** (`"silo"."entries"`), never reached
 through `search_path`, so no statement depends on session state that a pooler
 in transaction mode would not carry between transactions. The schema name's
 grammar is what makes splicing it safe.
 
-**Opening** checks the server (14 or later, for
-`client_connection_check_interval`), then runs one transaction that takes
+**Opening** checks the server — 14 or later, since 13 and older are past their
+end of life — waiting up to `[storage] startup_wait` (60 s) for one that is not
+there yet (`PgStartup`, below), then runs one transaction that takes
 `pg_advisory_xact_lock(hashtext('silo.ddl'), hashtext(<schema>))`, guards the
 format, creates what is missing and seeds `meta` and the `_system` records.
 The lock is there because `CREATE ... IF NOT EXISTS` is not safe against a
@@ -663,8 +706,11 @@ from the P0 measurements:
   between the lookup and the write) and a `ConflictError` on delete, `22021`
   and `22P05` (a NUL) a `ValidationError`, and a timeout, a full server, a
   shutdown, a serialization failure, a deadlock or a lost connection a
-  `StorageBusyError` — `503` with `Retry-After`. Anything else stays a 500.
-  SQLite lets a raw constraint race through as a 500; this does not copy that.
+  `PgUnavailableError` — a `StorageBusyError`, so `503` with `Retry-After`,
+  that also says why (`connection`, `contention`, `unreachable`, `busy`,
+  `unknown`), which is what the retry rules below read. Anything else stays a
+  500. SQLite lets a raw constraint race through as a 500; this does not copy
+  that.
 
 **Transactions** are one `sql.begin` per port method, and nothing but that
 method's own statements is awaited inside one. `put` takes the next `seq` from
@@ -726,15 +772,89 @@ wrong with nothing noticing. `PgStore.claimOwnership` takes
 connection of its own, outside the pool — a session lock belongs to its
 connection, and a pooled one would hand it to whatever ran there next — and
 refuses at once, naming the schema, when another server holds it. Another
-schema in the same database has an owner of its own. `close` releases it
-before the pool. Noticing a lost lock connection (the heartbeat), wiring the
-claim into `serve`, the pool and timeout settings, retries and the `[storage]`
-keys are P3.
+schema in the same database has an owner of its own.
+
+The store offers this as `OwnedStorage`, an optional capability like
+`IndexedStorage`, and `SiloRuntime.open` claims it for `serve` straight after
+opening storage — before the resume of a pending rename, which writes — while
+one-shot commands (`keys`, `export`, …) take no lock, as they take no run file.
+Losing the lock's connection loses the lock, so a heartbeat runs `SELECT 1` on
+it every ten seconds. When that fails, every write is refused as `503` while
+the lock is taken again on a new connection; if another server took it in
+between, `lost` is called, `serve` logs it and shuts down with exit 1, and the
+store refuses writes until it does. A write can still land in the window
+between the connection breaking and the next beat, at most ten seconds; that
+is the window this design accepts rather than asking the lock on every write.
+
+**Connections** (`[storage]`, seconds, `0` for no limit): `pool_size` (10),
+`connect_timeout` (10), `startup_wait` (60), `idle_timeout` (60, under most
+proxies' and serverless databases' own cut-off), `max_lifetime` (1800, so a
+failover or a DNS change is picked up), `statement_timeout` (30) and
+`idle_in_transaction_timeout` (60). The last two are startup parameters, so
+the server enforces them. `url` has no default and is a `secret` field: the
+settings API reports it with the password masked (`ConfigSecrets`), and
+`SILO_STORAGE_URL` is the place to put it.
+
+- **No `client_connection_check_interval`.** It would end a query whose
+  client has gone, but a Windows server refuses it at connect ("must be set to
+  0 on this platform"), and Bun then raises the refusal as an unhandled
+  rejection, which would take `serve` down. `statement_timeout` bounds such a
+  query instead.
+- **Waiting at startup** (`PgStartup`): a refused connection, an unknown host,
+  a server still starting (`57P03`) or one with no connection to spare is
+  retried with backoff (250 ms doubling to 5 s) until `startup_wait` runs out,
+  and the error then names the host, never the URL. A wrong password or a
+  missing database is refused at once.
+- **Retries** (`PgConnection`), at most three, jittered from about 50 ms. A
+  `SELECT` whose connection broke is run again. A transaction is run again
+  from the start when its connection broke before its `work` had finished, or
+  on a serialization failure or a deadlock, both of which the server rolled
+  back — so every transaction's `work` must be safe to repeat, which the
+  upserts, `ON CONFLICT DO NOTHING` creates and the counter row already make
+  it. A connection lost *while a commit is in flight* is never retried: the
+  write may have landed, so it is a `503` that says to read before trying
+  again. A single-statement write outside a transaction is not retried, so the
+  entry delete and the project create run in one to get the rule. After a
+  backend is killed the pool heals on the next statement, which P0 measured
+  and a test pins.
+- **Scans leave room for writes** (`PgScanGate`). Every `list` — its page and
+  its count read the whole collection — takes one of `pool_size - 2` slots
+  (at least one). Up to 64 more wait, and the next is refused as `503 busy`,
+  so a flood of slow filters degrades listing and search and nothing else,
+  which is D81's promise on SQLite kept without a thread: a query here does not
+  block the JS thread. A test holds the only slot and shows a write landing
+  while a second list is shed.
+- **Shutdown fits `serve`'s five-second exit.** Bun's own `close` drops
+  statements in flight (measured: a 250 ms query cut at 0 ms), so
+  `PgConnection.close` refuses new work, waits up to four seconds for the work
+  already running, then closes. `PgStore.close` refuses the queued scans
+  first, and gives the owner lock up **after** the pool is closed, so no write
+  of this server's can land once another server has the lock.
+- **Observability.** The store is `MeasuredStorage` too: `GET
+  /api/observability` carries `storage.database` — the bytes silo's tables
+  take, the pool's in-use, waiting, shed, retry and failure counts, and the
+  owner lock's state — sampled on the same thirty-second cache as the
+  directory walk. It is `null` for `sqlite` and `fs`.
+
+A pooler in transaction mode cannot keep a session lock, so PgBouncer needs
+session mode, and it refuses the two timeout parameters unless they are in its
+`ignore_startup_parameters` (then set them on the role). That setup is not
+tested yet.
 
 **Testing.** `SILO_TEST_PG_URL` names a database; unset, the Postgres tests
 are skipped and say so. Every test gets a `silo_test_<ulid>` schema and drops
 it, and a close test checks `pg_stat_activity` holds no session with the
-store's `application_name` afterwards. Two things were found on the way: the
+store's `application_name` afterwards. `postgres-connections.test.ts` does the
+damage for real, on sessions named for the test alone: a killed backend
+inside a transaction and under an idle pool, a raised `40001`, a statement
+past its timeout, an unreachable port and a wrong password at startup, a
+drained and a cut-off close, a held scan slot, a killed owner connection taken
+back by the heartbeat, a rival that takes the lock first, and `serve` refusing
+a second server. `postgres-search.test.ts` holds the engine to what
+`sqlite-search.test.ts` holds FTS5 to; its trigram half installs `pg_trgm`
+into a schema of its own when the database lacks it, and drops that schema
+afterwards, so the database is left as it was found. Two things were found on
+the way: the
 conformance context now closes its last store in an `afterAll`, since an open
 pool keeps the test process alive after the last test; and Bun 1.4.2's
 `expect(...).rejects` crashed the runner (a segfault, or a spin at full CPU)

@@ -289,9 +289,10 @@ declarations applied here: nothing has been said, so nothing may be assumed.
 
 ### 13.7 Providers, and the built-ins
 
-`SqliteStore`, `FsStore`, `FsBlobStorage` and `S3BlobStorage` register through
-the same registry under **reserved names** (`sqlite`, `fs`, `s3`) that no plugin
-may shadow, while staying compiled into the binary. `[storage] driver` and
+`SqliteStore`, `FsStore`, `PgStore`, `FsBlobStorage` and `S3BlobStorage`
+register through the same registry under **reserved names** (`sqlite`, `fs`,
+`postgres`, `s3`) that no plugin may shadow, while staying compiled into the
+binary. `[storage] driver` and
 `[blob_storage] driver` become registry lookups.
 
 **A provider is a contribution, not a kind of package** (D36). One package may

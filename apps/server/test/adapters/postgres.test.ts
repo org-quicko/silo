@@ -6,6 +6,7 @@ import { EntryUtils } from "../../src/core/domain/entry-utils";
 import { Scope } from "../../src/core/domain/scope";
 import { SystemCollections } from "../../src/core/domain/system-collections";
 import { FormatVersion } from "../../src/core/transfer/format-version";
+import { AsyncChecks } from "./support/async-checks";
 import { PgTestDatabase } from "./support/pg-test-database";
 
 const url = PgTestDatabase.url();
@@ -17,22 +18,6 @@ async function openFresh(options: { schema?: string; applicationName?: string } 
     url: url!,
     schema: options.schema ?? PgTestDatabase.freshSchema(),
   });
-}
-
-/**
- * The message `pending` rejects with; fails the test if it resolves.
- *
- * In place of `expect(...).rejects`, which crashed Bun 1.4.2 on Windows
- * (a segfault, or a spin at full CPU) when it awaited a refused
- * `PgStore.open` after the conformance run. See docs/context/code-design.md.
- */
-async function refusal(pending: Promise<unknown>): Promise<string> {
-  try {
-    await pending;
-  } catch (error) {
-    return error instanceof Error ? error.message : String(error);
-  }
-  throw new Error("expected a refusal, but it succeeded");
 }
 
 async function dispose(...stores: PgStore[]): Promise<void> {
@@ -74,7 +59,7 @@ if (!url) {
         sql.unsafe(`UPDATE "${store.schema}".meta SET value = '0' WHERE key = 'format_version'`)
       );
       try {
-        expect(await refusal(openFresh({ schema: store.schema }))).toMatch(/format_version "0"/);
+        expect(await AsyncChecks.refusal(openFresh({ schema: store.schema }))).toMatch(/format_version "0"/);
       } finally {
         await PgTestDatabase.drop(store.schema);
       }
@@ -89,14 +74,14 @@ if (!url) {
         await sql.unsafe(`CREATE TABLE "${schema}".entries (id integer)`);
       });
       try {
-        expect(await refusal(openFresh({ schema }))).toMatch(/"entries" that silo did not create/);
+        expect(await AsyncChecks.refusal(openFresh({ schema }))).toMatch(/"entries" that silo did not create/);
       } finally {
         await PgTestDatabase.drop(schema);
       }
     });
 
     test("refuses a schema name that would need quoting", async () => {
-      expect(await refusal(openFresh({ schema: "Silo-Data" }))).toMatch(
+      expect(await AsyncChecks.refusal(openFresh({ schema: "Silo-Data" }))).toMatch(
         /invalid Postgres schema name/
       );
     });
@@ -157,7 +142,7 @@ if (!url) {
         await store.put(entry("a"), { usages: [], search: null });
         await store.delete(Scope.Default, "posts", "a");
         await store.deleteSchema(Scope.Default, "posts");
-        expect(await refusal(store.put(entry("b"), { usages: [], search: null }))).toMatch(
+        expect(await AsyncChecks.refusal(store.put(entry("b"), { usages: [], search: null }))).toMatch(
           /not found/
         );
       } finally {
@@ -172,7 +157,7 @@ if (!url) {
       const rival = await openFresh({ schema: owner.schema });
       try {
         await owner.claimOwnership();
-        expect(await refusal(rival.claimOwnership())).toMatch(/already owns Postgres schema/);
+        expect(await AsyncChecks.refusal(rival.claimOwnership())).toMatch(/already owns Postgres schema/);
       } finally {
         await dispose(owner, rival);
       }

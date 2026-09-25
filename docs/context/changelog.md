@@ -4,6 +4,26 @@
 > The *current* state is [CONTEXT.md](../../CONTEXT.md); this is how it got
 > there.
 
+- **Postgres search (2026-09-25, D95).** `PgSearcher` answers search on the
+  `postgres` driver from an `entry_search` table written inside `put`: a
+  hand-built `tsvector` from `SearchTokens` under `unicode61`, `pg_trgm`
+  substrings under `trigram` (refused without the extension), ranked 10:1
+  label to body, with a stamp that forces a rebuild. `SearchEngine` gains
+  `postgres` (API, `openapi.json`, admin), `ClaimSegment.postgres` joins
+  `ClaimSegment.sql`, and `SearchText.Version` is the extractor version both
+  engines stamp.
+
+- **Postgres is selectable, and survives a misbehaving database (2026-09-25,
+  D94).** `[storage] driver = "postgres"` with `url` (masked by the settings
+  API through a new `secret` field flag), `schema`, `pool_size` and six
+  timeouts. Startup waits for a server that is not up yet; broken connections
+  and serialization failures are retried when nothing can have committed; lists
+  are gated so writes keep two connections; close drains inside `serve`'s exit;
+  `serve` claims the owner lock through the new `OwnedStorage` capability and a
+  heartbeat retakes or gives it up; `GET /api/observability` gains
+  `storage.database` through `MeasuredStorage`. `postgres` joins the reserved
+  driver names, in `create-silo-plugin` too.
+
 - **Postgres adapter core (2026-09-25, D93).** `PgStore` passes the
   conformance suite against a real Postgres: silo's tables in one schema,
   hand-written SQL behind `PgConnection`, DDL under an advisory lock, a

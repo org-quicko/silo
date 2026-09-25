@@ -11,7 +11,7 @@ export interface EntriesPage {
   snippets: Record<string, SearchSnippet[]>
   total: number
   truncated: boolean
-  engine: 'fts5' | 'scan' | null
+  engine: 'fts5' | 'postgres' | 'scan' | null
 }
 
 /** Everything that decides which answer the table is showing. Serialized whole
