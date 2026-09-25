@@ -50,9 +50,23 @@
 ## Tests
 
 - `apps/server/test/` mirrors `apps/server/src/`, one directory per subject.
-- `apps/server/test/conformance/` is the `Storage` port's contract: both
-  adapters run the same suites, because a port with two implementations is only
-  a port if both answer the same questions the same way.
+- `apps/server/test/conformance/` is the `Storage` port's contract: every
+  adapter runs the same suites, because a port with several implementations is
+  only a port if they all answer the same questions the same way.
+- **The Postgres tests need `SILO_TEST_PG_URL`** (a `postgres://` URL to a
+  database the role may create schemas in). Unset, `postgres.test.ts` is
+  skipped and says so. Each test opens a store on a `silo_test_<ulid>` schema
+  and drops it, so a run leaves the database as it found it; a killed run can
+  leave some behind, safe to drop by that prefix. A pooled store keeps the
+  process alive until it is closed, so a test must close every store it opens —
+  the conformance context closes its last one in an `afterAll`.
+- **Take a Postgres rejection with `try`/`catch`, not `expect(...).rejects`.**
+  Under Bun 1.4.2 on Windows, `.rejects` awaiting a refused `PgStore.open` after
+  the conformance run crashed the runner — a segfault, or a spin at full CPU
+  with every connection closed — while the same code in a plain script, looped
+  forty times, did not. `refusal()` in `postgres.test.ts` is the pattern. The
+  conformance suites' own `.rejects` calls are unaffected so far; the trigger
+  was a rejection that had rolled back a transaction and closed its pool.
 - UI tests sit beside the source they cover, as `*.test.ts`.
 - White-box tests that reach into a private do so deliberately and say so.
 - `Response.json()` answers `unknown`. A test that reads fields off a body

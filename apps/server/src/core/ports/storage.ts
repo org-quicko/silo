@@ -11,9 +11,9 @@ import type { DerivedIndex } from "./derived-index";
 /**
  * Where entries, schemas and scopes live.
  *
- * Two adapters implement this — SQLite and the filesystem — and the
- * conformance suite is the contract: both must answer every question the same
- * way. See `docs/design/storage.md` for the rules behind the shape, including
+ * Three adapters implement this — SQLite, the filesystem and Postgres — and
+ * the conformance suite is the contract: each must answer every question the
+ * same way. See `docs/design/storage.md` for the rules behind the shape, including
  * record existence (D51, superseding D20), the path-segment contract, why
  * `derived` is required rather than optional, and the query semantics and
  * portable data every adapter shares (D92).

@@ -104,7 +104,10 @@ assumption true, and since D82 it decides by identity rather than by pid alone
 — a record naming this process, or written in another boot, or unrefreshed for
 two minutes, is a dead server's — because the 2026-09-18 audit showed the pid
 check refusing every restart of a crashed Docker instance, where the server is
-pid 1 each time and so always found "itself" alive.
+pid 1 each time and so always found "itself" alive. A database is not a
+directory, so the Postgres adapter adds the same guarantee where its data
+lives: an owner lock per schema (§6.6), because two servers with two data
+directories can point at one database and `RunFile` would pass both.
 
 Rules for all adapters: single-writer semantics per entry, atomic writes (no torn entries observable), `List` results stable-ordered (sort keys, then `id`), the **record existence rule of D51** — a project, environment or collection exists exactly when its record does, superseding D20's "created explicitly *or* still holding content"; a scope reported by one adapter and not the other is a portability bug, since `Exporter` enumerates `listScopes()` — and **`project`/`env`/`collection`/`id` validated as safe path segments** (`EntryUtils.assertSafeSegment`: non-empty, not `.`/`..`, no `/`, `\`, or NUL, ≤255 bytes) on every entry call. That last rule is a port contract rather than one adapter's local defense: the fs adapter turns these values into a path, so an unvalidated `id` from an import archive could otherwise plant an entry outside its scope or outside the data dir entirely — and a cap the fs adapter can't honor would let SQLite accept what fs rejects mid-write with `ENAMETOOLONG`. Both adapters therefore reject the same values, and the conformance suite pins that. Since D18, `$ref`/`$defs` resolution, the compiled-validator cache, and referrer checks (§9) are likewise scoped — the same collection name in two scopes never shares a validator or resolves a ref against the other's schemas.
 
@@ -116,7 +119,6 @@ Rules for all adapters: single-writer semantics per entry, atomic writes (no tor
 - **An entry is created once.** An overwrite keeps the stored `created_at` and takes the caller's `updated_at`, which is what SQLite's upsert always did.
 - **Entry data must be portable.** A NUL character or an unpaired surrogate, in any key or value, is refused (`PortableData`), and `assertSafeSegment` refuses an unpaired surrogate too. Postgres's jsonb stores neither, and a rule one adapter enforced alone would be a divergence of exactly this kind. It is checked twice: in `SchemaValidator.validateEntry`, so an API write answers `400` and an import counts a rejection rather than aborting, and in every adapter's `put`, since system writes never reach the validator.
 - **`close()` may be called twice.** `keys`, `export` and `import` close the store they were handed, and the runtime closes it again on the way out.
-- **Key order inside `data` is not part of the contract (D93).** An adapter may keep the order a field was written in, as SQLite and fs do, or its own, as `jsonb` does. The order a reader sees is decided above the port, where an entry leaves silo (`SchemaOrder`, §5.1), so the conformance suite compares `data` by value and never by key order.
 
 **Native search is a capability the store offers, not a class the runtime knows (D92).** `IndexedStorage` — `createSearcher()`, `needsSearchRebuild()`, `searchRebuilt()` — is what a store implements when it keeps a search index inside its own writes (D30), and the runtime finds it by asking the store rather than with `instanceof SqliteStore`. It is not on `Storage` itself because the provider scaffold stubs every port method as an `async` function that throws, and these three are called at startup; left off the port, a scaffolded provider is searched by `ScanSearcher` until it chooses otherwise. `Searcher.check()` is async, since an index in another process can only be checked with a query.
 
@@ -597,3 +599,145 @@ folders into the bucket was considered and refused: S3 has no rename, so a move
 would become a copy-and-delete of the bytes and would break every URL already
 published for that file — the two costs D23 was written to avoid, in exchange
 for a bucket listing that reads more tidily in a console.
+
+### 6.6 Postgres adapter (D93)
+
+`PgStore` (`adapters/storage/postgres/`) keeps silo's tables in one schema of
+one database — `silo` by default, any name matching `[a-z_][a-z0-9_]{0,62}` —
+and passes the same conformance suite as the other two. It is split per table
+the way the SQLite adapter is, and the SQL is written by hand behind one
+connection file rather than through a query builder or an ORM: the hard part is
+the filter compiler, which neither Kysely nor Drizzle models, and both bind a
+JavaScript object as a `jsonb` parameter, which is the P0 trap below.
+
+**The tables are §6.2's**, with the composite keys and cascades unchanged, and
+three Postgres choices:
+
+- every text column is `COLLATE "C"`, so names, ids and timestamps compare and
+  sort by codepoint whatever the database's locale (D92; the test database's
+  default, `English_India.utf8`, sorts `a` before `B` and U+FFFD first), and
+  the `(collection_id, id)` primary key serves `ORDER BY id`;
+- `data` is `jsonb`, the fastest form to store and query, and `schema` is
+  `text`, so it comes back byte for byte: the order of its `properties` is the
+  admin form's field order;
+- `rev` and `seq` are `bigint`, which the driver returns as strings.
+
+There is no search table yet: the store is a plain `Storage`, so the runtime
+answers search with `ScanSearcher` and `DerivedIndex.search` is not stored.
+`PgSearcher` over `tsvector` adds it, with its own stamp, as SQLite's
+`SearchIndex` does.
+
+**Every table is qualified in the SQL** (`"silo"."entries"`), never reached
+through `search_path`, so no statement depends on session state that a pooler
+in transaction mode would not carry between transactions. The schema name's
+grammar is what makes splicing it safe.
+
+**Opening** checks the server (14 or later, for
+`client_connection_check_interval`), then runs one transaction that takes
+`pg_advisory_xact_lock(hashtext('silo.ddl'), hashtext(<schema>))`, guards the
+format, creates what is missing and seeds `meta` and the `_system` records.
+The lock is there because `CREATE ... IF NOT EXISTS` is not safe against a
+concurrent create — two first starts would race on a catalog unique index —
+and a test opens two stores on one empty schema at once to pin it. The schema
+is created only when absent, so a role without `CREATE` on the database can
+use one a DBA made. The guard is stricter than SQLite's in one way: a table
+with one of silo's names in a schema with no `format_version` stamp is refused,
+because the schema may be shared with another application and `CREATE TABLE IF
+NOT EXISTS` would otherwise adopt its table. The system records are seeded on
+every open, so a collection a newer binary reserves reaches an existing schema.
+
+**The driver's rules live in `PgConnection`**, the only file that imports it,
+from the P0 measurements:
+
+- `prepare: false`, because Bun otherwise keeps every distinct statement text
+  prepared on its session (102 after 100 shapes) and a compiled filter has a
+  new text nearly every call;
+- parameters are only strings, numbers, booleans and null. JSON goes in as
+  text cast in SQL (`$1::text::jsonb`): with prepared statements a string cast
+  with `::jsonb` alone is stored as a jsonb *string*, and an object parameter
+  is refused. A list goes in as one JSON array read back with
+  `jsonb_array_elements_text`, so no value depends on how the driver
+  serialises a composite and a page of any size is one fixed statement text;
+- every error leaves through `PgErrorMap`, by SQLSTATE: `23505` is a
+  `ConflictError`, `23503` a `NotFoundError` on insert (the collection went
+  between the lookup and the write) and a `ConflictError` on delete, `22021`
+  and `22P05` (a NUL) a `ValidationError`, and a timeout, a full server, a
+  shutdown, a serialization failure, a deadlock or a lost connection a
+  `StorageBusyError` — `503` with `Retry-After`. Anything else stays a 500.
+  SQLite lets a raw constraint race through as a 500; this does not copy that.
+
+**Transactions** are one `sql.begin` per port method, and nothing but that
+method's own statements is awaited inside one. `put` takes the next `seq` from
+the `meta` counter row with `UPDATE ... RETURNING`, not from a `SEQUENCE`: the
+row lock is held to commit, so the next writer waits, `seq` has no gaps and
+its order is commit order — which a change feed (D6) needs. Twenty concurrent
+`put`s take 1 to 20. The new `seq` is written onto the caller's entry after the
+commit, not before it. Record creates are `INSERT ... ON CONFLICT DO NOTHING`
+followed by a read, so two requests creating one name at once both get the one
+record rather than one of them a unique violation; a `putSchema` that loses
+that race becomes an update of the winner's record.
+
+**The name cache** is `SqliteScopeResolver`'s, with one addition, because a
+lookup here awaits: a record write can commit while a lookup is in flight, and
+the lookup would then cache the old answer after the write had cleared it. So
+`clear` also advances a generation, a lookup caches only if no clear happened
+while it ran, and record writes clear before and after (`invalidating`), which
+closes the gap between the commit and the second clear.
+
+**The compiler** answers what `SqliteCompiler` and `FsFilter` answer (D29,
+D92), and the conformance suite holds the three together:
+
+- a selected field is a `jsonb` expression, SQL NULL when the path selects
+  nothing, reached one step per selector — `-> $n::text` for a name and
+  `-> 3` for an index. `#>` takes both as text and would read key `"0"` of an
+  object for index 0, or element 0 of an array for a name `"0"`;
+- `eq` and `in` are `jsonb = jsonb`, which is type-strict by itself: `1` is not
+  `"1"` or `true`, and JSON null equals only JSON null;
+- every comparison and cast sits inside a `CASE` on `jsonb_typeof`, because SQL
+  fixes no evaluation order for `AND` and casting a string to `numeric` is an
+  error, not a false. Numbers bind as text cast to `numeric`, so
+  `0.30000000000000004` is not rounded through `float8`;
+- a wildcard is one `EXISTS` over `jsonb_array_elements` and `jsonb_each`, each
+  handed NULL for any other type by a `CASE` — both return no rows for NULL, so
+  a scalar, a missing path and an empty container select nothing;
+- sorts never use raw `jsonb`, whose type order is not `EntryNodes.compare`'s:
+  one key is a type rank and one value per sortable type, and within a rank
+  only one of the three values is non-null;
+- a value no stored node can hold matches nothing rather than being bound — a
+  non-finite number (`JSON.stringify` would bind it as `null`), `NaN` in a
+  range (it orders above everything in `numeric`), and a string `PortableData`
+  would refuse (the driver would turn a lone surrogate into U+FFFD and match
+  that). A range against such a string is a `ValidationError`, since "less
+  than a string no adapter stores" has no answer the other two share;
+- a leaf that compiles to `false` drops the parameters its path bound
+  (`PgParams.rewind`), because Postgres refuses a parameter the statement never
+  uses (`42P18`).
+
+**A page and its total are one statement**: the count is a scalar subquery
+beside the page, so both come from one snapshot in one round trip. The total is
+unknown only when the page is empty, and past the last page it is then asked
+for on its own.
+
+**One server owns a schema** (D25). `RunFile` guards a data directory, but two
+servers with different data directories can share a database, and the rev
+checks, the `seq` order, the name cache and the write lock would then all be
+wrong with nothing noticing. `PgStore.claimOwnership` takes
+`pg_try_advisory_lock(hashtext('silo.owner'), hashtext(<schema>))` on a
+connection of its own, outside the pool — a session lock belongs to its
+connection, and a pooled one would hand it to whatever ran there next — and
+refuses at once, naming the schema, when another server holds it. Another
+schema in the same database has an owner of its own. `close` releases it
+before the pool. Noticing a lost lock connection (the heartbeat), wiring the
+claim into `serve`, the pool and timeout settings, retries and the `[storage]`
+keys are P3.
+
+**Testing.** `SILO_TEST_PG_URL` names a database; unset, the Postgres tests
+are skipped and say so. Every test gets a `silo_test_<ulid>` schema and drops
+it, and a close test checks `pg_stat_activity` holds no session with the
+store's `application_name` afterwards. Two things were found on the way: the
+conformance context now closes its last store in an `afterAll`, since an open
+pool keeps the test process alive after the last test; and Bun 1.4.2's
+`expect(...).rejects` crashed the runner (a segfault, or a spin at full CPU)
+when it awaited a refused `PgStore.open` after the conformance run, so the
+Postgres-only tests take a rejection with a plain `try`/`catch`
+(docs/context/code-design.md, Tests).

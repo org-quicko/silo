@@ -4808,7 +4808,7 @@
             },
             "Entry": {
                 "type": "object",
-                "description": "The entry's own fields, plus the envelope. `rev` is in the response\nbecause `PUT` and `DELETE` require it back as `If-Match`; the rest of\nthe envelope — the collection, the sequence, the scope — stays hidden.\nFields come in the order the collection's schema declares them, at every\ndepth, then undeclared fields in codepoint order, on every storage driver\n(D93).\n",
+                "description": "The entry's own fields, plus the envelope. `rev` is in the response\nbecause `PUT` and `DELETE` require it back as `If-Match`; the rest of\nthe envelope — the collection, the sequence, the scope — stays hidden.\n",
                 "required": [
                     "id",
                     "rev",

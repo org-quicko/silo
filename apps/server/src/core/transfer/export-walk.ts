@@ -97,15 +97,11 @@ export class ExportWalk {
         `${directory}/schemas/.${record.name}${FsLayout.CollectionMarkerSuffix}`,
         ExportMarker.text(record.id, record.created_at)
       );
-      this.counts[`${scope.key()}/${record.name}`] = await this.writeEntries(
-        scope,
-        record.name,
-        record.schema
-      );
+      this.counts[`${scope.key()}/${record.name}`] = await this.writeEntries(scope, record.name);
     }
   }
 
-  private async writeEntries(scope: Scope, collection: string, schema: any): Promise<number> {
+  private async writeEntries(scope: Scope, collection: string): Promise<number> {
     let offset = 0;
     let count = 0;
     for (;;) {
@@ -119,7 +115,7 @@ export class ExportWalk {
       for (const entry of items) {
         await this.sink.text(
           ExportEntryFile.path(scope, collection, entry.id),
-          ExportEntryFile.text(entry, schema)
+          ExportEntryFile.text(entry)
         );
         for (const token of MediaRefs.extract(entry.data)) this.referenced.add(token);
         count++;

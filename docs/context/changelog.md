@@ -4,13 +4,13 @@
 > The *current* state is [CONTEXT.md](../../CONTEXT.md); this is how it got
 > there.
 
-- **Field order comes from the schema (2026-09-25, D93).** An entry's fields
-  leave the API and the archive in schema order, then undeclared fields in
-  codepoint order, at every depth (`SchemaOrder`, applied in
-  `EntryUtils.toApiResponse` and `ExportEntryFile`). Storage order stops being
-  part of the contract, so a Postgres store can use plain `jsonb`. Responses
-  on SQLite and fs change only where a client wrote fields in another order
-  than the schema's.
+- **Postgres adapter core (2026-09-25, D93).** `PgStore` passes the
+  conformance suite against a real Postgres: silo's tables in one schema,
+  hand-written SQL behind `PgConnection`, DDL under an advisory lock, a
+  stricter format guard, a gapless `seq` counter row, SQLSTATE error mapping
+  and a per-schema owner lock. Not reachable from `silo.toml` until P3. The
+  conformance context now closes its last store after the suite, since an
+  open pool kept the test process alive.
 
 - **The storage contract says one thing per query (2026-09-24, D92).** Ahead
   of a Postgres adapter, the places SQLite and fs disagreed are settled and
