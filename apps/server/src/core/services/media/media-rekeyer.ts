@@ -12,7 +12,7 @@ import type { MediaCatalogStore } from "./media-catalog-store";
  * `MediaReconciler`, and for the same reason: it reads the whole catalog and
  * repairs what it finds rather than running on a timer.
  *
- * See D88 in [IMPLEMENTATION.md](../../../../../../IMPLEMENTATION.md).
+ * See D88 in [docs/design/decisions.md](../../../../../../docs/design/decisions.md).
  */
 export class MediaRekeyer {
   private readonly context: ServiceContext;

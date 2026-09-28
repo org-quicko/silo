@@ -37,8 +37,8 @@ script.
 | `package.json` | Workspace root. Its `version` is the single source of truth (D28) — the binary, the archives, the RPM and the Homebrew formula all derive from it, and the release workflow refuses a tag that disagrees |
 | `tsconfig.base.json` | Compiler options shared by every Bun-side package |
 | `tsconfig.json` | One typecheck pass over the server, `shared` and `tools` |
-| `CONTEXT.md` | Current state, and the index into `docs/context/` |
-| `IMPLEMENTATION.md` | Vision, the decisions log, and the index into `docs/design/` |
+| `CONTEXT.md` | A short snapshot of the current state, and the index into `docs/context/` |
+| `IMPLEMENTATION.md` | Vision, a one-line index of every decision, and the index into `docs/design/` |
 | `CLAUDE.md` | Standing instructions for AI assistants |
 | `silo.toml` | A commented example config; every key is optional |
 | `Dockerfile` | Two stages — build `@org-quicko/silo-client` then the admin UI, then a runtime image with only the server's dependencies. Each stage copies the manifests of the workspaces it installs and of those they depend on, and no others: Bun skips a `bun.lock` workspace missing from the context, but aborts when a present one depends on it. The runtime stage runs the server *from source*, where no `--define` can reach `SiloVersion`, so a `SILO_VERSION` build arg is baked into the image's `ENV`: the release passes the version it is cutting, nothing else passes anything, and an image built on a laptop goes on saying `-dev` (D90) |
@@ -176,7 +176,7 @@ Three audiences, three directories, and nothing states the same fact twice.
 | Path | What it is |
 |------|------------|
 | `context/` | What exists *now*, for whoever is about to change it — this map, `architecture.md`, `code-design.md` and `changelog.md`. Indexed by `CONTEXT.md` |
-| `design/` | *Why* it is shaped this way, one file per spec section, governed by the D1–… decisions log. Indexed by `IMPLEMENTATION.md` |
+| `design/` | *Why* it is shaped this way, one file per spec section, governed by the D1–… decisions log in `design/decisions.md`. Indexed by `IMPLEMENTATION.md` |
 | `guide/` | *How to use* silo, for an operator: `configuration.md`, `cli.md`, `http-api.md`, `mcp.md`, `claims.md`, `plugins.md`, `transfer.md`, `deployment.md`, with a `README.md` indexing them |
 | `help/` | Long-form, informal walkthroughs. `silo-plugins.md` is the narrative counterpart to `guide/plugins.md` |
 | `openapi.json` | The HTTP API as OpenAPI 3.1 — every route, its parameters, its bodies and its responses, for Swagger UI, Redoc and code generators. It sits beside the three directories rather than inside one because it is not prose and has no single audience: an operator points a viewer at it, a client author generates from it, and `docs/guide/http-api.md` links to it. **Hand-written**, because Hono registers routes as code and there is nothing to read them off, so it is a promise the repo makes rather than a derivation — which is why `CLAUDE.md` names it as a mandatory part of any route change and why the file carries its own `x-maintenance` note saying so |

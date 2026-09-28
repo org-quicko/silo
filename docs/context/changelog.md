@@ -4,6 +4,14 @@
 > The *current* state is [CONTEXT.md](../../CONTEXT.md); this is how it got
 > there.
 
+- **CONTEXT.md and IMPLEMENTATION.md trimmed (2026-09-28).** CONTEXT.md's
+  "Where things stand" was a 2,000-line narrative that repeated this changelog;
+  it is now a short snapshot by subsystem plus open work. IMPLEMENTATION.md's
+  decisions table (300 KB) moved verbatim to `docs/design/decisions.md`, and
+  IMPLEMENTATION.md keeps the vision, a one-line index of D1–D99, and the
+  design index. The design doc headers, `repo-map.md`, `CLAUDE.md` and the
+  `media-rekeyer.ts` comment point at the new file.
+
 - **Named endpoints, and the key in the request log (2026-09-28, D99).**
   Reverts the server half of `ac2141f`, which keyed metrics by the raw
   requested path: `/api/observability` is back to route patterns, now with a
