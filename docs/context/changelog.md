@@ -4,6 +4,23 @@
 > The *current* state is [CONTEXT.md](../../CONTEXT.md); this is how it got
 > there.
 
+- **Text previews work across origins (2026-09-28, D101).** The media
+  preview's `fetch` of a `.txt` or `.json` asset failed with a CORS error
+  whenever the admin was on another origin than the server, which is always
+  the case for the dev admin on `:5173`. `/media/*` now allows any origin for
+  `GET` and `HEAD`, with no credentials, and the preview reads through
+  `MediaFileUrl.forId` so a bucket-backed instance works too. New test file
+  `media-cors.test.ts`; the OpenAPI description, the HTTP API guide and design
+  follow.
+
+- **The media Download button saves the file (2026-09-28, D100, issue #37).**
+  It was an `<a download>` on the file's URL, which a browser ignores across
+  origins, so it opened the image. `GET /media/{id}?download=true` now sends
+  any type as an `attachment` (only the literal `true`, and it never makes an
+  attachment `inline`), and both Download links in the preview point at
+  `MediaFileUrl.downloadUrl`, which is always silo's own route. The OpenAPI
+  parameter, the HTTP API guide and design, and D83's tests follow.
+
 - **`set-version` takes an alpha again (2026-09-28).** Since 2026-09-19 it
   refused every suffix, but `release-docker-snapshot.yml` builds `v*-alpha*`
   tags and fails one whose `package.json` disagrees, telling you to run

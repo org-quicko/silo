@@ -127,6 +127,8 @@ change what it decides. A new decision gets a full row there and one line here.
 | D97 | Changing driver is `silo export --instance` + `silo import`; no migrate command |
 | D98 | Compose file for silo + Postgres; Database card in observability |
 | D99 | Request log names the key; metrics name endpoints within the caller's reach |
+| D100 | `/media/{id}?download=true` forces `attachment`; the admin's Download link uses it |
+| D101 | `/media/*` allows any origin for `GET`/`HEAD`; the text preview reads silo's route |
 
 ## 3. Scope
 

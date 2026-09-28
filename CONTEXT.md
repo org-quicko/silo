@@ -12,7 +12,7 @@ A minimal, self-hostable headless CMS. You define collections with JSON Schema
 and get generated admin forms and a CRUD API. You can move all the data
 anywhere with export/import. What sets it apart is **portability**: standard
 schemas, pluggable storage, and one command to clone an instance. The vision
-and every decision (D1–D99) are indexed in [IMPLEMENTATION.md](IMPLEMENTATION.md).
+and every decision (D1–D101) are indexed in [IMPLEMENTATION.md](IMPLEMENTATION.md).
 
 ## Where things stand
 
@@ -42,8 +42,10 @@ API, core, adapters), `apps/admin` (React, embedded in the executable),
   editable (D63). [docs/guide/claims.md](docs/guide/claims.md) has the grammar.
 - **Media.** A catalog (`_media`) over fs or S3 blob storage (D23, D45).
   References are `silo://media/<id>`. Blob keys are `media/<id>` (D88). Media
-  is streamed with `Range` support (D80) and sandboxed on serve (D83). Force
-  delete, purge and in-place replace exist, each behind its own claim.
+  is streamed with `Range` support (D80) and sandboxed on serve (D83).
+  `?download=true` sends any type as an attachment (D100). `/media/*` allows
+  any origin to read (D101). Force delete, purge and in-place replace exist,
+  each behind its own claim.
 - **Transfer.** Export, import, server-to-server copy and scope copy, with
   `include` selections and media modes (D74). They are streaming and
   memory-flat (D73, D76–D78), size-bounded (D85), and gated per system
@@ -78,8 +80,9 @@ API, core, adapters), `apps/admin` (React, embedded in the executable),
   are in [milestones.md](docs/design/milestones.md) §12. [IDEAS.md](IDEAS.md)
   holds loose ideas.
 
-**Most recent changes:** named endpoints and the key in the request log (D99),
-the Postgres compose file (D98), whole-instance moves (D97). Read the top of the
+**Most recent changes:** text previews across origins (D101), the media
+Download button saves the file (D100), named endpoints and the key in the
+request log (D99). Read the top of the
 [changelog](docs/context/changelog.md) for more.
 
 ## Reading order

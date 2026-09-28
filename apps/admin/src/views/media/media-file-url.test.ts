@@ -54,6 +54,31 @@ describe('MediaFileUrl', () => {
     })
   })
 
+  describe('downloadUrl', () => {
+    test('addresses the asset on the connected server with download=true', () => {
+      expect(MediaFileUrl.downloadUrl({ id: '01ABC' } as MediaAsset, server)).toBe(
+        'http://localhost:8090/media/01ABC?download=true',
+      )
+    })
+
+    /** A bucket would ignore the flag (D100), so the advertised URL is not used. */
+    test('goes through silo even when the asset advertises a bucket URL', () => {
+      const bucketAsset = {
+        id: '01ABC',
+        url: 'https://silo-media.s3.ap-south-1.amazonaws.com/media/01ABC',
+      } as MediaAsset
+      expect(MediaFileUrl.downloadUrl(bucketAsset, server)).toBe(
+        'http://localhost:8090/media/01ABC?download=true',
+      )
+    })
+
+    test('tolerates a trailing slash', () => {
+      expect(MediaFileUrl.downloadUrl({ id: '01ABC' } as MediaAsset, 'http://localhost:8090/')).toBe(
+        'http://localhost:8090/media/01ABC?download=true',
+      )
+    })
+  })
+
   describe('join', () => {
     test('an empty value is empty, not the bare server URL', () => {
       // An `<img src="http://localhost:8090">` would request the admin's own

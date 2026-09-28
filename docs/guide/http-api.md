@@ -4,7 +4,9 @@
 
 JSON everywhere, and clean routes under `/api`. There is no URL versioning: a
 breaking change is a release-note event, and the data format carries its own
-version. CORS is enabled for `/api/*`.
+version. CORS is enabled for `/api/*`. It is also enabled for `GET` and
+`HEAD` on `/media/*`, so a page on a different origin can read a media file
+with `fetch`.
 
 [docs/openapi.json](../openapi.json) is the same API as an OpenAPI 3.1
 description. Open it in Swagger UI or Redoc, or give it to a code generator to
@@ -68,7 +70,7 @@ Present a key as `Authorization: Bearer <key>` or `X-Api-Key: <key>`.
 | `GET` | `/api/projects/{project}/envs/{env}/search` | search one environment |
 | `GET` | `/api/search` | search everything the key can read |
 | `POST` | `/api/search/reindex` | rebuild the search index |
-| `GET` | `/media/{id}` | public asset streaming. The file is read from the store as it is sent, never held whole. A single `Range: bytes=...` header answers `206` with `Content-Range`; a range past the end answers `416`. A whole answer has no `Content-Length`. Every answer carries `X-Content-Type-Options: nosniff` and `Content-Security-Policy: sandbox`. Images, video, audio and PDF are sent `inline`; an SVG and any other type is sent as an `attachment`, so a browser downloads it instead of showing it as a page. An `<img>` tag still displays it |
+| `GET` | `/media/{id}` | public asset streaming. The file is read from the store as it is sent, never held whole. A single `Range: bytes=...` header answers `206` with `Content-Range`; a range past the end answers `416`. A whole answer has no `Content-Length`. Every answer carries `X-Content-Type-Options: nosniff` and `Content-Security-Policy: sandbox`. Images, video, audio and PDF are sent `inline`; an SVG and any other type is sent as an `attachment`, so a browser downloads it instead of showing it as a page. An `<img>` tag still displays it. Add `?download=true` to send all types as an `attachment`. Use it for a download link that points to a different origin, because the browser ignores the `download` attribute on that link. Every answer carries `Access-Control-Allow-Origin: *` |
 
 `/environments` is accepted anywhere `/envs` appears. Collection, entry and
 environment-copy routes are scoped to a `(project, environment)` pair.
