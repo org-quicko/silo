@@ -4,6 +4,13 @@
 > The *current* state is [CONTEXT.md](../../CONTEXT.md); this is how it got
 > there.
 
+- **`set-version` takes an alpha again (2026-09-28).** Since 2026-09-19 it
+  refused every suffix, but `release-docker-snapshot.yml` builds `v*-alpha*`
+  tags and fails one whose `package.json` disagrees, telling you to run
+  `set-version`. So an alpha could not be cut at all. It now takes
+  `MAJOR.MINOR.PATCH-alpha` or `-alpha.N` beside a plain release, still refuses
+  `-rc`, `-beta` and the rest, and says which workflow the tag will start.
+
 - **CONTEXT.md and IMPLEMENTATION.md trimmed (2026-09-28).** CONTEXT.md's
   "Where things stand" was a 2,000-line narrative that repeated this changelog;
   it is now a short snapshot by subsystem plus open work. IMPLEMENTATION.md's

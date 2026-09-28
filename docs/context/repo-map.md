@@ -141,7 +141,7 @@ not ask for. The measuring is silo's; the plugin only draws it:
 |------|------------|
 | `build/` | The release build: `BuildBinary` orchestrates (building `@org-quicko/silo-client` before the admin UI, whose imports resolve to the client's `dist/`), `EntryGenerator` writes the compile entrypoint that embeds the admin UI, `Archiver` tars, `CodeSigner` re-signs Mach-O, `TargetTable` holds the platforms |
 | `seed/` | A data seeder that speaks only the public HTTP API. `bun build tools/seed/main.ts --target=bun --outfile seed.js` makes it a single droppable file |
-| `set-version.ts` | Writes silo's version into every manifest that carries it. Commits and tags nothing. `packages/silo-client/package.json` is deliberately *not* in its list — the client releases on its own tag and its own version |
+| `set-version.ts` | Writes silo's version into every manifest that carries it. Commits and tags nothing. Takes `MAJOR.MINOR.PATCH` (a release) or `MAJOR.MINOR.PATCH-alpha[.N]` (an alpha image) and refuses every other suffix, since no workflow builds one. `packages/silo-client/package.json` is deliberately *not* in its list — the client releases on its own tag and its own version |
 | `build-rpm.ts`, `render-formula.ts` | Packaging, driven by the release workflow |
 
 ## `.github/`
