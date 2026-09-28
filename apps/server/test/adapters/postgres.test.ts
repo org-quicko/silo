@@ -81,6 +81,28 @@ if (!url) {
       }
     });
 
+    test("refuses a schema holding a search table silo did not create, and leaves it as it was", async () => {
+      // Search's table is not one of the six a complete schema needs, but a
+      // foreign one would otherwise be dropped and recreated as silo's.
+      const schema = PgTestDatabase.freshSchema();
+      await PgTestDatabase.admin(async (sql) => {
+        await sql.unsafe(`CREATE SCHEMA "${schema}"`);
+        await sql.unsafe(`CREATE TABLE "${schema}".entry_search (note text)`);
+      });
+      try {
+        expect(await AsyncChecks.refusal(openFresh({ schema }))).toMatch(/"entry_search" that silo did not create/);
+        const columns = await PgTestDatabase.admin((sql) =>
+          sql.unsafe(
+            `SELECT column_name FROM information_schema.columns WHERE table_schema = $1 AND table_name = 'entry_search'`,
+            [schema]
+          )
+        );
+        expect(columns.map((row: { column_name: string }) => row.column_name)).toEqual(["note"]);
+      } finally {
+        await PgTestDatabase.drop(schema);
+      }
+    });
+
     test("refuses a schema name that would need quoting", async () => {
       expect(await AsyncChecks.refusal(openFresh({ schema: "Silo-Data" }))).toMatch(
         /invalid Postgres schema name/

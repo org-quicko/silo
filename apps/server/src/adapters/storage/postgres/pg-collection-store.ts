@@ -124,9 +124,12 @@ export class PgCollectionStore {
    * and the foreign key still refuses an entry written after the count.
    */
   async delete(scope: Scope, collection: string): Promise<void> {
-    await this.resolver.invalidating(() =>
-      this.connection.transaction(async (transaction) => {
-        const envId = await this.resolver.environmentId(scope.project, scope.env);
+    await this.resolver.invalidating(async () => {
+      // Resolved before the transaction, never inside it: the resolver reads
+      // through the pool, and a transaction waiting for a second connection
+      // waits forever on a pool of one. The id outlives a rename.
+      const envId = await this.resolver.environmentId(scope.project, scope.env);
+      await this.connection.transaction(async (transaction) => {
         const record = envId === null ? null : await this.read(transaction, envId, collection);
         if (!record) throw PgCollectionStore.notFound(scope, collection);
 
@@ -143,8 +146,8 @@ export class PgCollectionStore {
         await transaction.query(`DELETE FROM ${this.tables.collections} WHERE id = $1`, [
           record.id,
         ]);
-      })
-    );
+      });
+    });
   }
 
   private async read(

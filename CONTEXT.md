@@ -12,7 +12,7 @@ A minimal, self-hostable headless CMS. You define collections with JSON Schema
 and get generated admin forms and a CRUD API. You can move all the data
 anywhere with export/import. What sets it apart is **portability**: standard
 schemas, pluggable storage, and one command to clone an instance. The vision
-and every decision (D1–D101) are indexed in [IMPLEMENTATION.md](IMPLEMENTATION.md).
+and every decision (D1–D104) are indexed in [IMPLEMENTATION.md](IMPLEMENTATION.md).
 
 ## Where things stand
 
@@ -28,15 +28,17 @@ API, core, adapters), `apps/admin` (React, embedded in the executable),
 
 - **Core.** Entries are JSON documents in an envelope (ULID `id`, `rev`, `seq`),
   addressed by project / environment / collection. Projects, environments and
-  collections are ULID-keyed records that can be renamed (D51). The schema is
+  collections are ULID-keyed records that can be renamed (D51); a collection
+  name may have 128 characters, a project or environment 64 (D104). The schema is
   enforced on every write path, and a collection's schema is frozen while it
   holds entries (D70). Filters use a JSONPath subset (D29). Environment
   variables are substituted as `{{NAME}}` on read (D57).
 - **Storage.** SQLite (default; scans run on a read worker, D81), plain files
   (whose layout *is* the export format, D5) and Postgres (D93–D96: pool,
-  retries, owner lock, TLS, native search). All three pass one conformance
-  suite with a strict query contract (D92). Search is FTS5, `PgSearcher`, or
-  `ScanSearcher` for any other store.
+  retries, owner lock, TLS, native search; hardened by a stress review in
+  D102–D103: a pool Bun broke is replaced, only the owner shapes the index).
+  All three pass one conformance suite with a strict query contract (D92).
+  Search is FTS5, `PgSearcher`, or `ScanSearcher` for any other store.
 - **Auth.** API keys with claims (`collections:<p>/<e>/<name>:<perm>`, prefix
   segments like `acme-*`, D64). A root key is printed at first boot. Keys are
   editable (D63). [docs/guide/claims.md](docs/guide/claims.md) has the grammar.
@@ -80,10 +82,10 @@ API, core, adapters), `apps/admin` (React, embedded in the executable),
   are in [milestones.md](docs/design/milestones.md) §12. [IDEAS.md](IDEAS.md)
   holds loose ideas.
 
-**Most recent changes:** text previews across origins (D101), the media
-Download button saves the file (D100), named endpoints and the key in the
-request log (D99). Read the top of the
-[changelog](docs/context/changelog.md) for more.
+**Most recent changes:** collection names of up to 128 characters (D104);
+the Postgres open items and Bun 1.4.2 everywhere (D103); Postgres stress
+review fixes, including a 503 rather than a 401 when storage cannot look a
+key up (D102). Read the top of the [changelog](docs/context/changelog.md) for more.
 
 ## Reading order
 

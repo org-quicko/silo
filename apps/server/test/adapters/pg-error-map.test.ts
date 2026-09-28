@@ -30,6 +30,15 @@ describe("PgErrorMap", () => {
     expect(PgErrorMap.translate(remove)).toBeInstanceOf(ConflictError);
   });
 
+  test("a pool the driver broke is a lost connection, TLS or not, never a 500", () => {
+    // A plain Error with no code, raised before anything is sent (oven-sh/bun#42804).
+    const broken = new Error("connection must be a PostgresSQLConnection");
+    expect(PgErrorMap.isBrokenPool(broken)).toBe(true);
+    expect(failureOf(PgErrorMap.translate(broken))).toBe("connection");
+    expect(failureOf(PgErrorMap.translate(broken, "verify-full"))).toBe("connection");
+    expect(PgErrorMap.isBrokenPool(new Error("connection closed"))).toBe(false);
+  });
+
   test("a NUL the server cannot hold is the caller's error", () => {
     const translated = PgErrorMap.translate(server("invalid byte sequence", "22021"));
     expect(ValidationError.is(translated)).toBe(true);

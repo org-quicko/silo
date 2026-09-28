@@ -1097,7 +1097,7 @@
                                 ],
                                 "properties": {
                                     "name": {
-                                        "$ref": "#/components/schemas/ScopeName"
+                                        "$ref": "#/components/schemas/CollectionName"
                                     },
                                     "schema": {
                                         "$ref": "#/components/schemas/JsonSchema"
@@ -1313,7 +1313,7 @@
                                 ],
                                 "properties": {
                                     "name": {
-                                        "$ref": "#/components/schemas/ScopeName"
+                                        "$ref": "#/components/schemas/CollectionName"
                                     }
                                 }
                             }
@@ -4395,7 +4395,7 @@
                 "in": "path",
                 "required": true,
                 "schema": {
-                    "$ref": "#/components/schemas/ScopeName"
+                    "$ref": "#/components/schemas/CollectionName"
                 },
                 "description": "The collection name."
             },
@@ -4618,7 +4618,7 @@
                 }
             },
             "Busy": {
-                "description": "Too many reads are already waiting on storage. A filter or a sort over entry data scans the collection on a read worker with a bounded queue; past it the request is refused with `Retry-After: 1` rather than queued behind a flood.",
+                "description": "Storage cannot answer now. Too many reads are already waiting on it: a filter or a sort over entry data scans the collection on a read worker with a bounded queue, and past it the request is refused with `Retry-After: 1` rather than queued behind a flood. Or, on the `postgres` driver, the database cannot be reached; then any route can answer this, including before the key is checked, since the key is looked up in storage (D102). A 503 never means the key is wrong.",
                 "headers": {
                     "Retry-After": {
                         "schema": {
@@ -4642,6 +4642,12 @@
                 "maxLength": 64,
                 "pattern": "^[a-z][a-z0-9_-]*$",
                 "description": "Lowercase letter first, then `[a-z0-9_-]`, at most 64 characters."
+            },
+            "CollectionName": {
+                "type": "string",
+                "maxLength": 128,
+                "pattern": "^[a-z][a-z0-9_-]*$",
+                "description": "Lowercase letter first, then `[a-z0-9_-]`, at most 128 characters (D104). Longer than a project or environment name, which `ScopeName` caps at 64."
             },
             "Project": {
                 "type": "object",
@@ -5252,7 +5258,7 @@
                             ],
                             "properties": {
                                 "collection": {
-                                    "$ref": "#/components/schemas/ScopeName"
+                                    "$ref": "#/components/schemas/CollectionName"
                                 },
                                 "entry_ids": {
                                     "type": "array",
@@ -6795,6 +6801,10 @@
                                     "failures": {
                                         "type": "integer",
                                         "description": "Calls that failed as unavailable since the start."
+                                    },
+                                    "replaced": {
+                                        "type": "integer",
+                                        "description": "Times the driver left the pool broken and a new pool replaced it, since the start. Above zero means the server saw connections end while they were being opened (oven-sh/bun#42804)."
                                     }
                                 }
                             },

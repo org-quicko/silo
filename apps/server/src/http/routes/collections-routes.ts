@@ -1,6 +1,7 @@
 import type { Context } from "hono";
 import { SchemaAccess } from "@silo/shared/schema-access";
 import { Claims } from "@silo/shared/claims";
+import { CollectionService } from "../../core/services/collection-service";
 import { SiloService } from "../../core/services/silo-service";
 import type { KeyInfo } from "../../core/keys/key-info";
 import { ValidationError } from "@silo/shared/validation-error";
@@ -60,11 +61,9 @@ export class CollectionsRoutes {
       if (!body || typeof body !== "object") {
         throw new ValidationError("invalid body: (want {name, schema})");
       }
-      if (!body.name) {
-        throw new ValidationError(
-          'invalid collection name "": want lowercase letter first, then [a-z0-9_-], max 64 chars',
-        );
-      }
+      // Before the claim check: a name no claim can spell would otherwise be a
+      // 403 "missing claim" that never says the name is what is wrong (D104).
+      CollectionService.assertName(body.name ?? "");
       if (!body.schema) {
         throw new ValidationError("missing schema");
       }
@@ -145,6 +144,10 @@ export class CollectionsRoutes {
         throw new ValidationError("invalid body: (want {name})");
       }
       const to = body.name;
+      // Checked before the dry run as well, so a preview never offers a rename
+      // the real one then refuses, and before the claim check, for the reason
+      // `createHandler` gives.
+      CollectionService.assertName(to);
 
       RouteAuth.requireRename(c, "a collection", scope.project, scope.env, from);
       for (const referrer of await service.collections.referrers(scope, from)) {

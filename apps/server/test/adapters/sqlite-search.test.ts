@@ -215,6 +215,31 @@ describe("SQLite FTS5 searcher", () => {
   });
 
   describe("rebuild and integrity", () => {
+    test("reindex never writes text read before a save over the row that save wrote", async () => {
+      const entry = await put(Scope.Default, "posts", { title: "oldword" }, schema);
+      await store.putSchema(Scope.Default, "posts", schema);
+      // White-box, deliberately: the save lands between the page read and the
+      // upsert, which no timing can arrange on demand.
+      const list = store.list.bind(store);
+      let saved = false;
+      store.list = async (...args: Parameters<SqliteStore["list"]>) => {
+        const page = await list(...args);
+        if (!saved && args[1] === "posts") {
+          saved = true;
+          await put(Scope.Default, "posts", { title: "newword" }, schema, entry.id);
+        }
+        return page;
+      };
+      try {
+        await searcher.reindex();
+      } finally {
+        store.list = list;
+      }
+      expect(saved).toBe(true);
+      expect((await titles("newword")).total).toBe(1);
+      expect((await titles("oldword")).total).toBe(0);
+    });
+
     test("reindex fills an index that was emptied underneath it", async () => {
       await put(Scope.Default, "posts", { title: "rebuildable" }, schema);
       await store.putSchema(Scope.Default, "posts", schema);

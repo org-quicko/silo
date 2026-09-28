@@ -132,9 +132,10 @@ write lock. Run several instances by giving each its own --data and --listen.
 Under Docker or systemd, run serve in the foreground and let the supervisor own
 the process; --detach is for bare metal and development.
 
-Project and env ids use the same grammar as collection names
-(lowercase letter first, then [a-z0-9_-], max 64 chars); serve refuses to
-start on an invalid default rather than creating a scope no route can reach.
+Project and env ids use the collection name grammar (lowercase letter first,
+then [a-z0-9_-]), capped at 64 chars where a collection name may have 128;
+serve refuses to start on an invalid default rather than creating a scope no
+route can reach.
 Subcommands operate directly on the data dir — no running server needed.
 `);
   }

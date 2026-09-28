@@ -15,6 +15,9 @@ interface Props {
   unavailableReason?: string
   rename: (name: string, dryRun: boolean) => Promise<RenameResult>
   onRenamed: (name: string) => void | Promise<void>
+  /** Why a new name cannot be used, or null. Shown as it is typed, and the
+   *  rename waits until it passes, so no preview offers a name the server refuses. */
+  validate?: (name: string) => string | null
 }
 
 /** The rename control, shared by the project, environment and collection
@@ -25,6 +28,7 @@ export function RenameForm({
   unavailableReason,
   rename,
   onRenamed,
+  validate,
 }: Props) {
   const [draft, setDraft] = useState(subject.currentName)
   const flow = useRenameFlow({ subject, rename, onRenamed })
@@ -38,6 +42,7 @@ export function RenameForm({
   }
 
   const unchanged = draft.trim() === subject.currentName || draft.trim().length === 0
+  const problem = unchanged ? null : validate?.(draft.trim()) ?? null
 
   return (
     <>
@@ -54,7 +59,7 @@ export function RenameForm({
           </label>
           <Button
             variant="secondary"
-            disabled={flow.busy || unchanged}
+            disabled={flow.busy || unchanged || problem !== null}
             onClick={() => flow.start(draft)}
           >
             <Pencil size={14} />
@@ -65,6 +70,7 @@ export function RenameForm({
           Lowercase letter first, then letters, numbers, dashes or underscores. The id above
           does not change.
         </p>
+        {problem && <p className={styles.error}>{problem}</p>}
         {flow.error && <p className={styles.error}>{flow.error}</p>}
       </div>
 

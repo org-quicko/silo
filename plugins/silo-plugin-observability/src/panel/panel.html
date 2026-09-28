@@ -641,7 +641,7 @@
 
     const pool = database.pool
     if (pool) {
-      const trouble = pool.shed > 0 || pool.failures > 0
+      const trouble = pool.shed > 0 || pool.failures > 0 || pool.replaced > 0
       tile('Connections', number(pool.in_use) + ' of ' + number(pool.size), trouble ? 'warn' : '',
         number(pool.scans_waiting) + ' lists waiting',
         [
@@ -652,8 +652,9 @@
           ['Refused as busy', number(pool.shed)],
           ['Retried', number(pool.retries)],
           ['Failed', number(pool.failures)],
+          ['Pool replaced', number(pool.replaced)],
         ],
-        'The last three count from when silo started.')
+        'The last four count from when silo started.')
     }
 
     const [ownerLabel, ownerTone, ownerLine] = OWNER_STATES[database.owner] || ['Unknown', '', 'No owner lock reported.']

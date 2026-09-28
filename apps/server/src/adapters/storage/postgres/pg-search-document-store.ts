@@ -9,16 +9,21 @@ import type { PgTables } from "./pg-tables";
 /**
  * The `entry_search` rows, written inside the entry's own transaction so an
  * entry and its index row land together or not at all (D30). Every method is a
- * no-op while search is off, so callers never have to ask.
+ * no-op while the store keeps no index, so callers never have to ask.
+ *
+ * The tokenizer is the index's, not this process's config: a command beside a
+ * running server writes rows in the form the server reads (D103).
  */
 export class PgSearchDocumentStore {
   private readonly tables: PgTables;
-  private readonly indexing: boolean;
-  private readonly tokenizer: PgSearchTokenizer;
+  private tokenizer: PgSearchTokenizer | null = null;
 
-  constructor(tables: PgTables, indexing: boolean, tokenizer: PgSearchTokenizer) {
+  constructor(tables: PgTables) {
     this.tables = tables;
-    this.indexing = indexing;
+  }
+
+  /** The form rows are written in from now on, or null to write none. */
+  use(tokenizer: PgSearchTokenizer | null): void {
     this.tokenizer = tokenizer;
   }
 
@@ -35,7 +40,8 @@ export class PgSearchDocumentStore {
     entryId: string,
     text: { label: string; body: string } | null
   ): Promise<void> {
-    if (!this.indexing) return;
+    const tokenizer = this.tokenizer;
+    if (tokenizer === null) return;
     if (
       text === null ||
       address.project === Scope.System.project ||
@@ -48,7 +54,7 @@ export class PgSearchDocumentStore {
       return;
     }
 
-    const row = PgSearchDocument.of(text, this.tokenizer);
+    const row = PgSearchDocument.of(text, tokenizer);
     await transaction.query(
       `INSERT INTO ${this.tables.searchDocuments}
          (project_id, env_id, collection_id, entry_id, document, label, body)

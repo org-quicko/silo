@@ -14,8 +14,8 @@ export class PgSearchText {
   /** Label weight A, body weight B; the array is `{D, C, B, A}`. 10:1, as bm25 and the scan use. */
   private static readonly Weights = "'{0, 0, 0.1, 1}'";
 
-  /** The longest lexeme a `tsquery` holds; a longer term cannot be in the index. */
-  private static readonly MaxTermBytes = 2047;
+  /** The longest lexeme a `tsquery` holds (measured: 2047 is refused); a longer term cannot be in the index. */
+  private static readonly MaxTermBytes = 2046;
 
   /**
    * The conditions and the rank, or null when the query can match nothing —
@@ -28,12 +28,12 @@ export class PgSearchText {
     params: PgParams
   ): { conds: string[]; rank: string | null } | null {
     if (query.terms.length === 0) return { conds: [], rank: null };
+    // `trigram` stores the text itself, so no term is too long for it.
+    if (tokenizer === "trigram") return PgSearchText.substrings(query, params);
     if (query.terms.some((term) => Buffer.byteLength(term, "utf8") > PgSearchText.MaxTermBytes)) {
       return null;
     }
-    return tokenizer === "trigram"
-      ? PgSearchText.substrings(query, params)
-      : PgSearchText.words(query, params);
+    return PgSearchText.words(query, params);
   }
 
   /**

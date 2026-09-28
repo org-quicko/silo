@@ -7,8 +7,13 @@ export class StorageDefaults {
   static readonly StartupWait = 60;
   /** Shorter than the idle cut-off of most proxies and serverless databases. */
   static readonly IdleTimeout = 60;
-  /** Rotates connections, so a failover or a DNS change is picked up. */
-  static readonly MaxLifetime = 1800;
+  /**
+   * Off. Bun ends a connection whose lifetime is up wherever it is, a commit
+   * included, so a rotation would now and then answer a write "may or may not
+   * have been saved" (D103). A failover breaks the connections anyway, and the
+   * idle timeout retires the rest.
+   */
+  static readonly MaxLifetime = 0;
   static readonly StatementTimeout = 30;
   static readonly IdleInTransactionTimeout = 60;
 

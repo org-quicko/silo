@@ -39,7 +39,7 @@ permissions:
 env:
   # Keep in step with the Dockerfile's BUN_VERSION: the binary users install and
   # the image they deploy should not be built by different runtimes.
-  BUN_VERSION: "1.4.0"
+  BUN_VERSION: "1.4.2"
   NFPM_VERSION: "2.47.0"
   # Where the container image goes. Written out rather than read back from the
   # login credentials, so a release log names the image it pushed instead of

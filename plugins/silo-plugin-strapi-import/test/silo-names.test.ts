@@ -47,7 +47,16 @@ describe('the proposed collection name', () => {
     // Leading digits, spaces, and a uid longer than an id may be.
     expect(SiloNames.forList(listFor('api::2024.Some Thing!'))).toBe('some-thing')
     expect(SiloNames.forList(listFor(`api::ns.${'x'.repeat(200)}`))).toMatch(
-      /^[a-z][a-z0-9_-]{0,63}$/,
+      /^[a-z][a-z0-9_-]{0,127}$/,
     )
+  })
+
+  test('a collection may be longer than a project or an environment', () => {
+    // silo takes 128 characters for a collection and 64 for a scope (D104).
+    const long = `a${'b'.repeat(127)}`
+    expect(SiloNames.checkCollection(long, 'collection')).toBe(long)
+    expect(() => SiloNames.checkCollection(`${long}c`, 'collection')).toThrow(/129 characters/)
+    expect(() => SiloNames.check(long, 'project')).toThrow(/at most 64/)
+    expect(SiloNames.forList(listFor(`api::ns.${'x'.repeat(200)}`)).length).toBe(128)
   })
 })

@@ -15,6 +15,7 @@
     "./claim-segment": "./src/claims/claim-segment.ts",
     "./claims": "./src/claims/claims.ts",
     "./collection-claim": "./src/claims/collection-claim.ts",
+    "./collection-name": "./src/claims/collection-name.ts",
     "./collection-permission": "./src/claims/collection-permission.ts",
     "./filter": "./src/query/filter.ts",
     "./filter-ops": "./src/query/filter-ops.ts",

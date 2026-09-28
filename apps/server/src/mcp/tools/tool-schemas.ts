@@ -1,3 +1,5 @@
+import { CollectionName } from "@silo/shared/collection-name";
+
 /**
  * The JSON Schema fragments the tool inputs are built from, so every tool
  * describes a project, a filter or a page the same way.
@@ -8,7 +10,12 @@ export class ToolSchemas {
 
   static readonly Project = { ...ToolSchemas.Name, description: "Project name." };
   static readonly Env = { ...ToolSchemas.Name, description: "Environment name, e.g. prod." };
-  static readonly Collection = { ...ToolSchemas.Name, description: "Collection name." };
+  /** Longer than a scope name (D104). */
+  static readonly Collection = {
+    type: "string",
+    pattern: `^${CollectionName.Segment}$`,
+    description: "Collection name.",
+  };
   static readonly EntryId = { type: "string", minLength: 1, description: "Entry id (a ULID)." };
   static readonly MediaId = { type: "string", minLength: 1, description: "Media asset id." };
 

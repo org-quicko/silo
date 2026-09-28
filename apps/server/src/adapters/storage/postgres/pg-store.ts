@@ -20,7 +20,7 @@ import { PgMigrations } from "./pg-migrations";
 import { PgOwnerLock } from "./pg-owner-lock";
 import { PgScanGate } from "./pg-scan-gate";
 import { PgSearchDocumentStore } from "./pg-search-document-store";
-import { PgSearchIndex } from "./pg-search-index";
+import { PgSearchIndex, type PgSearchState } from "./pg-search-index";
 import type { PgSearchTokenizer } from "./pg-search-tokenizer";
 import { PgSearcher } from "./pg-searcher";
 import { PgScopeResolver } from "./pg-scope-resolver";
@@ -62,10 +62,10 @@ export interface PgStoreOptions {
  * The Postgres adapter: silo's tables in one schema of one database.
  *
  * This class is the `Storage` port and the owner of the pool; the per-table
- * stores hold the behaviour, as in the SQLite adapter. With search on it keeps
- * an index inside its own writes and offers `PgSearcher` over it
- * (`IndexedStorage`, D30); with search off it keeps none, and the runtime falls
- * back to `ScanSearcher`.
+ * stores hold the behaviour, as in the SQLite adapter. With an index it keeps
+ * it inside its own writes and offers `PgSearcher` over it (`IndexedStorage`,
+ * D30); with none, the runtime falls back to `ScanSearcher`. Which index is
+ * the owner's to say: `[search]` beside a running server is not (D103).
  *
  * It owns its data the way `serve` needs (`OwnedStorage`, D25) and reports on
  * its pool (`MeasuredStorage`). Every write first asks the owner lock, when
@@ -87,30 +87,29 @@ export class PgStore implements OwnedStorage, MeasuredStorage, IndexedStorage {
   private readonly collections: PgCollectionStore;
   private readonly entries: PgEntryStore;
   private readonly mediaReferences: PgMediaReferenceStore;
-  private readonly search: { enabled: boolean; tokenizer: PgSearchTokenizer };
+  private readonly searchDocuments: PgSearchDocumentStore;
   private owner: PgOwnerLock | null = null;
   private closing: Promise<void> | null = null;
-  /** Set when the index has to be refilled before it can answer anything. */
-  private rebuildDue: boolean;
+  /** The index this store keeps, which `PgSearchIndex.settle` decided; null for none. */
+  private index: PgSearchState | null = null;
 
   private constructor(
     connection: PgConnection,
     options: PgStoreOptions,
     applicationName: string,
     tables: PgTables,
-    rebuildDue: boolean
+    index: PgSearchState | null
   ) {
     this.connection = connection;
     this.options = options;
     this.applicationName = applicationName;
     this.tables = tables;
-    this.search = PgStore.searchOf(options);
-    this.rebuildDue = rebuildDue;
     this.scans = PgScanGate.forPool(options.poolSize ?? PgStore.DefaultPoolSize, options.scanQueue);
 
     const resolver = new PgScopeResolver(connection, tables);
     this.meta_ = new PgMetaStore(connection, tables);
     this.mediaReferences = new PgMediaReferenceStore(connection, tables);
+    this.searchDocuments = new PgSearchDocumentStore(tables);
     this.entries = new PgEntryStore(
       connection,
       tables,
@@ -118,15 +117,20 @@ export class PgStore implements OwnedStorage, MeasuredStorage, IndexedStorage {
       this.mediaReferences,
       resolver,
       this.scans,
-      new PgSearchDocumentStore(tables, this.search.enabled, this.search.tokenizer)
+      this.searchDocuments
     );
     this.scopes = new PgScopeStore(connection, tables, this.entries, resolver);
     this.collections = new PgCollectionStore(connection, tables, resolver, this.scopes);
+    this.useIndex(index);
   }
 
-  /** Connects — waiting up to `startupWait` for a server that is not there
-   *  yet — checks the version and the schema's format, and creates whatever
-   *  is missing. */
+  /**
+   * Connects — waiting up to `startupWait` for a server that is not there
+   * yet — checks the version and the schema's format, and creates whatever is
+   * missing. The search index is shaped by `[search]` only when no other
+   * process owns the schema; beside a running server this store follows the
+   * index that server keeps (D103).
+   */
   static async open(options: PgStoreOptions): Promise<PgStore> {
     const tables = PgTables.for(options.schema ?? PgStore.DefaultSchema);
     const applicationName = options.applicationName ?? "silo";
@@ -143,32 +147,27 @@ export class PgStore implements OwnedStorage, MeasuredStorage, IndexedStorage {
     try {
       await PgStartup.reach(connection, options.url, options.startupWait ?? 0);
       await PgMigrations.initialize(connection, tables);
-      const search = PgStore.searchOf(options);
-      // Nothing is dropped when search is off: every CLI command opens the
-      // store, and must not destroy the index a running server keeps.
-      let rebuildDue = false;
-      if (search.enabled) rebuildDue = await PgSearchIndex.install(connection, tables, search.tokenizer);
-      else await PgSearchIndex.disable(connection, tables);
-      return new PgStore(connection, options, applicationName, tables, rebuildDue);
+      const index = await PgSearchIndex.settle(connection, tables, PgStore.searchOf(options), false);
+      return new PgStore(connection, options, applicationName, tables, index);
     } catch (error) {
       await connection.close(0);
       throw error;
     }
   }
 
-  /** The native engine, or null when search is off (D30). */
+  /** The native engine over the index this store keeps, or null when it keeps none (D30). */
   createSearcher(): PgSearcher | null {
-    if (!this.search.enabled) return null;
-    return new PgSearcher(this.connection, this.tables, this, this.search.tokenizer, this.scans);
+    if (!this.index) return null;
+    return new PgSearcher(this.connection, this.tables, this, this.index.tokenizer, this.scans);
   }
 
   /** True when the index exists but has not been filled yet. */
   needsSearchRebuild(): boolean {
-    return this.search.enabled && this.rebuildDue;
+    return this.index?.rebuildDue ?? false;
   }
 
   searchRebuilt(): void {
-    this.rebuildDue = false;
+    if (this.index) this.index = { ...this.index, rebuildDue: false };
   }
 
   /** The schema this store reads and writes. */
@@ -179,16 +178,23 @@ export class PgStore implements OwnedStorage, MeasuredStorage, IndexedStorage {
   /**
    * Takes the owner lock for this schema, which `serve` holds for its whole
    * life (D25), and starts its heartbeat. Refuses at once when another server
-   * holds it. Idempotent.
+   * holds it. Then applies `[search]` as the owner (D103): whatever the store
+   * followed at open, the index is now this server's, and a searcher is made
+   * after this. Idempotent.
    */
   async claimOwnership(lost: (reason: Error) => void = () => {}): Promise<void> {
-    this.owner ??= await PgOwnerLock.acquire({
+    if (this.owner) return;
+    this.owner = await PgOwnerLock.acquire({
       url: this.options.url,
       tables: this.tables,
       applicationName: this.applicationName,
       heartbeatMs: this.options.heartbeatMs ?? PgStore.DefaultHeartbeatMs,
+      connectTimeout: this.options.connectTimeout,
       lost,
     });
+    this.useIndex(
+      await PgSearchIndex.settle(this.connection, this.tables, PgStore.searchOf(this.options), true)
+    );
   }
 
   async measure(): Promise<StorageMeasurement> {
@@ -366,6 +372,12 @@ export class PgStore implements OwnedStorage, MeasuredStorage, IndexedStorage {
   /** Refuses a write while the owner lock, once claimed, is not held. */
   private writing(): void {
     this.owner?.assertHeld();
+  }
+
+  /** Keeps `index` from now on: the rows this store's writes maintain, and what `createSearcher` offers. */
+  private useIndex(index: PgSearchState | null): void {
+    this.index = index;
+    this.searchDocuments.use(index?.tokenizer ?? null);
   }
 
   private static searchOf(options: PgStoreOptions): { enabled: boolean; tokenizer: PgSearchTokenizer } {

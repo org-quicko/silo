@@ -129,6 +129,9 @@ change what it decides. A new decision gets a full row there and one line here.
 | D99 | Request log names the key; metrics name endpoints within the caller's reach |
 | D100 | `/media/{id}?download=true` forces `attachment`; the admin's Download link uses it |
 | D101 | `/media/*` allows any origin for `GET`/`HEAD`; the text preview reads silo's route |
+| D102 | A Postgres pool the driver broke is replaced; a key storage cannot look up is a 503, not a 401 |
+| D103 | Postgres: lifetime off, heartbeat deadline and keepalive, only the owner shapes the search index, race-safe reindex, Bun 1.4.2 |
+| D104 | Collection names may have 128 characters (`CollectionName`); the name is checked before the claim |
 
 ## 3. Scope
 

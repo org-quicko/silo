@@ -44,7 +44,7 @@ export class ImportSteps {
 
     return {
       list: list.id,
-      collection: SiloNames.check(entry.collection, `step "${list.id}" collection`),
+      collection: SiloNames.checkCollection(entry.collection, `step "${list.id}" collection`),
       mode: mode as ImportMode,
       include: entry.include !== false,
       flatten,

@@ -152,7 +152,7 @@ export class ConfigSections {
           env: "SILO_SEARCH_ENABLED",
           restart: true,
           label: "Keep an index",
-          help: "Off drops any index a previous run left, so it cannot rot into wrong answers.",
+          help: "Off stops using the index. On again rebuilds it, so it cannot give wrong answers.",
         },
         {
           key: "tokenizer",
@@ -273,12 +273,13 @@ export class ConfigSections {
           readOnly: true,
           restart: true,
           label: "Pool size",
-          help: "Postgres only. Connections. Two are kept for writes.",
+          help: "Postgres only. Connections. Lists leave two free for writes, from 3 up.",
         },
         {
           key: "connect_timeout",
           type: "number",
           min: 0,
+          zeroMeans: "the driver's own 30 seconds",
           env: "SILO_STORAGE_CONNECT_TIMEOUT",
           readOnly: true,
           restart: true,

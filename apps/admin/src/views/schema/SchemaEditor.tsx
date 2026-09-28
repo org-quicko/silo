@@ -6,6 +6,7 @@ import CodeMirror from '@uiw/react-codemirror'
 import { json as jsonLang } from '@codemirror/lang-json'
 import { Check, AlertCircle, List, Code2 } from 'lucide-react'
 import { Claims } from '@silo/shared/claims'
+import { CollectionName } from '@silo/shared/collection-name'
 import { api } from '../../api/silo-api'
 import type { Collection } from '../../api/types/collection'
 import type { ScopeRef } from '../../api/types/scope-ref'
@@ -18,6 +19,7 @@ import { SmartSearch } from '../search/SmartSearch'
 import { RenameForm } from '../settings/rename/RenameForm'
 import { useEscapeToDiscard } from '../use-escape-to-discard'
 import { useThemeMode } from '../../utils/use-theme-mode'
+import { CollectionNameMessage } from './collection-name-message'
 import { CollectionRail } from './CollectionRail'
 import { FieldList } from './FieldList'
 import styles from './SchemaEditor.module.css'
@@ -134,12 +136,17 @@ export function SchemaEditorView({
       setError('Collection name is required.')
       return
     }
+    const nameProblem = collection ? null : CollectionNameMessage.of(finalName)
+    if (nameProblem) {
+      setError(nameProblem)
+      return
+    }
     const toSave = draft.toSave()
     let schema: any
     try {
       schema = JSON.parse(toSave)
     } catch {
-      setError('Invalid JSON — cannot save.')
+      setError('The JSON is not valid, so it cannot be saved.')
       return
     }
     setSaving(true)
@@ -225,6 +232,13 @@ export function SchemaEditorView({
             value={name}
             onChange={(e) => setName(e.target.value.toLowerCase().replace(/[^a-z0-9_-]/g, ''))}
           />
+          {CollectionNameMessage.of(name) ? (
+            <span className="field-error">{CollectionNameMessage.of(name)}</span>
+          ) : (
+            <span className="field-hint">
+              Up to {CollectionName.MaxLength} characters. Start with a lowercase letter.
+            </span>
+          )}
         </div>
       )}
 
@@ -253,6 +267,7 @@ export function SchemaEditorView({
               )
             }
             onRenamed={onSaved}
+            validate={CollectionNameMessage.of}
           />
         </div>
       )}

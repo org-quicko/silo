@@ -29,10 +29,15 @@ type Entry struct {
 - `rev` enables optimistic concurrency (§8) and merge conflict resolution (§7.2).
 - `seq` is the hook for a future change feed (§12.1). It costs nothing now and avoids a storage redesign later. It stays instance-global rather than per-scope, so a single cursor still orders every write in the instance.
 - Timestamps are always UTC RFC3339 with millisecond precision.
-- `project`/`env` follow the same id grammar as collection names
+- `project`/`env` follow the collection-name grammar with a lower cap
   (`^[a-z][a-z0-9_-]{0,63}$`), defined once on the `Scope` value object
   (`apps/server/src/core/domain/scope.ts`, D18). `Scope` is a plain (project, env) pair
-  with no metadata and no registry — see D18 and §6.1.
+  with no metadata and no registry — see D18 and §6.1. A collection name may
+  have up to 128 characters (`^[a-z][a-z0-9_-]{0,127}$`, `CollectionName` in
+  `@silo/shared`, D104): the claim grammar's third segment is built from it, so
+  every name a collection may have can be named in a claim, and the server
+  checks the name before the claim, so a bad one is a 400 that says why rather
+  than a 403 for a claim no key could hold.
 - `EntryUtils.toApiResponse` never leaks `project`/`env` into the HTTP
   response, exactly like `collection` and `seq`: scope is a storage/domain
   concern, invisible to the API. `rev` **is** returned (2026-08-20), because

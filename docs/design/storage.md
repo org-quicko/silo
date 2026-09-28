@@ -637,8 +637,9 @@ data is refused there as well as by the caller.
   is a hand-written `tsquery` from the same `SearchTokens.parseQuery` — every
   term required, the last a prefix (`:*`) — so a user typing `not` searches
   for "not", and no configuration can read the two sides differently. A term
-  longer than a lexeme's 2047 bytes is left out of the index, and a query
-  holding one matches nothing.
+  longer than a lexeme's 2046 bytes is left out of the index, and a query
+  holding one matches nothing (Postgres refuses 2047 with `54000`, which would
+  make the entry unwritable).
 - **Ranking** is `ts_rank_cd` with weights `{0, 0, 0.1, 1}`, the 10:1 label to
   body that bm25 and the scan use (measured: 1.0 for a label hit, 0.1 for a
   body one). It is not FTS5's score, and the tests compare which entries come
@@ -664,10 +665,17 @@ data is refused there as well as by the caller.
   for a prefix (Postgres has no `GLOB`; `LIKE` would read an id's `_` as a
   wildcard). Page and total are one statement, as in `list`, and a search takes
   a scan slot like one.
-- **`reindex`** pages each collection through the store and writes 200 rows
-  per statement from one JSON parameter, skipping a row whose entry went since
-  the page was read. **`check`** reports rows missing their tokenizer's text,
-  and the two anti-joins `SqliteSearcher.check` runs.
+- **`reindex`** reads each collection 200 entries at a time, by id after the
+  last one rather than by offset, and writes 200 rows per statement from one
+  JSON parameter, safe beside writes (D103): a row is written only while its
+  entry still has the `seq` the page read (a save in between wrote its own row,
+  which older text must not overwrite), `FOR KEY SHARE OF e` makes a delete in
+  flight finish first, after which the entry is seen as gone rather than
+  failing the batch on the foreign key, and paging by id means a delete behind
+  a page cannot shift the next one past an entry. `SqliteSearcher.reindex`
+  pages and guards the same way, inside its one synchronous transaction.
+  **`check`** reports rows missing their tokenizer's text, and the two
+  anti-joins `SqliteSearcher.check` runs.
 
 **Every table is qualified in the SQL** (`"silo"."entries"`), never reached
 through `search_path`, so no statement depends on session state that a pooler
@@ -735,8 +743,13 @@ D92), and the conformance suite holds the three together:
 
 - a selected field is a `jsonb` expression, SQL NULL when the path selects
   nothing, reached one step per selector — `-> $n::text` for a name and
-  `-> 3` for an index. `#>` takes both as text and would read key `"0"` of an
-  object for index 0, or element 0 of an array for a name `"0"`;
+  `jsonb_path_query_first(node, 'strict $[3]', '{}', true)` for an index.
+  `#>` takes both as text and would read key `"0"` of an object for index 0,
+  or element 0 of an array for a name `"0"`. And `-> 0` is not an index step
+  on its own: on a string, number or boolean, `-> 0` and `-> -1` answer the
+  value itself, so `$.data.title[0]` would match a plain title. The strict
+  path answers NULL for anything but an array, and names the node once. An
+  index past `int4` selects nothing, as it does on the other adapters;
 - `eq` and `in` are `jsonb = jsonb`, which is type-strict by itself: `1` is not
   `"1"` or `true`, and JSON null equals only JSON null;
 - every comparison and cast sits inside a `CASE` on `jsonb_typeof`, because SQL
@@ -776,8 +789,9 @@ schema in the same database has an owner of its own.
 
 The store offers this as `OwnedStorage`, an optional capability like
 `IndexedStorage`, and `SiloRuntime.open` claims it for `serve` straight after
-opening storage — before the resume of a pending rename, which writes — while
-one-shot commands (`keys`, `export`, …) take no lock, as they take no run file.
+opening storage — before the searcher is made and before the index rebuild
+and the resume of a pending rename, which write (D103) — while one-shot
+commands (`keys`, `export`, …) take no lock, as they take no run file.
 Losing the lock's connection loses the lock, so a heartbeat runs `SELECT 1` on
 it every ten seconds. When that fails, every write is refused as `503` while
 the lock is taken again on a new connection; if another server took it in
@@ -786,11 +800,46 @@ store refuses writes until it does. A write can still land in the window
 between the connection breaking and the next beat, at most ten seconds; that
 is the window this design accepts rather than asking the lock on every write.
 
+Three things keep the lock honest when the network, not the server, fails
+(D103). **A check has a deadline** — `heartbeatMs`, at least five seconds: a
+partition answers nothing at all, so without one the check waited as long as
+the partition lasted, the state stayed `held` and writes queued instead of
+answering `503`. **The lock remembers its backend** (`pg_backend_pid()` and
+`backend_start`): when a retake finds the lock held, and the holder is that
+same backend — the connection this server gave up on, still alive at the
+server after the partition healed — it is ended with `pg_terminate_backend`
+and the lock taken back, rather than read as a rival and the server shut
+down. Pid and start time together name one backend, so a stranger that
+reused the pid is never ended. **Every session asks for TCP keepalive**
+(`tcp_keepalives_idle` 30 s, interval 10 s, three probes, as startup
+parameters, accepted by a Windows server too): a host that crashed sends no
+FIN, and without it the server held the dead session, and the lock, for the
+operating system's two hours, refusing every restart meanwhile. Unlocking and
+closing are bounded by the same deadline, so a shutdown cannot hang on a
+partition either.
+
+**Only the owner shapes the search index** (D103). Every CLI command opens
+the store, and `PgSearchIndex` used to apply that command's `[search]` on
+open: a tokenizer change pending a restart, a newer binary with a moved
+extractor version, or search switched off would drop and refill
+`entry_search` under the running server, in a form the server's own writes
+and queries no longer matched (measured: a running server found 0 of 3
+hits after a trigram command ran). Now `PgSearchIndex.settle` first asks
+`pg_locks` whether a session holds the owner lock — asking rather than
+trying, since a try that won would hold the lock and a server starting at
+that moment would be refused as if one ran — and when one does, changes
+nothing and follows the stamp: its tokenizer for writes and queries, or no
+index when another binary wrote that form. With no owner, `[search]` applies
+as before. `claimOwnership` settles again as the owner, so `serve`'s own
+settings win once it holds the lock, including over a command that changed
+the index in the moment before.
+
 **Connections** (`[storage]`, seconds, `0` for no limit): `pool_size` (10),
 `connect_timeout` (10), `startup_wait` (60), `idle_timeout` (60, under most
-proxies' and serverless databases' own cut-off), `max_lifetime` (1800, so a
-failover or a DNS change is picked up), `statement_timeout` (30) and
-`idle_in_transaction_timeout` (60). The last two are startup parameters, so
+proxies' and serverless databases' own cut-off), `max_lifetime` (0, off since
+D103: it was 1800 so a failover or a DNS change was picked up, but the driver
+ends a connection in use when its time is up — below), `statement_timeout`
+(30) and `idle_in_transaction_timeout` (60). The last two are startup parameters, so
 the server enforces them. `url` has no default and is a `secret` field: the
 settings API reports it with the password masked (`ConfigSecrets`), and
 `SILO_STORAGE_URL` is the place to put it.
@@ -817,6 +866,36 @@ settings API reports it with the password masked (`ConfigSecrets`), and
   entry delete and the project create run in one to get the rule. After a
   backend is killed the pool heals on the next statement, which P0 measured
   and a test pins.
+- **A pool the driver broke is replaced** (D102). Under repeated kills Bun
+  1.4.2 can leave a slot "connected" with no connection behind it when the
+  server ends a connection while the pool is still opening it
+  (oven-sh/bun#42804, fix unreleased): from then on every statement routed
+  there fails at once with a plain `Error`, "connection must be a
+  PostgresSQLConnection", and the pool never heals. The 2026-09-28 stress
+  run reproduced it with no silo code (a plain `SQL` pool, 40 loops,
+  terminations every 250 ms: 105,512 instant failures and a `close()` that
+  never settled). `PgErrorMap.isBrokenPool` names the error, which
+  `translate` makes a `connection` failure; the first statement to see it
+  swaps in a new pool, is retried on it by the rules above (it never reached
+  the server), and the broken pool is closed without being waited on. The
+  count is `storage.database.pool.replaced`. With it, 53 s of the same kills
+  broke the pool ten times and the store answered throughout. The driver can
+  still raise the same error as an uncaught exception from its own connect
+  callback, which `serve` treats as fatal and exits on; a supervisor restart
+  is the recovery then.
+- **The driver's close is bounded.** On a broken pool Bun's `close` may never
+  settle, so `PgConnection` waits on it for at most two seconds, on an
+  unref'd timer, and a shutdown cannot hang on it.
+- **The driver's timers cut busy connections** (measured, Bun 1.4.2).
+  `maxLifetime` ends a connection wherever it is — inside a transaction, in
+  the middle of a statement, during a commit — so each pooled connection is
+  killed once per `max_lifetime`, and a write in flight then is the `unknown`
+  `503` — which is why the default is `0` since D103. `idleTimeout` ends a single statement that runs longer than it. With
+  the defaults (`statement_timeout` 30 s under `idle_timeout` 60 s) only the
+  first is reachable. `idle_in_transaction_session_timeout` does not end a
+  Bun session idle in a transaction (measured: 4 s idle under a 1 s limit
+  committed); silo's transactions await nothing but their own statements, so
+  it is a backstop that does not fire.
 - **Scans leave room for writes** (`PgScanGate`). Every `list` — its page and
   its count read the whole collection — takes one of `pool_size - 2` slots
   (at least one). Up to 64 more wait, and the next is refused as `503 busy`,
@@ -832,8 +911,8 @@ settings API reports it with the password masked (`ConfigSecrets`), and
   of this server's can land once another server has the lock.
 - **Observability.** The store is `MeasuredStorage` too: `GET
   /api/observability` carries `storage.database` — the bytes silo's tables
-  take, the pool's in-use, waiting, shed, retry and failure counts, and the
-  owner lock's state — sampled on the same thirty-second cache as the
+  take, the pool's in-use, waiting, shed, retry, failure and replaced
+  counts, and the owner lock's state — sampled on the same thirty-second cache as the
   directory walk, and `tls`: the mode the URL asked for and the protocol the
   measuring session actually uses, as `pg_stat_ssl` reports it. It is `null`
   for `sqlite` and `fs`.

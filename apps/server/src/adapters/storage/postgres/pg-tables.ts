@@ -24,6 +24,9 @@ export class PgTables {
     "media_references",
   ] as const;
 
+  /** The search table's name, kept apart from {@link PgTables.Names} for the reason on `searchDocuments`. */
+  static readonly SearchName = "entry_search";
+
   readonly schema: string;
   readonly quotedSchema: string;
   readonly meta: string;
@@ -45,7 +48,7 @@ export class PgTables {
     this.collections = this.qualify("collections");
     this.entries = this.qualify("entries");
     this.mediaReferences = this.qualify("media_references");
-    this.searchDocuments = this.qualify("entry_search");
+    this.searchDocuments = this.qualify(PgTables.SearchName);
   }
 
   static for(schema: string): PgTables {

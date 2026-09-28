@@ -36,7 +36,7 @@ on:
 env:
   # The same runtime the rest of the repo builds with; the client's `build`
   # script is `bun build`, and `prepublishOnly` runs it during `npm publish`.
-  BUN_VERSION: "1.4.0"
+  BUN_VERSION: "1.4.2"
   # Node is here for npm itself, and for the packed-tarball harness, which
   # consumes the artifact as Node ESM and as Node CommonJS.
   NODE_VERSION: "22"

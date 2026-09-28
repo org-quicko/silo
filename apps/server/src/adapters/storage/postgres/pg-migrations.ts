@@ -88,7 +88,10 @@ export class PgMigrations {
       [tables.schema]
     );
     const present = new Set(rows.map((row) => row.name));
-    const ours = PgTables.Names.filter((name) => present.has(name));
+    // The search table counts as one of silo's names here, though a schema
+    // is complete without it: a foreign `entry_search` would otherwise be
+    // dropped and recreated by `PgSearchIndex.settle`.
+    const ours = [...PgTables.Names, PgTables.SearchName].filter((name) => present.has(name));
     if (ours.length === 0) return { schemaMissing: false, complete: false };
 
     const stamped = present.has("meta") ? await PgMigrations.stamp(database, tables) : null;
@@ -102,7 +105,7 @@ export class PgMigrations {
         `Postgres schema "${tables.schema}" uses format_version "${stamped}"; export with the previous binary and re-import, or point [storage] schema at a new schema`
       );
     }
-    return { schemaMissing: false, complete: ours.length === PgTables.Names.length };
+    return { schemaMissing: false, complete: PgTables.Names.every((name) => present.has(name)) };
   }
 
   /** The stamped format version, or null when `meta` is not silo's table. */
