@@ -32,4 +32,20 @@ describe("the observability panel", () => {
     const render = source.slice(source.indexOf("const OWNER_STATES"), source.indexOf("/* ---- polling ---- */"));
     expect(card + render).not.toContain("—");
   });
+
+  test("styles endpoint method badges and renders hits traffic share bars", async () => {
+    const source = await fs.readFile(
+      path.resolve(import.meta.dir, "../src/panel/panel.html"),
+      "utf8",
+    );
+    expect(source).toContain(".method.get");
+    expect(source).toContain(".method.post");
+    expect(source).toContain(".method.put");
+    expect(source).toContain(".method.delete");
+    expect(source).toContain(".hits-cell");
+    expect(source).toContain(".hits-track");
+    expect(source).toContain(".hits-fill");
+    expect(source).toContain(".hits-pct");
+    expect(source).toContain("endpoint-path");
+  });
 });

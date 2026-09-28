@@ -35,15 +35,10 @@ export class LoggingMiddleware {
       const plugin = InjectedPrincipals.of(c)?.key.owner?.name;
 
       if (observe) {
-        // `routePath` is the registered Hono pattern, not the requested path:
-        // `/entries/01ABC…` and `/entries/01XYZ…` therefore share one bounded
-        // series, and neither id reaches whoever reads the metrics. The API
-        // catch-all is named as such rather than exposing the unmatched path.
-        const matched = c.req.routePath;
         observability.record({
           completedAt: Date.now(),
           method: c.req.method,
-          route: matched === "/*" || matched === "" ? "/api/*" : matched,
+          route: c.req.path,
           status: c.res.status,
           durationMs,
           internal: plugin !== undefined,

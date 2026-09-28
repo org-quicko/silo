@@ -93,10 +93,41 @@
   th, td { padding: 7px 8px; border-bottom: 1px solid var(--line); }
   th:not(:first-child), td:not(:first-child) { text-align: right; }
   td { font-variant-numeric: tabular-nums; }
-  tbody tr:hover { background: var(--panel-2); }
-  td.endpoint { max-width: 420px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-align: left; }
-  .method { display: inline-block; min-width: 42px; color: var(--accent); font-size: 10.5px; font-weight: 700; }
-  .scroll { flex: 1 1 auto; overflow-x: auto; }
+  td.endpoint { max-width: 480px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-align: left; }
+  .endpoint-path { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; font-size: 12px; }
+  .method {
+    display: inline-block; min-width: 46px; padding: 1.5px 5px; margin-right: 8px;
+    border-radius: var(--radius-sm); font-size: 10px; font-weight: 700; line-height: 1.25;
+    text-align: center; letter-spacing: .02em; border: 1px solid var(--line-2);
+    background: var(--panel-2); color: var(--text-2); vertical-align: middle;
+  }
+  .method.get {
+    color: var(--ok); border-color: color-mix(in oklab, var(--ok) 32%, transparent);
+    background: color-mix(in oklab, var(--ok) 10%, transparent);
+  }
+  .method.post {
+    color: var(--accent); border-color: color-mix(in oklab, var(--accent) 36%, transparent);
+    background: color-mix(in oklab, var(--accent) 10%, transparent);
+  }
+  .method.put, .method.patch {
+    color: var(--warn); border-color: color-mix(in oklab, var(--warn) 34%, transparent);
+    background: color-mix(in oklab, var(--warn) 10%, transparent);
+  }
+  .method.delete {
+    color: var(--bad); border-color: color-mix(in oklab, var(--bad) 34%, transparent);
+    background: color-mix(in oklab, var(--bad) 10%, transparent);
+  }
+  .hits-cell {
+    display: inline-flex; align-items: center; justify-content: flex-end; gap: 8px;
+    font-variant-numeric: tabular-nums;
+  }
+  .hits-track {
+    width: 46px; height: 6px; border-radius: 3px; background: var(--panel-2);
+    overflow: hidden; flex-shrink: 0;
+  }
+  .hits-fill { display: block; height: 100%; background: var(--accent); border-radius: inherit; }
+  .hits-val { font-weight: 600; }
+  .hits-pct { font-size: 11px; min-width: 36px; text-align: right; }
   .resource { flex: 1 1 180px; min-width: 0; padding: 10px; border-radius: var(--radius-sm); background: var(--panel-2); }
   .resource strong { display: block; margin: 3px 0; font-size: 16px; font-variant-numeric: tabular-nums; }
   .alert { padding: 10px 12px; border-left: 2px solid var(--bad); border-radius: var(--radius-sm); background: var(--panel-2); color: var(--bad); }
@@ -159,7 +190,7 @@
   <section class="card">
     <div class="head">
       <h3>Most-used API endpoints</h3>
-      <button class="info" type="button" aria-label="About the endpoint table" data-info="Traffic grouped by the route pattern silo matched, never the path that was requested, so entry ids never appear here. Rare routes past the top 25 are left out.">i</button>
+      <button class="info" type="button" aria-label="About the endpoint table" data-info="Traffic grouped by request path. Rare routes past the top 25 are left out.">i</button>
     </div>
     <div class="toolbar"><span id="endpoint-note" class="dim"></span></div>
     <div class="scroll">
@@ -321,7 +352,7 @@
 
     renderTimeline(requests.timeline || [])
     renderLatency(requests.latency_buckets || [], requests.total || 0)
-    renderEndpoints(requests.endpoints || [], requests.internal || 0)
+    renderEndpoints(requests.endpoints || [], requests.internal || 0, requests.total || 0)
     renderStatus(requests.status || {}, requests.total || 0)
     renderProcess(process)
     renderStorage(snapshot.storage || {})
@@ -443,18 +474,39 @@
     }
   }
 
-  function renderEndpoints(endpoints, internal) {
+  function renderEndpoints(endpoints, internal, total) {
     const body = $('endpoints'); body.textContent = ''
     $('endpoint-note').textContent = internal ? number(internal) + ' internal calls included' : ''
     if (!endpoints.length) {
       const row = node('tr'); const cell = node('td', 'dim', 'No API traffic recorded yet.'); cell.colSpan = 6; row.appendChild(cell); body.appendChild(row); return
     }
+    const totalHits = total || endpoints.reduce((sum, e) => sum + (Number(e.hits) || 0), 0) || 1
+    const peakHits = Math.max(1, ...endpoints.map((e) => Number(e.hits) || 0))
+
     for (const endpoint of endpoints) {
       const row = node('tr')
       const target = node('td', 'endpoint'); target.title = endpoint.method + ' ' + endpoint.route
-      target.appendChild(node('span', 'method', endpoint.method)); target.appendChild(document.createTextNode(endpoint.route))
+      const methodClass = 'method ' + (endpoint.method || '').toLowerCase()
+      target.appendChild(node('span', methodClass, endpoint.method))
+      target.appendChild(document.createTextNode(' '))
+      target.appendChild(node('span', 'endpoint-path', endpoint.route))
       row.appendChild(target)
-      row.appendChild(node('td', '', number(endpoint.hits)))
+
+      const hitsCell = node('td')
+      const hitsWrap = node('div', 'hits-cell')
+      hitsWrap.appendChild(node('span', 'hits-val', number(endpoint.hits)))
+      const pct = totalHits > 0 ? endpoint.hits / totalHits : 0
+      hitsWrap.appendChild(node('span', 'dim hits-pct', percent(pct)))
+      const track = node('div', 'hits-track')
+      track.title = percent(pct) + ' of all requests'
+      const fill = node('i', 'hits-fill')
+      const relWidth = Math.max(2, Math.round((Number(endpoint.hits || 0) / peakHits) * 100))
+      fill.style.width = relWidth + '%'
+      track.appendChild(fill)
+      hitsWrap.appendChild(track)
+      hitsCell.appendChild(hitsWrap)
+      row.appendChild(hitsCell)
+
       row.appendChild(node('td', endpoint.error_rate ? 'bad' : '', percent(endpoint.error_rate)))
       row.appendChild(node('td', '', millis(endpoint.avg_ms)))
       row.appendChild(node('td', '', millis(endpoint.p95_ms)))
