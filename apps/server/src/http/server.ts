@@ -154,6 +154,10 @@ export class SiloServer {
 
     // Enable CORS
     app.use("/api/*", cors());
+    // Read-only and to any origin (D101): an admin on another origin reads a
+    // text asset with `fetch` for its preview. The bytes are public (D58), and
+    // `GET /api/media` already lists them to any origin.
+    app.use("/media/*", cors({ allowMethods: ["GET", "HEAD"] }));
 
     // Before auth, so an oversize body is refused from its headers alone and
     // never buffered for a handler that would not have run (§10.4).

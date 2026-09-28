@@ -16,9 +16,11 @@ import type { MediaAsset } from '../../api/types/media-asset'
  * **Building the path by hand.** A caller that assembles `<server>/media/<id>`
  * is repeating a rule that lives on the server, and repeating it is how the
  * admin came to preview a different link from the one the API hands out. Prefer
- * `of`, which uses the URL the server already answered with; `forId` is only
- * for the entry form, which holds a stored `silo://media/<id>` and no asset
- * record to read a URL from.
+ * `of`, which uses the URL the server already answered with. `forId` is for the
+ * entry form, which holds a stored `silo://media/<id>` and no asset record to
+ * read a URL from; for `downloadUrl`, whose flag only silo's own route reads
+ * (D100); and for the preview's text `fetch`, which needs the CORS header only
+ * silo's own route sends (D101).
  */
 export class MediaFileUrl {
   /** The server's own answer for this asset, made absolute if it is not. */
@@ -37,6 +39,18 @@ export class MediaFileUrl {
    */
   static forId(id: string, serverUrl: string): string {
     return `${MediaFileUrl.root(serverUrl)}/media/${id}`
+  }
+
+  /**
+   * The URL that saves this asset rather than showing it (D100).
+   *
+   * Silo's own route, not `asset.url`: a bucket or a `base_url` host would ignore
+   * `?download=true`. The `attachment` it asks for is what makes a browser save
+   * the file on a link to another origin, where the `download` attribute does
+   * nothing.
+   */
+  static downloadUrl(asset: Pick<MediaAsset, 'id'>, serverUrl: string): string {
+    return `${MediaFileUrl.forId(asset.id, serverUrl)}?download=true`
   }
 
   /** A value that may already be absolute, rooted at the server if it is not. */

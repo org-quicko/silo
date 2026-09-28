@@ -65,6 +65,9 @@ export function MediaPreviewDialog({ asset, assets, baseUrl, onClose, onNavigate
   const [imgDimensions, setImgDimensions] = useState<{ width: number; height: number } | null>(null)
 
   const fileUrl = MediaFileUrl.of(asset, baseUrl)
+  const downloadUrl = MediaFileUrl.downloadUrl(asset, baseUrl)
+  // Silo's own route, not `fileUrl`: a bucket sends no CORS header (D101).
+  const textUrl = MediaFileUrl.forId(asset.id, baseUrl)
   const mediaType = detectMediaType(asset)
   const currentIndex = assets.findIndex((a) => a.id === asset.id)
   const hasPrev = currentIndex > 0
@@ -108,7 +111,7 @@ export function MediaPreviewDialog({ asset, assets, baseUrl, onClose, onNavigate
     setTextError('')
     const controller = new AbortController()
 
-    fetch(fileUrl, { signal: controller.signal })
+    fetch(textUrl, { signal: controller.signal })
       .then((res) => {
         if (!res.ok) throw new Error(`HTTP ${res.status}`)
         return res.text()
@@ -132,7 +135,7 @@ export function MediaPreviewDialog({ asset, assets, baseUrl, onClose, onNavigate
       .finally(() => setTextLoading(false))
 
     return () => controller.abort()
-  }, [fileUrl, mediaType, asset.filename, asset.content_type])
+  }, [textUrl, mediaType, asset.filename, asset.content_type])
 
   const copyUrl = () => link.copy(fileUrl)
 
@@ -210,7 +213,7 @@ export function MediaPreviewDialog({ asset, assets, baseUrl, onClose, onNavigate
               <span>{link.copied ? 'Copied' : 'Copy URL'}</span>
             </button>
             <a
-              href={fileUrl}
+              href={downloadUrl}
               download={asset.filename}
               className={styles.previewActionButton}
               title="Download file"
@@ -375,7 +378,7 @@ export function MediaPreviewDialog({ asset, assets, baseUrl, onClose, onNavigate
                 <h3>{asset.filename}</h3>
                 <p>Preview is not natively supported for this file format ({asset.content_type}).</p>
                 <div className={styles.otherActions}>
-                  <a href={fileUrl} download={asset.filename} className={styles.otherDownloadButton}>
+                  <a href={downloadUrl} download={asset.filename} className={styles.otherDownloadButton}>
                     <Download size={15} /> Download file
                   </a>
                   <a href={fileUrl} target="_blank" rel="noreferrer" className={styles.otherOpenButton}>

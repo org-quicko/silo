@@ -80,6 +80,29 @@ describe("media responses cannot become a page on silo's origin", () => {
     }
   });
 
+  /** D100: what the admin's Download link asks for, since a `download`
+   *  attribute does nothing on a link to another origin. */
+  test("?download=true makes an inline type an attachment; no other value does", async () => {
+    const asset = await service.media.save("photo.png", new Uint8Array([1, 2, 3]));
+    const disposition = async (query: string) =>
+      (await app.request(`/media/${asset.id}${query}`)).headers.get("content-disposition");
+
+    expect(await disposition("?download=true")).toBe("attachment; filename*=UTF-8''photo.png");
+    for (const query of ["?download", "?download=1", "?download=false"]) {
+      expect(await disposition(query)).toBe("inline; filename*=UTF-8''photo.png");
+    }
+  });
+
+  test("?download can only tighten: an SVG stays an attachment whatever it says", async () => {
+    const asset = await service.media.save("logo.svg", new TextEncoder().encode(svg));
+    for (const query of ["?download=true", "?download=false"]) {
+      const response = await app.request(`/media/${asset.id}${query}`);
+      expect(response.headers.get("content-disposition")).toBe(
+        "attachment; filename*=UTF-8''logo.svg"
+      );
+    }
+  });
+
   test("the content type comes from the extension, never from what the upload declared", async () => {
     const form = new FormData();
     form.set("file", new File([svg], "page.html", { type: "image/png" }));
