@@ -74,6 +74,8 @@ export:
   --dir path           export to directory layout
   --out path           export to .tar.gz tarball
   --with-keys          include API keys in export
+  --instance           move the whole instance: API keys, plugin grants and
+                       the audit log too. Use it to change storage driver.
   --include rule       repeatable: project, project/env or project/env/collection.
                        Omit for the whole instance.
   --media s            all | referenced | none (default: all for a whole export,

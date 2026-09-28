@@ -12,6 +12,7 @@ export class ExportCommand {
     const dir = typeof values.dir === "string" ? values.dir : undefined;
     const out = typeof values.out === "string" ? values.out : undefined;
     const withKeys = !!values["with-keys"];
+    const instance = !!values.instance;
 
     if (!dir && !out) {
       console.error("must specify either --dir <path> or --out <path.tar.gz>");
@@ -26,7 +27,17 @@ export class ExportCommand {
       Array.isArray(values.include) ? values.include : values.include ? [values.include] : []
     );
     const media = MediaModes.parse(values.media, !include.isEverything);
-    const options = { withKeys, siloVersion: version, include, media };
+    // Checked here as well as in the exporter, so a refused move leaves no
+    // empty tarball behind.
+    if (instance && !include.isEverything) {
+      console.error("--instance moves the whole instance, so it cannot be combined with --include");
+      process.exit(1);
+    }
+    if (instance && media === MediaModes.Referenced) {
+      console.error("--instance carries the whole media catalog; use --media all or --media none");
+      process.exit(1);
+    }
+    const options = { withKeys, instance, siloVersion: version, include, media };
 
     if (dir) {
       const manifest = await service.transfer.exportDir(dir, options);
@@ -40,6 +51,7 @@ export class ExportCommand {
       console.log(`exported data to tarball: ${out}`);
       console.log(`  Covering: ${include.isEverything ? "the whole instance" : include.describe().join(", ")}`);
       console.log(`  Media:    ${media}`);
+      if (instance) console.log("  Also:     API keys, plugin grants and the audit log");
     }
     await store.close();
   }
@@ -48,6 +60,7 @@ export class ExportCommand {
     collections?: Record<string, number>;
     selection?: string[];
     media?: { mode: string; referenced: number; catalogued: number; files: number };
+    instance?: boolean;
   }): void {
     const collections = Object.keys(manifest.collections ?? {}).length;
     const entries = Object.values(manifest.collections ?? {}).reduce((sum, count) => sum + count, 0);
@@ -59,5 +72,6 @@ export class ExportCommand {
         `  Media:       ${manifest.media.mode} — ${manifest.media.files} file(s), ${manifest.media.catalogued} catalogued, ${manifest.media.referenced} referenced`
       );
     }
+    if (manifest.instance) console.log("  Also:        API keys, plugin grants and the audit log");
   }
 }

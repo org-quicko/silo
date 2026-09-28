@@ -1,7 +1,8 @@
 # silo-plugin-observability
 
 Operational analytics inside the silo admin: normalized API traffic, error rate,
-latency distribution, process memory and CPU, and local storage use.
+latency distribution, process memory and CPU, local storage use, and, when the
+content is in Postgres, the database.
 
 This is a first-party plugin, and it uses the same contract a third-party
 package uses. It is not bundled and it is not enabled for you. The plugin holds
@@ -57,6 +58,11 @@ latency band for its share, or a status bar for its count. Each panel carries an
   `[blob_storage] path` defaults to `<storage.path>/media`, so the library
   normally sits inside the data directory, and the data figure excludes it. A
   library pinned outside the data directory is counted in full either way.
+- **The Database card appears only with the `postgres` storage driver.** It
+  shows the size of silo's own schema, the connection pool (in use, lists
+  running and waiting, and since start the lists refused as busy, retries and
+  failures), whether this server holds the schema's owner lock, and the TLS
+  mode and protocol the connection uses.
 - **Internal `ctx.fetch` requests are counted separately**, so plugin traffic is
   visible without disclosing which other plugins are installed.
 

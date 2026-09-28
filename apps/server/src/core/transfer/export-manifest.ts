@@ -30,4 +30,10 @@ export interface ExportManifest {
   selection?: string[];
   /** Absent only in archives written before §7.7. */
   media?: ExportMediaManifest;
+  /**
+   * True when the archive moves a whole instance (`--instance`, D97) and so
+   * carries the audit log and the plugin grants. Only such an archive may load
+   * them, and only through the CLI.
+   */
+  instance?: boolean;
 }

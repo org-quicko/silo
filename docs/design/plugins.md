@@ -739,7 +739,9 @@ about managed keys:
 - A managed key is **left out of every archive**, including `--with-keys`. It is
   not a credential anybody holds, so carrying it would put a record in the
   destination that no `_plugins` grant points at, that the ordinary revoke path
-  refuses to remove, and that nothing can ever authenticate as.
+  refuses to remove, and that nothing can ever authenticate as. The one
+  exception is a whole-instance move (`silo export --instance`, D97), where the
+  grant that names it travels too, so the record lands with its grant.
 
 ### Pending is a state, not a failure
 
@@ -2571,3 +2573,12 @@ The privacy and memory bounds are part of the contract:
 - everything resets at process start. Durable historical analytics can later
   consume snapshots externally without turning every request into a database
   write today.
+
+**A store in a database draws its own card** (D98). `storage.database` has
+been in the snapshot since D94, and nothing drew it. The panel shows it as a
+Database card after the storage cards — the schema's size, the pool with the
+counters that say it is under strain (lists refused as busy, retries,
+failures), the owner lock's state and the TLS mode and protocol — and hides
+the card when the value is `null`, which it is for `sqlite` and `fs`. The
+admin itself still draws no operating state: that stays the plugin's, for the
+reason this section opens with.

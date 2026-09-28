@@ -1,0 +1,57 @@
+# silo with its content in Postgres.
+#
+# 1. Put a database password in a file called .env beside this one:
+#
+#      SILO_DB_PASSWORD=a-long-random-password
+#
+#    Use only letters, digits and dashes, because it goes into a URL.
+# 2. docker compose up -d
+# 3. docker compose logs silo
+#    The first start prints the root API key once. Keep it.
+#
+# Then open http://localhost:8090 and connect with that key.
+#
+# silo starts after Postgres is healthy. The two containers talk over this
+# project's own network, so the URL needs no TLS. For a database somewhere else,
+# see "With TLS" in docs/guide/configuration.md.
+#
+# SILO_IMAGE picks another image. Pin a version tag in production, for example
+# SILO_IMAGE=labsatquicko/silo:1.3.0 in the same .env file.
+
+name: silo
+
+services:
+  postgres:
+    image: postgres:18
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: silo
+      POSTGRES_PASSWORD: ${SILO_DB_PASSWORD:?set SILO_DB_PASSWORD in .env}
+      POSTGRES_DB: silo
+    volumes:
+      # Postgres 18 images keep their data under /var/lib/postgresql.
+      - postgres_data:/var/lib/postgresql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U silo -d silo"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  silo:
+    image: ${SILO_IMAGE:-labsatquicko/silo:latest}
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    ports:
+      - "8090:8090"
+    environment:
+      SILO_STORAGE_DRIVER: postgres
+      SILO_STORAGE_URL: postgres://silo:${SILO_DB_PASSWORD:?set SILO_DB_PASSWORD in .env}@postgres:5432/silo
+    volumes:
+      # Still needed with Postgres: silo.toml, plugins and uploaded media are here.
+      - silo_data:/data
+
+volumes:
+  postgres_data:
+  silo_data:

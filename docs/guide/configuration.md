@@ -191,6 +191,45 @@ refuses the two timeouts that silo sends when it connects. Add
 `ignore_startup_parameters`, and set them on the database role. silo is not
 tested with PgBouncer yet.
 
+## Changing the storage driver
+
+To move your content to a different driver, for example from SQLite to
+Postgres, export it with the old driver and import it with the new one.
+
+1. Stop the server.
+2. Export everything:
+
+   ```sh
+   silo export --instance --out silo-move.tar.gz
+   ```
+
+3. Change `[storage]` in `silo.toml` to the new driver. For Postgres, also set
+   `SILO_STORAGE_URL`.
+4. Do a dry run. It shows what the import will add, and it writes nothing:
+
+   ```sh
+   silo import --dry-run silo-move.tar.gz
+   ```
+
+5. Import:
+
+   ```sh
+   silo import silo-move.tar.gz
+   ```
+
+6. Start the server.
+
+`--instance` moves all of it: the content, the media, the API keys, the plugin
+grants and the audit log. Your keys and plugins work as before.
+
+- If the new driver uses the same media folder or the same bucket, add
+  `--media none` to the export. The media files are already there, so silo
+  does not copy them.
+- If the import shows `Rejected`, those entries do not match the schema of
+  their collection, and silo did not import them. The import shows each one.
+  Start the server with the old driver, correct them, and do the steps again.
+- Keep the old data until you are sure that the new instance is correct.
+
 ## Connections that go quiet
 
 `[http] idle_timeout` is the number of seconds a connection can send and
