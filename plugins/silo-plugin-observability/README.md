@@ -39,9 +39,8 @@ latency band for its share, or a status bar for its count. Each panel carries an
 
 ## What the snapshot means
 
-- **API endpoints are grouped by the registered route pattern.** Entry ids,
-  project names, query strings, request bodies, caller labels, credentials and
-  filesystem paths are never collected.
+- **API endpoints are grouped by the requested path.** Query strings, request
+  bodies, caller labels, credentials and filesystem paths are never collected.
 - **Error rate is HTTP `4xx` plus `5xx`.** Latency percentiles are bounded
   histogram estimates, and they keep no individual request. An estimate is
   capped at the slowest request actually seen, so a percentile never reads above
