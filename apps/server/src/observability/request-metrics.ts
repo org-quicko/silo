@@ -1,9 +1,13 @@
+import type { EndpointScope } from "./endpoint-name";
 import { LatencyHistogram } from "./latency-histogram";
 
 interface RequestObservation {
   completedAt: number;
   method: string;
   route: string;
+  /** The registered pattern behind `route`, when `route` names a scope (D99). */
+  pattern?: string;
+  scope?: EndpointScope;
   status: number;
   durationMs: number;
   internal: boolean;
@@ -12,6 +16,8 @@ interface RequestObservation {
 interface EndpointMetric {
   method: string;
   route: string;
+  pattern: string;
+  scope?: EndpointScope;
   hits: number;
   errors: number;
   internal: number;
@@ -54,6 +60,7 @@ export class RequestMetrics {
   record(observation: RequestObservation): void {
     const method = RequestMetrics.method(observation.method);
     const route = RequestMetrics.route(observation.route);
+    const pattern = observation.scope ? RequestMetrics.route(observation.pattern ?? observation.route) : route;
     const status = Number.isInteger(observation.status) ? observation.status : 500;
     const duration = Number.isFinite(observation.durationMs)
       ? Math.max(0, observation.durationMs)
@@ -66,7 +73,7 @@ export class RequestMetrics {
     this.latency.observe(duration);
     this.incrementStatus(status);
 
-    const endpoint = this.endpoint(method, route);
+    const endpoint = this.endpoint(method, route, pattern, observation.scope);
     endpoint.hits++;
     if (error) endpoint.errors++;
     if (observation.internal) endpoint.internal++;
@@ -81,7 +88,12 @@ export class RequestMetrics {
     this.prune(Math.floor(this.now() / 60_000));
   }
 
-  snapshot(at = this.now()) {
+  /**
+   * `reveals` answers whether the caller may see a scope's names. A named series
+   * it refuses is folded into its pattern's, so the counts stay whole and the
+   * names stay out. Refusing everything is the default.
+   */
+  snapshot(at = this.now(), reveals: (scope: EndpointScope) => boolean = () => false) {
     const latency = this.latency.snapshot();
     const currentMinute = Math.floor(at / 60_000);
     this.prune(currentMinute);
@@ -101,7 +113,7 @@ export class RequestMetrics {
       });
     }
 
-    const endpoints = [...this.endpoints.values()]
+    const endpoints = RequestMetrics.visible([...this.endpoints.values()], reveals)
       .sort((left, right) => right.hits - left.hits || left.method.localeCompare(right.method) || left.route.localeCompare(right.route))
       .slice(0, RequestMetrics.TopEndpoints)
       .map((endpoint) => {
@@ -142,19 +154,61 @@ export class RequestMetrics {
     return new Date(this.startedAt).toISOString();
   }
 
-  private endpoint(method: string, route: string): EndpointMetric {
+  private endpoint(method: string, route: string, pattern: string, scope?: EndpointScope): EndpointMetric {
+    const full = (key: string) => !this.endpoints.has(key) && this.endpoints.size >= RequestMetrics.MaxEndpoints;
     let key = `${method} ${route}`;
-    if (!this.endpoints.has(key) && this.endpoints.size >= RequestMetrics.MaxEndpoints) {
+    // No room for another named series: count it under its pattern, which stays exact.
+    if (scope && full(key)) {
+      route = pattern;
+      scope = undefined;
+      key = `${method} ${route}`;
+    }
+    if (full(key)) {
       key = "* <other>";
       method = "*";
-      route = "<other>";
+      route = pattern = "<other>";
     }
     let metric = this.endpoints.get(key);
     if (!metric) {
-      metric = { method, route, hits: 0, errors: 0, internal: 0, latency: new LatencyHistogram() };
+      metric = {
+        method,
+        route,
+        pattern: scope ? pattern : route,
+        scope,
+        hits: 0,
+        errors: 0,
+        internal: 0,
+        latency: new LatencyHistogram(),
+      };
       this.endpoints.set(key, metric);
     }
     return metric;
+  }
+
+  /** The series as one caller may see them. Builds new objects, and never changes the stored ones. */
+  private static visible(
+    metrics: readonly EndpointMetric[],
+    reveals: (scope: EndpointScope) => boolean
+  ): EndpointMetric[] {
+    const shown = new Map<string, EndpointMetric>();
+    for (const metric of metrics) {
+      const hidden = metric.scope !== undefined && !reveals(metric.scope);
+      const route = hidden ? metric.pattern : metric.route;
+      const key = `${metric.method} ${route}`;
+      const existing = shown.get(key);
+      if (!existing) {
+        shown.set(key, hidden ? { ...metric, route, scope: undefined } : metric);
+        continue;
+      }
+      shown.set(key, {
+        ...existing,
+        hits: existing.hits + metric.hits,
+        errors: existing.errors + metric.errors,
+        internal: existing.internal + metric.internal,
+        latency: existing.latency.merged(metric.latency),
+      });
+    }
+    return [...shown.values()];
   }
 
   private incrementStatus(status: number): void {

@@ -2555,7 +2555,13 @@ metrics client can use the same endpoint and the same claim.
 The privacy and memory bounds are part of the contract:
 
 - series keys are the registered method and route pattern, never the requested
-  path, parameters or query;
+  path, an id or the query. Since D99 a successful request fills in its
+  project, environment and collection (a failure stays on the pattern, so a
+  made-up name cannot take a series), and each caller sees the names only of
+  scopes its own collection claims reach. The panel's caller is the plugin, so
+  names appear once an operator approves its optional
+  `collections:*/*/*:schema:read`, narrowed or not. The exact path of each
+  request is the access log's job, which since D99 also names the key;
 - callers, bodies, credentials, content and filesystem paths are never stored;
 - latency is a fixed histogram and the chart is sixty one-minute buckets, and a
   percentile is clamped to the slowest request observed — a bucket boundary is
