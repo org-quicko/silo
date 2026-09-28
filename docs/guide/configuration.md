@@ -131,15 +131,19 @@ database if they use different schemas.
 |-----|---------|--------------|
 | `url` | none | The database, and its TLS settings (see below). The settings page shows it without the password. |
 | `schema` | `silo` | Where the tables are. |
-| `pool_size` | 10 | The connections one server keeps. Two are kept free for writes, so many slow lists cannot stop a save. |
-| `connect_timeout` | 10 | Seconds for one connection attempt. |
+| `pool_size` | 10 | The connections one server keeps. Lists and searches leave two free for writes, so many slow lists cannot stop a save. This needs a pool of 3 or more. The owner lock uses one more connection. |
+| `connect_timeout` | 10 | Seconds for one connection attempt. `0` uses the driver's own limit of 30 seconds. |
 | `startup_wait` | 60 | Seconds a start keeps trying when the server is not there yet, for example in a container that starts before the database. A wrong password or a missing database stops the start immediately. |
 | `idle_timeout` | 60 | Seconds before silo closes a connection that it does not use. |
-| `max_lifetime` | 1800 | Seconds before silo replaces a connection, so that silo finds a new server after a failover. |
-| `statement_timeout` | 30 | Seconds one query can run. A slower query answers 503. |
-| `idle_in_transaction_timeout` | 60 | Seconds before the server ends a transaction that does nothing. |
+| `max_lifetime` | 0 | Seconds before silo replaces a connection. Off by default. The driver ends the connection when the time is up, also in the middle of a write. That write then answers 503, and silo cannot tell if it was saved. Set it only if your database or proxy needs connections to rotate. |
+| `statement_timeout` | 30 | Seconds one query can run. A slower query answers 503. Keep it below `idle_timeout`: the driver ends a query that runs longer than `idle_timeout`. |
+| `idle_in_transaction_timeout` | 60 | Seconds before the server ends a transaction that does nothing. With Bun 1.4.2 the server does not end these transactions (measured). silo's transactions do not wait for anything, so this is only a backstop. |
 
-`0` switches off a limit. A change takes effect at the next restart.
+`0` switches off a limit, except for `connect_timeout`. A change takes effect
+at the next restart.
+
+On Postgres, `serve` applies `[search]`. Other commands follow the index that
+the running server keeps, so a command cannot change the index under it.
 
 Search uses Postgres's own text search, with the same rules as on SQLite. The
 order of results can be different from SQLite. `[search] tokenizer = "trigram"`

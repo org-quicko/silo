@@ -22,9 +22,10 @@ interface PgColumn {
  * selects nothing. The rules that shape every method (docs/design/storage.md
  * §6.6):
  *
- * - Names and indexes are separate steps, `-> 'name'` and `-> 0`. The `#>`
- *   operator takes both as text and would read key `"0"` of an object for an
- *   index, or element 0 of an array for a name.
+ * - Names and indexes are separate steps: `-> 'name'`, and a strict jsonpath
+ *   `$[0]` for an index (see `element`). The `#>` operator takes both as text
+ *   and would read key `"0"` of an object for an index, or element 0 of an
+ *   array for a name.
  * - Equality is `jsonb = jsonb`, which is type-strict by itself: `1` is not
  *   `"1"` or `true`, and JSON null equals only JSON null.
  * - A comparison or cast is inside a `CASE` on `jsonb_typeof`. `AND` does not
@@ -34,6 +35,9 @@ interface PgColumn {
  * - Nothing sorts on raw `jsonb`, whose type order is not `EntryNodes.compare`'s.
  */
 export class PgCompiler {
+  /** The largest array index Postgres can hold. */
+  private static readonly MaxIndex = 2_147_483_647;
+
   private static readonly Comparisons: Record<string, string> = {
     gt: ">",
     gte: ">=",
@@ -154,7 +158,7 @@ export class PgCompiler {
     );
   }
 
-  /** A path from `source`, one operator per selector. Names are bound;
+  /** A path from `source`, one step per selector. Names are bound;
    *  indexes are integers from the parser, written in. */
   private static walk(source: string, selectors: readonly PathSelector[], params: PgParams): string {
     let node = source;
@@ -162,13 +166,28 @@ export class PgCompiler {
       if (selector.kind === "name") {
         node = `(${node} -> ${params.add(selector.name)}::text)`;
       } else if (selector.kind === "index") {
-        if (!Number.isSafeInteger(selector.index)) {
-          throw new ValidationError(`invalid array index ${selector.index}`);
-        }
-        node = `(${node} -> ${selector.index})`;
+        node = PgCompiler.element(node, selector.index);
       }
     }
     return node;
+  }
+
+  /**
+   * One array element, or SQL NULL when `node` is not an array. Not `->`: on
+   * a string, number or boolean, `-> 0` and `-> -1` answer the value itself
+   * (measured, Postgres 18), where RFC 9535 selects nothing. A strict jsonpath
+   * refuses a non-array, and `silent` turns that into NULL; it also names the
+   * node once, where a `CASE` on its type would double the SQL at every step.
+   * No array is longer than an `int4`, so a larger index selects nothing — as
+   * a `CASE` that still names `node`, since the names it bound must appear in
+   * the statement (42P18).
+   */
+  private static element(node: string, index: number): string {
+    if (!Number.isInteger(index) || Math.abs(index) > PgCompiler.MaxIndex) {
+      return `(CASE WHEN false THEN ${node} END)`;
+    }
+    const subscript = index >= 0 ? String(index) : index === -1 ? "last" : `last - ${-index - 1}`;
+    return `jsonb_path_query_first(${node}, 'strict $[${subscript}]', '{}', true)`;
   }
 
   /** One leaf operator against a `jsonb` node. */

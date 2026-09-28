@@ -25,8 +25,8 @@ export interface PgSearchRow {
  * Under `trigram` the folded text itself is stored, for `pg_trgm` to index.
  */
 export class PgSearchDocument {
-  /** Postgres's own limits: a lexeme is at most 2047 bytes, and a position at most 16383. */
-  private static readonly MaxLexemeBytes = 2047;
+  /** Postgres's own limits: a lexeme is at most 2046 bytes (measured: 2047 is refused), and a position at most 16383. */
+  private static readonly MaxLexemeBytes = 2046;
   private static readonly MaxPosition = 16383;
   /** A `tsvector` is at most 1 MB; staying well under it keeps a long entry writable. */
   private static readonly MaxLiteralLength = 900_000;

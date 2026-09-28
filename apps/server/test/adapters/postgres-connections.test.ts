@@ -3,6 +3,8 @@ import fs from "fs/promises";
 import os from "os";
 import path from "path";
 import { PgConnection } from "../../src/adapters/storage/postgres/pg-connection";
+import { PgOwnerLock } from "../../src/adapters/storage/postgres/pg-owner-lock";
+import { PgTables } from "../../src/adapters/storage/postgres/pg-tables";
 import type { PgScanGate } from "../../src/adapters/storage/postgres/pg-scan-gate";
 import { PgStore } from "../../src/adapters/storage/postgres/pg-store";
 import { PgUnavailableError } from "../../src/adapters/storage/postgres/pg-unavailable-error";
@@ -157,6 +159,57 @@ if (!url) {
     });
   });
 
+  describe("PgConnection and a pool the driver broke", () => {
+    // Bun 1.4.2 can leave a pool slot "connected" with no connection behind it
+    // (oven-sh/bun#42804), after which every statement on that pool fails at
+    // once with this error. White-box, deliberately: the race that causes it
+    // cannot be produced on demand, so the broken pool is stood in for.
+    const brokenPool = () => new Error("connection must be a PostgresSQLConnection");
+
+    test("a read is answered on a new pool, and the broken one is replaced once", async () => {
+      const connection = PgConnection.open({ url, max: 2, applicationName: PgTestDatabase.freshApplicationName() });
+      try {
+        const broken = (connection as unknown as { sql: { unsafe: unknown } }).sql;
+        broken.unsafe = () => Promise.reject(brokenPool());
+        const answers = await Promise.all(
+          [1, 2, 3].map(() => connection.query<{ one: number }>(`SELECT 1 AS one`))
+        );
+        expect(answers.map(([row]) => row.one)).toEqual([1, 1, 1]);
+        expect(connection.stats().replaced).toBe(1);
+      } finally {
+        await connection.close();
+      }
+    });
+
+    test("a transaction whose BEGIN met the broken pool runs on the new one", async () => {
+      const connection = PgConnection.open({ url, max: 2, applicationName: PgTestDatabase.freshApplicationName() });
+      try {
+        const broken = (connection as unknown as { sql: { begin: unknown } }).sql;
+        broken.begin = () => Promise.reject(brokenPool());
+        const answer = await connection.transaction(async (session) => {
+          const [row] = await session.query<{ one: number }>(`SELECT 1 AS one`);
+          return row.one;
+        });
+        expect(answer).toBe(1);
+        expect(connection.stats()).toMatchObject({ replaced: 1, retries: 1 });
+      } finally {
+        await connection.close();
+      }
+    });
+
+    test("close stops waiting on a driver close that never settles", async () => {
+      const connection = PgConnection.open({ url, max: 1, applicationName: PgTestDatabase.freshApplicationName() });
+      await connection.query(`SELECT 1`);
+      const driver = (connection as unknown as { sql: { close: (options: unknown) => Promise<void> } }).sql;
+      const realClose = driver.close.bind(driver);
+      driver.close = () => new Promise<void>(() => {});
+      const started = Date.now();
+      await connection.close(0);
+      expect(Date.now() - started).toBeLessThan(4_000);
+      await realClose({ timeout: 0 });
+    });
+  });
+
   describe("PgConnection close", () => {
     test("work in flight finishes, and work after is refused", async () => {
       const connection = PgConnection.open({
@@ -237,6 +290,21 @@ if (!url) {
     });
   });
 
+  describe("PgStore on a pool of one", () => {
+    test("deletes a collection, which once waited forever for a second connection", async () => {
+      const store = await PgStore.open({ url, schema: PgTestDatabase.freshSchema(), poolSize: 1 });
+      try {
+        await store.putSchema(Scope.Default, "posts", { type: "object" });
+        const deleted = store.deleteSchema(Scope.Default, "posts").then(() => "deleted");
+        const outcome = await Promise.race([deleted, Bun.sleep(5_000).then(() => "hung")]);
+        expect(outcome).toBe("deleted");
+        expect(await store.findCollection(Scope.Default, "posts")).toBeNull();
+      } finally {
+        await dispose(store);
+      }
+    });
+  });
+
   describe("PgStore owner lock", () => {
     test("a lock whose connection is killed is taken back by the heartbeat", async () => {
       const applicationName = PgTestDatabase.freshApplicationName();
@@ -289,6 +357,51 @@ if (!url) {
       }
     });
 
+    test("a check that never answers is a lost connection, and the lock is taken back from the session left behind", async () => {
+      // A partition that heals: the check hangs, and the old session lives on
+      // at the server, still holding the lock this server gave up on.
+      const applicationName = PgTestDatabase.freshApplicationName();
+      const lost: Error[] = [];
+      const lock = await PgOwnerLock.acquire({
+        url,
+        tables: PgTables.for(PgTestDatabase.freshSchema()),
+        applicationName,
+        heartbeatMs: 3_600_000,
+        deadlineMs: 200,
+        lost: (reason) => lost.push(reason),
+      });
+      const held = (lock as unknown as { held: OwnerLockHeld }).held;
+      const leftBehind = held.backend;
+      const realClose = held.connection.close.bind(held.connection);
+      try {
+        held.session.query = () => new Promise(() => {});
+        held.connection.close = async () => {};
+
+        // White-box, deliberately: one heartbeat, run now.
+        await (lock as unknown as { beat(): Promise<void> }).beat();
+        expect(lock.state).toBe("held");
+        expect(lost).toEqual([]);
+        const now = (lock as unknown as { held: OwnerLockHeld }).held.backend;
+        expect(now.pid).not.toBe(leftBehind.pid);
+        expect(await ownerSessions(applicationName)).toBe(1);
+      } finally {
+        await lock.release();
+        await realClose(0);
+      }
+    });
+
+    test("every session asks the server to probe a silent client, so a crashed host lets its lock go", async () => {
+      const connection = PgConnection.open({ url, max: 1, applicationName: PgTestDatabase.freshApplicationName() });
+      try {
+        const [row] = await connection.query<{ idle: string; interval: string }>(
+          `SELECT current_setting('tcp_keepalives_idle') AS idle, current_setting('tcp_keepalives_interval') AS interval`
+        );
+        expect(row).toEqual({ idle: "30", interval: "10" });
+      } finally {
+        await connection.close();
+      }
+    });
+
     test("closing gives the lock up only after the pool, so the next owner starts clean", async () => {
       const schema = PgTestDatabase.freshSchema();
       const first = await PgStore.open({ url, schema });
@@ -326,7 +439,47 @@ if (!url) {
         await fs.rm(dataDir, { recursive: true, force: true });
       }
     });
+
+    test("neither a second server nor a one-shot command with other [search] settings touches the running server's index", async () => {
+      const dataDir = await fs.mkdtemp(path.join(os.tmpdir(), "silo-pg-serve-"));
+      const schema = PgTestDatabase.freshSchema();
+      const config = ConfigLoader.defaultConfig();
+      Object.assign(config.storage, { driver: "postgres", url, schema, path: dataDir });
+      config.blob_storage.path = path.join(dataDir, "media");
+      config.log.level = "silent";
+      const stamp = async () =>
+        (
+          await PgTestDatabase.admin((sql) =>
+            sql.unsafe(`SELECT value FROM "${schema}".meta WHERE key = 'search_index_version'`)
+          )
+        )[0]?.value ?? null;
+
+      const server = await SiloRuntime.open(config, "serve");
+      try {
+        const before = await stamp();
+        expect(before).not.toBeNull();
+        // Search off would clear the stamp, which the next start reads as an
+        // index to drop and refill under the running server.
+        const off = structuredClone(config);
+        off.search.enabled = false;
+        expect(await AsyncChecks.refusal(SiloRuntime.open(off, "serve"))).toMatch(/already owns Postgres schema/);
+        const oneShot = await SiloRuntime.open(off, "keys");
+        await oneShot.close();
+        expect(await stamp()).toBe(before);
+      } finally {
+        await server.close();
+        await PgTestDatabase.drop(schema);
+        await fs.rm(dataDir, { recursive: true, force: true });
+      }
+    });
   });
+}
+
+/** The owner lock's private state, as the white-box tests reach it. */
+interface OwnerLockHeld {
+  connection: PgConnection;
+  session: { query: (...args: unknown[]) => Promise<unknown> };
+  backend: { pid: number; started: string };
 }
 
 /** Sessions holding a lock for `applicationName`'s owner connection. */

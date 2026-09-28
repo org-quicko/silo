@@ -99,7 +99,8 @@ Then open `http://localhost:8090` and connect with that key.
 silo starts after Postgres is healthy. Postgres keeps its data in the
 `postgres_data` volume. silo still uses the `silo_data` volume for
 `silo.toml`, the plugins and the uploaded media. To pin a silo version, add
-`SILO_IMAGE=labsatquicko/silo:1.3.0` to `.env`.
+`SILO_IMAGE=labsatquicko/silo:1.5.0` to `.env`. Use 1.5.0 or later. Older
+images do not have the `postgres` driver.
 
 The two containers talk over the project's own network, so the URL has no TLS.
 For a database on a different machine, set `sslmode` in the URL, as

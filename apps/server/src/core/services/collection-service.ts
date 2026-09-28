@@ -1,4 +1,4 @@
-import { Claims } from "@silo/shared/claims";
+import { CollectionName } from "@silo/shared/collection-name";
 import { ReservedFieldNames } from "@silo/shared/reserved-field-names";
 import { SchemaAccess } from "@silo/shared/schema-access";
 import { SearchFields } from "@silo/shared/search-fields";
@@ -112,11 +112,7 @@ export class CollectionService {
 
   /** Creates or replaces a collection's schema, bundling its `$ref`s first. */
   async putSchema(scope: Scope, name: string, schema: any): Promise<Collection> {
-    if (!Claims.isCollectionName(name)) {
-      throw new ValidationError(
-        `invalid collection name "${name}": want lowercase letter first, then [a-z0-9_-], max 64 chars`
-      );
-    }
+    CollectionService.assertName(name);
     // Checked on save, so a mistyped search path is a 400 the author sees now
     // rather than a field that quietly stops being searchable (D30).
     SearchFields.validate(schema);
@@ -174,11 +170,7 @@ export class CollectionService {
    */
   async rename(scope: Scope, id: string, from: string, to: string): Promise<void> {
     CollectionService.refuseSystemCollection(scope, from);
-    if (!Claims.isCollectionName(to)) {
-      throw new ValidationError(
-        `invalid collection name "${to}": want lowercase letter first, then [a-z0-9_-], max 64 chars`
-      );
-    }
+    CollectionService.assertName(to);
 
     await this.context.withWriteLock(async () => {
       const referrers = await this.findSchemaReferrers(scope, from, true);
@@ -292,6 +284,12 @@ export class CollectionService {
     const ref = node.$ref;
     if (typeof ref === "string" && (ref === url || ref.startsWith(url + "#"))) return true;
     return Object.values(node).some((child) => CollectionService.schemaRefsUrl(child, url));
+  }
+
+  /** Refuses a name no collection may have (D104), saying why in words. */
+  static assertName(name: unknown): void {
+    const problem = typeof name === "string" ? CollectionName.problem(name) : "the name must be a string";
+    if (problem) throw new ValidationError(`invalid collection name: ${problem}`);
   }
 
   /** System collections are silo's own and are not addressable as collections. */

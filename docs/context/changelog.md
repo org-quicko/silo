@@ -4,6 +4,62 @@
 > The *current* state is [CONTEXT.md](../../CONTEXT.md); this is how it got
 > there.
 
+- **Collection names may have 128 characters (2026-09-28, D104).** They were
+  capped at 64 with project and env ids, and a longer one gave any key but
+  root a `403 missing claim` that never said the name was the problem, since
+  the claim was checked first. `CollectionName` in `@silo/shared` now holds
+  the rule and a plain reason ("the name has 129 characters, and the most is
+  128"); the claim grammar's collection segment is built from it; the create
+  and rename routes check the name before the claim and before a dry run. The
+  admin shows the reason as you type, in the new-collection field and the
+  rename form. MCP, the Strapi importer and `docs/openapi.json` (a
+  `CollectionName` schema) follow; projects and environments stay at 64. New
+  tests `collection-name.test.ts` (shared) and `collection-names.test.ts`
+  (HTTP).
+
+- **Postgres open items from the review (2026-09-28, D103).**
+  - `max_lifetime` defaults to 0: Bun ends a connection at its lifetime even
+    during a commit.
+  - The owner lock's check has a deadline, a retake ends this server's own
+    session left behind by a healed partition instead of shutting down, and
+    every connection asks for TCP keepalive, so a crashed host's lock is
+    released in about a minute.
+  - Only the schema's owner shapes the search index. A CLI command or a
+    second server beside a running one follows its index; `serve` claims the
+    lock before it makes a searcher or rebuilds, and closes the store when a
+    later start step fails.
+  - A foreign `entry_search` table is refused by the format guard.
+  - Reindex, on Postgres and SQLite, pages by id and never writes text older
+    than the entry.
+  - CI, the release workflows and the Dockerfile run Bun 1.4.2; the compose
+    example pins 1.5.0.
+  - The configuration guide corrects `connect_timeout = 0`, `pool_size` below
+    3 and `idle_in_transaction_timeout`.
+
+- **Postgres stress review fixes (2026-09-28, D102).** A stress run (kills
+  every 250 ms, a chaos proxy, a soak with fast connection churn, `serve`
+  under 64 HTTP clients through two failovers) and two review passes found:
+  - Bun 1.4.2 can break its own pool under repeated terminations
+    (oven-sh/bun#42804), after which every statement failed at once as a
+    `500`. `PgConnection` now replaces such a pool and retries on the new
+    one, bounds the driver's `close`, and counts it in
+    `storage.database.pool.replaced` (OpenAPI, observability panel).
+  - A key that storage could not look up answered `401 invalid API key`, so
+    a database blip logged every admin tab out. It is `503 busy` with
+    `Retry-After` now, on every driver. New test `auth-storage-busy.test.ts`.
+  - A list or search sorted by a data field and asked for a page past the
+    end was a `500` (`42P18`): the recount bound the sort's parameters.
+  - `$.data.title[0]` matched a plain string on Postgres, whose `-> 0` on a
+    scalar answers the scalar. Index steps are a strict jsonpath now, and an
+    index past `int4` selects nothing, as on SQLite and fs.
+  - A term of exactly 2,047 bytes made an entry unwritable with search on
+    (Postgres's lexeme limit is 2,046). Trigram no longer drops long terms.
+  - A collection delete on `pool_size = 1` waited forever for a second
+    connection.
+  New conformance cases pin the paging and index rules on all three
+  adapters. `storage.md` §6.6 records what the run measured about Bun's
+  `maxLifetime`, `idleTimeout` and `idle_in_transaction_session_timeout`.
+
 - **Text previews work across origins (2026-09-28, D101).** The media
   preview's `fetch` of a `.txt` or `.json` asset failed with a CORS error
   whenever the admin was on another origin than the server, which is always

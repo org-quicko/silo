@@ -101,25 +101,14 @@ export class SiloRuntime {
     // holding a silent logger would drop that on the floor exactly when it
     // matters.
     const logger = command === "serve" ? Logger.create(config.log) : Logger.silent();
+    let runtime: SiloRuntime | null = null;
     const { store, service, providers, rebuildNotice } = await SiloRuntime.openStorage(
       config,
-      logger
+      logger,
+      command === "serve"
+        ? (reason) => (runtime ? runtime.storageLost(reason) : SiloRuntime.abandon(logger, reason))
+        : null
     );
-
-    // Before anything is written — the rename resume below included — because
-    // a store another server owns must not be written to at all (D25). A store
-    // with no owner lock of its own leaves this to `RunFile`, in `serve`.
-    let runtime: SiloRuntime | null = null;
-    if (command === "serve") {
-      try {
-        await SiloRuntime.claim(store, (reason) =>
-          runtime ? runtime.storageLost(reason) : SiloRuntime.abandon(logger, reason)
-        );
-      } catch (error) {
-        await store.close().catch(() => {});
-        throw error;
-      }
-    }
 
     if (rebuildNotice && command === "serve") console.error(rebuildNotice);
 
@@ -141,7 +130,15 @@ export class SiloRuntime {
     // plugin boots on the authority its `_plugins` record holds, so a cascade
     // replayed after it started would leave it running on claims that name a
     // scope which no longer exists (D51).
-    const renames = await service.resumePendingRenames();
+    let renames: Awaited<ReturnType<SiloService["resumePendingRenames"]>>;
+    try {
+      renames = await service.resumePendingRenames();
+    } catch (error) {
+      // The caller gets the error, and the pool (and for `serve` the owner
+      // lock) must not outlive it: a process that exits on its own would hang.
+      await store.close().catch(() => {});
+      throw error;
+    }
     if (renames.resumed > 0 || renames.failed > 0) {
       logger.info("finished pending scope renames", {
         resumed: renames.resumed,
@@ -240,8 +237,14 @@ export class SiloRuntime {
    * third-party adapter reaches the same lookup the shipped ones do — and a
    * default install still resolves "sqlite" to `SqliteStore` with no plugin, no
    * network and no configuration.
+   *
+   * `lost` is given for `serve` only, which claims the store (below).
    */
-  private static async openStorage(config: Config, logger: Logger): Promise<{
+  private static async openStorage(
+    config: Config,
+    logger: Logger,
+    lost: ((reason: Error) => void) | null
+  ): Promise<{
     store: Storage;
     service: SiloService;
     /** Handed back rather than discarded: `MediaStorageSupervisor` opens the
@@ -255,6 +258,31 @@ export class SiloRuntime {
     await PluginLoader.loadProviders(PluginRegistry.directory(config), config.plugins, providers);
 
     const store = await providers.openStorage(config);
+    try {
+      return await SiloRuntime.wire(config, logger, store, providers, lost);
+    } catch (error) {
+      // Nothing opened here may outlive a start that failed: an open pool, or
+      // an owner lock, keeps a process alive that meant to exit.
+      await store.close().catch(() => {});
+      throw error;
+    }
+  }
+
+  /** Everything built on an open store, in the order ownership needs. */
+  private static async wire(
+    config: Config,
+    logger: Logger,
+    store: Storage,
+    providers: ProviderRegistry,
+    lost: ((reason: Error) => void) | null
+  ): Promise<{ store: Storage; service: SiloService; providers: ProviderRegistry; rebuildNotice: string | null }> {
+    // Before anything is written, the index rebuild and the rename resume
+    // included, because a store another server owns must not be written to at
+    // all (D25). And before the searcher is made: on Postgres the claim is what
+    // decides which index this server keeps (D103). A store with no owner lock
+    // of its own leaves this to `RunFile`, in `serve`.
+    if (lost) await SiloRuntime.claim(store, lost);
+
     const blobStorage = providers.openBlob(config.blob_storage);
 
     // The store's own engine when it keeps an index, the portable one otherwise

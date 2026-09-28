@@ -87,6 +87,14 @@ curl -X POST http://localhost:8090/api/projects/default/envs/prod/collections/po
   -d '{"title": "Hello"}'
 ```
 
+## Names
+
+A name starts with a lowercase letter. After that it can have lowercase
+letters, digits, `-` and `_`. A project or an environment name can have up to
+64 characters. A collection name can have up to 128 characters. silo checks a
+new collection name before it checks your key, so a bad name is a `400` that
+tells you what to change.
+
 ## Entry representation
 
 An entry is returned flattened: its `id`, then its own fields, then
@@ -224,6 +232,12 @@ entry data scans the collection. Those scans run on a separate storage thread
 with a queue of 64. When the queue is full the request is refused with
 `Retry-After: 1` instead of waiting. A filter may test at most 16 fields; more
 is a `400`.
+
+A `503 busy` can also come from any route when storage cannot answer. With the
+`postgres` driver, this happens while the database is unreachable or
+restarting. silo reads your key from storage on every request, so it cannot
+check the key then either. The answer is `503`, not `401`. Do not drop a key
+because of a `503`. Wait for `Retry-After` and send the request again.
 
 A `413` means the request body is larger than the route accepts. Routes that
 take a JSON document accept `[http] max_json_body_size_mb` (default 4 MB). The

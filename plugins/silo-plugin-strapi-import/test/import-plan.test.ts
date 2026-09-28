@@ -87,7 +87,7 @@ describe('proposing a plan', () => {
 
       expect(() =>
         ImportPlans.read({ ...plan, steps: [{ ...plan.steps[0]!, collection: 'Not Valid' }] }, inventory)
-      ).toThrow(/not a usable name/)
+      ).toThrow(/is not a name silo accepts/)
 
       // The hyphens the proposal now carries are silo's to accept, so the plan
       // that comes back unedited has to pass the same check.
@@ -117,7 +117,7 @@ describe('proposing a plan', () => {
       )
       expect(() =>
         ImportPlans.read({ ...plan, project: 'Not Valid', env: 'prod' }, inventory)
-      ).toThrow(/not a usable name/)
+      ).toThrow(/is not a name silo accepts/)
     })
 
     test('a media folder that climbs out of the library', () => {

@@ -16,7 +16,8 @@
 # see "With TLS" in docs/guide/configuration.md.
 #
 # SILO_IMAGE picks another image. Pin a version tag in production, for example
-# SILO_IMAGE=labsatquicko/silo:1.3.0 in the same .env file.
+# SILO_IMAGE=labsatquicko/silo:1.5.0 in the same .env file. The postgres driver
+# is in 1.5.0 and later; an older image stops with "unknown storage driver".
 
 name: silo
 

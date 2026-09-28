@@ -36,8 +36,27 @@ export class PgErrorMap {
     "40P01": "contention", // deadlock
   };
 
+  /**
+   * What a statement sees on a pool the driver broke (oven-sh/bun#42804): a
+   * plain `Error`, no code, raised before anything is sent. `PgConnection`
+   * replaces the pool when it sees one.
+   */
+  private static readonly BrokenPool = "connection must be a PostgresSQLConnection";
+
+  /** True for the error of a pool the driver broke, which never reached the server. */
+  static isBrokenPool(error: unknown): boolean {
+    return (
+      error instanceof Error &&
+      error.message === PgErrorMap.BrokenPool &&
+      !PgErrorMap.label(error).startsWith("ERR_POSTGRES_")
+    );
+  }
+
   /** `tls` is what the connection asked for, which is what a TLS failure's message names. */
   static translate(error: unknown, tls: PgTlsMode = "disable"): unknown {
+    if (PgErrorMap.isBrokenPool(error)) {
+      return new PgUnavailableError(PgErrorMap.describe("connection"), "connection");
+    }
     if (tls !== "disable" && PgErrorMap.isHandshakeFailure(error)) return PgErrorMap.certificate(error, tls);
     if (!PgErrorMap.isDriverError(error)) return error;
     const state = PgErrorMap.state(error);

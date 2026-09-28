@@ -14,6 +14,8 @@ export interface StorageMeasurement {
     retries: number;
     /** Calls that failed as unavailable since the start. */
     failures: number;
+    /** Times the driver broke the pool and a new one replaced it since the start. */
+    replaced: number;
   } | null;
   /** Whether this process owns the store (`OwnedStorage`); null when it has no owner lock. */
   owner: "held" | "retaking" | "lost" | "not_claimed" | null;

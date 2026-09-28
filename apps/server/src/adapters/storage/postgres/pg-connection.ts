@@ -30,6 +30,8 @@ export interface PgConnectionStats {
   in_use: number;
   retries: number;
   failures: number;
+  /** Pools found broken by the driver and replaced (oven-sh/bun#42804). */
+  replaced: number;
 }
 
 /**
@@ -52,6 +54,11 @@ export interface PgConnectionStats {
  *   landed — and becomes a `503` saying so.
  * - `close` drains: the driver's own close drops statements in flight, so
  *   new work is refused and the work already running gets a grace period.
+ * - A pool the driver broke is replaced. Bun 1.4.2 can leave a slot "connected"
+ *   with no connection behind it when the server ends one while it is being
+ *   opened (oven-sh/bun#42804), and from then on statements fail at once with
+ *   an error of its own. The first one seen swaps in a new pool, the statement
+ *   is retried on it, and the broken pool is closed without waiting on it.
  *
  * Swapping the driver means rewriting this file and nothing else.
  */
@@ -59,18 +66,29 @@ export class PgConnection implements PgQueryable {
   /** One try and three retries. */
   static readonly Attempts = 4;
 
+  /** How long `close` waits on the driver's own close, which can hang on a broken pool. */
+  private static readonly DriverCloseMs = 2_000;
+
+  /** Server-side TCP keepalive: probe after 30 s of silence, every 10 s, three times. */
+  private static readonly KeepaliveIdleSeconds = 30;
+  private static readonly KeepaliveIntervalSeconds = 10;
+  private static readonly KeepaliveCount = 3;
+
   /** What the URL asked of TLS, which a TLS failure's message names. */
   readonly tls: PgTlsMode;
-  private readonly sql: SQL;
+  private sql: SQL;
+  private readonly connect: () => SQL;
   private readonly size: number;
   private active = 0;
   private retries = 0;
   private failures = 0;
+  private replaced = 0;
   private closing: Promise<void> | null = null;
   private drained: (() => void) | null = null;
 
-  private constructor(sql: SQL, size: number, tls: PgTlsMode) {
-    this.sql = sql;
+  private constructor(connect: () => SQL, size: number, tls: PgTlsMode) {
+    this.connect = connect;
+    this.sql = connect();
     this.size = size;
     this.tls = tls;
   }
@@ -84,6 +102,13 @@ export class PgConnection implements PgQueryable {
     const tls = PgTls.of(options.url);
     const connection: Record<string, string | number> = {
       application_name: options.applicationName,
+      // The server probes a client that has gone quiet and ends its session
+      // within about a minute, not the operating system's two hours: a crashed
+      // host's owner lock is released that soon, and its sessions stop
+      // counting against `max_connections`. Accepted by a Windows server too.
+      tcp_keepalives_idle: PgConnection.KeepaliveIdleSeconds,
+      tcp_keepalives_interval: PgConnection.KeepaliveIntervalSeconds,
+      tcp_keepalives_count: PgConnection.KeepaliveCount,
     };
     // Server-side limits, in the milliseconds Postgres counts in. There is no
     // `client_connection_check_interval`: a Windows server refuses it at
@@ -98,17 +123,18 @@ export class PgConnection implements PgQueryable {
     }
 
     return new PgConnection(
-      new SQL({
-        url: tls.url,
-        // Never a `tls` object with `disable`: the driver would turn TLS on.
-        ...(tls.files ? { tls: tls.files } : {}),
-        max: options.max,
-        prepare: false,
-        ...(options.connectTimeout ? { connectionTimeout: options.connectTimeout } : {}),
-        idleTimeout: options.idleTimeout ?? 0,
-        maxLifetime: options.maxLifetime ?? 0,
-        connection,
-      }),
+      () =>
+        new SQL({
+          url: tls.url,
+          // Never a `tls` object with `disable`: the driver would turn TLS on.
+          ...(tls.files ? { tls: tls.files } : {}),
+          max: options.max,
+          prepare: false,
+          ...(options.connectTimeout ? { connectionTimeout: options.connectTimeout } : {}),
+          idleTimeout: options.idleTimeout ?? 0,
+          maxLifetime: options.maxLifetime ?? 0,
+          connection,
+        }),
       options.max,
       tls.mode
     );
@@ -137,16 +163,18 @@ export class PgConnection implements PgQueryable {
     return this.tracked(async () => {
       for (let attempt = 1; ; attempt += 1) {
         let committing = false;
+        const pool = this.sql;
         try {
-          const result = await this.sql.begin(async (transaction) => {
+          const result = await pool.begin(async (transaction) => {
             const value = await work({
-              query: (text, params = []) => this.run(transaction, text, params),
+              query: (text, params = []) => this.run(transaction, text, params, pool),
             });
             committing = true;
             return value;
           });
           return result as T;
         } catch (caught) {
+          if (PgErrorMap.isBrokenPool(caught)) this.replace(pool);
           const error = PgErrorMap.translate(caught, this.tls);
           const failure = error instanceof PgUnavailableError ? error.failure : null;
           if (committing && failure === "connection") {
@@ -175,14 +203,16 @@ export class PgConnection implements PgQueryable {
    * retried, for that reason.
    */
   async reserve(): Promise<PgReservedSession> {
+    const pool = this.sql;
     let reserved: Awaited<ReturnType<SQL["reserve"]>>;
     try {
-      reserved = await this.sql.reserve();
+      reserved = await pool.reserve();
     } catch (error) {
+      if (PgErrorMap.isBrokenPool(error)) this.replace(pool);
       throw PgErrorMap.translate(error, this.tls);
     }
     return {
-      query: (text, params = []) => this.run(reserved, text, params),
+      query: (text, params = []) => this.run(reserved, text, params, pool),
       release: () => reserved.release(),
     };
   }
@@ -193,6 +223,7 @@ export class PgConnection implements PgQueryable {
       in_use: this.active,
       retries: this.retries,
       failures: this.failures,
+      replaced: this.replaced,
     };
   }
 
@@ -210,7 +241,7 @@ export class PgConnection implements PgQueryable {
         ]);
         clearTimeout(timer);
       }
-      await this.sql.close({ timeout: 1 });
+      await PgConnection.closeDriver(this.sql, 1);
     })();
     await this.closing;
   }
@@ -254,11 +285,47 @@ export class PgConnection implements PgQueryable {
     return Bun.sleep(25 * 2 ** attempt * (0.5 + Math.random()));
   }
 
-  private async run<Row>(sql: SQL, text: string, params: readonly PgParameter[]): Promise<Row[]> {
+  /** `pool` is the pool `sql` came from: itself, or the one a transaction or a reserved connection was taken from. */
+  private async run<Row>(
+    sql: SQL,
+    text: string,
+    params: readonly PgParameter[],
+    pool: SQL = sql
+  ): Promise<Row[]> {
     try {
       return (await sql.unsafe(text, [...params])) as Row[];
     } catch (error) {
+      if (PgErrorMap.isBrokenPool(error)) this.replace(pool);
       throw PgErrorMap.translate(error, this.tls);
     }
+  }
+
+  /**
+   * Swaps in a new pool for one the driver broke, once however many
+   * statements report it. The statement that saw it never reached the
+   * server, so the caller's retry runs it on the new pool.
+   */
+  private replace(broken: SQL): void {
+    if (broken !== this.sql || this.closing) return;
+    this.replaced += 1;
+    this.sql = this.connect();
+    void PgConnection.closeDriver(broken, 0);
+  }
+
+  /**
+   * The driver's close, waited on for at most `DriverCloseMs`: on a pool the
+   * driver broke it may never settle (oven-sh/bun#42804), and a shutdown must
+   * not hang on it. The timer is unref'd, so it holds no process open.
+   */
+  private static async closeDriver(sql: SQL, timeoutSeconds: number): Promise<void> {
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    await Promise.race([
+      sql.close({ timeout: timeoutSeconds }).catch(() => {}),
+      new Promise<void>((resolve) => {
+        timer = setTimeout(resolve, PgConnection.DriverCloseMs);
+        timer.unref?.();
+      }),
+    ]);
+    clearTimeout(timer);
   }
 }

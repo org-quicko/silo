@@ -3,7 +3,7 @@ import fs from "fs/promises";
 import os from "os";
 import path from "path";
 import { PgSearchIndex } from "../../src/adapters/storage/postgres/pg-search-index";
-import type { PgSearcher } from "../../src/adapters/storage/postgres/pg-searcher";
+import { PgSearcher } from "../../src/adapters/storage/postgres/pg-searcher";
 import { PgStore, type PgStoreOptions } from "../../src/adapters/storage/postgres/pg-store";
 import { SiloRuntime } from "../../src/cli/runtime/silo-runtime";
 import { ConfigLoader } from "../../src/config/config-loader";
@@ -230,6 +230,23 @@ if (!url) {
       expect(new Set([...first.items, ...second.items].map((hit) => hit.entry.id)).size).toBe(4);
       expect(beyond.items).toEqual([]);
       expect(beyond.total).toBe(5);
+      // Sorted by a field of the data, the recount must not carry the sort's parameters.
+      const sortedBeyond = await state.searcher.search(
+        { q: "pricing", limit: 2, offset: 10, sort: [{ path: "$.data.title", desc: false }] },
+        everything
+      );
+      expect(sortedBeyond).toMatchObject({ items: [], total: 5 });
+    });
+
+    test("a term up to the lexeme limit is indexed, and a longer one is left out rather than refused", async () => {
+      // Postgres holds a lexeme of at most 2046 bytes and refuses 2047 with 54000.
+      const longest = "a".repeat(2046);
+      const tooLong = "b".repeat(2047);
+      await put(Scope.Default, "posts", { title: `fits ${longest}` });
+      await put(Scope.Default, "posts", { title: `spills ${tooLong}` });
+      expect((await titles(longest)).total).toBe(1);
+      expect((await titles("spills")).total).toBe(1);
+      expect((await titles(tooLong)).total).toBe(0);
     });
 
     describe("rebuild and integrity", () => {
@@ -284,6 +301,108 @@ if (!url) {
 
         await open({ schema: schemaName });
         expect(state.store.needsSearchRebuild()).toBe(true);
+      });
+
+      test("reindex never writes text read before a save over the row that save wrote", async () => {
+        const entry = await put(Scope.Default, "posts", { title: "oldword" }, "E1");
+        // White-box, deliberately: the save lands between the page read and
+        // the upsert, which no timing can arrange on demand.
+        const connection = (state.store as unknown as { connection: { query: (...args: any[]) => Promise<any[]> } }).connection;
+        const query = connection.query.bind(connection);
+        let saved = false;
+        connection.query = async (text: string, params?: unknown[]) => {
+          const rows = await query(text, params);
+          if (!saved && /id > \$2/.test(text)) {
+            saved = true;
+            await put(Scope.Default, "posts", { title: "newword" }, entry.id);
+          }
+          return rows;
+        };
+        try {
+          await state.searcher.reindex();
+        } finally {
+          connection.query = query;
+        }
+        expect(saved).toBe(true);
+        expect((await titles("newword")).total).toBe(1);
+        expect((await titles("oldword")).total).toBe(0);
+      });
+
+      test("reindex pages by id, so a delete behind a page does not skip an entry", async () => {
+        const ids = ["E1", "E2", "E3", "E4", "E5"];
+        for (const id of ids) await put(Scope.Default, "posts", { title: `paged ${id}` }, id);
+        await sql(`DELETE FROM "${schemaName}".entry_search`);
+        const searcher = PgSearcher as unknown as { ReindexPage: number };
+        const pageSize = searcher.ReindexPage;
+        searcher.ReindexPage = 2;
+        const connection = (state.store as unknown as { connection: { query: (...args: any[]) => Promise<any[]> } }).connection;
+        const query = connection.query.bind(connection);
+        let pages = 0;
+        connection.query = async (text: string, params?: unknown[]) => {
+          const rows = await query(text, params);
+          if (/id > \$2/.test(text) && ++pages === 1) await state.store.delete(Scope.Default, "posts", "E1");
+          return rows;
+        };
+        try {
+          await state.searcher.reindex();
+        } finally {
+          connection.query = query;
+          searcher.ReindexPage = pageSize;
+        }
+        expect((await titles("paged")).titles.sort()).toEqual(["paged E2", "paged E3", "paged E4", "paged E5"]);
+        expect(await state.searcher.check()).toEqual({ index: "ok", orphanDocuments: 0, missingDocuments: 0 });
+      });
+    });
+
+    describe("the index belongs to the schema's owner", () => {
+      const stamp = async () =>
+        (await sql(`SELECT value FROM "${schemaName}".meta WHERE key = '${PgSearchIndex.StampKey}'`))[0]?.value ?? null;
+      const write = (store: PgStore, id: string, title: string) => {
+        const now = EntryUtils.now();
+        const data = { title };
+        return store.put(
+          { id, project: Scope.Default.project, env: Scope.Default.env, collection: "posts", rev: 1, seq: 0, created_at: now, updated_at: now, data },
+          { usages: [], search: SearchText.extract(data, schema) }
+        );
+      };
+
+      test("a store opened beside a running server follows its index, whatever its own [search] says", async () => {
+        await state.store.claimOwnership();
+        await put(Scope.Default, "posts", { title: "owned" });
+        const before = await stamp();
+
+        // Trigram would need a new table in another form; search off would clear the stamp.
+        const trigram = await PgStore.open({ url, schema: schemaName, search: { enabled: true, tokenizer: "trigram" } });
+        const off = await PgStore.open({ url, schema: schemaName, search: { enabled: false, tokenizer: "unicode61" } });
+        try {
+          expect(await stamp()).toBe(before);
+          expect(trigram.createSearcher()?.capabilities().engine).toBe("postgres");
+          expect(off.createSearcher()).not.toBeNull();
+          // Rows written beside the server are in the server's form, so it finds them.
+          await write(trigram, "BESIDE", "beside");
+          expect((await titles("beside")).total).toBe(1);
+          expect((await titles("owned")).total).toBe(1);
+        } finally {
+          await trigram.close();
+          await off.close();
+        }
+      });
+
+      test("a server applies its own [search] once it holds the lock", async () => {
+        await state.store.claimOwnership();
+        await put(Scope.Default, "posts", { title: "handover" });
+        const next = await PgStore.open({ url, schema: schemaName, search: { enabled: false, tokenizer: "unicode61" } });
+        try {
+          // While the first server runs, the second follows it.
+          expect(next.createSearcher()).not.toBeNull();
+          await state.store.close();
+          await next.claimOwnership();
+          expect(await stamp()).toBeNull();
+          expect(next.createSearcher()).toBeNull();
+        } finally {
+          await next.close();
+          state.store = await PgStore.open({ url, schema: schemaName });
+        }
       });
     });
 

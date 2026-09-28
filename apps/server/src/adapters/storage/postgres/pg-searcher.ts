@@ -77,6 +77,9 @@ export class PgSearcher implements Searcher {
     const where = [scope, ...text.conds];
     if (request.filter) where.push(`(${PgCompiler.buildFilter(request.filter, params)})`);
     const cond = where.join(" AND ");
+    // The count on its own binds only what `cond` uses, for the reason
+    // `PgEntryStore.list` gives. The rank reuses the text's own parameters.
+    const matched = params.mark();
     const order = this.order(request, text.rank, params);
     const from = this.from();
 
@@ -96,7 +99,7 @@ export class PgSearcher implements Searcher {
       if (rows.length === 0 && offset > 0) {
         const [counted] = await this.connection.query<{ total: string }>(
           `SELECT count(*) AS total ${from} WHERE ${cond}`,
-          params.values
+          params.values.slice(0, matched)
         );
         total = Number(counted.total);
       }
@@ -115,9 +118,17 @@ export class PgSearcher implements Searcher {
 
   /**
    * Refills the index from the entries, through the same extractor a write
-   * uses. One statement per page of 200, from one JSON parameter, checked
-   * against `entries` so a row deleted since the page was read is skipped
-   * rather than failing the batch on its foreign key.
+   * uses. One statement per page of 200, from one JSON parameter, and safe
+   * beside writes, which keep their own rows in their own transactions:
+   *
+   * - pages are read by id, after the last one, so an entry deleted behind the
+   *   page cannot shift the next page past one it never read;
+   * - a row is written only while its entry still has the `seq` it was read
+   *   with, so text read before a save never overwrites the row that save
+   *   wrote, and an entry deleted since is skipped;
+   * - `FOR KEY SHARE` holds each entry until the row is in, so a delete still
+   *   in flight is waited for and then seen as gone, rather than failing the
+   *   batch on the foreign key.
    */
   async reindex(target?: SearchTarget): Promise<{ collections: number; entries: number }> {
     let collections = 0;
@@ -137,15 +148,20 @@ export class PgSearcher implements Searcher {
           ])
         );
 
-        for (let offset = 0; ; ) {
-          const page = await this.store.list(scope, record.name, {
-            limit: PgSearcher.ReindexPage,
-            offset,
-          });
-          if (page.items.length === 0) break;
+        for (let after = ""; ; ) {
+          const page = await this.scans.run(() =>
+            this.connection.query<{ id: string; seq: string; data: unknown }>(
+              `SELECT id, seq, data FROM ${this.tables.entries}
+               WHERE collection_id = $1 AND id > $2
+               ORDER BY id LIMIT ${PgSearcher.ReindexPage}`,
+              [record.id, after]
+            )
+          );
+          if (page.length === 0) break;
 
-          const rows = page.items.map((entry) => ({
+          const rows = page.map((entry) => ({
             entry_id: entry.id,
+            seq: Number(entry.seq),
             ...PgSearchDocument.of(SearchText.extract(entry.data, record.schema), this.tokenizer),
           }));
           await this.connection.transaction((session) =>
@@ -154,19 +170,18 @@ export class PgSearcher implements Searcher {
                  (project_id, env_id, collection_id, entry_id, document, label, body)
                SELECT $1, $2, $3, r.entry_id, r.document::tsvector, r.label, r.body
                FROM jsonb_to_recordset($4::text::jsonb)
-                 AS r (entry_id text, document text, label text, body text)
-               WHERE EXISTS (
-                 SELECT 1 FROM ${this.tables.entries} e
-                 WHERE e.collection_id = $3 AND e.id = r.entry_id
-               )
+                 AS r (entry_id text, seq bigint, document text, label text, body text)
+                 JOIN ${this.tables.entries} e
+                   ON e.collection_id = $3 AND e.id = r.entry_id AND e.seq = r.seq
+               FOR KEY SHARE OF e
                ON CONFLICT (collection_id, entry_id) DO UPDATE SET
                  document = excluded.document, label = excluded.label, body = excluded.body`,
               [record.project_id, record.env_id, record.id, JSON.stringify(rows)]
             )
           );
-          entries += page.items.length;
-          offset += page.items.length;
-          if (offset >= page.total) break;
+          entries += page.length;
+          after = page[page.length - 1].id;
+          if (page.length < PgSearcher.ReindexPage) break;
         }
       }
     }

@@ -161,6 +161,9 @@ export class PgEntryStore {
     const params = new PgParams();
     let where = `collection_id = ${params.add(collectionId)}`;
     if (query.filter) where += ` AND (${PgCompiler.buildFilter(query.filter, params)})`;
+    // The count on its own has no ORDER BY, so it binds only the filter's
+    // values: Postgres refuses a parameter the statement never uses (42P18).
+    const filtered = params.mark();
     const order = PgCompiler.buildOrder(query.sort || [], params);
     const limit = query.limit > 0 ? Math.floor(query.limit) : PgEntryStore.FallbackLimit;
     const offset = Math.max(Math.floor(query.offset) || 0, 0);
@@ -180,7 +183,7 @@ export class PgEntryStore {
       if (rows.length === 0 && offset > 0) {
         const [counted] = await this.connection.query<{ total: string }>(
           `SELECT count(*) AS total FROM ${this.tables.entries} WHERE ${where}`,
-          params.values
+          params.values.slice(0, filtered)
         );
         total = Number(counted.total);
       }
