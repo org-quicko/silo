@@ -28,6 +28,7 @@ async function dispose(...stores: PgStore[]): Promise<void> {
 }
 
 if (!url) {
+  PgTestDatabase.skipping(`${PgTestDatabase.Variable} is not set`);
   describe.skip(`Postgres adapter (set ${PgTestDatabase.Variable} to run)`, () => {
     test("conformance, format guard, first start, owner lock, close", () => {});
   });

@@ -39,6 +39,7 @@ describe("the postgres driver's configuration", () => {
 });
 
 if (!url) {
+  PgTestDatabase.skipping(`${PgTestDatabase.Variable} is not set`);
   describe.skip(`Postgres connections (set ${PgTestDatabase.Variable} to run)`, () => {
     test("startup wait, retries, timeouts, scans, owner lock, shutdown", () => {});
   });

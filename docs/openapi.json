@@ -6743,7 +6743,8 @@
                 "required": [
                     "bytes",
                     "pool",
-                    "owner"
+                    "owner",
+                    "tls"
                 ],
                 "properties": {
                     "bytes": {
@@ -6804,6 +6805,42 @@
                                     "lost",
                                     "not_claimed"
                                 ]
+                            },
+                            {
+                                "type": "null"
+                            }
+                        ]
+                    },
+                    "tls": {
+                        "description": "What `[storage] url` asked of TLS (`sslmode`: `disable`, `require`, `verify-ca` or `verify-full`), and the protocol a session actually uses, as the server reports it (`TLSv1.3`); `protocol` is `null` when the connection is not encrypted or could not be read.",
+                        "oneOf": [
+                            {
+                                "type": "object",
+                                "required": [
+                                    "mode",
+                                    "protocol"
+                                ],
+                                "properties": {
+                                    "mode": {
+                                        "type": "string",
+                                        "enum": [
+                                            "disable",
+                                            "require",
+                                            "verify-ca",
+                                            "verify-full"
+                                        ]
+                                    },
+                                    "protocol": {
+                                        "oneOf": [
+                                            {
+                                                "type": "string"
+                                            },
+                                            {
+                                                "type": "null"
+                                            }
+                                        ]
+                                    }
+                                }
                             },
                             {
                                 "type": "null"

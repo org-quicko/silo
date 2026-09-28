@@ -1,6 +1,7 @@
 import { ValidationError } from "@silo/shared/validation-error";
 import { ConflictError } from "../../../core/errors/conflict-error";
 import { NotFoundError } from "../../../core/errors/not-found-error";
+import type { PgTlsMode } from "./pg-tls";
 import { PgUnavailableError } from "./pg-unavailable-error";
 
 /**
@@ -35,10 +36,25 @@ export class PgErrorMap {
     "40P01": "contention", // deadlock
   };
 
-  static translate(error: unknown): unknown {
+  /** `tls` is what the connection asked for, which is what a TLS failure's message names. */
+  static translate(error: unknown, tls: PgTlsMode = "disable"): unknown {
+    if (tls !== "disable" && PgErrorMap.isHandshakeFailure(error)) return PgErrorMap.certificate(error, tls);
     if (!PgErrorMap.isDriverError(error)) return error;
     const state = PgErrorMap.state(error);
 
+    if (PgErrorMap.label(error) === "ERR_POSTGRES_TLS_NOT_AVAILABLE") {
+      return new PgUnavailableError(
+        `the Postgres server does not offer TLS, and [storage] url asks for it (sslmode=${tls})`,
+        "tls"
+      );
+    }
+    // pg_hba.conf refusing a connection that is not encrypted.
+    if (state === "28000" && error.message.endsWith("no encryption")) {
+      return new PgUnavailableError(
+        "the Postgres server accepts only TLS connections; set sslmode in [storage] url to verify-full (with sslrootcert naming the server's CA) or require",
+        "tls"
+      );
+    }
     if (state === "23505") {
       return new ConflictError("a record with that name or id already exists");
     }
@@ -66,6 +82,33 @@ export class PgErrorMap {
     if (failure === "busy") return "storage is busy; retry shortly";
     if (failure === "unreachable") return "storage cannot be reached; retry shortly";
     return "storage is unavailable; retry shortly";
+  }
+
+  /**
+   * The TLS handshake failed. The driver raises these as plain `Error`s, not
+   * its own type: a verification failure carries OpenSSL's code
+   * (`UNABLE_TO_VERIFY_LEAF_SIGNATURE`), and a host name the certificate does
+   * not name carries nothing at all — an empty message and no code (measured,
+   * Bun 1.4.2).
+   */
+  private static isHandshakeFailure(error: unknown): error is Error {
+    if (!(error instanceof Error) || error.constructor !== Error) return false;
+    const code = PgErrorMap.label(error);
+    if (code.startsWith("ERR_POSTGRES_")) return false;
+    return error.message === "" ? code === "" : /CERT|UNABLE_TO|SELF_SIGNED|TLS|SSL/.test(code);
+  }
+
+  private static certificate(error: Error, tls: PgTlsMode): PgUnavailableError {
+    const reason =
+      error.message !== ""
+        ? error.message
+        : tls === "verify-full"
+          ? "it does not name the host [storage] url connects to"
+          : "the driver gave no reason";
+    return new PgUnavailableError(
+      `the Postgres server's certificate was not accepted (${reason}); check sslmode and sslrootcert in [storage] url`,
+      "tls"
+    );
   }
 
   /** True for an error the driver raised, which is the only kind translated. */

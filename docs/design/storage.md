@@ -834,7 +834,40 @@ settings API reports it with the password masked (`ConfigSecrets`), and
   /api/observability` carries `storage.database` — the bytes silo's tables
   take, the pool's in-use, waiting, shed, retry and failure counts, and the
   owner lock's state — sampled on the same thirty-second cache as the
-  directory walk. It is `null` for `sqlite` and `fs`.
+  directory walk, and `tls`: the mode the URL asked for and the protocol the
+  measuring session actually uses, as `pg_stat_ssl` reports it. It is `null`
+  for `sqlite` and `fs`.
+
+**TLS is in the URL** (D96), with libpq's parameters and libpq's meanings, so
+the URL a provider hands out means to silo what it means to `psql`.
+`PgTls` reads them and gives the driver its own options, because on its own
+Bun 1.4.2 reads `sslmode` and nothing beside it — and passes any parameter it
+does not know to the server as a setting, which the server refuses (`42704`).
+Measured against a TLS-only cluster built for the test:
+
+- `sslmode` is `disable` when absent, which is the driver's default and most
+  JavaScript clients'; libpq's is `prefer`. A TLS-only server refuses a
+  plain connection in its `pg_hba` wording, which never says TLS, so that
+  refusal is rewritten to name `sslmode`.
+- `prefer` and `allow` are refused at open. Against a server without TLS the
+  driver waits out `connect_timeout` rather than fall back, and `startup_wait`
+  would then retry that for a minute.
+- `sslrootcert` names the CA and is read as PEM; `system` means the driver's
+  own roots and needs `verify-full`, as in libpq 16. A CA with no mode means
+  `verify-full`, and with `require` it means `verify-ca` — libpq's rule, which
+  the driver does not follow: its `require` with a CA also checks the host.
+  `sslcert` and `sslkey`, a client certificate, go together.
+- a `tls` object beside `sslmode=disable` turns TLS *on* in the driver, so none
+  is passed then, and certificates named beside `disable` are refused rather
+  than ignored. So is any other `ssl*` parameter, a missing file and a file that
+  is not PEM.
+- a TLS failure is `PgUnavailableError` with failure `tls` — a certificate not
+  accepted, `ERR_POSTGRES_TLS_NOT_AVAILABLE`, or the plain-text refusal above.
+  It is never retried and a start fails at once, since waiting changes none of
+  them. The driver raises a certificate failure as a plain `Error` carrying
+  OpenSSL's code, and a host name the certificate does not name as an `Error`
+  with no message and no code at all; with TLS on, `PgErrorMap` reads the
+  second as that, and says so.
 
 A pooler in transaction mode cannot keep a session lock, so PgBouncer needs
 session mode, and it refuses the two timeout parameters unless they are in its
@@ -853,7 +886,16 @@ back by the heartbeat, a rival that takes the lock first, and `serve` refusing
 a second server. `postgres-search.test.ts` holds the engine to what
 `sqlite-search.test.ts` holds FTS5 to; its trigram half installs `pg_trgm`
 into a schema of its own when the database lacks it, and drops that schema
-afterwards, so the database is left as it was found. Two things were found on
+afterwards, so the database is left as it was found. `postgres-tls.test.ts`
+needs no database of anyone's: it builds a TLS-only cluster for itself — a CA,
+a second CA, a server certificate naming only `localhost`, a client
+certificate, `initdb` on a free port — and removes it at the end, and holds
+`verify-full`, `verify-ca`, `require`, a wrong CA, a mismatched host, a client
+certificate, a URL with no `sslmode` and `require` against a server without
+TLS. **CI** (`.github/workflows/test.yml`, and both release `verify` jobs)
+runs all of it against a `postgres:18` service, and the Postgres files again
+against `postgres:14`, with `SILO_TEST_PG_REQUIRED=1` so a test that cannot
+run fails rather than skips. Two things were found on
 the way: the
 conformance context now closes its last store in an `afterAll`, since an open
 pool keeps the test process alive after the last test; and Bun 1.4.2's

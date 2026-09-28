@@ -129,7 +129,7 @@ database if they use different schemas.
 
 | Key | Default | What it does |
 |-----|---------|--------------|
-| `url` | none | The database. The settings page shows it without the password. |
+| `url` | none | The database, and its TLS settings (see below). The settings page shows it without the password. |
 | `schema` | `silo` | Where the tables are. |
 | `pool_size` | 10 | The connections one server keeps. Two are kept free for writes, so many slow lists cannot stop a save. |
 | `connect_timeout` | 10 | Seconds for one connection attempt. |
@@ -145,6 +145,38 @@ Search uses Postgres's own text search, with the same rules as on SQLite. The
 order of results can be different from SQLite. `[search] tokenizer = "trigram"`
 needs the `pg_trgm` extension. silo does not install it. If it is missing, the
 start stops and tells you to run `CREATE EXTENSION pg_trgm;` in the database.
+
+**With TLS**, put the TLS settings in the URL. silo reads them as `psql`
+reads them. For a database on a different machine, use
+`sslmode=verify-full` and give the file of the server's certificate authority
+(CA) with `sslrootcert`:
+
+```sh
+SILO_STORAGE_URL='postgres://silo:PASSWORD@db.example.com:5432/silo?sslmode=verify-full&sslrootcert=/etc/silo/db-ca.pem'
+```
+
+| `sslmode` | What silo does |
+|-----------|----------------|
+| `disable` | It does not use TLS. This is the default. |
+| `require` | It uses TLS. It does not examine the certificate. |
+| `verify-ca` | It uses TLS. It makes sure that the CA signed the certificate. It does not examine the host name. |
+| `verify-full` | It uses TLS. It examines the CA and the host name. Use this mode if possible. |
+
+- Some providers, for example Amazon RDS, use their own CA. Get the CA file
+  from the provider and give it with `sslrootcert`.
+- `sslrootcert=system` uses the public CAs that silo knows. It needs
+  `verify-full`.
+- `sslcert` and `sslkey` give a client certificate and its key. Give the two
+  together.
+- silo does not accept `sslmode=prefer` or `sslmode=allow`. Use `require` or a
+  stricter mode, or use `disable`.
+- If the server accepts only TLS and the URL has no `sslmode`, the start
+  stops. The message tells you to set `sslmode`.
+- If silo cannot accept the server's certificate, the start stops
+  immediately. The message gives the cause.
+
+`GET /api/observability` shows the mode and the TLS version that the
+connection uses, in `storage.database.tls`.
 
 When the database is busy or not available, a request answers 503 with a
 `Retry-After` header. It does not answer 500. If the connection breaks before a

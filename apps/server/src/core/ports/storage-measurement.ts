@@ -17,4 +17,10 @@ export interface StorageMeasurement {
   } | null;
   /** Whether this process owns the store (`OwnedStorage`); null when it has no owner lock. */
   owner: "held" | "retaking" | "lost" | "not_claimed" | null;
+  /**
+   * What the connection asked of TLS, and the protocol a session actually
+   * uses (`TLSv1.3`), or null when it is not encrypted or could not be read.
+   * Null when the store keeps no connection.
+   */
+  tls: { mode: string; protocol: string | null } | null;
 }

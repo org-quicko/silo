@@ -13,9 +13,12 @@ import { StorageBusyError } from "../../../core/errors/storage-busy-error";
  * - `busy`: a statement timed out, or the server has no connection to spare.
  * - `unknown`: the connection broke while a commit was in flight, so the write
  *   may or may not have landed. Never retried.
+ * - `tls`: the URL's TLS settings and the server disagree: a certificate not
+ *   accepted, TLS asked of a server without it, or plain text refused by one
+ *   that demands it. Waiting changes nothing, so a start fails at once.
  */
 export class PgUnavailableError extends StorageBusyError {
-  readonly failure: "connection" | "contention" | "unreachable" | "busy" | "unknown";
+  readonly failure: "connection" | "contention" | "unreachable" | "busy" | "unknown" | "tls";
 
   constructor(message: string, failure: PgUnavailableError["failure"]) {
     super(message);

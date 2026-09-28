@@ -1,0 +1,112 @@
+# Runs the suite on every pull request and every push to main, with a Postgres
+# beside it, so the postgres storage driver is tested where changes are
+# merged rather than only on a machine that happens to have a database (D96).
+#
+# `test` is the whole suite against the newest Postgres, the check the release
+# workflows' verify jobs also run. `postgres-oldest` runs only the Postgres
+# tests, against the oldest version silo supports (14, docs/design/storage.md
+# §6.6), so that promise is checked too.
+#
+# Both set SILO_TEST_PG_REQUIRED=1: a Postgres test that cannot run fails the
+# job instead of skipping, so a lost service cannot pass with nothing tested.
+# The TLS tests build a TLS-only server of their own from the runner's
+# `initdb` and `openssl`; SILO_TEST_PG_BIN tells them where `initdb` is.
+name: test
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  # Keep in step with release.yml and the Dockerfile: the suite should pass on
+  # the runtime a release ships.
+  BUN_VERSION: "1.4.0"
+
+# A newer push to the same branch or pull request makes the older run moot.
+concurrency:
+  group: test-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    runs-on: ubuntu-24.04
+    services:
+      postgres:
+        image: postgres:18
+        env:
+          POSTGRES_USER: silo
+          POSTGRES_PASSWORD: silo
+          POSTGRES_DB: silo_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U silo -d silo_test"
+          --health-interval 2s
+          --health-timeout 5s
+          --health-retries 30
+    env:
+      SILO_TEST_PG_URL: postgres://silo:silo@localhost:5432/silo_test
+      SILO_TEST_PG_REQUIRED: "1"
+    steps:
+      - uses: actions/checkout@v7
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: ${{ env.BUN_VERSION }}
+      - run: bun install --frozen-lockfile
+      # The runner image carries a Postgres install with its service off; the
+      # TLS tests build a server of their own from its initdb and pg_ctl.
+      - name: Find initdb for the TLS tests
+        run: |
+          bin=$(ls -d /usr/lib/postgresql/*/bin 2>/dev/null | sort -V | tail -n 1)
+          test -n "$bin" || { echo "::error::no Postgres binaries on the runner"; exit 1; }
+          echo "SILO_TEST_PG_BIN=$bin" >> "$GITHUB_ENV"
+      - name: Type-check
+        run: bunx tsc -b
+      # The admin suites import @org-quicko/silo-client, whose exports point at
+      # its gitignored dist/, so a fresh checkout has nothing to resolve until
+      # the client is built.
+      - name: Build silo-client
+        run: bun run --cwd packages/silo-client build
+      - name: Test
+        run: bun test
+
+  postgres-oldest:
+    runs-on: ubuntu-24.04
+    services:
+      postgres:
+        image: postgres:14
+        env:
+          POSTGRES_USER: silo
+          POSTGRES_PASSWORD: silo
+          POSTGRES_DB: silo_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U silo -d silo_test"
+          --health-interval 2s
+          --health-timeout 5s
+          --health-retries 30
+    env:
+      SILO_TEST_PG_URL: postgres://silo:silo@localhost:5432/silo_test
+      SILO_TEST_PG_REQUIRED: "1"
+    steps:
+      - uses: actions/checkout@v7
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: ${{ env.BUN_VERSION }}
+      - run: bun install --frozen-lockfile
+      # The runner image carries a Postgres install with its service off; the
+      # TLS tests build a server of their own from its initdb and pg_ctl.
+      - name: Find initdb for the TLS tests
+        run: |
+          bin=$(ls -d /usr/lib/postgresql/*/bin 2>/dev/null | sort -V | tail -n 1)
+          test -n "$bin" || { echo "::error::no Postgres binaries on the runner"; exit 1; }
+          echo "SILO_TEST_PG_BIN=$bin" >> "$GITHUB_ENV"
+      # Every Postgres test file is named postgres*.test.ts.
+      - name: Test the Postgres driver
+        run: bun test apps/server/test/adapters/postgres

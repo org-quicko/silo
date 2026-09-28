@@ -46,7 +46,7 @@ Present a key as `Authorization: Bearer <key>` or `X-Api-Key: <key>`.
 | `POST` | `/api/plugins/{name}/restart` | bring a dead worker back |
 | `POST` | `/api/plugins/rescan` | re-read `silo.toml` and apply it |
 | `GET` | `/api/audit` | who changed what authority, and when |
-| `GET` | `/api/observability` | aggregate API traffic, errors, latency, process resources, local storage, and the database pool when the driver is `postgres` (`observability:read`) |
+| `GET` | `/api/observability` | aggregate API traffic, errors, latency, process resources, local storage, and the database pool and TLS mode when the driver is `postgres` (`observability:read`) |
 | `GET` / `POST` | `/api/media` | list / upload media |
 | `GET` | `/api/media/extensions` | the file extensions the library actually holds, for the Type filter |
 | `GET` | `/api/media/{id}` | one asset's catalog record |

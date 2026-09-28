@@ -88,7 +88,8 @@ driver = ${s(config.storage.driver)}       # "sqlite" (indexed, fast) | "fs" (pl
 path   = ${s(config.storage.path)}  # data dir; the sqlite database lives at <path>/silo.db. With postgres it still holds logs, plugins and fs media.
 #
 # postgres driver:
-# url    = "postgres://silo@db.example.com:5432/silo"  # prefer SILO_STORAGE_URL: it may carry the password
+# url    = "postgres://silo@db.example.com:5432/silo?sslmode=verify-full&sslrootcert=/etc/silo/db-ca.pem"
+#                            # prefer SILO_STORAGE_URL: it may carry the password. TLS is off unless sslmode says so
 # schema = "silo"            # silo's tables live here; one server owns a schema at a time
 # pool_size = 10             # connections; two are kept free for writes
 # statement_timeout = 30     # seconds; a slower query answers 503. 0 = no limit

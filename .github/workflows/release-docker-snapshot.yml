@@ -62,12 +62,34 @@ jobs:
 
   verify:
     runs-on: ubuntu-24.04
+    services:
+      postgres:
+        image: postgres:18
+        env:
+          POSTGRES_USER: silo
+          POSTGRES_PASSWORD: silo
+          POSTGRES_DB: silo_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U silo -d silo_test"
+          --health-interval 2s
+          --health-timeout 5s
+          --health-retries 30
+    env:
+      SILO_TEST_PG_URL: postgres://silo:silo@localhost:5432/silo_test
+      SILO_TEST_PG_REQUIRED: "1"
     steps:
       - uses: actions/checkout@v7
       - uses: oven-sh/setup-bun@v2
         with:
           bun-version: ${{ env.BUN_VERSION }}
       - run: bun install --frozen-lockfile
+      - name: Find initdb for the TLS tests
+        run: |
+          bin=$(ls -d /usr/lib/postgresql/*/bin 2>/dev/null | sort -V | tail -n 1)
+          test -n "$bin" || { echo "::error::no Postgres binaries on the runner"; exit 1; }
+          echo "SILO_TEST_PG_BIN=$bin" >> "$GITHUB_ENV"
       - name: Type-check
         run: bunx tsc -b
       - name: Build silo-client

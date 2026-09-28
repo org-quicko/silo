@@ -11,8 +11,22 @@ export class PgTestDatabase {
   /** Holds a `postgres://` URL. Unset, the Postgres tests are skipped and say so. */
   static readonly Variable = "SILO_TEST_PG_URL";
 
+  /** Set to `1` in CI, where a Postgres test that cannot run must fail rather than skip. */
+  static readonly Required = "SILO_TEST_PG_REQUIRED";
+
   static url(): string | undefined {
     return process.env[PgTestDatabase.Variable] || undefined;
+  }
+
+  /**
+   * Called where a Postgres suite would skip itself for want of `reason`:
+   * under `SILO_TEST_PG_REQUIRED=1` it throws instead, so a CI job that lost
+   * its database fails rather than passing with nothing tested.
+   */
+  static skipping(reason: string): void {
+    if (process.env[PgTestDatabase.Required] === "1") {
+      throw new Error(`${PgTestDatabase.Required}=1, but the Postgres tests cannot run: ${reason}`);
+    }
   }
 
   /** A schema name no other test uses, and a valid one: ULIDs lower-cased. */
