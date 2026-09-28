@@ -9,8 +9,8 @@ import { PgUnavailableError } from "./pg-unavailable-error";
  * failed on the first refused connection would need an orchestrator's restart
  * loop to come up at all. The wait covers exactly "not there yet": a refused
  * or broken connection, a server still starting, one with no connection to
- * spare. A wrong password or a missing database is refused at once, because
- * no amount of waiting changes it.
+ * spare. A wrong password, a missing database or a TLS disagreement is
+ * refused at once, because no amount of waiting changes it.
  */
 export class PgStartup {
   private static readonly MaxDelayMs = 5_000;
@@ -23,7 +23,9 @@ export class PgStartup {
         await PgMigrations.assertServerVersion(connection);
         return;
       } catch (error) {
-        if (!(error instanceof PgUnavailableError) || error.failure === "unknown") throw error;
+        if (!(error instanceof PgUnavailableError) || error.failure === "unknown" || error.failure === "tls") {
+          throw error;
+        }
         const delay = Math.min(250 * 2 ** attempt, PgStartup.MaxDelayMs);
         if (Date.now() + delay > deadline) throw PgStartup.unreachable(url, waitSeconds, error);
         await Bun.sleep(delay);

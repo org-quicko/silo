@@ -63,6 +63,45 @@ describe("PgErrorMap", () => {
     expect(PgErrorMap.translate(database)).toBe(database);
   });
 
+  test("a TLS disagreement is its own failure, naming what to change in the URL", () => {
+    const missing = PgErrorMap.translate(
+      driverError("Server does not support SSL", "ERR_POSTGRES_TLS_NOT_AVAILABLE"),
+      "require"
+    );
+    expect(failureOf(missing)).toBe("tls");
+    expect((missing as Error).message).toContain("does not offer TLS");
+    expect((missing as Error).message).toContain("sslmode=require");
+
+    const plain = PgErrorMap.translate(
+      server('pg_hba.conf rejects connection for host "::1", user "silo", database "silo", no encryption', "28000")
+    );
+    expect(failureOf(plain)).toBe("tls");
+    expect((plain as Error).message).toContain("accepts only TLS connections");
+  });
+
+  test("a certificate the handshake refused is a TLS failure, even when the driver gives no reason", () => {
+    // Bun raises these as plain Errors: OpenSSL's code, or nothing at all for a host name mismatch.
+    const untrusted = Object.assign(new Error("unable to verify the first certificate"), {
+      code: "UNABLE_TO_VERIFY_LEAF_SIGNATURE",
+      errno: 0,
+    });
+    const blank = Object.assign(new Error(""), { errno: 0 });
+
+    const translated = PgErrorMap.translate(untrusted, "verify-full");
+    expect(failureOf(translated)).toBe("tls");
+    expect((translated as Error).message).toContain("unable to verify the first certificate");
+    expect((PgErrorMap.translate(blank, "verify-full") as Error).message).toContain(
+      "does not name the host"
+    );
+    // With TLS off there is no handshake, so a blank error is not guessed to be one.
+    expect(PgErrorMap.translate(blank)).toBe(blank);
+  });
+
+  test("a wrong client certificate is an authentication failure, and stays itself", () => {
+    const refused = server("connection requires a valid client certificate", "28000");
+    expect(PgErrorMap.translate(refused, "verify-full")).toBe(refused);
+  });
+
   test("anything else passes through unchanged, so a bug in the SQL stays a 500", () => {
     const syntax = server("syntax error", "42601");
     expect(PgErrorMap.translate(syntax)).toBe(syntax);

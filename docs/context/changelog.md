@@ -4,6 +4,24 @@
 > The *current* state is [CONTEXT.md](../../CONTEXT.md); this is how it got
 > there.
 
+- **Postgres over TLS, and Postgres in CI (2026-09-25, D96).** `PgTls` reads
+  the URL's libpq TLS parameters (`sslmode`, `sslrootcert`, `sslcert`,
+  `sslkey`) into the driver's options, for the pool and the owner lock; Bun
+  1.4.2 reads only `sslmode` and sends the rest to the server, which refuses
+  them. `prefer` and `allow` are refused (the driver hangs in them against a
+  server without TLS), as are other `ssl*` parameters and certificates beside
+  `disable`. A TLS failure is `PgUnavailableError` failure `tls`, never
+  retried, and its message names what to change — including a TLS-only
+  server's plain-text refusal and the driver's empty error for a host name
+  mismatch. `storage.database.tls` in `/api/observability` (and
+  `openapi.json`) reports the mode and the protocol in use. The scaffold and
+  the settings help mention `sslmode`. `.github/workflows/test.yml` is the
+  first CI on pull requests and `main`: the suite against `postgres:18`, the
+  Postgres files against `postgres:14`; both release `verify` jobs gain the
+  service. `SILO_TEST_PG_REQUIRED=1` makes a skipped Postgres test fail, and
+  `postgres-tls.test.ts` builds its own TLS-only server from `initdb` and
+  `openssl`.
+
 - **Postgres search (2026-09-25, D95).** `PgSearcher` answers search on the
   `postgres` driver from an `entry_search` table written inside `put`: a
   hand-built `tsvector` from `SearchTokens` under `unicode61`, `pg_trgm`

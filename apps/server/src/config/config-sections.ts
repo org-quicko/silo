@@ -254,7 +254,7 @@ export class ConfigSections {
           restart: true,
           secret: true,
           label: "Database URL",
-          help: "Postgres only. The password is never shown.",
+          help: "Postgres only. Set sslmode in it for TLS. The password is never shown.",
         },
         {
           key: "schema",

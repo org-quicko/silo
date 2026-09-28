@@ -1,6 +1,8 @@
 import { SQL } from "bun";
 import { PgErrorMap } from "./pg-error-map";
 import type { PgParameter, PgQueryable } from "./pg-queryable";
+import { PgTls } from "./pg-tls";
+import type { PgTlsMode } from "./pg-tls";
 import { PgUnavailableError } from "./pg-unavailable-error";
 
 /** How to open a pool. Durations are in seconds, and `0` turns one off. */
@@ -39,6 +41,8 @@ export interface PgConnectionStats {
  * - `prepare: false`. The driver otherwise keeps every distinct statement text
  *   prepared on its session, and a compiled filter has a new text nearly every
  *   call, so backend memory would grow with the workload.
+ * - TLS is what the URL's libpq parameters say (`PgTls`), for the pool and the
+ *   owner lock's connection alike.
  * - Every error leaves through `PgErrorMap`, so a caller sees a `ConflictError`
  *   or a `PgUnavailableError` rather than a driver type.
  * - A broken connection is retried when nothing can have committed: a read,
@@ -55,6 +59,8 @@ export class PgConnection implements PgQueryable {
   /** One try and three retries. */
   static readonly Attempts = 4;
 
+  /** What the URL asked of TLS, which a TLS failure's message names. */
+  readonly tls: PgTlsMode;
   private readonly sql: SQL;
   private readonly size: number;
   private active = 0;
@@ -63,13 +69,19 @@ export class PgConnection implements PgQueryable {
   private closing: Promise<void> | null = null;
   private drained: (() => void) | null = null;
 
-  private constructor(sql: SQL, size: number) {
+  private constructor(sql: SQL, size: number, tls: PgTlsMode) {
     this.sql = sql;
     this.size = size;
+    this.tls = tls;
   }
 
-  /** Lazy: nothing connects until the first statement. */
+  /**
+   * Lazy: nothing connects until the first statement. Reads the certificate
+   * files the URL names (`PgTls`), and refuses at once a URL whose TLS
+   * parameters silo cannot honour.
+   */
   static open(options: PgConnectionOptions): PgConnection {
+    const tls = PgTls.of(options.url);
     const connection: Record<string, string | number> = {
       application_name: options.applicationName,
     };
@@ -87,7 +99,9 @@ export class PgConnection implements PgQueryable {
 
     return new PgConnection(
       new SQL({
-        url: options.url,
+        url: tls.url,
+        // Never a `tls` object with `disable`: the driver would turn TLS on.
+        ...(tls.files ? { tls: tls.files } : {}),
         max: options.max,
         prepare: false,
         ...(options.connectTimeout ? { connectionTimeout: options.connectTimeout } : {}),
@@ -95,7 +109,8 @@ export class PgConnection implements PgQueryable {
         maxLifetime: options.maxLifetime ?? 0,
         connection,
       }),
-      options.max
+      options.max,
+      tls.mode
     );
   }
 
@@ -104,7 +119,7 @@ export class PgConnection implements PgQueryable {
     const retryable = /^\s*SELECT\b/i.test(text);
     return this.tracked(() =>
       this.attempting((failure) => retryable && failure === "connection", () =>
-        PgConnection.run<Row>(this.sql, text, params)
+        this.run<Row>(this.sql, text, params)
       )
     );
   }
@@ -125,14 +140,14 @@ export class PgConnection implements PgQueryable {
         try {
           const result = await this.sql.begin(async (transaction) => {
             const value = await work({
-              query: (text, params = []) => PgConnection.run(transaction, text, params),
+              query: (text, params = []) => this.run(transaction, text, params),
             });
             committing = true;
             return value;
           });
           return result as T;
         } catch (caught) {
-          const error = PgErrorMap.translate(caught);
+          const error = PgErrorMap.translate(caught, this.tls);
           const failure = error instanceof PgUnavailableError ? error.failure : null;
           if (committing && failure === "connection") {
             this.failures += 1;
@@ -164,10 +179,10 @@ export class PgConnection implements PgQueryable {
     try {
       reserved = await this.sql.reserve();
     } catch (error) {
-      throw PgErrorMap.translate(error);
+      throw PgErrorMap.translate(error, this.tls);
     }
     return {
-      query: (text, params = []) => PgConnection.run(reserved, text, params),
+      query: (text, params = []) => this.run(reserved, text, params),
       release: () => reserved.release(),
     };
   }
@@ -239,15 +254,11 @@ export class PgConnection implements PgQueryable {
     return Bun.sleep(25 * 2 ** attempt * (0.5 + Math.random()));
   }
 
-  private static async run<Row>(
-    sql: SQL,
-    text: string,
-    params: readonly PgParameter[]
-  ): Promise<Row[]> {
+  private async run<Row>(sql: SQL, text: string, params: readonly PgParameter[]): Promise<Row[]> {
     try {
       return (await sql.unsafe(text, [...params])) as Row[];
     } catch (error) {
-      throw PgErrorMap.translate(error);
+      throw PgErrorMap.translate(error, this.tls);
     }
   }
 }

@@ -63,6 +63,16 @@
   search tests need `pg_trgm`: missing, it is installed into a
   `silo_test_trgm_<ulid>` schema and that schema is dropped at the end; a role
   that may not install it skips them.
+- **The TLS tests need no database of yours.** `postgres-tls.test.ts` builds a
+  TLS-only server for itself (`support/pg-tls-server.ts`): certificates from
+  `openssl`, a cluster from `initdb` on a free port, all under one temp
+  directory that is removed at the end. `SILO_TEST_PG_BIN` names the directory
+  holding `initdb` and `pg_ctl` when they are not on the `PATH`; without them,
+  or without `openssl`, the file is skipped.
+- **In CI a Postgres test never skips.** `SILO_TEST_PG_REQUIRED=1` turns every
+  skip above into a failure (`PgTestDatabase.skipping`), so a job whose
+  database went missing fails instead of passing with nothing tested.
+  `.github/workflows/test.yml` sets it, beside a `postgres` service.
 - **Take a Postgres rejection with `try`/`catch`, not `expect(...).rejects`.**
   Under Bun 1.4.2 on Windows, `.rejects` awaiting a refused `PgStore.open` after
   the conformance run crashed the runner — a segfault, or a spin at full CPU

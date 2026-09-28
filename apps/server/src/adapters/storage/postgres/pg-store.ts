@@ -193,14 +193,18 @@ export class PgStore implements OwnedStorage, MeasuredStorage, IndexedStorage {
 
   async measure(): Promise<StorageMeasurement> {
     let bytes: number | null = null;
+    let protocol: string | null = null;
     try {
-      const [row] = await this.connection.query<{ bytes: string }>(
-        `SELECT coalesce(sum(pg_total_relation_size(c.oid)), 0) AS bytes
+      // The protocol is the measuring session's own, as the server reports it.
+      const [row] = await this.connection.query<{ bytes: string; protocol: string | null }>(
+        `SELECT coalesce(sum(pg_total_relation_size(c.oid)), 0) AS bytes,
+                (SELECT version FROM pg_stat_ssl WHERE pid = pg_backend_pid() AND ssl) AS protocol
          FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
          WHERE n.nspname = $1 AND c.relkind = 'r'`,
         [this.tables.schema]
       );
       bytes = Number(row.bytes);
+      protocol = row.protocol;
     } catch {
       // Reported as unknown rather than failing the snapshot it is part of.
     }
@@ -208,6 +212,7 @@ export class PgStore implements OwnedStorage, MeasuredStorage, IndexedStorage {
       bytes,
       pool: { ...this.connection.stats(), ...this.scans.stats() },
       owner: this.owner ? this.owner.state : "not_claimed",
+      tls: { mode: this.connection.tls, protocol },
     };
   }
 

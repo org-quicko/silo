@@ -17,7 +17,26 @@ can be cloned with one command.
 
 ## Where things stand
 
-*Last updated: 2026-09-25 (Postgres search)*
+*Last updated: 2026-09-25 (Postgres TLS and CI)*
+
+**The Postgres driver speaks TLS the way `psql` does, and CI tests it (D96).**
+TLS is set in `[storage] url` with libpq's parameters: `sslmode` (`disable` by
+default, `require`, `verify-ca`, `verify-full`), `sslrootcert` (a CA file, or
+`system`), and `sslcert`/`sslkey` for a client certificate. `PgTls` takes them
+out of the URL and hands the driver its own options, because Bun reads only
+`sslmode` and forwards the rest to the server, which refuses them. `prefer` and
+`allow` are refused at open (the driver hangs in them against a server without
+TLS), and so is any `ssl*` parameter silo does not implement. A TLS failure —
+a certificate not accepted, TLS asked of a server without it, a TLS-only
+server refusing plain text — is a `PgUnavailableError` with failure `tls`: not
+retried, fatal at startup, with a message naming what to change.
+`storage.database.tls` in `/api/observability` reports the mode and the
+protocol in use. `.github/workflows/test.yml` runs the suite on every pull
+request and push to `main` against `postgres:18`, and the Postgres tests again
+against `postgres:14`; the release `verify` jobs carry the same service, and
+`SILO_TEST_PG_REQUIRED=1` turns a skipped Postgres test into a failure. The TLS
+tests build their own TLS-only server from `initdb` and `openssl`. See
+`docs/design/storage.md` §6.6.
 
 **Content can live in Postgres: `[storage] driver = "postgres"` (D93–D95).**
 `PgStore` (`adapters/storage/postgres/`) keeps silo's tables in one schema

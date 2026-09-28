@@ -66,6 +66,7 @@ function harness(options: Partial<PgStoreOptions> = {}) {
 }
 
 if (!url) {
+  PgTestDatabase.skipping(`${PgTestDatabase.Variable} is not set`);
   describe.skip(`Postgres search (set ${PgTestDatabase.Variable} to run)`, () => {
     test("matching, ranking, access, index maintenance, rebuild", () => {});
   });
@@ -314,6 +315,7 @@ if (!url) {
 
   const trigram = await PgTestDatabase.ensureTrigram();
   afterAll(() => trigram.cleanup());
+  if (!trigram.ready) PgTestDatabase.skipping("pg_trgm is missing and this role may not install it");
 
   describe.skipIf(!trigram.ready)("Postgres searcher (trigram)", () => {
     const { state, open, put, titles } = harness({ search: { enabled: true, tokenizer: "trigram" } });
