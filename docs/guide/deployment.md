@@ -69,6 +69,47 @@ the first save, so it does not have to exist.
 With a host bind mount, make the directory writable by the image's `bun` user
 before you start the container.
 
+## Docker Compose with Postgres
+
+[packaging/compose/compose.yaml](../../packaging/compose/compose.yaml) runs
+silo with its content in Postgres. Copy it to an empty directory, then:
+
+1. Make a file called `.env` beside it, with a database password:
+
+   ```sh
+   SILO_DB_PASSWORD=a-long-random-password
+   ```
+
+   Use only letters, digits and dashes, because the password goes into a URL.
+
+2. Start the two containers:
+
+   ```sh
+   docker compose up -d
+   ```
+
+3. Get the root key. The first start prints it once:
+
+   ```sh
+   docker compose logs silo
+   ```
+
+Then open `http://localhost:8090` and connect with that key.
+
+silo starts after Postgres is healthy. Postgres keeps its data in the
+`postgres_data` volume. silo still uses the `silo_data` volume for
+`silo.toml`, the plugins and the uploaded media. To pin a silo version, add
+`SILO_IMAGE=labsatquicko/silo:1.3.0` to `.env`.
+
+The two containers talk over the project's own network, so the URL has no TLS.
+For a database on a different machine, set `sslmode` in the URL, as
+[configuration.md](configuration.md) tells you.
+
+To run a silo command in this setup, use `docker compose run --rm silo
+<command>`, for example `docker compose run --rm silo version`. To move
+existing content into it, see "Changing the storage driver" in
+[configuration.md](configuration.md#changing-the-storage-driver).
+
 ## systemd
 
 Foreground, with systemd owning the process and journald owning the log:

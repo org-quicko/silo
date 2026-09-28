@@ -196,6 +196,14 @@
     <div class="toolbar"><span id="storage-note" class="dim"></span></div>
     <div id="storage" class="storage-grid"></div>
   </section>
+
+  <section id="database-card" class="card hidden">
+    <div class="head">
+      <h3>Database</h3>
+      <button class="info" type="button" aria-label="About the database" data-info="The Postgres database that holds the content, sampled with the storage figures. Lists and searches leave two connections free for saves. Counts reset when silo restarts.">i</button>
+    </div>
+    <div id="database" class="storage-grid"></div>
+  </section>
 </div>
 
 <div id="tip" class="tip" role="tooltip" hidden></div>
@@ -317,6 +325,7 @@
     renderStatus(requests.status || {}, requests.total || 0)
     renderProcess(process)
     renderStorage(snapshot.storage || {})
+    renderDatabase((snapshot.storage || {}).database || null)
   }
 
   function timelineY(value) {
@@ -550,6 +559,61 @@
       disk.appendChild(node('span', 'dim', 'No local filesystem capacity'))
     }
     root.appendChild(disk)
+  }
+
+  /* What the owner lock's state means to someone reading it: a label, a tone, one line. */
+  const OWNER_STATES = {
+    held: ['Held', 'ok', 'This server owns the schema.'],
+    retaking: ['Retaking', 'warn', 'Saves wait while the lock is taken back.'],
+    lost: ['Lost', 'bad', 'Another server took the schema. This one stops.'],
+    not_claimed: ['Not claimed', '', 'Not a server process.'],
+  }
+
+  /** Only a store that lives in a database reports one; for sqlite and fs the card stays hidden. */
+  function renderDatabase(database) {
+    $('database-card').classList.toggle('hidden', !database)
+    const root = $('database'); root.textContent = ''
+    if (!database) return
+
+    const tile = (label, value, tone, line, rows, note) => {
+      const card = node('div', 'resource')
+      card.appendChild(node('span', 'dim', label))
+      card.appendChild(node('strong', tone, value))
+      card.appendChild(node('span', 'dim', line))
+      root.appendChild(hoverable(card, () => tipContent(label, rows, note)))
+    }
+
+    tile('Size', database.bytes == null ? 'Unavailable' : bytes(database.bytes), '', "silo's tables and indexes",
+      [['Bytes', database.bytes == null ? 'Unavailable' : bytes(database.bytes)]],
+      'Only the schema silo uses, not the whole database.')
+
+    const pool = database.pool
+    if (pool) {
+      const trouble = pool.shed > 0 || pool.failures > 0
+      tile('Connections', number(pool.in_use) + ' of ' + number(pool.size), trouble ? 'warn' : '',
+        number(pool.scans_waiting) + ' lists waiting',
+        [
+          ['In use', number(pool.in_use)],
+          ['Pool size', number(pool.size)],
+          ['Lists running', number(pool.scans_active)],
+          ['Lists waiting', number(pool.scans_waiting)],
+          ['Refused as busy', number(pool.shed)],
+          ['Retried', number(pool.retries)],
+          ['Failed', number(pool.failures)],
+        ],
+        'The last three count from when silo started.')
+    }
+
+    const [ownerLabel, ownerTone, ownerLine] = OWNER_STATES[database.owner] || ['Unknown', '', 'No owner lock reported.']
+    tile('Owner lock', ownerLabel, ownerTone, ownerLine, [['State', ownerLabel]],
+      'One server owns a schema at a time.')
+
+    const tls = database.tls
+    if (tls) {
+      tile('TLS', tls.protocol || 'Not encrypted', '', 'sslmode ' + tls.mode,
+        [['Mode', tls.mode], ['Protocol', tls.protocol || 'None']],
+        'Set with sslmode in [storage] url.')
+    }
   }
 
   /* ---- polling ---- */

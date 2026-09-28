@@ -33,6 +33,8 @@ export class CliOptions {
     dir: { type: "string" },
     out: { type: "string" },
     "with-keys": { type: "boolean" },
+    // `export` (D97): move the whole instance, audit log and plugin grants too.
+    instance: { type: "boolean" },
     // Repeatable: one `project[/env[/collection]]` rule per occurrence, so a
     // rule never has to be escaped against a separator of its own (§7.6).
     include: { type: "string", multiple: true },

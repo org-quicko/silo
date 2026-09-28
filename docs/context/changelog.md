@@ -4,6 +4,28 @@
 > The *current* state is [CONTEXT.md](../../CONTEXT.md); this is how it got
 > there.
 
+- **A compose file for silo with Postgres, and a Database card (2026-09-28,
+  D98).** `packaging/compose/compose.yaml` (Postgres 18 plus the published
+  image, password required from `.env`, `SILO_IMAGE` to pin a version),
+  exercised by the new `.github/workflows/compose.yml`: a built image, the root
+  key read from the log, `postgres` with the owner lock held, and no new key
+  after a restart. The observability panel draws `storage.database` as a
+  Database card, hidden without a database. The deployment guide gains
+  *Docker Compose with Postgres*; `packaging/compose/.env` is gitignored.
+
+- **A whole-instance move replaces the planned migrate command (2026-09-28,
+  D97).** `silo export --instance` carries everything a whole export does plus
+  every key (managed ones too), the plugin grants and the audit log, and
+  stamps `instance: true` in the manifest; it refuses `--include`, `--media
+  referenced` and a pending rename. The import gate loads `_audit` and
+  `_plugins` only from a stamped archive and only through the CLI (a new
+  `ImportGrants.instance` answer), so the HTTP import refuses one for every
+  key; `--include` against a move is refused. The configuration guide gains
+  *Changing the storage driver*, six steps; the transfer, CLI and plugin docs
+  say where the managed-key and system-record rules now bend.
+  `instance-move.test.ts` moves SQLite to fs, and to Postgres when
+  `SILO_TEST_PG_URL` is set.
+
 - **Postgres over TLS, and Postgres in CI (2026-09-25, D96).** `PgTls` reads
   the URL's libpq TLS parameters (`sslmode`, `sslrootcert`, `sslcert`,
   `sslkey`) into the driver's options, for the pool and the owner lock; Bun

@@ -1,6 +1,10 @@
+import { ValidationError } from "@silo/shared/validation-error";
 import type { BlobStorage } from "../ports/blob-storage";
 import { FsBlobStorage } from "../../adapters/blob/fs-blob-storage";
 import { EntryUtils } from "../domain/entry-utils";
+import { Scope } from "../domain/scope";
+import { SystemCollections } from "../domain/system-collections";
+import { NotFoundError } from "../errors/not-found-error";
 import type { Storage } from "../ports/storage";
 import { SiloVersion } from "../../version";
 import { ExportMedia } from "./export-media";
@@ -9,7 +13,7 @@ import type { ExportOptions } from "./export-options";
 import { ExportSystem } from "./export-system";
 import { ExportWalk } from "./export-walk";
 import { FormatVersion } from "./format-version";
-import { MediaModes } from "./media-mode";
+import { MediaModes, type MediaMode } from "./media-mode";
 import { DirectoryExportSink } from "./sink/directory-export-sink";
 import type { ExportSink } from "./sink/export-sink";
 import { TarExportSink } from "./sink/tar-export-sink";
@@ -43,6 +47,9 @@ export class Exporter {
     const meta = await store.meta();
     const selection = options.include ?? TransferSelection.Everything;
     const media = options.media ?? MediaModes.default(!selection.isEverything);
+    const instance = options.instance === true;
+    // Before anything is written: a tarball goes out as it is walked.
+    if (instance) await Exporter.assertMovable(store, selection, media);
 
     const walk = new ExportWalk(store, sink, selection);
     await walk.writeProjects();
@@ -52,7 +59,8 @@ export class Exporter {
       store,
       sink,
       media,
-      withKeys: options.withKeys === true,
+      withKeys: options.withKeys === true || instance,
+      instance,
       projectIds: walk.projectIds,
       referenced: walk.referenced,
     });
@@ -81,9 +89,38 @@ export class Exporter {
         catalogued: system.blobKeys.length,
         files,
       },
+      ...(instance ? { instance: true } : {}),
     };
     await sink.text("manifest.json", JSON.stringify(manifest, null, 2));
     return manifest;
+  }
+
+  /**
+   * A move carries the whole instance or it is not a move: no selection, and
+   * no `referenced` media, which narrows the catalog. A rename still in
+   * progress is refused too, since its marker never travels and the content
+   * would arrive half renamed.
+   */
+  private static async assertMovable(
+    store: Storage,
+    selection: TransferSelection,
+    media: MediaMode
+  ): Promise<void> {
+    if (!selection.isEverything) {
+      throw new ValidationError("--instance moves the whole instance, so it cannot be combined with --include");
+    }
+    if (media === MediaModes.Referenced) {
+      throw new ValidationError("--instance carries the whole media catalog; use --media all or --media none");
+    }
+    let pending = 0;
+    try {
+      pending = (await store.list(Scope.System, SystemCollections.ScopeRenames, { limit: 1, offset: 0 })).total;
+    } catch (caught) {
+      if (!(caught instanceof NotFoundError)) throw caught;
+    }
+    if (pending > 0) {
+      throw new ValidationError("a rename is still in progress; start silo once so it can finish, then export again");
+    }
   }
 
   /** The §6.3 tree on disk — `silo export --dir`. */

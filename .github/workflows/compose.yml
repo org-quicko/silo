@@ -1,0 +1,83 @@
+# Runs packaging/compose/compose.yaml for real, against an image built from
+# this checkout, so the file an operator copies is one that has started (D98).
+#
+# The stack comes up, the first start's root key is read from the log, and the
+# observability snapshot must report the postgres driver with the owner lock
+# held. Then silo restarts: no second key may be printed and the first must
+# still work, which is the proof the keys live in Postgres and not in the
+# container.
+#
+# Only when something the stack depends on changes: building the image is the
+# slow part, and the release workflow builds and smoke-tests it anyway.
+name: compose
+
+on:
+  pull_request:
+    paths:
+      - packaging/compose/**
+      - Dockerfile
+      - apps/server/src/adapters/storage/postgres/**
+      - .github/workflows/compose.yml
+  push:
+    branches: [main]
+    paths:
+      - packaging/compose/**
+      - Dockerfile
+      - apps/server/src/adapters/storage/postgres/**
+      - .github/workflows/compose.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: compose-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  compose:
+    runs-on: ubuntu-24.04
+    env:
+      SILO_IMAGE: silo:compose-test
+      SILO_DB_PASSWORD: compose-ci-only
+    defaults:
+      run:
+        working-directory: packaging/compose
+    steps:
+      - uses: actions/checkout@v7
+      - name: Build the image
+        working-directory: .
+        run: docker build --pull -t "$SILO_IMAGE" .
+      - name: Start the stack
+        run: docker compose up -d --wait --wait-timeout 180
+      - name: The first start printed a root key, and the store is Postgres
+        run: |
+          key=$(docker compose logs silo | grep -o 'silo_[A-Za-z0-9_-]\{40,\}' | head -n 1)
+          test -n "$key" || { docker compose logs; echo "::error::no root key in the log"; exit 1; }
+          echo "::add-mask::$key"
+          echo "SILO_KEY=$key" >> "$GITHUB_ENV"
+          # storage.database is sampled in the background, so it can be null at first.
+          for attempt in $(seq 1 30); do
+            body=$(curl -fsS -H "Authorization: Bearer $key" http://localhost:8090/api/observability)
+            if echo "$body" | jq -e '.storage.storage_driver == "postgres" and .storage.database.owner == "held"' >/dev/null; then
+              echo "$body" | jq '.storage.database'
+              exit 0
+            fi
+            sleep 2
+          done
+          echo "$body" | jq '.storage'
+          echo "::error::the snapshot never reported postgres with the owner lock held"
+          exit 1
+      - name: A restart keeps the key
+        run: |
+          docker compose restart silo
+          docker compose up -d --wait --wait-timeout 180
+          keys=$(docker compose logs silo | grep -o 'silo_[A-Za-z0-9_-]\{40,\}' | sort -u | wc -l)
+          test "$keys" -eq 1 || { echo "::error::a restart printed a new root key"; exit 1; }
+          curl -fsS -o /dev/null -H "Authorization: Bearer $SILO_KEY" http://localhost:8090/api/observability
+      - name: Logs
+        if: failure()
+        run: docker compose logs
+      - name: Stop the stack
+        if: always()
+        run: docker compose down -v

@@ -17,7 +17,33 @@ can be cloned with one command.
 
 ## Where things stand
 
-*Last updated: 2026-09-25 (Postgres TLS and CI)*
+*Last updated: 2026-09-28 (compose file and the Database card)*
+
+**silo with Postgres runs from one compose file, and the observability panel
+shows the database (D98).** `packaging/compose/compose.yaml` starts
+`postgres:18` and the published image after Postgres is healthy, with the
+driver and URL set by environment and `/data` still on a volume; the database
+password comes from a `.env` file and has no default.
+`.github/workflows/compose.yml` runs that file against an image built from the
+checkout whenever it, the Dockerfile or the Postgres adapter changes: the root
+key from the first log must read `/api/observability` as `postgres` with the
+owner lock held, and a restart must print no second key. The observability
+plugin's panel gains a Database card from `storage.database` (size, pool,
+owner lock, TLS), hidden on `sqlite` and `fs`. The deployment guide has
+*Docker Compose with Postgres*. This closes the Postgres plan (D92–D98).
+
+**Changing storage driver is `silo export --instance`, then `silo import`
+(D97).** There is no migrate command: export and import already cross
+drivers and `--dry-run` already previews. What a plain export leaves behind on
+purpose — the plugin grants (`_plugins`), the managed keys minted for them,
+and the audit log (`_audit`) — rides in an `--instance` archive, stamped
+`instance: true` in its manifest. The flag refuses `--include`, `--media
+referenced` and a pending rename. `ImportSystemGate` loads those two
+collections only from such an archive and only for `ImportGrants.Trusted`, the
+CLI, so `POST /api/import` refuses one for every key. An `--include` import of
+a move is refused. The operator's steps are *Changing the storage driver* in
+`docs/guide/configuration.md`; the reasoning is §7.4 of
+`docs/design/transfer.md`.
 
 **The Postgres driver speaks TLS the way `psql` does, and CI tests it (D96).**
 TLS is set in `[storage] url` with libpq's parameters: `sslmode` (`disable` by

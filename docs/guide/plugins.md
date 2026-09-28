@@ -199,7 +199,8 @@ sees it. The reason is not that a hostile plugin would gain anything by holding
 one. The common failure is accidental: a plugin logging its token, or sending it
 to a telemetry endpoint. `silo keys revoke` refuses a managed key and names
 `silo plugin revoke` instead. A managed key never counts toward bootstrapping,
-and silo leaves it out of every archive.
+and silo leaves it out of every archive except `silo export --instance`, which
+moves the plugin's grant with it.
 
 ## Managing a running instance
 
