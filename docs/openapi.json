@@ -4328,7 +4328,7 @@
                     "Administration"
                 ],
                 "summary": "One bounded snapshot of this process",
-                "description": "Aggregate, low-cardinality operating facts only. Requests are grouped by\nthe registered route pattern, never by the requested path; query\nstrings, parameters, caller identities, bodies, credentials, content and\nfilesystem paths never enter the accumulator, so granting this does not\nquietly become a content-read capability (D52). Claim\n`observability:read`.\n",
+                "description": "Aggregate operating facts only. Requests are grouped by the registered\nroute pattern; a successful request's project, environment and collection\nare filled in, and every other parameter, an id included, stays a\nplaceholder (D99). Each caller sees names only for the scopes its own\ncollection claims reach; the rest are folded into their pattern. Query\nstrings, ids, caller identities, bodies, credentials, content and\nfilesystem paths never enter the accumulator, so granting this does not\nquietly become a content-read capability (D52). Claim\n`observability:read`.\n",
                 "operationId": "getObservability",
                 "responses": {
                     "200": {
@@ -6554,7 +6554,7 @@
                             },
                             "endpoints": {
                                 "type": "array",
-                                "description": "The busiest 25, keyed by the **registered route pattern** so no\nid or query string becomes a series. Endpoints collapse into one\n`* <other>` row past 256.\n",
+                                "description": "The busiest 25 this caller may see. Keyed by the **registered route\npattern** with the scope names of successful requests filled in, such as\n`/api/projects/acme/environments/prod/collections/posts/:id`, so no id or\nquery string becomes a series. A named series whose scope the caller's\ncollection claims do not reach is counted under its pattern instead.\nEndpoints collapse into one `* <other>` row past 256, and a named one\npast that cap is counted under its pattern.\n",
                                 "items": {
                                     "type": "object",
                                     "properties": {

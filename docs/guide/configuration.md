@@ -395,6 +395,14 @@ Only the running server logs. Every other subcommand writes its output to
 stdout, because that output is data you might pipe somewhere. Sending it to a
 log file would take the answer away from you.
 
+**To see each request**, set `[log] requests = true`, or switch on *requests*
+on the Configuration page. The change applies immediately. silo then writes one
+line for each request: the method, the full path, the status, the time in
+milliseconds, and the label and id of the key that made it. A request from a
+plugin shows the plugin name instead. The line never contains a key's secret.
+`GET /api/observability` shows totals by route and never the full path, so use
+this log to find the exact calls.
+
 ## Schema references
 
 A schema can reference another schema with standard JSON Schema `$ref`.

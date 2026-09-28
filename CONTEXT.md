@@ -17,7 +17,22 @@ can be cloned with one command.
 
 ## Where things stand
 
-*Last updated: 2026-09-28 (compose file and the Database card)*
+*Last updated: 2026-09-28 (named endpoints, key in the request log)*
+
+**Which APIs are called is answered twice: exactly in the request log, and by
+scope in the metrics (D99).** With `[log] requests` on, each line now names the
+key that made the call (`key`, `key_id`; never the secret). The observability
+snapshot files a request under its route pattern with the project,
+environment and collection filled in (`EndpointName`), ids left as `:id`, and
+only when the request succeeded, so made-up names never take one of the 256
+series; a named series with no room left is counted under its pattern. Each
+caller sees names only for scopes its own collection claims reach
+(`Claims.reaches`, new in `@silo/shared`); the rest are folded into their
+pattern at read time. The observability plugin asks for an optional
+`collections:*/*/*:schema:read` to show names in its panel, which puts an
+installed copy at `needs_review` until it is approved again; it keeps running
+meanwhile. This replaces `ac2141f`'s grouping by raw path, which put ids and
+out-of-reach names into the snapshot.
 
 **silo with Postgres runs from one compose file, and the observability panel
 shows the database (D98).** `packaging/compose/compose.yaml` starts

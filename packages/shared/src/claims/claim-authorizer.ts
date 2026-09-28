@@ -1,5 +1,6 @@
 import type { Claim } from "./claim";
 import { ClaimGrammar } from "./claim-grammar";
+import { ClaimSegment } from "./claim-segment";
 import { ClaimVocabulary } from "./claim-vocabulary";
 import type { CollectionPermission } from "./collection-permission";
 import { ParsedClaim } from "./parsed-claim";
@@ -33,6 +34,23 @@ export class ClaimAuthorizer {
 
   static any(claims: HeldClaims, required: readonly (Claim | ParsedClaim)[]): boolean {
     return required.some((claim) => ClaimAuthorizer.has(claims, claim));
+  }
+
+  /**
+   * Whether any collection claim reaches this project, and this environment and
+   * collection when they are named: the rule the project listing uses to decide
+   * which names a key may see, taken one level further.
+   */
+  static reaches(claims: HeldClaims, project: string, env?: string, collection?: string): boolean {
+    if (ClaimAuthorizer.holdsRoot(claims)) return true;
+    for (const held of ClaimAuthorizer.parsed(claims)) {
+      if (held.kind !== "collection") continue;
+      if (!ClaimSegment.matches(held.project!, project)) continue;
+      if (env !== undefined && !ClaimSegment.matches(held.env!, env)) continue;
+      if (collection !== undefined && !ClaimSegment.matches(held.name!, collection)) continue;
+      return true;
+    }
+    return false;
   }
 
   /** Whether `permission` is held on *any* collection, optionally narrowed to

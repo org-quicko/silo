@@ -4,6 +4,19 @@
 > The *current* state is [CONTEXT.md](../../CONTEXT.md); this is how it got
 > there.
 
+- **Named endpoints, and the key in the request log (2026-09-28, D99).**
+  Reverts the server half of `ac2141f`, which keyed metrics by the raw
+  requested path: `/api/observability` is back to route patterns, now with a
+  successful request's project, environment and collection filled in
+  (`EndpointName`), ids never, and each caller shown names only where its
+  collection claims reach (`Claims.reaches`; the rest fold into the pattern).
+  A named series past the 256 cap joins its pattern instead of `<other>`. The
+  request log gains `key` and `key_id`. The observability plugin requests an
+  optional `collections:*/*/*:schema:read` for names; its README, panel copy
+  and permission text, the OpenAPI descriptions, D52's section and the HTTP
+  API design follow. The deleted test that kept typed paths out of the
+  snapshot is back.
+
 - **A compose file for silo with Postgres, and a Database card (2026-09-28,
   D98).** `packaging/compose/compose.yaml` (Postgres 18 plus the published
   image, password required from `.env`, `SILO_IMAGE` to pin a version),

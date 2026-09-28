@@ -39,8 +39,18 @@ latency band for its share, or a status bar for its count. Each panel carries an
 
 ## What the snapshot means
 
-- **API endpoints are grouped by the requested path.** Query strings, request
+- **API endpoints are grouped by route, with names but never ids.** A
+  successful request shows its project, environment and collection, such as
+  `/api/projects/acme/environments/prod/collections/posts/:id`. Entry, media
+  and key ids stay as `:id`, and a failed request shows the plain route
+  pattern, so a made-up name never becomes a row. Query strings, request
   bodies, caller labels, credentials and filesystem paths are never collected.
+- **Names appear only for collections the plugin may read.** Approve the
+  optional `collections:*/*/*:schema:read` permission to see them, or narrow
+  it, for example to `collections:acme/*/*:schema:read`, to name one project
+  only. Without it, every endpoint shows its route pattern. For the exact
+  path of each request, turn on `[log] requests`: the request log has it,
+  with the key that made the call.
 - **Error rate is HTTP `4xx` plus `5xx`.** Latency percentiles are bounded
   histogram estimates, and they keep no individual request. An estimate is
   capped at the slowest request actually seen, so a percentile never reads above

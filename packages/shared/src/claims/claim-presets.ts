@@ -110,8 +110,9 @@ export class ClaimPresets {
       // which is the account you want people using least (D38).
       ClaimVocabulary.AuditRead,
       // Aggregate operating health is an operator capability. It exposes no
-      // content, caller identity, route parameter or filesystem path, and does
-      // not belong on read/write integration keys.
+      // content, id, caller identity or filesystem path, names only the scopes
+      // the key's own collection claims reach (D99), and does not belong on
+      // read/write integration keys.
       ClaimVocabulary.ObservabilityRead,
     ],
   };
