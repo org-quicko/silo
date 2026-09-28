@@ -1,7 +1,7 @@
 # TypeScript client
 
 > Part of silo's design spec. The decisions log (D1–…) that governs it
-> lives in [IMPLEMENTATION.md](../../IMPLEMENTATION.md).
+> is [decisions.md](decisions.md), indexed in [IMPLEMENTATION.md](../../IMPLEMENTATION.md).
 
 ## 14. The TypeScript client (D61)
 
