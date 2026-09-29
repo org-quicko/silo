@@ -1,3 +1,4 @@
+import { MediaFolderName } from "@silo/shared/media-folder-name";
 import { ValidationError } from "@silo/shared/validation-error";
 
 /**
@@ -10,11 +11,6 @@ import { ValidationError } from "@silo/shared/validation-error";
  * leaves the archive's `media/` layout (§7.1) unchanged.
  */
 export class MediaPaths {
-  static readonly MaxDepth = 16;
-  static readonly MaxSegment = 64;
-  /** Close to a collection name's grammar, so folders read like the rest of silo. */
-  private static readonly SegmentPattern = /^[a-zA-Z0-9][a-zA-Z0-9 ._-]*$/;
-
   /**
    * Normalises a caller-supplied folder to "" (root) or "/a/b". Rejects
    * traversal, empty segments, and anything that would not survive a round
@@ -29,21 +25,11 @@ export class MediaPaths {
     if (!trimmed || trimmed === "/") return "";
 
     const segments = trimmed.split("/").filter((s) => s.length > 0);
-    if (segments.length > MediaPaths.MaxDepth) {
-      throw new ValidationError(`folder is deeper than ${MediaPaths.MaxDepth} levels`);
-    }
+    const tooDeep = MediaFolderName.depthProblem(segments.length);
+    if (tooDeep) throw new ValidationError(tooDeep);
     for (const segment of segments) {
-      if (segment === "." || segment === "..") {
-        throw new ValidationError(`invalid folder segment "${segment}"`);
-      }
-      if (segment.length > MediaPaths.MaxSegment) {
-        throw new ValidationError(
-          `folder segment "${segment}" is longer than ${MediaPaths.MaxSegment} characters`
-        );
-      }
-      if (!MediaPaths.SegmentPattern.test(segment)) {
-        throw new ValidationError(`invalid folder segment "${segment}"`);
-      }
+      const problem = MediaFolderName.segmentProblem(segment);
+      if (problem) throw new ValidationError(problem);
     }
     return "/" + segments.join("/");
   }

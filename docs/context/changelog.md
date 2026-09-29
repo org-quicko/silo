@@ -4,6 +4,30 @@
 > The *current* state is [CONTEXT.md](../../CONTEXT.md); this is how it got
 > there.
 
+- **The media library uploads folders (2026-09-29, D105).** The admin had
+  **Upload files** only, so a folder came in as a flat pile, and a folder
+  dropped on the zone was handed over as a "file" that failed. There is now an
+  **Upload folder** button (a `webkitdirectory` input) and the drop zone reads
+  a dropped folder to its leaves. The subfolders are recreated under the folder
+  being browsed: each file is a `POST /api/media` with its own `folder`, which
+  makes every ancestor exist (D20), and a directory with nothing in it, which
+  only a drop can show, gets `POST /api/media/folders`. Folder names are
+  checked against the server's rule before the first byte is sent, and a name
+  it would refuse (`_assets`, `.git`, `Résumé`) refuses the whole upload with
+  the segment and the rule, not half a tree. A file the server refuses (an
+  extension off the allowlist, a body over the limit) is skipped and named at
+  the end (`37 uploaded, 3 refused. First: …`) and the rest go on; any other
+  failure ends the run and says how far it got. The button reads
+  `Uploading 12 of 40…` while it runs. `MediaFolderName` in `@silo/shared` now
+  holds the folder-name rule, and `MediaPaths.normalizeFolder` uses it with its
+  messages unchanged. No route, parameter, body or claim changed, so
+  `openapi.json` and the HTTP docs stand. New tests: `media-folder-name.test.ts`
+  (shared) and, beside the admin source, `media-upload-planner`,
+  `media-upload-check`, `media-uploader` and `media-library-error`. Checked by
+  hand against a running server: a dropped tree with an empty folder and a
+  `.exe`, a picked tree into the root and into a subfolder, and a tree with an
+  illegal name.
+
 - **Collection names may have 128 characters (2026-09-28, D104).** They were
   capped at 64 with project and env ids, and a longer one gave any key but
   root a `403 missing claim` that never said the name was the problem, since

@@ -69,7 +69,7 @@ export function MediaContents({
       <UploadZone
         folder={library.folder}
         uploading={library.uploading}
-        onFiles={library.upload}
+        onDrop={library.uploadDropped}
         onBrowse={onBrowse}
       />
     ) : (

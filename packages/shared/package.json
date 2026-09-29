@@ -26,6 +26,7 @@
     "./json-path": "./src/query/path/json-path.ts",
     "./key-format": "./src/keys/key-format.ts",
     "./media-field": "./src/schema/media-field.ts",
+    "./media-folder-name": "./src/media/media-folder-name.ts",
     "./media-ref": "./src/media/media-ref.ts",
     "./merge-patch": "./src/json/merge-patch.ts",
     "./parsed-claim": "./src/claims/parsed-claim.ts",
