@@ -12,11 +12,11 @@ A minimal, self-hostable headless CMS. You define collections with JSON Schema
 and get generated admin forms and a CRUD API. You can move all the data
 anywhere with export/import. What sets it apart is **portability**: standard
 schemas, pluggable storage, and one command to clone an instance. The vision
-and every decision (D1–D104) are indexed in [IMPLEMENTATION.md](IMPLEMENTATION.md).
+and every decision (D1–D105) are indexed in [IMPLEMENTATION.md](IMPLEMENTATION.md).
 
 ## Where things stand
 
-*Last updated: 2026-09-28. Version 1.4.0 (root `package.json`, D28).*
+*Last updated: 2026-09-29. Version 1.4.0 (root `package.json`, D28).*
 
 **Stack.** Bun + TypeScript in one workspace: `apps/server` (CLI, Hono HTTP
 API, core, adapters), `apps/admin` (React, embedded in the executable),
@@ -47,7 +47,8 @@ API, core, adapters), `apps/admin` (React, embedded in the executable),
   is streamed with `Range` support (D80) and sandboxed on serve (D83).
   `?download=true` sends any type as an attachment (D100). `/media/*` allows
   any origin to read (D101). Force delete, purge and in-place replace exist,
-  each behind its own claim.
+  each behind its own claim. The admin uploads a whole folder, from a picker
+  or a drop, and recreates its subfolders (D105).
 - **Transfer.** Export, import, server-to-server copy and scope copy, with
   `include` selections and media modes (D74). They are streaming and
   memory-flat (D73, D76–D78), size-bounded (D85), and gated per system
@@ -82,10 +83,10 @@ API, core, adapters), `apps/admin` (React, embedded in the executable),
   are in [milestones.md](docs/design/milestones.md) §12. [IDEAS.md](IDEAS.md)
   holds loose ideas.
 
-**Most recent changes:** collection names of up to 128 characters (D104);
-the Postgres open items and Bun 1.4.2 everywhere (D103); Postgres stress
-review fixes, including a 503 rather than a 401 when storage cannot look a
-key up (D102). Read the top of the [changelog](docs/context/changelog.md) for more.
+**Most recent changes:** folder upload in the media library (D105);
+collection names of up to 128 characters (D104); the Postgres open items and
+Bun 1.4.2 everywhere (D103). Read the top of the
+[changelog](docs/context/changelog.md) for more.
 
 ## Reading order
 

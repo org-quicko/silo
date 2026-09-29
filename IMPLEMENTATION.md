@@ -132,6 +132,7 @@ change what it decides. A new decision gets a full row there and one line here.
 | D102 | A Postgres pool the driver broke is replaced; a key storage cannot look up is a 503, not a 401 |
 | D103 | Postgres: lifetime off, heartbeat deadline and keepalive, only the owner shapes the search index, race-safe reindex, Bun 1.4.2 |
 | D104 | Collection names may have 128 characters (`CollectionName`); the name is checked before the claim |
+| D105 | The admin uploads a folder from a picker or a drop and recreates its subfolders from the paths; names are checked up front by a shared `MediaFolderName`, a refused file is skipped |
 
 ## 3. Scope
 

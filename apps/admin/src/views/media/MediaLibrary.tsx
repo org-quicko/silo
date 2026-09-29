@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { FolderPlus, LayoutGrid, List, MoreVertical, Plus, Settings, Trash2 } from 'lucide-react'
+import { FolderPlus, FolderUp, LayoutGrid, List, MoreVertical, Plus, Settings, Trash2 } from 'lucide-react'
 import { Claims } from '@silo/shared/claims'
 import type { MediaAsset } from '../../api/types/media-asset'
 import type { ScopeRef } from '../../api/types/scope-ref'
@@ -106,6 +106,7 @@ export function MediaLibraryView({
     () => (localStorage.getItem(VIEW_KEY) as LibraryView | null) || 'grid',
   )
   const fileInput = useRef<HTMLInputElement>(null)
+  const folderInput = useRef<HTMLInputElement>(null)
   const headMenuRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
@@ -131,6 +132,17 @@ export function MediaLibraryView({
   const listCols = canDelete ? LIST_COLS_SELECTABLE : LIST_COLS
 
   const browse = () => fileInput.current?.click()
+  const browseFolder = () => folderInput.current?.click()
+
+  /** Hands the pick on, then clears the input: a folder is often picked a
+   *  second time after its names were fixed, and the same pick fires nothing. */
+  const takePicked = (input: HTMLInputElement) => {
+    if (input.files?.length) library.uploadFiles(input.files)
+    input.value = ''
+  }
+
+  const progress = library.uploadProgress
+  const uploadLabel = progress ? `Uploading ${progress.done} of ${progress.total}…` : 'Upload files'
 
   const changeView = (next: LibraryView) => {
     setView(next)
@@ -205,7 +217,15 @@ export function MediaLibraryView({
           type="file"
           multiple
           hidden
-          onChange={(event) => event.target.files && library.upload(event.target.files)}
+          onChange={(event) => takePicked(event.target)}
+        />
+        {/* React's types do not know `webkitdirectory`; the spread carries it to the DOM. */}
+        <input
+          ref={folderInput}
+          type="file"
+          hidden
+          {...{ webkitdirectory: '' }}
+          onChange={(event) => takePicked(event.target)}
         />
 
         <div className={`page-head ${styles.pageHeader}`}>
@@ -223,8 +243,11 @@ export function MediaLibraryView({
                 <Button variant="secondary" onClick={openNewFolder}>
                   <FolderPlus size={14} /> New folder
                 </Button>
+                <Button variant="secondary" onClick={browseFolder} disabled={library.uploading}>
+                  <FolderUp size={14} /> Upload folder
+                </Button>
                 <Button variant="primary" onClick={browse} disabled={library.uploading}>
-                  <Plus size={14} /> Upload files
+                  <Plus size={14} /> {uploadLabel}
                 </Button>
               </>
             )}
