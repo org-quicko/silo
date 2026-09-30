@@ -1,6 +1,6 @@
 {
   "name": "@silo/server",
-  "version": "1.5.0-alpha",
+  "version": "1.5.0",
   "description": "The silo server — CLI, HTTP API, storage adapters, and the plugin host",
   "private": true,
   "type": "module",
@@ -14,7 +14,7 @@
     "@silo/shared": "workspace:*",
     "ajv": "^8.20.0",
     "ajv-formats": "^3.0.1",
-    "hono": "^4.13.10",
+    "hono": "^4.13.11",
     "semver": "^7.8.5",
     "tar": "^7.5.22",
     "ulidx": "^2.4.1"
