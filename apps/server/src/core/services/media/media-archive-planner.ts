@@ -129,9 +129,15 @@ export class MediaArchivePlanner {
     );
   }
 
+  /** Same-named files tie on path, so the older upload keeps the plain name;
+   *  `seq` breaks a tie within one millisecond, since a ULID may not. */
   private static byPath(left: Catalogued, right: Catalogued): number {
     if (left.asset.folder !== right.asset.folder) return left.asset.folder < right.asset.folder ? -1 : 1;
-    return left.asset.filename.localeCompare(right.asset.filename);
+    return (
+      left.asset.filename.localeCompare(right.asset.filename) ||
+      new Date(left.entry.created_at).getTime() - new Date(right.entry.created_at).getTime() ||
+      left.entry.seq - right.entry.seq
+    );
   }
 
   private static leaf(path: string): string {

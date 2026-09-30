@@ -79,6 +79,20 @@ describe('MediaFileUrl', () => {
     })
   })
 
+  describe('the server URL', () => {
+    /** It reaches an `href`, so only an http(s) server may lead it. */
+    test('a server URL that is not http(s) is dropped, never used as a scheme', () => {
+      for (const bad of ['javascript:alert(1)//', 'data:text/html,<script>', 'not a url']) {
+        expect(MediaFileUrl.downloadUrl({ id: '01ABC' } as MediaAsset, bad)).toBe('/media/01ABC?download=true')
+        expect(MediaFileUrl.join('/media/01ABC', bad)).toBe('/media/01ABC')
+      }
+    })
+
+    test('a path on the server URL is kept', () => {
+      expect(MediaFileUrl.forId('01ABC', 'https://example.com/silo/')).toBe('https://example.com/silo/media/01ABC')
+    })
+  })
+
   describe('join', () => {
     test('an empty value is empty, not the bare server URL', () => {
       // An `<img src="http://localhost:8090">` would request the admin's own

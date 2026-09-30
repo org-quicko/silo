@@ -38,7 +38,7 @@ export class MediaFileUrl {
    * one with anyway.
    */
   static forId(id: string, serverUrl: string): string {
-    return `${MediaFileUrl.root(serverUrl)}/media/${id}`
+    return `${MediaFileUrl.root(serverUrl)}/media/${encodeURIComponent(id)}`
   }
 
   /**
@@ -60,8 +60,23 @@ export class MediaFileUrl {
     return `${MediaFileUrl.root(serverUrl)}${url.startsWith('/') ? '' : '/'}${url}`
   }
 
+  /**
+   * The server URL without a trailing slash, or '' when it is not http(s).
+   *
+   * It comes from the server form by way of localStorage and ends up in an
+   * `href`, so a `javascript:` value must not survive. The scheme is written
+   * here as a literal, never copied from the input.
+   */
   private static root(serverUrl: string): string {
-    return (serverUrl || '').replace(/\/+$/, '')
+    let parsed: URL
+    try {
+      parsed = new URL(serverUrl)
+    } catch {
+      return ''
+    }
+    const scheme = parsed.protocol === 'https:' ? 'https://' : parsed.protocol === 'http:' ? 'http://' : null
+    if (!scheme) return ''
+    return `${scheme}${parsed.host}${parsed.pathname.replace(/\/+$/, '')}`
   }
 
   private static isAbsolute(url: string): boolean {

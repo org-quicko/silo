@@ -4,6 +4,13 @@
 > The *current* state is [CONTEXT.md](../../CONTEXT.md); this is how it got
 > there.
 
+- **A saved server URL that is not http(s) never leads a media link
+  (2026-09-30).** CodeQL (`js/xss-through-dom`) traced the server form's
+  input, by way of localStorage, into the Download `href`s and
+  `BrowserDownload`. `MediaFileUrl.root` now parses the URL and returns it only
+  for `http:` or `https:`, writing the scheme itself, so a stored
+  `javascript:` value becomes a relative link. `forId` encodes the id.
+
 - **The media library downloads a selection, and shows library stats
   (2026-09-30, D106).** The selection bar had Move and Delete only. It now has
   **Download**, and every file and folder is selectable whatever the key holds,
@@ -14,7 +21,8 @@
   `GET /api/media/archives/{ticket}/{part}` (no key; the ticket is the
   credential) streams a STORE-only ZIP from the new `ZipWriter`, opening each
   blob only when the archive reaches it. A selected folder keeps its name, its
-  tree and its empty subfolders; a collision becomes `name (1).ext`; a file
+  tree and its empty subfolders; a collision becomes `name (1).ext`, the older
+  upload keeping the plain name (ties break on `seq`, not the ULID); a file
   whose bytes are gone is skipped and named in `missing-files.txt`. Parts close
   before 2 GiB, a file over 2 GiB is listed in `separate` for a direct
   download, one download holds at most 5000 files and 5 GB (`413`, naming
