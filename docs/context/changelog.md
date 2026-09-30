@@ -4,6 +4,41 @@
 > The *current* state is [CONTEXT.md](../../CONTEXT.md); this is how it got
 > there.
 
+- **The media library downloads a selection, and shows library stats
+  (2026-09-30, D106).** The selection bar had Move and Delete only. It now has
+  **Download**, and every file and folder is selectable whatever the key holds,
+  since Download needs a key and no claim (the checkboxes used to need
+  `media:delete`). One file downloads as itself from `/media/{id}?download=true`.
+  More is two requests: `POST /api/media/archives` (`{ids, folders}`, any key)
+  plans the selection once and answers a ticket with one URL per part, and
+  `GET /api/media/archives/{ticket}/{part}` (no key; the ticket is the
+  credential) streams a STORE-only ZIP from the new `ZipWriter`, opening each
+  blob only when the archive reaches it. A selected folder keeps its name, its
+  tree and its empty subfolders; a collision becomes `name (1).ext`; a file
+  whose bytes are gone is skipped and named in `missing-files.txt`. Parts close
+  before 2 GiB, a file over 2 GiB is listed in `separate` for a direct
+  download, one download holds at most 5000 files and 5 GB (`413`, naming
+  the key), and three parts stream at once server-wide (`503 busy`,
+  `Retry-After: 30`). All three are `[media]` keys (`download_max_files`,
+  `download_max_size_mb`, `download_max_streams`, with `SILO_MEDIA_DOWNLOAD_*`
+  variables), edited in a new Bulk downloads section of Settings, Media
+  Library, and applied to the next download with no restart. One
+  part starts at once in the admin; several open `DownloadArchiveDialog`, a
+  button per part. The page-head menu gains **Library stats**:
+  `GET /api/media/stats` (no claim) totals files, bytes and folders with a
+  split by kind, the largest file and the last upload, and `MediaStatsDialog`
+  shows them as tiles and a share table. `ByteSize` now reaches GB and TB.
+  `docs/openapi.json` and both HTTP docs carry the three routes, and the TS
+  client's `RouteInventory` lists them as out of its scope. New tests:
+  `media-archives.test.ts` (reads every ZIP through its central directory
+  with an independent CRC, in `test/http/support/zip-entries.ts`, and checks
+  that a cancelled download releases the blob it was reading) and
+  `media-stats.test.ts`; the `[media]` tests cover the three keys
+  (`media-table`, `media-policy-settings`, `media-settings-api`,
+  `media-policy-draft`). The archive was also checked by hand with Python's
+  `zipfile`, `unzip -t` and Windows' `Expand-Archive`. The admin was not
+  checked in a browser.
+
 - **The media library uploads folders (2026-09-29, D105).** The admin had
   **Upload files** only, so a folder came in as a flat pile, and a folder
   dropped on the zone was handed over as a "file" that failed. There is now an

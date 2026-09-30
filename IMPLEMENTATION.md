@@ -133,6 +133,7 @@ change what it decides. A new decision gets a full row there and one line here.
 | D103 | Postgres: lifetime off, heartbeat deadline and keepalive, only the owner shapes the search index, race-safe reindex, Bun 1.4.2 |
 | D104 | Collection names may have 128 characters (`CollectionName`); the name is checked before the claim |
 | D105 | The admin uploads a folder from a picker or a drop and recreates its subfolders from the paths; names are checked up front by a shared `MediaFolderName`, a refused file is skipped |
+| D106 | Bulk media download: one file direct, more as streamed STORE ZIP parts of ≤ 2 GiB behind a ticket; `[media] download_max_files` / `download_max_size_mb` / `download_max_streams` (5000, 5 GB, 3); `GET /api/media/stats` |
 
 ## 3. Scope
 

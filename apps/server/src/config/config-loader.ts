@@ -97,6 +97,12 @@ export class ConfigLoader {
    *  — and it is a ceiling on a path that can hold the write mutex (§13.9). */
   static readonly DefaultPluginTimeoutMs = 5000;
 
+  /** A numeric variable, or `undefined` when it is not set. */
+  private static envNumber(name: string): number | undefined {
+    const raw = process.env[name];
+    return raw ? Number(raw) : undefined;
+  }
+
   /**
    * The ordered `[[plugins]]` array (D31/§13.8).
    *
@@ -372,6 +378,14 @@ export class ConfigLoader {
         process.env.SILO_MEDIA_EXTENSIONS.split(",")
       );
     }
+    Object.assign(
+      config.media,
+      MediaTable.downloads({
+        download_max_files: ConfigLoader.envNumber("SILO_MEDIA_DOWNLOAD_MAX_FILES"),
+        download_max_size_mb: ConfigLoader.envNumber("SILO_MEDIA_DOWNLOAD_MAX_SIZE_MB"),
+        download_max_streams: ConfigLoader.envNumber("SILO_MEDIA_DOWNLOAD_MAX_STREAMS"),
+      })
+    );
     if (process.env.SILO_BLOB_DRIVER) {
       config.blob_storage.driver = process.env.SILO_BLOB_DRIVER;
     }

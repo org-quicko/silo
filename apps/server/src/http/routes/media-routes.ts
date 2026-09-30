@@ -8,6 +8,7 @@ import { MimeUtils } from "../../core/media/mime-utils";
 import { MediaDisposition } from "../../core/media/media-disposition";
 import { ByteRange } from "../../core/media/byte-range";
 import { ResponseSandbox } from "../response-sandbox";
+import { MediaArchiveRoutes } from "./media-archive-routes";
 import { MediaDeleteBatch } from "./media-delete-batch";
 import { MediaInUseDetails } from "./media-in-use-details";
 
@@ -122,6 +123,8 @@ export class MediaRoutes {
     app.get("/api/media/extensions", async (c: Context) => {
       return c.json({ items: await service.media.listExtensions() });
     });
+
+    MediaArchiveRoutes.register(app, service);
 
     app.get("/api/media/:id", async (c: Context) => {
       return c.json(await service.media.get(c.req.param("id") || ""));

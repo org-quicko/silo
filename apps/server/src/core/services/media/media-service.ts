@@ -10,6 +10,11 @@ import type { MediaRekeyResult } from "../../media/media-rekey-result";
 import type { MediaUsage } from "../../media/media-usage";
 import type { ServiceContext } from "../support/service-context";
 import type { MediaAssetPatchInput } from "./media-asset-patch";
+import type { MediaArchivePart } from "../../media/media-archive-plan";
+import type { MediaStats } from "../../media/media-stats";
+import { type MediaArchiveDownload, MediaArchiveService } from "./media-archive-service";
+import type { MediaArchiveTicket } from "./media-archive-tickets";
+import { MediaStatsCounter } from "./media-stats-counter";
 import {
   MediaAssetService,
   type MediaAssetPage,
@@ -48,6 +53,8 @@ export class MediaService {
   private readonly linkResolver: MediaLinkResolver;
   private readonly usageScopes: MediaUsageScopes;
   private readonly purgeService: MediaPurgeService;
+  private readonly archives: MediaArchiveService;
+  private readonly statsCounter: MediaStatsCounter;
 
   /** The entry write path checks new references through this (§8.1). */
   readonly referenceGuard: MediaReferenceGuard;
@@ -66,6 +73,8 @@ export class MediaService {
     this.linkResolver = new MediaLinkResolver(context, catalog);
     this.usageScopes = new MediaUsageScopes(context, catalog);
     this.purgeService = new MediaPurgeService(context, catalog);
+    this.archives = new MediaArchiveService(context, catalog, this.delivery);
+    this.statsCounter = new MediaStatsCounter(catalog);
   }
 
   /**
@@ -93,6 +102,25 @@ export class MediaService {
    *  menu (D55). */
   listExtensions(): Promise<string[]> {
     return this.assets.listExtensions();
+  }
+
+  /** File, byte and folder totals for the whole library, with a split by kind. */
+  stats(): Promise<MediaStats> {
+    return this.statsCounter.count();
+  }
+
+  /** Plans a bulk download of `{ids, folders}` into ZIP parts behind one ticket (D106). */
+  prepareArchive(selection: unknown): Promise<MediaArchiveTicket> {
+    return this.archives.prepare(selection);
+  }
+
+  archivePart(ticketId: string, partNumber: number): MediaArchivePart {
+    return this.archives.part(ticketId, partNumber);
+  }
+
+  /** Streams one part of a prepared download, holding one of a few server-wide slots. */
+  openArchive(ticketId: string, partNumber: number): MediaArchiveDownload {
+    return this.archives.open(ticketId, partNumber);
   }
 
   usages(

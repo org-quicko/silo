@@ -211,22 +211,20 @@ export function MediaContents({
     <>
       <div className="card">
         <div className={`${table.header} ${table.table}`} style={{ ['--cols' as any]: listCols }}>
-          {canDelete && (
-            <span className={styles.checkboxCell}>
-              <Checkbox
-                checked={pageSelected}
-                indeterminate={pageIndeterminate}
-                onChange={(checked) =>
-                  library.selectAllOnPage(
-                    library.assets.map((asset) => asset.id),
-                    library.subfolders,
-                    checked,
-                  )
-                }
-                aria-label="Select all files and folders on this page"
-              />
-            </span>
-          )}
+          <span className={styles.checkboxCell}>
+            <Checkbox
+              checked={pageSelected}
+              indeterminate={pageIndeterminate}
+              onChange={(checked) =>
+                library.selectAllOnPage(
+                  library.assets.map((asset) => asset.id),
+                  library.subfolders,
+                  checked,
+                )
+              }
+              aria-label="Select all files and folders on this page"
+            />
+          </span>
           <span>Name</span>
           <span>Size</span>
           <span>Modified</span>
@@ -238,7 +236,6 @@ export function MediaContents({
             path={path}
             itemCount={library.folderCounts[path]}
             gridCols={listCols}
-            showCheckbox={canDelete}
             selected={library.selectedFolders.has(path)}
             onToggleSelect={() => library.toggleFolderSelected(path)}
             canEdit={canUpload}

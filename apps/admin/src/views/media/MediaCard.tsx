@@ -15,8 +15,6 @@ interface Props {
   /** Swapping the bytes behind the file is its own claim (D67), so it is its
    *  own gate rather than riding on `canEdit`. */
   canReplace: boolean
-  /** Also whether the card is selectable at all — the checkbox is a bulk
-   *  delete tool, so it needs the same claim the trash icon does. */
   canDelete: boolean
   selected: boolean
   onToggleSelect: () => void
@@ -89,11 +87,9 @@ export function MediaCard({
       </div>
 
       <div className={styles.thumb}>
-        {canDelete && (
-          <span className={styles.thumbCheckbox} onClick={(e) => e.stopPropagation()}>
-            <Checkbox checked={selected} onChange={onToggleSelect} aria-label={`Select ${asset.filename}`} />
-          </span>
-        )}
+        <span className={styles.thumbCheckbox} onClick={(e) => e.stopPropagation()}>
+          <Checkbox checked={selected} onChange={onToggleSelect} aria-label={`Select ${asset.filename}`} />
+        </span>
         {isImage ? (
           <img src={fileUrl} alt={asset.filename} loading="lazy" />
         ) : (

@@ -53,6 +53,9 @@ extensions = ["jpg", "jpeg", "png", "gif", "webp", "avif", "ico", "bmp",
               "mp4", "webm", "mov", "mp3", "wav", "ogg", "m4a", "pdf"]
 # Uploads are refused unless the filename ends in one of these. ["*"] accepts anything.
 # svg is not in the default: it can carry script. Add it where every uploader is trusted.
+# download_max_files   = 5000   # the most files one bulk download holds
+# download_max_size_mb = 5120   # and the most megabytes; it is sent as zip files of up to 2 GB
+# download_max_streams = 3      # zip files the server streams at once
 
 [auth]
 disabled = false        # dev only: if true, every request is treated as root
@@ -108,6 +111,7 @@ max_files   = 5               # kept as silo.log.1 ... silo.log.5
 | `SILO_LOG_REQUESTS`, `SILO_LOG_MAX_SIZE_MB`, `SILO_LOG_MAX_FILES` | `[log]` |
 | `SILO_MEDIA_BASE_URL`, `SILO_MEDIA_BASE_URL_TARGET` | `[media]` |
 | `SILO_MEDIA_EXTENSIONS` | `[media]`, comma-separated |
+| `SILO_MEDIA_DOWNLOAD_MAX_FILES`, `SILO_MEDIA_DOWNLOAD_MAX_SIZE_MB`, `SILO_MEDIA_DOWNLOAD_MAX_STREAMS` | `[media]` |
 | `SILO_VERSION` | the version silo reports. It is not configuration and it is not in the file. The release sets it in the container image, which runs from source and has no other way to know which release it is. A binary ignores it. If you set it, silo tells you a version that it is not |
 
 ## Keeping content in Postgres
@@ -308,7 +312,8 @@ file. Switching provider moves no files: uploads made before the switch stay
 where they were.
 
 The same page holds a second section for `[media]`, saved separately. It carries
-the **base URL** media links are rooted at, and the **permitted file types**.
+the **base URL** media links are rooted at, the **permitted file types**, and the
+**bulk download** limits.
 
 The base URL is silo's own public address. Set it and every media URL is that
 address with `/media/<id>` on the end. Whatever you give is kept, a path
@@ -371,6 +376,23 @@ silo sends every file with headers that stop a browser running it, and sends an
 SVG as a download rather than a page, so you can add `svg` back when you trust
 every uploader. A file's type is read from its extension, never from what the
 upload declared.
+
+The bulk download limits control what the media library's **Download** action
+can ask for when a selection holds more than one file:
+
+| Key | Default | Range | What it limits |
+|---|---|---|---|
+| `download_max_files` | `5000` | 1 to 50,000 | the files in one download |
+| `download_max_size_mb` | `5120` (5 GB) | 1 to 1,048,576 | the megabytes in one download |
+| `download_max_streams` | `3` | 1 to 32 | the zip files the server streams at the same time |
+
+A selection over a limit is refused, and the message names the key to raise.
+When every stream is busy, a new download is refused with `Retry-After: 30`.
+silo sends a download as zip files of up to 2 GB each, and a single file larger
+than 2 GB downloads on its own. That 2 GB size is fixed. A save applies to the
+next download, with no restart. A value out of range in the file is ignored,
+and the default applies. Leave a box empty on the page to use the default. To
+copy a whole library, use `silo export`.
 
 ## Where files go
 

@@ -42,6 +42,9 @@ Hono web framework on Bun. JSON everywhere. Admin UI served at `/`; API under `/
 | POST | `/api/media/purge` | empty the whole library (`{confirm: "purge", force?}`), always `200` with per-id outcomes plus a folder count (`media:delete` **and** `media:purge` — D49, D65; force as above) — see §8.1 |
 | GET | `/api/media/{id}/usages` | paginated referrers, claim-filtered (no claim to read; the rows are still filtered by what the caller may see — D58) |
 | GET | `/api/media/extensions` | every distinct file extension in the library, for the admin’s Type filter (no claim — D55, D58) — see §8.1 |
+| GET | `/api/media/stats` | file, byte and folder totals and a split by kind, in one catalog pass (no claim — D58, D106) — see §8.1 |
+| POST | `/api/media/archives` | plan a bulk download of `{ids, folders}` into ZIP parts of ≤ 2 GiB behind an hour-long ticket; a file over 2 GiB goes to `separate` with its own `/media/{id}?download=true`; ≤ `[media] download_max_files` files and `download_max_size_mb` (defaults 5000 and 5120 MB; `413 archive_too_large` naming the key); `503 busy` while `download_max_streams` parts stream (default 3) (any key, no claim — D106) — see §8.1 |
+| GET | `/api/media/archives/{ticket}/{part}` | stream one part as a STORE-only ZIP, read from the store as it is written; no key, the ticket is the credential (D106) — see §8.1 |
 | GET / POST | `/api/media/folders` | list (no claim) / create an empty folder (`media:create`) |
 | PATCH | `/api/media/folders` | rename or move a folder (`{from, to, merge?}`), and every asset and descendant folder within — refuses on collision unless `merge: true` (`media:create`, D49) |
 | DELETE | `/api/media/folders` | delete a folder — empty only by default, or `?recursive=true` for everything inside it, `?force=true` as above (`media:delete`, D23/D49) |
@@ -623,6 +626,55 @@ folder delete answers with, for the same reason: a partial purge needs
 somewhere to report what refused, and every explicit folder record is removed
 only once nothing failed.
 
+**Bulk download (D106)** follows the cloud-drive shape: one file downloads as
+itself (the admin sends it to `/media/{id}?download=true` and never asks the
+server to zip it), anything more becomes a ZIP built on the server. It is two
+requests, because a browser download is a navigation and a navigation carries
+no `Authorization` header. `POST /api/media/archives` takes `{ids, folders}`
+under any valid key, resolves it once against the catalog
+(`MediaArchivePlanner`), and holds the plan in process memory behind a
+192-bit random ticket for an hour (`MediaArchiveTickets`, at most 32 at once,
+oldest evicted first). `GET /api/media/archives/{ticket}/{part}` reads no key:
+the ticket is the credential, as a signed URL's signature is. The plan is fixed
+at prepare time, so an upload in between does not move a file from one part
+to another; a file deleted in between is skipped rather than failing the
+part, and named in a `missing-files.txt` appended last. Paths follow the
+selection: a selected folder is a top-level directory under its own name,
+carrying its tree and an explicit entry for each empty subfolder; a selected
+file sits at the root; collisions, compared case-blind because Windows and
+macOS extract `A.png` and `a.png` onto one file, become `name (1).ext`.
+
+What keeps it from costing the server: **no buffering** — `ZipWriter` is a
+pull-driven `ReadableStream` that opens each blob only when the archive
+reaches it (through `MediaDelivery.open`, the same D80 path `/media/{id}`
+uses) and holds one chunk plus the central directory; **no compression** —
+STORE with a data descriptor per file, CRC-32 from `Bun.hash.crc32` as the
+bytes pass, since media is mostly already-compressed images and video and
+deflate would buy CPU for nothing; **bounded requests** — parts close before
+2 GiB (Drive's split), a single file over 2 GiB is left out of every part and
+listed in `separate` for a direct download that also supports `Range`, and
+one download holds at most `[media] download_max_files` files and
+`download_max_size_mb` megabytes (defaults 5000 and 5120), counted before
+the split, past which the answer is `413 archive_too_large` and the message
+names the key to raise; **bounded concurrency** — `download_max_streams`
+parts (default 3) stream at once server-wide, and one more, or a prepare
+while every slot is busy, is `503 busy` with `Retry-After: 30`. The prepare refuses up front so the admin
+can say why, rather than a browser showing a failed download. A `HEAD` on a
+part answers headers without opening the stream, and a slot a stream never
+returned (a response nobody read) is reclaimed after six hours. Those bounds
+also keep every part inside plain ZIP: under 4 GiB and 65,535 entries, so no
+ZIP64. The three ceilings are `[media]` keys, edited on the media library's
+settings page and read from `ServiceContext.mediaConfig` on every prepare and
+every part, so a save applies to the next request with no restart. What stays
+fixed in `MediaArchiveLimits` is what keeps the format plain: the 2 GiB part,
+and the 50,000-file ceiling's upper bound, well short of 65,535 entries.
+
+**`GET /api/media/stats`** (D106) totals the catalog in one pass: files,
+bytes and folders (explicit and implied, ancestors included), a split by
+kind read off the content type, the largest file and the last upload. No
+blob is read, and a file staged for deletion is counted only in `deleting`.
+No claim, for the reason `GET /api/media` has none (D58).
+
 **A media field resolves to `null` when its reference does not resolve
 (D48).** Before D48 a reference was rewritten from the id alone, so a
 force-deleted asset left an entry answering with a link that 404s — the delete
@@ -740,9 +792,12 @@ one route would make correcting the first depend on the second still working.
 {
   "file":     { "base_url": "https://cms.example.com" },
   "in_force": { "base_url": "https://cms.example.com",
-                "extensions": ["jpg", "png", "pdf"] },
+                "extensions": ["jpg", "png", "pdf"],
+                "download_max_files": 5000, "download_max_size_mb": 5120,
+                "download_max_streams": 3 },
   "overrides": [],
   "default_extensions": ["jpg", "jpeg", "png", "…"],
+  "download_defaults": { "download_max_files": { "value": 5000, "min": 1, "max": 50000 }, "…": {} },
   "config_path": "/srv/silo/silo.toml",
   "writable": true
 }
@@ -752,6 +807,14 @@ one route would make correcting the first depend on the second still working.
 `base_url` has not also decided the extension list, and reporting silo's
 defaults as though the file had asked for them would be the same lie §8.2
 avoids for the fs media path.
+
+**The bulk download ceilings** (D106) are three more keys here:
+`download_max_files`, `download_max_size_mb` and `download_max_streams`, each a
+whole number within the range `download_defaults` reports. In a `PUT` an
+omitted one keeps the file's value, `null` removes it from the file so the
+default applies, and one out of range is a `400`. Like the rest of the table
+they apply to the next request, since the archive service reads them from the
+running configuration each time.
 
 **`base_url` decides the host of a media URL and never its path** (D58). What the
 path looks like follows the provider in §8.2, because that is what decides who

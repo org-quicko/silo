@@ -56,6 +56,16 @@ describe("MediaPolicySettings", () => {
       expect(() => MediaPolicySettings.parse({ extensions: [] })).toThrow(/cannot be empty/);
       expect(() => MediaPolicySettings.parse({ extensions: ["", " "] })).toThrow(/\["\*"\]/);
     });
+
+    test("a download ceiling is a whole number in its range, and null clears it", () => {
+      expect(() => MediaPolicySettings.parse({ download_max_files: 0 })).toThrow(/from 1 to 50000/);
+      expect(() => MediaPolicySettings.parse({ download_max_streams: 1.5 })).toThrow(/whole number/);
+      expect(() => MediaPolicySettings.parse({ download_max_size_mb: "5120" })).toThrow(ValidationError);
+      expect(MediaPolicySettings.parse({ download_max_size_mb: 2048, download_max_streams: null })).toEqual({
+        download_max_size_mb: 2048,
+        download_max_streams: null,
+      });
+    });
   });
 
   describe("merge", () => {
@@ -75,6 +85,14 @@ describe("MediaPolicySettings", () => {
         base_url: "",
       });
       expect(merged.base_url).toBeUndefined();
+    });
+
+    test("a download ceiling the body omits keeps the file's, and null puts the default back", () => {
+      const merged = MediaPolicySettings.merge(
+        { extensions: ["jpg"], download_max_files: 100, download_max_streams: 5 },
+        { download_max_size_mb: 1024, download_max_streams: null }
+      );
+      expect(merged).toEqual({ extensions: ["jpg"], download_max_files: 100, download_max_size_mb: 1024 });
     });
   });
 

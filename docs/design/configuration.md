@@ -105,7 +105,11 @@ reads back identical.
   edit made through the API. Nothing above the header or below the next one is
   touched.
 - **`[media]`** — replaced by `PUT /api/media/settings` (`MediaTable`, D46):
-  `base_url` and `extensions`. It carried a `base_url_target` until D58 removed
+  `base_url`, `extensions`, and since D106 the three bulk download ceilings
+  `download_max_files`, `download_max_size_mb` and `download_max_streams`
+  (defaults 5000, 5120 and 3 in `MediaDefaults.Downloads`, each with a range;
+  a value out of range in the file reads as unset, one out of range in a `PUT`
+  is a 400, and `null` in a `PUT` clears one back to its default). It carried a `base_url_target` until D58 removed
   it: what a media URL's path looks like follows the provider in
   `[blob_storage]`, so a key here saying it again was a second answer that could
   disagree with the first. Its own table rather than more
