@@ -2641,6 +2641,188 @@
                 }
             }
         },
+        "/api/media/stats": {
+            "get": {
+                "tags": [
+                    "Media"
+                ],
+                "summary": "Counts and sizes across the whole library",
+                "description": "No claim, like the listing it totals (D58, D106). Read from the\ncatalog in one pass; no blob is opened. A file staged for deletion\nis counted only in `deleting`.\n",
+                "operationId": "getMediaStats",
+                "security": [],
+                "responses": {
+                    "200": {
+                        "description": "The totals.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/MediaStats"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/media/archives": {
+            "post": {
+                "tags": [
+                    "Media"
+                ],
+                "summary": "Prepare a bulk download as ZIP parts",
+                "description": "Any valid key; no claim (D106). The bytes are public (D58), but an\narchive costs the server a stream, so an anonymous caller cannot\nstart one.\n\nResolves the selection once and holds the plan behind a ticket for\nan hour. A selected folder is included whole, under its own name,\nwith its empty subfolders as directory entries; a selected file lands\nat the archive root. A name that would collide, compared case-blind,\nbecomes `name (1).ext`. Files are split greedily into parts of at\nmost 2 GiB; a single file over 2 GiB is not zipped and is listed in\n`separate` with its own `/media/{id}?download=true` URL.\n\nAt most `[media] download_max_files` files and `download_max_size_mb`\nmegabytes in one download (defaults 5000 and 5120), counted before the\nsplit; past either the answer is `413 archive_too_large`, naming the key.\nAt most `download_max_streams` parts stream at once server-wide (default\n3); while every slot is busy this route answers `503 busy` with\n`Retry-After: 30`. The three are read on every request, so a save on\n`PUT /api/media/settings` applies to the next one.\n",
+                "operationId": "prepareMediaArchive",
+                "requestBody": {
+                    "required": true,
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "type": "object",
+                                "properties": {
+                                    "ids": {
+                                        "type": "array",
+                                        "items": {
+                                            "type": "string"
+                                        },
+                                        "description": "Asset ids. Deduplicated; an asset also inside a selected folder is included once."
+                                    },
+                                    "folders": {
+                                        "type": "array",
+                                        "items": {
+                                            "type": "string"
+                                        },
+                                        "description": "Folder paths, each included with everything beneath it. Not the library root."
+                                    }
+                                },
+                                "description": "At least one id or folder, and at most 1,000 together."
+                            }
+                        }
+                    }
+                },
+                "responses": {
+                    "201": {
+                        "description": "The plan, with one URL per part.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/MediaArchive"
+                                }
+                            }
+                        }
+                    },
+                    "400": {
+                        "$ref": "#/components/responses/ValidationFailed"
+                    },
+                    "401": {
+                        "$ref": "#/components/responses/Unauthorized"
+                    },
+                    "404": {
+                        "$ref": "#/components/responses/NotFound"
+                    },
+                    "413": {
+                        "description": "`archive_too_large`: over `download_max_files` or `download_max_size_mb`. The message says how much was asked for and which key to raise.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/Error"
+                                }
+                            }
+                        }
+                    },
+                    "503": {
+                        "description": "`busy`: `download_max_streams` parts are already streaming. `Retry-After: 30`.",
+                        "headers": {
+                            "Retry-After": {
+                                "schema": {
+                                    "type": "string"
+                                },
+                                "description": "Seconds."
+                            }
+                        },
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/Error"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/media/archives/{ticket}/{part}": {
+            "parameters": [
+                {
+                    "name": "ticket",
+                    "in": "path",
+                    "required": true,
+                    "schema": {
+                        "type": "string"
+                    },
+                    "description": "The `id` a prepare answered with. It is the credential: this route reads no key."
+                },
+                {
+                    "name": "part",
+                    "in": "path",
+                    "required": true,
+                    "schema": {
+                        "type": "integer",
+                        "minimum": 1
+                    },
+                    "description": "One-based part number."
+                }
+            ],
+            "get": {
+                "tags": [
+                    "Media"
+                ],
+                "summary": "Stream one part of a prepared download",
+                "description": "No key (D106): a browser follows this URL as a plain navigation,\nwhich carries no header, so the unguessable ticket stands in for one,\nthe way a signed URL does. Tickets live in the server's memory for an\nhour and do not survive a restart.\n\nThe body is a STORE-only ZIP written as it is sent: each file is read\nfrom the store only when the archive reaches it, never held whole, and\nnot compressed. No `Content-Length`. A file whose bytes cannot be read\nis left out and named in a `missing-files.txt` at the end. Sent as an\n`attachment` with `Cache-Control: no-store`, `nosniff` and\n`Content-Security-Policy: sandbox`.\n\nA `HEAD` answers the headers without opening the archive and holds no\nstream slot.\n",
+                "operationId": "downloadMediaArchivePart",
+                "security": [],
+                "responses": {
+                    "200": {
+                        "description": "The ZIP.",
+                        "content": {
+                            "application/zip": {
+                                "schema": {
+                                    "type": "string",
+                                    "format": "binary"
+                                }
+                            }
+                        }
+                    },
+                    "404": {
+                        "description": "The ticket expired, never existed, or has no such part.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/Error"
+                                }
+                            }
+                        }
+                    },
+                    "503": {
+                        "description": "`busy`: `download_max_streams` parts are already streaming. `Retry-After: 30`.",
+                        "headers": {
+                            "Retry-After": {
+                                "schema": {
+                                    "type": "string"
+                                },
+                                "description": "Seconds."
+                            }
+                        },
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/Error"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
         "/api/media/folders": {
             "get": {
                 "tags": [
@@ -2959,7 +3141,7 @@
                     "Media configuration"
                 ],
                 "summary": "Rewrite the media policy",
-                "description": "A whole table, not a patch: nothing here is write-only, so an omitted\nfield means cleared rather than kept.\n",
+                "description": "A whole table, not a patch: nothing here is write-only, so an omitted\nfield means cleared rather than kept. A download ceiling is the\nexception: omitted keeps the file's value, and `null` removes it so the\ndefault applies. One out of range is a `400`.\n",
                 "operationId": "putMediaSettings",
                 "requestBody": {
                     "required": true,
@@ -2978,6 +3160,33 @@
                                             "type": "string"
                                         },
                                         "description": "Allowlist, no dots. `[\"*\"]` accepts anything."
+                                    },
+                                    "download_max_files": {
+                                        "type": [
+                                            "integer",
+                                            "null"
+                                        ],
+                                        "minimum": 1,
+                                        "maximum": 50000,
+                                        "description": "The most files one bulk download holds (D106). Default 5000."
+                                    },
+                                    "download_max_size_mb": {
+                                        "type": [
+                                            "integer",
+                                            "null"
+                                        ],
+                                        "minimum": 1,
+                                        "maximum": 1048576,
+                                        "description": "The most megabytes one bulk download holds, before the 2 GiB split. Default 5120."
+                                    },
+                                    "download_max_streams": {
+                                        "type": [
+                                            "integer",
+                                            "null"
+                                        ],
+                                        "minimum": 1,
+                                        "maximum": 32,
+                                        "description": "Archive parts streamed at once, server-wide. Default 3."
                                     }
                                 }
                             }
@@ -5798,6 +6007,7 @@
                     "in_force",
                     "overrides",
                     "default_extensions",
+                    "download_defaults",
                     "writable"
                 ],
                 "properties": {
@@ -5823,6 +6033,29 @@
                             "type": "string"
                         },
                         "description": "What a new instance starts with, so the page can offer it back."
+                    },
+                    "download_defaults": {
+                        "type": "object",
+                        "description": "Each bulk download ceiling's default and the range it accepts (D106).",
+                        "additionalProperties": {
+                            "type": "object",
+                            "required": [
+                                "value",
+                                "min",
+                                "max"
+                            ],
+                            "properties": {
+                                "value": {
+                                    "type": "integer"
+                                },
+                                "min": {
+                                    "type": "integer"
+                                },
+                                "max": {
+                                    "type": "integer"
+                                }
+                            }
+                        }
                     },
                     "config_path": {
                         "type": "string"
@@ -7088,6 +7321,187 @@
                             },
                             "data": {
                                 "description": "For `-32602`: the validator's `{path, message}` list."
+                            }
+                        }
+                    }
+                }
+            },
+            "MediaStats": {
+                "type": "object",
+                "required": [
+                    "files",
+                    "bytes",
+                    "folders",
+                    "types",
+                    "largest",
+                    "last_upload",
+                    "deleting"
+                ],
+                "properties": {
+                    "files": {
+                        "type": "integer"
+                    },
+                    "bytes": {
+                        "type": "integer"
+                    },
+                    "folders": {
+                        "type": "integer",
+                        "description": "Explicit and implied folders, ancestors included."
+                    },
+                    "types": {
+                        "type": "array",
+                        "description": "Largest share first. A kind the library holds none of is left out.",
+                        "items": {
+                            "type": "object",
+                            "required": [
+                                "type",
+                                "files",
+                                "bytes"
+                            ],
+                            "properties": {
+                                "type": {
+                                    "type": "string",
+                                    "enum": [
+                                        "image",
+                                        "video",
+                                        "audio",
+                                        "document",
+                                        "other"
+                                    ],
+                                    "description": "Read off the content type. `document` is text, PDF, JSON, XML, RTF and office formats."
+                                },
+                                "files": {
+                                    "type": "integer"
+                                },
+                                "bytes": {
+                                    "type": "integer"
+                                }
+                            }
+                        }
+                    },
+                    "largest": {
+                        "type": [
+                            "object",
+                            "null"
+                        ],
+                        "required": [
+                            "id",
+                            "filename",
+                            "folder",
+                            "size"
+                        ],
+                        "properties": {
+                            "id": {
+                                "type": "string"
+                            },
+                            "filename": {
+                                "type": "string"
+                            },
+                            "folder": {
+                                "type": "string"
+                            },
+                            "size": {
+                                "type": "integer"
+                            }
+                        }
+                    },
+                    "last_upload": {
+                        "type": [
+                            "string",
+                            "null"
+                        ],
+                        "format": "date-time"
+                    },
+                    "deleting": {
+                        "type": "integer",
+                        "description": "Files staged for deletion, left out of every other figure."
+                    }
+                }
+            },
+            "MediaArchive": {
+                "type": "object",
+                "required": [
+                    "id",
+                    "expires_at",
+                    "files",
+                    "bytes",
+                    "parts",
+                    "separate"
+                ],
+                "properties": {
+                    "id": {
+                        "type": "string",
+                        "description": "The ticket. Treat it as a secret: it opens the parts without a key."
+                    },
+                    "expires_at": {
+                        "type": "string",
+                        "format": "date-time"
+                    },
+                    "files": {
+                        "type": "integer",
+                        "description": "Every file, in parts and in `separate`."
+                    },
+                    "bytes": {
+                        "type": "integer"
+                    },
+                    "parts": {
+                        "type": "array",
+                        "description": "Empty when every selected file is in `separate`.",
+                        "items": {
+                            "type": "object",
+                            "required": [
+                                "part",
+                                "filename",
+                                "files",
+                                "bytes",
+                                "url"
+                            ],
+                            "properties": {
+                                "part": {
+                                    "type": "integer"
+                                },
+                                "filename": {
+                                    "type": "string",
+                                    "description": "`<folder>.zip` for one folder alone, else `media-<UTC stamp>.zip`; `-<n>-of-<total>` before `.zip` when there are several."
+                                },
+                                "files": {
+                                    "type": "integer"
+                                },
+                                "bytes": {
+                                    "type": "integer"
+                                },
+                                "url": {
+                                    "type": "string",
+                                    "description": "Relative to the server."
+                                }
+                            }
+                        }
+                    },
+                    "separate": {
+                        "type": "array",
+                        "description": "Files over 2 GiB, downloaded on their own.",
+                        "items": {
+                            "type": "object",
+                            "required": [
+                                "id",
+                                "filename",
+                                "size",
+                                "url"
+                            ],
+                            "properties": {
+                                "id": {
+                                    "type": "string"
+                                },
+                                "filename": {
+                                    "type": "string"
+                                },
+                                "size": {
+                                    "type": "integer"
+                                },
+                                "url": {
+                                    "type": "string",
+                                    "description": "`/media/{id}?download=true`, relative to the server."
+                                }
                             }
                         }
                     }

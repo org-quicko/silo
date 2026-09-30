@@ -2,6 +2,7 @@ import fs from "fs/promises";
 import path from "path";
 import type { Config } from "./config";
 import { ConfigLoader } from "./config-loader";
+import { MediaDefaults } from "./media-defaults";
 
 /**
  * Writing a `silo.toml` that is not there yet — the annotated default file
@@ -117,6 +118,9 @@ driver = ${s(config.blob_storage.driver)}           # "fs" (local directory) | "
 extensions = [${config.media.extensions.map((e) => s(e)).join(", ")}]
 # Uploads are refused unless the filename ends in one of these. ["*"] accepts anything.
 # svg is not in the default: it can carry script. Add it where every uploader is trusted.
+# download_max_files   = ${MediaDefaults.Downloads.download_max_files.value}  # the most files one bulk download holds
+# download_max_size_mb = ${MediaDefaults.Downloads.download_max_size_mb.value}  # and the most megabytes; it is sent as zip files of up to 2 GB
+# download_max_streams = ${MediaDefaults.Downloads.download_max_streams.value}     # zip files the server streams at once
 
 [auth]
 disabled = ${config.auth.disabled}   # dev only: true treats every request as root, ignoring API keys

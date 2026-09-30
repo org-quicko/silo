@@ -10,6 +10,7 @@ import { ValidationError } from "@silo/shared/validation-error";
 import { ArchiveTooLargeError } from "../core/errors/archive-too-large-error";
 import { NotFoundError } from "../core/errors/not-found-error";
 import { ConflictError } from "../core/errors/conflict-error";
+import { MediaArchiveBusyError } from "../core/errors/media-archive-busy-error";
 import { MediaDeleteStalledError } from "../core/errors/media-delete-stalled-error";
 import { PluginStartError } from "../core/errors/plugin-start-error";
 import { UnauthorizedError } from "../core/errors/unauthorized-error";
@@ -285,6 +286,13 @@ export class SiloServer {
           { error: { code: "busy", message: err.message } },
           503,
           { "Retry-After": "1" }
+        );
+      }
+      if (err instanceof MediaArchiveBusyError) {
+        return c.json(
+          { error: { code: "busy", message: err.message } },
+          503,
+          { "Retry-After": String(MediaArchiveBusyError.RetryAfterSeconds) }
         );
       }
       // A `Range` wholly outside the object (D80). `Content-Range` names the

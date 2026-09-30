@@ -133,6 +133,30 @@ describe("media settings API (D46)", () => {
     expect((await MediaTable.read(configPath))?.extensions).toEqual(["png", "pdf"]);
   });
 
+  test("a saved download ceiling applies to the next download, with no restart", async () => {
+    app = await build({ withFile: true });
+    const ids = [
+      (await service.media.save("a.png", new Uint8Array([1]))).id,
+      (await service.media.save("b.png", new Uint8Array([2]))).id,
+    ];
+    const prepare = () =>
+      app.request("/api/media/archives", { method: "POST", headers: json(rootKey), body: JSON.stringify({ ids }) });
+    expect((await prepare()).status).toBe(201);
+
+    const saved = await app.request("/api/media/settings", {
+      method: "PUT",
+      headers: json(rootKey),
+      body: JSON.stringify({ extensions: ["png"], download_max_files: 1 }),
+    });
+    expect(saved.status).toBe(200);
+    expect(((await saved.json()) as any).in_force.download_max_files).toBe(1);
+
+    const refused = await prepare();
+    expect(refused.status).toBe(413);
+    expect(((await refused.json()) as any).error.message).toContain("download_max_files");
+    expect((await MediaTable.read(configPath))?.download_max_files).toBe(1);
+  });
+
   test("a saved base URL is what the media API then hands out, by catalog id on the fs driver", async () => {
     app = await build({ withFile: true });
     const created = await upload(rootKey, "hero.png");

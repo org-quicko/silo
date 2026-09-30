@@ -72,6 +72,7 @@ export class MediaPolicySupervisor {
       in_force: inForce,
       overrides: MediaPolicySettings.overrides(file, inForce),
       default_extensions: [...MediaDefaults.Extensions],
+      download_defaults: MediaDefaults.Downloads,
       ...(this.configPath ? { config_path: this.configPath } : {}),
       ...(await ConfigFileAccess.report(this.configPath, !!this.reload)),
     };
@@ -122,6 +123,9 @@ export class MediaPolicySupervisor {
     this.logger.info("media settings changed", {
       base_url: config.media.base_url || "(the store, or the request origin)",
       extensions: config.media.extensions.length,
+      download_max_files: config.media.download_max_files,
+      download_max_size_mb: config.media.download_max_size_mb,
+      download_max_streams: config.media.download_max_streams,
       ...(created ? { created: configPath } : {}),
     });
 

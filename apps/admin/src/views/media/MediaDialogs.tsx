@@ -1,23 +1,31 @@
 import type { MediaAsset } from '../../api/types/media-asset'
 import { AssetInUseDialog } from './AssetInUseDialog'
 import { DeleteAssetDialog } from './DeleteAssetDialog'
+import { DownloadArchiveDialog } from './DownloadArchiveDialog'
 import { MediaContentAvailability } from './media-content-availability'
 import { MergeFolderDialog } from './MergeFolderDialog'
 import { MoveMediaDialog } from './MoveMediaDialog'
 import { MoveToFolderDialog } from './MoveToFolderDialog'
 import { MediaPreviewDialog } from './MediaPreviewDialog'
+import { MediaStatsDialog } from './MediaStatsDialog'
 import { NewFolderDialog } from './NewFolderDialog'
 import { PurgeLibraryDialog } from './PurgeLibraryDialog'
 import { RenameAssetDialog } from './RenameAssetDialog'
 import { RenameFolderDialog } from './RenameFolderDialog'
 import { ReplaceAssetDialog } from './ReplaceAssetDialog'
 import type { useMediaDeleteFlow } from './use-media-delete-flow'
+import type { useMediaDownloadFlow } from './use-media-download-flow'
 import type { useMediaMoveFlow } from './use-media-move-flow'
 import type { useMediaPurge } from './use-media-purge'
 import type { useMediaRenameFolderFlow } from './use-media-rename-folder-flow'
 import type { useMediaReplaceFlow } from './use-media-replace-flow'
 
 interface Props {
+  url: string
+  apiKey: string
+  statsOpen: boolean
+  onCloseStats: () => void
+  downloadFlow: ReturnType<typeof useMediaDownloadFlow>
   claims: string[]
   baseUrl: string
   assets: MediaAsset[]
@@ -58,6 +66,11 @@ interface Props {
  * what the page can ask.
  */
 export function MediaDialogs({
+  url,
+  apiKey,
+  statsOpen,
+  onCloseStats,
+  downloadFlow,
   claims,
   baseUrl,
   assets,
@@ -84,6 +97,16 @@ export function MediaDialogs({
 }: Props) {
   return (
     <>
+      {statsOpen && <MediaStatsDialog url={url} apiKey={apiKey} onClose={onCloseStats} />}
+
+      {downloadFlow.archive && (
+        <DownloadArchiveDialog
+          archive={downloadFlow.archive}
+          onDownload={downloadFlow.open}
+          onClose={downloadFlow.close}
+        />
+      )}
+
       {previewAsset && (
         <MediaPreviewDialog
           asset={previewAsset}

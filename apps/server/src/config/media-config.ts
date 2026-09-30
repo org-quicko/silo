@@ -19,4 +19,12 @@ export interface MediaConfig {
    * `["*"]` accepts anything, which is the only way to turn the check off.
    */
   extensions: string[];
+
+  /** Bulk download ceilings (D106). Unset means `MediaDefaults.Downloads`. */
+  download_max_files?: number;
+  download_max_size_mb?: number;
+  /** ZIP parts streamed at once, server-wide. */
+  download_max_streams?: number;
 }
+
+export type MediaDownloadField = "download_max_files" | "download_max_size_mb" | "download_max_streams";

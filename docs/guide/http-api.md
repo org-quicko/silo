@@ -51,6 +51,9 @@ Present a key as `Authorization: Bearer <key>` or `X-Api-Key: <key>`.
 | `GET` | `/api/observability` | aggregate API traffic, errors, latency, process resources, local storage, and the database pool and TLS mode when the driver is `postgres` (`observability:read`) |
 | `GET` / `POST` | `/api/media` | list / upload media |
 | `GET` | `/api/media/extensions` | the file extensions the library actually holds, for the Type filter |
+| `GET` | `/api/media/stats` | file, byte and folder totals for the whole library, split by type (image, video, audio, document, other). Needs no key |
+| `POST` | `/api/media/archives` | prepare a bulk download of `{ids, folders}` as ZIP files. Needs a key. Answers `201` with one URL per part. A part holds at most 2 GB. A file larger than 2 GB is not zipped: it has its own download URL. One download holds at most `[media] download_max_files` files (default 5000) and `download_max_size_mb` megabytes (default 5120). Past either, the answer is `413`. The URLs expire after one hour |
+| `GET` | `/api/media/archives/{ticket}/{part}` | stream one ZIP part. Needs no key, because the ticket in the path is the credential. Files are not compressed. A file that cannot be read is left out and named in `missing-files.txt`. The server streams at most `[media] download_max_streams` parts at a time (default 3). Past that, it answers `503` with `Retry-After: 30` |
 | `GET` | `/api/media/{id}` | one asset's catalog record |
 | `GET` | `/api/media/{id}/usages` | the entries that reference this asset. Answers `total`, `visible` and `visible_capped`, because a key may not read every referrer |
 | `PATCH` | `/api/media/{id}` | rename, move, or retag one asset (`{filename, folder, tags}`, `media:create`) |
@@ -63,7 +66,7 @@ Present a key as `Authorization: Bearer <key>` or `X-Api-Key: <key>`.
 | `PATCH` | `/api/media/folders` | rename or move a folder (`{from, to}`), and every asset and descendant folder within |
 | `DELETE` | `/api/media/folders` | delete a folder. Empty only by default, or everything inside it with `?recursive=true` (`?force=true` as above) |
 | `GET` / `PUT` | `/api/media/storage` | read / change where the library keeps its bytes (`media:configure`) |
-| `GET` / `PUT` | `/api/media/settings` | read / change where media URLs point, and what may be uploaded (`media:configure`) |
+| `GET` / `PUT` | `/api/media/settings` | read / change where media URLs point, what may be uploaded, and the bulk download limits (`media:configure`) |
 | `GET` | `/api/settings` | the rest of `silo.toml`, with what is in force and what a restart is owed for (`settings:configure`) |
 | `PUT` | `/api/settings/{table}` | rewrite one of `log`, `search`, `schema`, `auth` (`settings:configure`) |
 | `GET` | `/api/projects/{project}/envs/{env}/collections/{name}/search` | search one collection |

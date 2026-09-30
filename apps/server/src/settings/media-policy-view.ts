@@ -1,4 +1,4 @@
-import type { MediaConfig } from "../config/media-config";
+import type { MediaConfig, MediaDownloadField } from "../config/media-config";
 import type { SettingsOverride } from "./settings-override";
 
 /**
@@ -18,6 +18,8 @@ export interface MediaPolicyView {
   /** What a new instance would start with, so the page can offer it back after
    *  someone has emptied the list. */
   default_extensions: string[];
+  /** Each bulk download ceiling's default and accepted range (D106). */
+  download_defaults: Record<MediaDownloadField, { value: number; min: number; max: number }>;
   config_path?: string;
   writable: boolean;
   /** Why a save cannot land, when one cannot. See `MediaStorageView`. */
