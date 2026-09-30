@@ -25,7 +25,7 @@ import type { MediaAsset } from '../../api/types/media-asset'
 export class MediaFileUrl {
   /** The server's own answer for this asset, made absolute if it is not. */
   static of(asset: MediaAsset, serverUrl: string): string {
-    return MediaFileUrl.join(asset.url, serverUrl)
+    return MediaFileUrl.guard(MediaFileUrl.join(asset.url, serverUrl))
   }
 
   /**
@@ -38,7 +38,7 @@ export class MediaFileUrl {
    * one with anyway.
    */
   static forId(id: string, serverUrl: string): string {
-    return `${MediaFileUrl.root(serverUrl)}/media/${id}`
+    return MediaFileUrl.guard(`${MediaFileUrl.root(serverUrl)}/media/${id}`)
   }
 
   /**
@@ -50,7 +50,8 @@ export class MediaFileUrl {
    * nothing.
    */
   static downloadUrl(asset: Pick<MediaAsset, 'id'>, serverUrl: string): string {
-    return `${MediaFileUrl.forId(asset.id, serverUrl)}?download=true`
+    const id = MediaFileUrl.forId(asset.id, serverUrl)
+    return id ? `${id}?download=true` : ''
   }
 
   /** A value that may already be absolute, rooted at the server if it is not. */
@@ -66,5 +67,21 @@ export class MediaFileUrl {
 
   private static isAbsolute(url: string): boolean {
     return url.startsWith('http://') || url.startsWith('https://')
+  }
+
+  /**
+   * The choke point every URL this class hands out passes through before it
+   * can reach an `<a href>`, `<img src>` or `fetch` (D102). `asset.url` comes
+   * back from the API, so it is remote input as far as anything rendering it
+   * is concerned; `join` already roots a relative value at `serverUrl`, but a
+   * value that already looks absolute is returned untouched, and "absolute"
+   * only ever checked for an `http(s)://` prefix, not for the schemes that make
+   * a browser run a link instead of fetching one (`javascript:`, `data:`, …).
+   * This is the second, explicit check CodeQL's dead-code-unaware dataflow
+   * needs to see rather than infer from `isAbsolute`.
+   */
+  private static guard(url: string): string {
+    if (!url) return ''
+    return /^https?:\/\//i.test(url) ? url : ''
   }
 }

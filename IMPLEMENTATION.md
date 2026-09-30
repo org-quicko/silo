@@ -133,6 +133,7 @@ change what it decides. A new decision gets a full row there and one line here.
 | D103 | Postgres: lifetime off, heartbeat deadline and keepalive, only the owner shapes the search index, race-safe reindex, Bun 1.4.2 |
 | D104 | Collection names may have 128 characters (`CollectionName`); the name is checked before the claim |
 | D105 | The admin uploads a folder from a picker or a drop and recreates its subfolders from the paths; names are checked up front by a shared `MediaFolderName`, a refused file is skipped |
+| D106 | `MediaFileUrl` now refuses to hand out anything but an `http(s)` URL, closing the gap CodeQL found in the media preview's download link |
 
 ## 3. Scope
 

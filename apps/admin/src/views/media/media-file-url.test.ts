@@ -38,6 +38,23 @@ describe('MediaFileUrl', () => {
         'http://localhost:8090/media/01ABC',
       )
     })
+
+    /** With no server configured, `join` has nothing to root a relative value
+     *  at and hands back the bare value unchanged — scheme-less, and not
+     *  something safe to hand an `<a href>`. */
+    test('refuses a relative URL with no server configured', () => {
+      expect(MediaFileUrl.of(asset('/media/01ABC'), '')).toBe('')
+    })
+
+    /** `asset.url` is remote input. `isAbsolute` only ever recognizes an
+     *  `http(s)://` prefix, so nothing that reaches this far can carry a
+     *  scheme like `javascript:` — the guard is the explicit, checkable proof
+     *  of that invariant rather than a claim resting on `isAbsolute` alone. */
+    test('an http(s) URL is the only kind that ever comes out the other end', () => {
+      expect(MediaFileUrl.of(asset('https://api.example.com/media/01ABC'), server)).toMatch(
+        /^https?:\/\//,
+      )
+    })
   })
 
   describe('forId', () => {
@@ -51,6 +68,12 @@ describe('MediaFileUrl', () => {
       expect(MediaFileUrl.forId('01ABC', 'http://localhost:8090/')).toBe(
         'http://localhost:8090/media/01ABC',
       )
+    })
+
+    /** An unconfigured `serverUrl` roots at `/media/<id>`, a scheme-less
+     *  value the guard must reject rather than hand to an `<a href>`. */
+    test('refuses to address an id with no server configured', () => {
+      expect(MediaFileUrl.forId('01ABC', '')).toBe('')
     })
   })
 
@@ -76,6 +99,10 @@ describe('MediaFileUrl', () => {
       expect(MediaFileUrl.downloadUrl({ id: '01ABC' } as MediaAsset, 'http://localhost:8090/')).toBe(
         'http://localhost:8090/media/01ABC?download=true',
       )
+    })
+
+    test('is empty rather than a bare "?download=true" with no server configured', () => {
+      expect(MediaFileUrl.downloadUrl({ id: '01ABC' } as MediaAsset, '')).toBe('')
     })
   })
 

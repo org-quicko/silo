@@ -4,6 +4,19 @@
 > The *current* state is [CONTEXT.md](../../CONTEXT.md); this is how it got
 > there.
 
+- **`MediaFileUrl` refuses a non-http(s) URL (2026-09-30, D106).** CodeQL
+  flagged the media preview's download link as DOM text reinterpreted as
+  HTML: `downloadUrl` → `forId` built `${root(serverUrl)}/media/${id}` by
+  template literal with no check on the result, unlike `of`, which already
+  ran `asset.url` through `isAbsolute`/`join`. Nothing in the current shapes
+  of `serverUrl` or `asset.id` can turn that into a `javascript:`/`data:`
+  URI, but a defensive check was missing where `of` already had one. `of`,
+  `forId` and, through it, `downloadUrl` now all pass their result through
+  one `guard` that returns `''` unless it matches `/^https?:\/\//i`, so a
+  misconfigured server (no `serverUrl`) yields no link rather than a bare,
+  scheme-less path. New tests in `media-file-url.test.ts` cover the empty-
+  server case for `of`, `forId` and `downloadUrl`.
+
 - **The media library uploads folders (2026-09-29, D105).** The admin had
   **Upload files** only, so a folder came in as a flat pile, and a folder
   dropped on the zone was handed over as a "file" that failed. There is now an
