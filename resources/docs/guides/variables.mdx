@@ -1,0 +1,159 @@
+---
+title: "Per-environment variables in Silo content"
+sidebarTitle: "Variables"
+description: "Variables let you declare a name once per project and give it a value per environment. Silo substitutes {{NAME}} references in entry content on the way out."
+---
+
+Variables solve a common content problem: some values have to differ between environments. A CDN URL, a support email address, a feature flag string — you want to write the content once and have each environment fill in its own value. Silo variables do exactly that: you declare the name once at the project level, set a value in each environment, and every `{{NAME}}` inside an entry is replaced with that environment's value before the response leaves the server.
+
+## How substitution works
+
+When Silo reads an entry — whether from a direct `GET`, a list, or a search — it scans the entry's string values for `{{NAME}}` references and replaces each one with the matching value from the current environment. Substitution happens after media resolution, so a field can hold both a media reference and a variable reference without conflict.
+
+<Note>
+  A variable with **no value set** in the current environment leaves `{{NAME}}` standing in the response as-is. It is never silently blanked to an empty string.
+</Note>
+
+## Declaring a variable
+
+Declare a variable name once at the project level. Optionally seed it with a value in one environment in the same call.
+
+<CodeGroup>
+```bash Declare (name only)
+curl -X POST http://localhost:8090/api/projects/acme/variables \
+  -H "Authorization: Bearer $SILO_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"name": "CDN_URL", "description": "Base URL for the CDN"}'
+```
+
+```bash Declare and seed a value
+curl -X POST http://localhost:8090/api/projects/acme/variables \
+  -H "Authorization: Bearer $SILO_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "CDN_URL",
+    "description": "Base URL for the CDN",
+    "environment": "prod",
+    "value": "https://cdn.example.com"
+  }'
+```
+</CodeGroup>
+
+## Setting and unsetting values per environment
+
+After a variable is declared, give it a value in each environment independently.
+
+<Steps>
+  <Step title="Set a value">
+    ```bash
+    curl -X PUT http://localhost:8090/api/projects/acme/envs/prod/variables/CDN_URL \
+      -H "Authorization: Bearer $SILO_KEY" \
+      -H "Content-Type: application/json" \
+      -d '{"value": "https://cdn.example.com"}'
+    ```
+
+    ```bash
+    curl -X PUT http://localhost:8090/api/projects/acme/envs/staging/variables/CDN_URL \
+      -H "Authorization: Bearer $SILO_KEY" \
+      -H "Content-Type: application/json" \
+      -d '{"value": "https://cdn-staging.example.com"}'
+    ```
+  </Step>
+
+  <Step title="Unset a value">
+    ```bash
+    curl -X DELETE http://localhost:8090/api/projects/acme/envs/staging/variables/CDN_URL \
+      -H "Authorization: Bearer $SILO_KEY"
+    ```
+
+    After unsetting, `{{CDN_URL}}` will appear unresolved in any entry read from the `staging` environment.
+  </Step>
+</Steps>
+
+## Listing variables in an environment
+
+```bash
+curl http://localhost:8090/api/projects/acme/envs/prod/variables \
+  -H "Authorization: Bearer $SILO_KEY"
+```
+
+The response returns the full list of declared variable names alongside each one's value for the requested environment. Names with no value in this environment appear with `"value": null`.
+
+## Renaming or re-describing a variable
+
+To rename a declared variable or update its description, PATCH the project-level declaration. This updates the name everywhere it appears.
+
+```bash
+curl -X PATCH http://localhost:8090/api/projects/acme/variables/CDN_URL \
+  -H "Authorization: Bearer $SILO_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"name": "CDN_BASE_URL", "description": "Primary CDN base URL"}'
+```
+
+## Undeclaring a variable
+
+To remove a variable declaration entirely — across all environments — DELETE the project-level declaration.
+
+```bash
+curl -X DELETE http://localhost:8090/api/projects/acme/variables/CDN_URL \
+  -H "Authorization: Bearer $SILO_KEY"
+```
+
+Any `{{CDN_URL}}` references in stored entries are left standing. Silo does not rewrite entry content when a variable is undeclared.
+
+## Reading raw (bypassing substitution)
+
+Pass `?variables=raw` on any entry read to get the stored templates back unresolved:
+
+<CodeGroup>
+```bash Single entry
+curl "http://localhost:8090/api/projects/acme/envs/prod/collections/posts/01J8XYZ...?variables=raw" \
+  -H "Authorization: Bearer $SILO_KEY"
+```
+
+```bash Entry list
+curl "http://localhost:8090/api/projects/acme/envs/prod/collections/posts?variables=raw" \
+  -H "Authorization: Bearer $SILO_KEY"
+```
+</CodeGroup>
+
+A raw read returns the stored `{{NAME}}` reference rather than the resolved value:
+
+```json
+{
+  "id": "01J8XYZ2ZK60T72CNPCM222E3Z",
+  "title": "Watch the trailer",
+  "trailer_url": "{{CDN_URL}}/trailers/arrival.mp4",
+  ...
+}
+```
+
+<Warning>
+  **Always read raw before editing.** If you read a resolved value and write it back, you permanently replace `{{CDN_URL}}/trailers/arrival.mp4` with `https://cdn.example.com/trailers/arrival.mp4`. The template is gone and cannot be recovered from the stored data. Raw reads prevent this.
+</Warning>
+
+The `?variables=raw` option works on `GET` for a single entry, `GET` for a list, and `GET` for a search. Create and replace operations always send raw — the response to a write echoes exactly what you sent.
+
+## Variables in exports and imports
+
+Variables travel with archives. A full export includes every declared variable name and its per-environment values; a full import restores them. This makes variable state portable across instances.
+
+<Note>
+  A **scope-to-scope copy** (copying one environment into another via `POST /api/projects/{project}/envs/{env}/copy`) does **not** carry variable values. Only the entry content — which may still contain `{{NAME}}` references — is copied. Set the values in the destination environment separately.
+</Note>
+
+## API claims
+
+Variables require no new claim types beyond what entries already use:
+
+| Operation | Required claim |
+|---|---|
+| Read entries (resolved) | `entries:read` |
+| List variables in an environment | `entries:read` |
+| Set or unset a value in an environment | `entries:update` scoped to that environment |
+| Declare a new variable | `entries:create` at `project/*/*` |
+| Undeclare (delete) a variable | `entries:delete` at `project/*/*` |
+
+## Variables in the admin UI
+
+In the admin UI, go to **Settings → Variables** to manage declarations and per-environment values. Variable references appear as chips inside entry form fields so you can see at a glance which fields contain template expressions. Typing `{{` in any text field opens a completion list of declared variable names.

@@ -1,0 +1,231 @@
+---
+title: "Create and manage API keys with fine-grained claims"
+sidebarTitle: "API Keys"
+description: "API keys carry explicit claims that authorize specific operations. Create scoped keys, delegate authority, update claims without changing the secret, and audit every change."
+---
+
+Every operation in Silo is authorized by a claim on the key making the request. A key can carry one broad claim like `*`, a handful of targeted ones like `collections:acme/prod/posts:entries:read`, or anything in between. You create keys with a preset for convenience or with an explicit claim list for precision. Claims can be updated at any time without touching the secret, so a key already in use picks up its new permissions immediately.
+
+## Creating a key
+
+<Steps>
+
+### Via the CLI
+
+Use `silo keys create` to mint a key from the terminal. The plaintext secret is printed once and never stored.
+
+<CodeGroup>
+
+```bash Preset (scoped)
+# Read-only key for the acme project, prod environment
+silo keys create --preset read --project acme --env prod --label "Frontend read key"
+```
+
+```bash Preset (collection-scoped)
+# Write key targeting a single collection
+silo keys create --preset write --collections posts --project acme --env prod --label "Blog writer"
+```
+
+```bash Explicit claims
+# Key with hand-written claim list
+silo keys create \
+  --claims "collections:acme/prod/posts:entries:read,collections:acme/prod/posts:entries:create" \
+  --label "Post creator"
+```
+
+</CodeGroup>
+
+<Info>
+  `--preset` defaults to `read` when omitted. If you also pass `--claims`, the preset flag is ignored and your explicit list is used as-is.
+</Info>
+
+### Via the HTTP API
+
+`POST /api/keys` creates a key. Pass `label` and a `claims` array. The response includes the plaintext secret exactly once.
+
+```bash
+curl -X POST http://localhost:8090/api/keys \
+  -H "Authorization: Bearer $SILO_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"label": "Frontend key", "claims": ["collections:acme/prod/*:entries:read"]}'
+```
+
+### Via the admin UI
+
+Open **Settings → API Keys**, click **New key**, choose a preset or switch to the **Custom** tab to write pattern-based claims, give it a label, and copy the secret from the confirmation dialog.
+
+</Steps>
+
+## Listing keys
+
+<CodeGroup>
+
+```bash CLI
+silo keys list
+```
+
+```bash HTTP API
+curl http://localhost:8090/api/keys \
+  -H "Authorization: Bearer $SILO_KEY"
+```
+
+</CodeGroup>
+
+The list shows each key's label, prefix (first characters of the secret), claims, and creation time. The plaintext secret is never included.
+
+## Editing a key
+
+You can change a key's label and claims after creation. **The secret does not change**, so any holder of the key sees the updated permissions immediately — without being notified.
+
+<CodeGroup>
+
+```bash CLI
+silo keys update <id> --claims "collections:acme/prod/*:entries:read"
+```
+
+```bash HTTP API (PATCH)
+curl -X PATCH http://localhost:8090/api/keys/<id> \
+  -H "Authorization: Bearer $SILO_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"label": "Renamed key", "claims": ["collections:acme/prod/*:entries:read"]}'
+```
+
+</CodeGroup>
+
+<Warning>
+  To update a key's claims, your own key must hold claims that cover **both** the key's current claims **and** the claims you are assigning. You need `keys:create` to perform the update. Silo records both the old and new claim lists in the audit trail.
+</Warning>
+
+## Revoking a key
+
+Revoking a key deletes its record and immediately invalidates it. **Revoking a key also revokes every key that was minted (descended) from it.**
+
+<CodeGroup>
+
+```bash CLI
+silo keys revoke <id>
+```
+
+```bash HTTP API
+curl -X DELETE http://localhost:8090/api/keys/<id> \
+  -H "Authorization: Bearer $SILO_KEY"
+```
+
+</CodeGroup>
+
+## The full claim catalog
+
+Every claim Silo recognizes is listed here. In the collection claims, `<p>` is the project, `<e>` is the environment, and `<n>` is the collection name. Each of those segments accepts `*` or a name-prefix pattern (see [Wildcards and name patterns](#wildcards-and-name-patterns) below).
+
+| Claim pattern | What it authorizes |
+|---|---|
+| `*` | Full access (root claim) |
+| `collections:<p>/<e>/<n>:create` | Create a collection |
+| `collections:<p>/<e>/<n>:delete` | Delete a collection |
+| `collections:<p>/<e>/<n>:schema:read` | Read a collection schema |
+| `collections:<p>/<e>/<n>:schema:update` | Update a collection schema |
+| `collections:<p>/<e>/<n>:access:update` | Change a collection's access settings (e.g. `x-silo-auth`) |
+| `collections:<p>/<e>/<n>:entries:create` | Create entries |
+| `collections:<p>/<e>/<n>:entries:read` | Read entries |
+| `collections:<p>/<e>/<n>:entries:update` | Update entries |
+| `collections:<p>/<e>/<n>:entries:delete` | Delete entries |
+| `hooks:<p>/<e>/<n>:<hook>` | Deliver hook payloads for a collection (one of the six hook names; no wildcard on `<hook>`) |
+| `media:create` | Upload, rename, and move media assets |
+| `media:delete` | Delete media assets |
+| `media:replace` | Replace the file behind an existing asset (keeps id, name, and URL) |
+| `media:purge` | Empty the entire media library (requires `media:delete` too) |
+| `media:configure` | Change media storage settings (bucket, credentials, allowed types) — root-only |
+| `keys:read` | List API keys |
+| `keys:create` | Create and edit API keys |
+| `keys:revoke` | Revoke keys |
+| `keys:export` | Export key records (hashes and metadata) |
+| `keys:import` | Import key records |
+| `plugins:read` | List plugins and their status |
+| `plugins:grant` | Approve plugin claim grants — root-only |
+| `plugins:enable` | Enable or disable plugins — root-only |
+| `plugins:configure` | Change a plugin's configuration |
+| `audit:read` | Read the audit trail |
+| `http:route` | Allow a plugin to be reached at the routes its manifest declares |
+| `settings:configure` | Change server settings (logging, search, auth, etc.) — root-only |
+| `observability:read` | Read aggregate operating metrics |
+| `transfer:export` | Export data as a tarball archive |
+| `transfer:import` | Import a tarball archive |
+| `transfer:copy` | Pull and import data from another Silo instance |
+
+<Note>
+  `media:purge` is intentionally not part of `media:delete`. Purging the entire library is a separate, irreversible operation. The purge route requires **both** `media:purge` and `media:delete` — holding one alone does nothing.
+
+  `media:configure` and `settings:configure` are root-only. Both expose credentials or security-sensitive configuration and cannot be carried by plugins or granted outside a root-preset key.
+
+  `hooks:<p>/<e>/<n>:<hook>` uses one of the six named hook positions. The `<hook>` segment does not accept a wildcard.
+</Note>
+
+## Wildcards and name patterns
+
+Each of the three collection segments — project, environment, and name — independently accepts a wildcard or a name-prefix pattern.
+
+**`*` matches any single segment value:**
+
+```
+collections:acme/*/*:entries:read      # all environments of the acme project
+collections:*/prod/*:entries:read      # production in every project
+collections:*/*/posts:entries:read     # the posts collection everywhere
+```
+
+**Name-prefix patterns** let a segment end with `*` to match a prefix:
+
+```
+collections:acme*/prod/*:entries:read  # prod in every project starting with "acme"
+```
+
+Use a pattern to give a team its own namespace. A prefix claim also covers collections in projects that do not exist yet — which is the feature and the risk.
+
+<Note>
+  A name pattern requires **3 or more characters** before the `*`. Shorter prefixes are rejected as too broad. Only a trailing `*` is valid — `ac*me` and `*cme` are not. Action wildcards like `entries:*` are never valid.
+</Note>
+
+<Tip>
+  Write pattern-based claims in the **Custom** tab of the admin UI key form. The Presets and Advanced tabs show only projects and environments that currently exist, so they cannot represent a pattern honestly.
+</Tip>
+
+<Warning>
+  A pattern matches names that **do not exist yet**. `collections:acme*/prod/*:create` lets the holder create any project named `acme-anything` and then own it. Read each pattern as a standing rule, not as a snapshot of what exists today.
+</Warning>
+
+## Delegation
+
+A key holding `keys:create` can only mint keys whose claims are **already covered** by its own claims. It cannot escalate.
+
+The same rule applies to wildcards and patterns:
+
+- A wildcard segment **can** delegate to a matching named segment: `collections:acme/*/*` can mint a key with `collections:acme/prod/posts`.
+- A named segment **cannot** widen into a wildcard: `collections:acme/prod/posts` cannot mint `collections:acme/*/*`.
+- A broader pattern cannot be delegated from a narrower one: `acme*` can delegate `acme-web` and `acme-web*`, but not `ac*` (which also matches names outside `acme`).
+
+## Presets
+
+Presets are named shortcuts over the same claim set. The CLI's `--preset` flag and the admin UI's key form both offer the same four.
+
+| Preset | Claims included |
+|---|---|
+| `root` | `*` — full access to everything |
+| `manage` | Collection lifecycle (`create`, `delete`, `schema:read`, `schema:update`, `access:update`), entries CRUD, media (`create`, `delete`, `replace` — not `purge` or `configure`), `keys:read` / `keys:create` / `keys:revoke`, `plugins:read` / `plugins:configure`, `audit:read`, `observability:read` |
+| `write` | Entries CRUD, `schema:read`, `media:create`, `media:delete`, `transfer:export` |
+| `read` | `entries:read`, `schema:read` (default for `silo keys create`) |
+
+<Note>
+  `plugins:grant` and `plugins:enable` are carried only by the `root` preset. Empowering a plugin to act on your instance is always an explicit, deliberate grant — no convenience preset includes it.
+
+  `settings:configure`, `media:configure`, and `media:purge` are also root-only and are not carried by any other preset.
+</Note>
+
+## Audit trail
+
+Every authority change — key creation, claim update, revocation, plugin grant or withdrawal — is written to the audit trail. Read it with `GET /api/audit` (requires the `audit:read` claim).
+
+```bash
+curl http://localhost:8090/api/audit \
+  -H "Authorization: Bearer $SILO_KEY"
+```
+
+The audit log is append-only. There is no `audit:write` claim — nothing in Silo updates or deletes an audit event. Offline CLI operations (keys created directly against the data directory with no server running) also append to the trail, so the record is complete regardless of how the change was made.

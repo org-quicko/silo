@@ -1,0 +1,260 @@
+---
+title: "Configure Silo with silo.toml and environment variables"
+sidebarTitle: "Configuration"
+description: "Silo reads silo.toml, SILO_* environment variables, and CLI flags. Every key is optional. Run silo init to generate the file with all defaults annotated."
+---
+
+Silo resolves configuration in layers, highest priority first: **CLI flags** override **`SILO_*` environment variables**, which override the **`silo.toml` file**, which fall back to **built-in defaults**. Every key is optional — a fresh instance starts with no config file at all and the defaults are production-ready.
+
+Run `silo init` to generate a `silo.toml` with every setting at its default. It touches no data directory, so it is safe to run before anything else.
+
+## Full annotated silo.toml
+
+<CodeGroup>
+```toml silo.toml
+# silo.toml
+listen          = ":8090"
+default_project = "default"   # created on startup if missing
+default_env     = "prod"
+
+[http]
+idle_timeout          = 120   # seconds a connection may stay quiet; 0 disables, 255 is the maximum
+max_body_size_mb      = 128   # the largest request body on any route: a media upload, an import
+max_json_body_size_mb = 4     # every other route: an entry, a schema, a list of ids
+
+[transfer]
+max_archive_size_mb   = 1024  # an import upload, or the export a copy pulls
+max_extracted_size_mb = 4096  # what it may unpack to on disk, checked before anything is written
+
+[storage]
+driver = "sqlite"       # "sqlite" | "fs"
+path   = "./silo_data"  # data dir; the sqlite file lives at <path>/silo.db
+
+[blob_storage]
+driver = "fs"                   # "fs" | "s3"
+# path = "/srv/silo-media"      # fs driver; unset means <data dir>/media, and --data moves it
+# bucket            = "my-silo-media"   # required by the s3 driver
+# region            = "ap-south-1"
+# endpoint          = "https://..."     # for S3-compatible providers
+# access_key_id     = "..."
+# secret_access_key = "..."
+# force_path_style  = false
+
+[media]
+# base_url   = "https://cdn.example.com"  # the host every media URL is rooted at
+# Unset, media URLs point at the bucket when the provider is a bucket, and
+# at the address each request arrives on when silo serves the bytes itself.
+extensions = ["jpg", "jpeg", "png", "gif", "webp", "avif", "ico", "bmp",
+               "mp4", "webm", "mov", "mp3", "wav", "ogg", "m4a", "pdf"]
+# Uploads are refused unless the filename ends in one of these. ["*"] accepts anything.
+# svg is not in the default: it can carry script. Add it where every uploader is trusted.
+
+[auth]
+disabled = false        # dev only: if true, every request is treated as root
+
+[schema]
+allow_remote_refs = false  # opt in to fetching http(s) $refs during validation
+
+[search]
+enabled             = true        # false keeps no index; search falls back to a full scan
+tokenizer           = "unicode61" # "unicode61" (words) | "trigram" (substrings; required for CJK)
+max_entry_bytes     = 65536       # per-entry cap on indexed text
+scan_limit          = 20000       # entries one un-indexed scan may visit before truncating
+scan_time_budget_ms = 3000        # ...and how long, whichever comes first
+# Changing the tokenizer rebuilds the index on the next start.
+
+[log]
+level       = "info"          # "debug" | "info" | "warn" | "error" | "silent"
+format      = "text"          # "text" (human) | "json" (one object per line)
+requests    = true            # a line per HTTP request
+max_size_mb = 10              # rotate past this size; 0 never rotates
+max_files   = 5               # kept as silo.log.1 ... silo.log.5
+# file = "/var/log/silo.log"  # unset means the console
+
+# Plugins — an ordered array; order is hook dispatch order.
+# [[plugins]]
+# name       = "silo-plugin-slug"           # a directory under <data dir>/plugins/
+# claims     = ["collections:*/*/*:entries:read"]
+# timeout_ms = 5000
+# on_error   = "fail"                       # "fail" (default) | "skip"
+#
+#   [plugins.config]
+#   field = "title"
+```
+</CodeGroup>
+
+## Environment variables
+
+Every key in `silo.toml` has a corresponding `SILO_*` variable. Use them in containers and CI pipelines where you cannot mount a config file, or to override a single value without touching the file.
+
+| Environment variable | Overrides |
+|---|---|
+| `SILO_CONFIG` | which file this table is read from and written to |
+| `SILO_LISTEN` | `listen` |
+| `SILO_DEFAULT_PROJECT`, `SILO_DEFAULT_ENV` | `default_project`, `default_env` |
+| `SILO_HTTP_IDLE_TIMEOUT` | `[http] idle_timeout` |
+| `SILO_HTTP_MAX_BODY_SIZE_MB`, `SILO_HTTP_MAX_JSON_BODY_SIZE_MB` | `[http] max_body_size_mb`, `[http] max_json_body_size_mb` |
+| `SILO_TRANSFER_MAX_ARCHIVE_SIZE_MB`, `SILO_TRANSFER_MAX_EXTRACTED_SIZE_MB` | `[transfer] max_archive_size_mb`, `[transfer] max_extracted_size_mb` |
+| `SILO_STORAGE_DRIVER`, `SILO_STORAGE_PATH` | `[storage]` |
+| `SILO_BLOB_DRIVER`, `SILO_BLOB_PATH` | `[blob_storage]` |
+| `SILO_BLOB_S3_BUCKET`, `SILO_BLOB_S3_REGION`, `SILO_BLOB_S3_ENDPOINT` | `[blob_storage]` S3 settings |
+| `SILO_BLOB_S3_ACCESS_KEY_ID`, `SILO_BLOB_S3_SECRET_ACCESS_KEY` | `[blob_storage]` S3 credentials |
+| `SILO_BLOB_S3_FORCE_PATH_STYLE` | `[blob_storage] force_path_style` |
+| `SILO_MEDIA_BASE_URL`, `SILO_MEDIA_BASE_URL_TARGET` | `[media] base_url` |
+| `SILO_MEDIA_EXTENSIONS` | `[media] extensions` (comma-separated) |
+| `SILO_AUTH_DISABLED` | `[auth] disabled` |
+| `SILO_SCHEMA_ALLOW_REMOTE_REFS` | `[schema] allow_remote_refs` |
+| `SILO_SEARCH_ENABLED`, `SILO_SEARCH_TOKENIZER` | `[search]` |
+| `SILO_LOG_LEVEL`, `SILO_LOG_FORMAT`, `SILO_LOG_FILE` | `[log]` |
+| `SILO_LOG_REQUESTS`, `SILO_LOG_MAX_SIZE_MB`, `SILO_LOG_MAX_FILES` | `[log]` |
+| `SILO_READ_THREAD` | `on` or `off`: whether entry lists and searches run on a separate storage thread. On by default; off under the test runner. Not written to the file. |
+| `SILO_VERSION` | The version silo reports. Set by the release container; a binary ignores it. Do not set it yourself: silo will report a version it is not. |
+
+## Storage drivers
+
+Silo ships two storage drivers, selectable with `[storage] driver`. Both speak the same interface and produce identical API behavior.
+
+<CardGroup cols={2}>
+  <Card title="sqlite (default)" icon="database">
+    Stores all content in a single `silo.db` file inside the data directory. Best for most deployments — it requires no external setup, handles concurrent reads well, and is easy to back up with a file copy.
+  </Card>
+  <Card title="fs (flat files)" icon="folder-open">
+    Stores each entry as a pretty-printed JSON file, one per entry, under `projects/<project>/<env>/content/<collection>/`. Best when you want a live directory you can read, diff, or commit to git. An `rsync` of the data dir is a full backup.
+  </Card>
+</CardGroup>
+
+<Note>
+  The `fs` driver's on-disk layout is identical to the export archive format. An fs-backed instance is a live export you can copy with `cp`, replicate with `rsync`, or pass directly to `silo import` with no conversion.
+</Note>
+
+## S3-compatible blob storage
+
+By default Silo stores uploaded media files on the local filesystem under `<data dir>/media`. Switch to any S3-compatible bucket by setting `[blob_storage] driver = "s3"` and supplying credentials. The `endpoint` key is what separates providers:
+
+<CodeGroup>
+```toml AWS S3
+[blob_storage]
+driver            = "s3"
+bucket            = "my-silo-media"
+region            = "us-east-1"
+access_key_id     = "AKIA..."
+secret_access_key = "..."
+```
+
+```toml MinIO
+[blob_storage]
+driver            = "s3"
+bucket            = "my-silo-media"
+region            = "us-east-1"
+endpoint          = "https://minio.example.com"
+access_key_id     = "minioadmin"
+secret_access_key = "minioadmin"
+force_path_style  = true
+```
+
+```toml Cloudflare R2
+[blob_storage]
+driver            = "s3"
+bucket            = "my-silo-media"
+region            = "auto"
+endpoint          = "https://<account-id>.r2.cloudflarestorage.com"
+access_key_id     = "..."
+secret_access_key = "..."
+```
+
+```toml DigitalOcean Spaces
+[blob_storage]
+driver            = "s3"
+bucket            = "my-silo-media"
+region            = "nyc3"
+endpoint          = "https://nyc3.digitaloceanspaces.com"
+access_key_id     = "..."
+secret_access_key = "..."
+```
+</CodeGroup>
+
+Switching provider moves no existing files. Uploads made before the switch stay where they were; new uploads go to the new provider.
+
+Media storage is also configurable from the admin under **Settings > Media Library**, behind the `media:configure` claim. It edits the same `silo.toml` in place and applies the change to the running server with no restart.
+
+## Media base URL
+
+The `[media] base_url` controls how Silo constructs URLs for uploaded files. When it is set, every media URL is `<base_url>/media/<id>` regardless of storage provider. When it is left unset, the URL depends on the provider:
+
+| Provider, no base URL set | Media URL shape |
+|---|---|
+| Local filesystem (`fs` driver) | `<your server's address>/media/<id>` |
+| Bucket with public reads | `<the bucket's own address>/<blob key>` |
+| Bucket with **Serve from bucket** off | `<your server's address>/media/<id>` |
+
+Set `base_url` to Silo's own public address when running behind a reverse proxy or custom domain. A path prefix is respected, so `https://example.com/silo` produces URLs like `https://example.com/silo/media/<id>`.
+
+<Warning>
+  `base_url` cannot name a CDN in front of the bucket — point the CDN at the bucket itself, since it is the bucket's own paths the CDN mirrors.
+</Warning>
+
+If your bucket is private, turn off **Serve files from the bucket** in the admin. Silo then streams each file at `/media/<id>` using its own credentials, the same way it serves local files.
+
+## Running as a service
+
+`silo serve` runs in the foreground and logs to the terminal. This is the correct shape for Docker, systemd, or any supervisor — let the supervisor own the process, its restarts, and its output stream.
+
+For bare-metal and development, `--detach` runs the server in the background:
+
+```bash
+silo serve --detach --data /srv/silo
+```
+
+The log goes to `<data dir>/silo.log` unless `[log] file` points elsewhere. After starting a detached server you can manage it with:
+
+```bash
+silo status        # pid, address, driver, log path, uptime, health
+silo logs --follow # tail the log; -n sets how many lines to start with
+silo stop          # SIGTERM, then SIGKILL after --timeout (default 10s)
+```
+
+`silo serve --detach` does not report success until the child has recorded itself and answered `/api/health`. If the child dies on the way up — for example because a port is taken or the data directory is unreadable — you get a non-zero exit and the end of its log rather than a pid that quietly no longer exists.
+
+<Warning>
+  Do not use `--detach` inside a Docker container or a systemd unit. It would exit the entrypoint immediately and take the container or service down with it. Use `silo serve` (without `--detach`) and let the supervisor own the process.
+</Warning>
+
+## Multiple instances
+
+Several Silo instances on one machine are fine. Give each its own data directory and its own port:
+
+```bash
+silo serve --detach --data /srv/silo-a --listen :8090
+silo serve --detach --data /srv/silo-b --listen :8091
+```
+
+They share nothing: separate databases, media stores, API keys, and `instance_id` values.
+
+<Warning>
+  **Two processes over one data directory is not supported and is actively refused.** The reasons are structural: the filesystem driver tracks `last_seq` in memory (two processes hand out duplicate seq values that are not repairable); writes are serialized on an in-process lock that makes `If-Match` optimistic concurrency sound; and compiled schema validators are cached per process, so one server would not see the other's schema changes.
+</Warning>
+
+Silo detects a live peer by checking `<data dir>/silo.run.json` against four tests — own process, boot id, process existence, and a 30-second refresh heartbeat — before refusing to start. A crashed server does not lock the data directory. The crash removes the run record where it can, and the four tests catch a stale record where it cannot.
+
+## Schema references
+
+A collection's JSON Schema can reference another schema with a standard `$ref`.
+
+<CardGroup cols={2}>
+  <Card title="silo:// refs (always allowed)" icon="link">
+    `silo://collections/<name>` points at another collection in the same project and environment. It is resolved locally with no network call. The schema builder exposes these as **Reference** fields, and an entry form renders the referenced collection's fields inline.
+  </Card>
+  <Card title="https:// refs (opt-in)" icon="globe">
+    Remote refs are rejected by default. Set `allow_remote_refs = true` to opt in. Fetched schemas are cached in memory until a schema changes. Be aware this creates an availability dependency and lets any schema editor cause the server to fetch arbitrary URLs.
+  </Card>
+</CardGroup>
+
+Saving a schema bundles its `$refs` into `$defs` and preserves the original reference URL, so the stored document is self-contained. Deleting a collection another schema references fails with `409` unless forced.
+
+## Auth settings
+
+`[auth] disabled = true` removes all authentication and treats every request as root. It is a development convenience only — set it in a config file or via `SILO_AUTH_DISABLED`, never in production.
+
+<Warning>
+  The Settings API (`PUT /api/settings/auth`) can set `disabled` to `false` but **never to `true`**. An API that could switch off its own authentication would be a lock whose key opens from the inside. To enable the bypass, edit `silo.toml` directly or set `SILO_AUTH_DISABLED=true` in the environment.
+</Warning>

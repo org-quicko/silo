@@ -1,0 +1,138 @@
+{
+  "projectType": "saas",
+  "projectName": "Silo",
+  "projectDescription": "A minimal, self-hostable headless CMS that stores content as JSON documents in SQLite or flat files, with auto-generated admin UI, a REST API, JSON Schema-defined collections, and a portable single-binary distribution.",
+  "theme": "luma",
+  "primaryColor": "#bf3b41",
+  "lightColor": "#f7ecd7",
+  "darkColor": "#090908",
+  "navigation": {
+    "tabs": [
+      {
+        "tab": "Guides",
+        "groups": [
+          {
+            "group": "Get Started",
+            "pages": [
+              "introduction",
+              "quickstart",
+              "concepts"
+            ]
+          },
+          {
+            "group": "Core Features",
+            "pages": [
+              "guides/collections-and-entries",
+              "guides/media-library",
+              "guides/search",
+              "guides/variables"
+            ]
+          },
+          {
+            "group": "Security & Access",
+            "pages": [
+              "guides/authentication",
+              "guides/api-keys"
+            ]
+          },
+          {
+            "group": "Operations",
+            "pages": [
+              "guides/configuration",
+              "guides/deployment",
+              "guides/transfer",
+              "guides/plugins"
+            ]
+          },
+          {
+            "group": "Integrations",
+            "pages": [
+              "guides/mcp",
+              "guides/typescript-client",
+              "guides/java-client",
+              "guides/dart-client"
+            ]
+          }
+        ]
+      },
+      {
+        "tab": "Reference",
+        "groups": [
+          {
+            "group": "API Reference",
+            "pages": [
+              "reference/http-api",
+              "reference/query-language",
+              "reference/error-codes"
+            ]
+          },
+          {
+            "group": "CLI Reference",
+            "pages": [
+              "reference/cli",
+              "reference/configuration-reference"
+            ]
+          },
+          {
+            "group": "Plugin Development",
+            "pages": [
+              "reference/plugin-api",
+              "reference/plugin-hooks",
+              "reference/claims-reference"
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "keyFeatures": [
+    "Single binary with embedded admin UI — no separate process, cache, or search cluster required",
+    "JSON Schema draft 2020-12 for collection definitions with full Ajv validation",
+    "Auto-generated admin forms from collection schemas, with visual schema builder",
+    "SQLite or flat-file storage drivers, switchable without data migration",
+    "Claims-based API key authentication with deny-by-default and granular delegation",
+    "Streaming export/import of entire instances as reproducible tar.gz archives",
+    "MCP server at /api/mcp for AI clients (Claude Code, Codex, Cursor, Claude Desktop)",
+    "Plugin system with hooks, custom HTTP routes, admin panels, and storage providers",
+    "Media library with S3-compatible bucket support, folder organization, and usage tracking",
+    "Per-environment variables substituted into entry content on the way out",
+    "Text search at collection, environment, or instance scope using SQLite FTS5",
+    "TypeScript, Java, and Dart client SDKs published independently"
+  ],
+  "publicApiSurface": [
+    "GET /api/health",
+    "GET /api/session",
+    "POST /api/mcp",
+    "GET|POST /api/projects",
+    "PATCH|DELETE /api/projects/{project}",
+    "GET|POST /api/projects/{project}/envs",
+    "PATCH|DELETE /api/projects/{project}/envs/{env}",
+    "POST /api/projects/{project}/variables",
+    "GET /api/projects/{project}/envs/{env}/variables",
+    "GET|POST /api/projects/{project}/envs/{env}/collections",
+    "GET|PUT|DELETE /api/projects/{project}/envs/{env}/collections/{name}/schema",
+    "GET|POST /api/projects/{project}/envs/{env}/collections/{name}",
+    "GET|PUT|DELETE /api/projects/{project}/envs/{env}/collections/{name}/{id}",
+    "GET /api/export",
+    "POST /api/import",
+    "POST /api/copy",
+    "GET|POST /api/keys",
+    "PATCH|DELETE /api/keys/{id}",
+    "GET /api/media",
+    "POST /api/media",
+    "PATCH|DELETE /api/media/{id}",
+    "GET /api/media/{id}/usages",
+    "POST /api/media/{id}/content",
+    "GET|POST /api/media/folders",
+    "PATCH|DELETE /api/media/folders",
+    "POST /api/media/purge",
+    "GET /api/search",
+    "GET /api/audit",
+    "GET /api/observability",
+    "GET|PUT /api/plugins/{name}/grant",
+    "GET|POST /api/plugins",
+    "GET /media/{id}",
+    "Silo class (TypeScript client)",
+    "silo serve | stop | status | logs | keys | export | import | media | search | plugin | add | mcp | version"
+  ]
+}

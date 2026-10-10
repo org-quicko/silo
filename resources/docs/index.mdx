@@ -1,0 +1,92 @@
+---
+title: "Silo: Minimal Self-Hosted Headless CMS"
+sidebarTitle: "Home"
+description: "Silo is a single-binary headless CMS. Define collections in JSON Schema, get a generated admin UI and REST API, and move your data anywhere."
+---
+
+Silo is a self-hostable headless CMS that runs as a single process with no external dependencies. Define your content collections using standard JSON Schema, and Silo provides a generated admin UI, a REST API, full-text search, a media library, and portable data export — all from one binary you can run anywhere.
+
+<CardGroup cols={2}>
+  <Card title="Quickstart" icon="rocket" href="/quickstart">
+    Install Silo and create your first collection in minutes.
+  </Card>
+  <Card title="Core Concepts" icon="book-open" href="/concepts">
+    Understand projects, environments, collections, and entries.
+  </Card>
+  <Card title="HTTP API" icon="code" href="/reference/http-api">
+    Full REST API reference with all routes, query syntax, and error codes.
+  </Card>
+  <Card title="CLI Reference" icon="terminal" href="/reference/cli">
+    Every subcommand and flag for managing Silo from the command line.
+  </Card>
+</CardGroup>
+
+## Why Silo
+
+Silo keeps things simple and portable. There is one process, one data directory, and no proprietary query language or field format. Everything it stores, your other tools can already read.
+
+<CardGroup cols={3}>
+  <Card title="One Binary" icon="box">
+    The admin UI is compiled into the executable. Drop it on your PATH and run.
+  </Card>
+  <Card title="Standard Formats" icon="file-code">
+    JSON Schema for collections, plain JSON for entries, REST over HTTP, SQLite or flat files for storage.
+  </Card>
+  <Card title="Portable Data" icon="arrows-rotate">
+    One command exports everything. One command imports it. The on-disk layout is the archive format.
+  </Card>
+  <Card title="Claims-Based Auth" icon="shield-halved">
+    No users, no sessions. API keys carry explicit claims. Deny by default.
+  </Card>
+  <Card title="Plugin System" icon="plug">
+    Hooks, HTTP routes, admin panels, and storage providers — written in TypeScript, no build step.
+  </Card>
+  <Card title="AI-Ready" icon="robot">
+    Built-in MCP server at `/api/mcp`. Connect Claude Code, Codex, Cursor, or Claude Desktop.
+  </Card>
+</CardGroup>
+
+## Install
+
+<CodeGroup>
+
+```bash Homebrew
+brew install org-quicko/tap/silo
+silo serve
+```
+
+```bash Docker
+docker run -p 8090:8090 -v silo_data:/data labsatquicko/silo
+```
+
+```bash dnf (RHEL / Fedora / Amazon Linux)
+sudo curl -fsSL -o /etc/yum.repos.d/silo.repo \
+  https://org-quicko.github.io/silo/silo.repo
+sudo dnf install silo
+sudo systemctl enable --now silo
+```
+
+</CodeGroup>
+
+On first start, Silo prints a root API key once to the console. Open [http://localhost:8090](http://localhost:8090), add the server with that key, and you're ready to create collections and add content.
+
+<CardGroup cols={2}>
+  <Card title="Collections & Entries" icon="table" href="/guides/collections-and-entries">
+    Define schemas and manage structured content.
+  </Card>
+  <Card title="Media Library" icon="images" href="/guides/media-library">
+    Upload, organize, and serve files with S3 or local storage.
+  </Card>
+  <Card title="Authentication & Keys" icon="key" href="/guides/authentication">
+    Create API keys with fine-grained claim-based permissions.
+  </Card>
+  <Card title="Export & Import" icon="database" href="/guides/transfer">
+    Move data between instances or back it up as a tar.gz archive.
+  </Card>
+  <Card title="Plugins" icon="puzzle-piece" href="/guides/plugins">
+    Extend Silo with hooks, custom routes, and admin panels.
+  </Card>
+  <Card title="TypeScript Client" icon="js" href="/guides/typescript-client">
+    Typed SDK for Node, Bun, Deno, and browsers.
+  </Card>
+</CardGroup>

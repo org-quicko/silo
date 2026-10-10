@@ -1,0 +1,154 @@
+---
+title: "Silo CLI: all subcommands and flags"
+sidebarTitle: "CLI"
+description: "Complete reference for the silo command-line tool. Every subcommand works directly on the data directory with no running server, except silo mcp which bridges to a running instance."
+---
+
+The `silo` CLI works directly on the data directory — no server needs to be running. This makes it the fastest path to initializing a project, minting keys, importing data, or recovering from a lockout. If you are running from source, replace `silo` with `bun run apps/server/src/main.ts`; the two are the same program.
+
+## Subcommand reference
+
+### Server management
+
+```bash
+silo init [flags]         write a silo.toml of default settings
+silo serve [flags]        start the HTTP server
+silo stop [flags]         stop a server started with --detach
+silo status [flags]       report whether a server is running
+silo logs [flags]         show the server log
+silo version              print the version
+```
+
+### Key management
+
+```bash
+silo keys create [flags]           mint an API key (the secret is shown once)
+silo keys list                     list keys (label, claims, prefix, created)
+silo keys revoke <id>              revoke a key
+```
+
+### Data operations
+
+```bash
+silo export [flags]                export schemas, entries, and media
+silo import [flags] <dir|tarball>  import an export
+```
+
+### Media
+
+```bash
+silo media reconcile               repair the media catalog against stored blobs
+silo media rekey [--rewrite]       move old media keys to the media/<id> form
+```
+
+### Search
+
+```bash
+silo search reindex [--check]      rebuild the search index, and verify it
+```
+
+### Plugin management
+
+```bash
+silo add <spec> [flags]            install a plugin
+silo plugin list                   configured plugins and their state
+silo plugin info <name>            one plugin's manifest, claims and config
+silo plugin grant <name>           approve what a plugin asked for
+silo plugin revoke <name>          withdraw the stored grant
+silo plugin doctor                 load every plugin, report failures, exit
+```
+
+### MCP bridge
+
+```bash
+silo mcp --url <url> [--key <key>]  stdio MCP bridge to a running Silo
+```
+
+## Flags
+
+Every flag is optional. Where a flag applies to only certain subcommands, the **Applies to** column names them.
+
+| Flag | Applies to | Meaning |
+|---|---|---|
+| `--config <path>` | all | TOML config file (default `silo.toml` if present); for `init`, the file to write |
+| `--force` | `init`, `add` | `init`: overwrite an existing config file. `add`: replace an already-installed plugin of the same name |
+| `--data <dir>` | all | Data directory (default `./silo_data`) |
+| `--blob-path <dir>` | all | Media directory for the `fs` blob driver (default `<data dir>/media`) |
+| `--driver <sqlite\|fs>` | all | Storage driver |
+| `--listen <addr>` | `serve` | Listen address (default `:8090`) |
+| `--project <id>`, `--env <id>` | `serve`, `keys create` | `serve`: defaults created on startup (`default`, `prod`). `keys create`: scope the preset targets (default `*`, all) |
+| `-d`, `--detach` | `serve` | Run in the background and return |
+| `--log-file <path>` | `serve` | Write the log here (detached runs default to `<data dir>/silo.log`) |
+| `--log-level <s>` | `serve` | `debug`, `info`, `warn`, `error`, or `silent` |
+| `--timeout <s>` | `stop` | Seconds to wait after SIGTERM before killing (default 10) |
+| `-n`, `--lines <n>` | `logs` | How many lines to show (default 50) |
+| `-f`, `--follow` | `logs` | Keep printing as the log grows |
+| `--label <s>` | `keys create` | Human-readable label |
+| `--claims <a,b>` | `keys create`, `plugin grant`, `add` | Explicit comma-separated claims; for `add` and `plugin grant`, approve exactly these instead of everything the manifest requests |
+| `--preset <root\|manage\|write\|read>` | `keys create` | Claim preset, default `read`; ignored when `--claims` is given |
+| `--collections <a,b>` | `keys create` | Collections the `read`, `write`, and `manage` presets target; empty means all |
+| `--dir <path>`, `--out <path>` | `export` | Write a directory tree, or a `.tar.gz` |
+| `--with-keys` | `export` | Include API key hashes |
+| `--include <rule>` | `export`, `import` | Repeatable: `project`, `project/env`, or `project/env/collection`. Omit for everything |
+| `--media <all\|referenced\|none>` | `export`, `import` | What to do about media files. Defaults to `all`, or `referenced` once `--include` narrows it |
+| `--mode <merge\|replace>` | `import` | Conflict strategy (default `merge`) |
+| `--dry-run` | `import` | Report what would be written, write nothing |
+| `--prefer <local\|remote>` | `import` | Override merge conflict resolution |
+| `--check` | `search reindex` | Also report both index integrity checks, and exit non-zero on disagreement |
+| `--integrity <sri>` | `add` | Check the downloaded bytes against a `sha512-...` digest |
+| `--ref <r>`, `--registry <url>` | `add` | Git ref to check out; npm registry to fetch from |
+| `-y`, `--yes` | `add` | Do not ask before granting; a non-interactive shell without this is a no |
+| `--no-register` | `add` | Install the files, print the block, and leave `silo.toml` alone |
+| `--url <url>` | `mcp` | The running server, e.g. `http://localhost:8090`. Falls back to `SILO_URL` |
+| `--key <key>` | `mcp` | The API key to present. Falls back to `SILO_API_KEY`, which is the safer place for it |
+
+<Note>
+A bare collection name in `--collections` grants the permission in **every** project and environment, as `collections:*/*/<name>:...`. Write `project/env/collection` to pin it to one scope.
+</Note>
+
+## Offline commands
+
+Most of the CLI operates entirely offline against the data directory on disk — no running server is needed or consulted.
+
+<Info>
+All subcommands except `stop`, `status`, `logs`, and `mcp` work directly on the data directory with no server. This is the way back from a lockout: you can mint a key without ever starting the server.
+</Info>
+
+The exceptions break down into two groups:
+
+- **`stop`, `status`, `logs`** read only the run file (`<data dir>/silo.run.json`) and never open storage. Asking whether a server is running cannot create a data directory and cannot disturb one that another process already owns.
+- **`mcp`** is a client of a running server over HTTP. It reads neither a config file nor a data directory.
+
+## Recovery
+
+<Steps>
+  <Step title="Lost all API keys">
+    Mint a new root key directly against the data directory, no server required:
+
+    ```bash
+    silo keys create --preset root --label recovery
+    ```
+
+    The secret is printed once. Store it somewhere safe.
+  </Step>
+
+  <Step title="Check whether the server would start">
+    Run the plugin doctor to load every configured plugin, report failures, and exit — without starting a server:
+
+    ```bash
+    silo plugin doctor
+    ```
+
+    Exits non-zero if any plugin fails to load. This answers "would `silo serve` start?" before you actually try.
+  </Step>
+
+  <Step title="Script on server state">
+    `silo status` exits non-zero when nothing is running, making it safe to branch on in shell scripts:
+
+    ```bash
+    silo status && echo "server is up" || echo "server is down"
+    ```
+
+    It reports the process and the HTTP endpoint separately, so a server that is alive but not answering HTTP is a different case from one that is gone entirely.
+  </Step>
+</Steps>
