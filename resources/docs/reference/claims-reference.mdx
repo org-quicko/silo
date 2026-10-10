@@ -1,0 +1,176 @@
+---
+title: "Silo claims reference: all claims and authorization rules"
+sidebarTitle: "Claims"
+description: "Complete reference for Silo's claim-based authorization system. Every claim, its scope pattern, which presets carry it, and the delegation rules."
+---
+
+Silo uses deny-by-default API keys with explicit claims. There are no users, no roles, and no browser sessions. A presented key authenticates the request, and the claims on that key authorize each individual operation. If the claim for an operation is missing, the operation is refused. A key is `silo_` followed by 32 random bytes, base64url-encoded; Silo stores only the SHA-256 hash, so the plaintext secret exists exactly once.
+
+---
+
+## Full claim catalog
+
+```
+*
+collections:<project>/<env>/<name>:create
+collections:<project>/<env>/<name>:delete
+collections:<project>/<env>/<name>:schema:read
+collections:<project>/<env>/<name>:schema:update
+collections:<project>/<env>/<name>:access:update
+collections:<project>/<env>/<name>:entries:create
+collections:<project>/<env>/<name>:entries:read
+collections:<project>/<env>/<name>:entries:update
+collections:<project>/<env>/<name>:entries:delete
+hooks:<project>/<env>/<name>:<hook>
+media:create      media:delete      media:replace      media:purge
+media:configure
+keys:read         keys:create       keys:revoke
+keys:export       keys:import
+plugins:read      plugins:grant     plugins:enable     plugins:configure
+audit:read        http:route        settings:configure  observability:read
+transfer:export   transfer:import   transfer:copy
+```
+
+`*` is the root claim. It grants everything.
+
+---
+
+## Claims that need special explanation
+
+### hooks:...
+
+`hooks:...` is a **delivery** claim. No `collections:...:entries:*` permission implies it. Being handed an entry before it is validated — with the chance to rewrite it — is a different authority from reading a committed one. The claim exists for plugins (see [Plugin Hooks](/reference/plugin-hooks)). The `<hook>` segment is one of the six hook names; the `*` wildcard is not valid in that position.
+
+### media:configure
+
+`media:configure` is not a per-asset permission. It reads and changes how the library is **set up**: where it keeps its bytes (credentials included), where its URLs point, and which file types it accepts. It writes `silo.toml` to do that. Only the `root` preset carries it, no plugin may be granted it, and a key holding `media:create` and `media:delete` still cannot repoint the library. It is one claim rather than a read/write pair because the read half is not the harmless half — it names the bucket, the endpoint, and the access key ID.
+
+### media:purge
+
+`media:purge` is not part of `media:delete`. `media:delete` removes files, one or a hundred at a time. `media:purge` is the one request that ends **every** asset in the library. Only the `root` preset carries it, and the route requires both `media:delete` and `media:purge` together — a key holding `media:purge` alone purges nothing. The admin hides **Purge library** from a key that does not hold both.
+
+### media:replace
+
+`media:replace` is not part of `media:create`. `media:create` uploads a new file. `media:replace` changes the file behind an asset that is already in the library, keeping its id, name, and URL. Every entry that refers to that asset then shows the new file. The **Read & write** preset does not carry it; the **Manage** preset does. The route also requires `entries:update` on each project, environment, and collection that refers to the asset — the same rule a forced delete obeys. The new file must keep the same file type; to change a `.png` to a `.webp`, upload a new asset.
+
+### settings:configure
+
+`settings:configure` covers the rest of `silo.toml`: logging, search, schema validation, and the auth switch. It is root-only and forbidden to plugins. `[schema] allow_remote_refs` alone turns every schema validation into an outbound fetch of the holder's choosing. Two settings are deliberately not freely writable: `[storage]` is reported and never written (changing the driver names a different instance, not this one), and `[auth] disabled` can be set to `false` but never to `true` — an API that could switch off its own authentication is not one.
+
+### plugins:grant and plugins:enable
+
+`plugins:grant` approves or narrows a plugin's claimed permissions. `plugins:enable` starts or stops a plugin on a running instance. Neither appears in any preset except `root`. Empowering a plugin is always a deliberate grant.
+
+### observability:read
+
+`observability:read` exposes bounded operating aggregates: registered API route patterns, status classes, latency histograms, process memory and CPU totals, and cached local-storage sizes. It records no route parameter, query string, caller identity, request body, credential, content, or filesystem path. The `manage` and `root` presets carry it; a plugin may be granted it.
+
+### http:route
+
+`http:route` lets a plugin **be reached** at the routes its manifest declares. It grants no reach of its own, so a key holding it gains nothing. One claim covers every route a manifest lists, because they all mount under the plugin's own namespace. Declaring any route in `contributes.routes` adds this claim to the grant request automatically.
+
+### transfer claims
+
+`transfer:export`, `transfer:import`, and `transfer:copy` cover archive operations spanning multiple projects and environments. They are necessary but not sufficient:
+
+- `transfer:export` also requires `collections:*/*/*:schema:read` and `collections:*/*/*:entries:read`.
+- `transfer:import` and `transfer:copy` (cross-instance) also require `collections:*/*/*:entries:create`, `:entries:update`, and `:entries:delete`.
+
+Copying between two environments on the **same** instance needs no `transfer:*` claim at all — it uses the ordinary collection and entry routes at the two scopes involved.
+
+---
+
+## Wildcard patterns
+
+Each of `project`, `env`, and `name` in a `collections:` claim independently accepts `*`:
+
+```
+collections:acme/*/*:entries:read      # all envs of one project
+collections:*/prod/*:entries:read      # production across all projects
+collections:*/*/posts:entries:read     # one collection wherever it lives
+```
+
+A segment can also end with `*` to match a **name prefix**:
+
+```
+collections:acme*/prod/*:entries:read  # any project starting with "acme", in prod
+```
+
+<Warning>
+A pattern matches names that do not exist yet. `collections:acme*/prod/*:create` lets the holder create a project named `acme-anything` and then own it. Read the pattern as a rule, not as the list of things visible today.
+</Warning>
+
+Rules for patterns:
+
+- A pattern needs **three or more characters** before the `*`. A shorter prefix looks narrow and grants almost everything.
+- Only a **trailing** `*` is a pattern. `ac*me` and `*cme` are not valid.
+- The `*` character is not permitted in the action part of a claim (e.g., `entries:*` is not valid).
+
+Write a pattern in the **Custom** tab of the admin UI key form. The Presets and Advanced tabs show only entities that exist and cannot represent a pattern honestly.
+
+---
+
+## Delegation rules
+
+A key holding `keys:create` can only mint keys whose claims its own claims already cover. Delegation never escalates:
+
+| Scenario | Allowed |
+|---|---|
+| A wildcard segment delegating a matching named segment | ✅ |
+| A named segment delegating a wildcard | ❌ |
+| Pattern `acme*` delegating `acme-web` | ✅ |
+| Pattern `acme*` delegating `acme-web*` | ✅ |
+| Pattern `acme*` delegating `ac*` | ❌ (`ac*` matches names outside `acme*`) |
+| Pattern `acme*` delegating `*` | ❌ |
+
+---
+
+## Rename behavior
+
+When a project, environment, or collection is renamed, Silo rewrites claims that name it directly. Wildcard and pattern claims are **not** rewritten — a pattern is a rule about names, not a reference to one thing. If the rename moves an entity in or out of a pattern's match, Silo records that in the audit trail as a pattern-affected claim.
+
+The `_scope_renames` system collection records rewrites before plugins load, so plugins that hold direct-name claims see the new name on their next hook delivery.
+
+---
+
+## Public reads
+
+Collection schemas and entries are **public by default** within their scope. Set `"x-silo-auth": true` in a collection's schema to require a key for both schema reads and entry reads.
+
+Once a key is presented it becomes the visibility boundary: a scoped key sees only the projects, environments, and collections its claims cover, including public ones.
+
+**Reading the media library needs no claim.** Listing it, reading an asset record, its folders and referrers are all open. Uploading, renaming, moving, and deleting still require `media:create` or `media:delete`. The former `media:read` claim is retired — a key that already carries it is not broken, but no new key can be granted it.
+
+---
+
+## Preset table
+
+| Preset | CLI flag | What it carries |
+|---|---|---|
+| `root` | `--preset root` | `*` — everything |
+| `manage` | `--preset manage` | Collection lifecycle (create/delete/schema/access), all media except `purge` and `configure`, `keys:read/create/revoke`, `plugins:read/configure`, `audit:read`, `observability:read` |
+| `write` | `--preset write` | `entries` CRUD, `schema:read`, `media:create/delete`, `transfer:export` |
+| `read` | `--preset read` *(default)* | `entries:read`, `schema:read` |
+
+<Note>
+`plugins:grant` and `plugins:enable` appear in no preset but `root`. Empowering a plugin or toggling its running state is always a deliberate action that requires root authority.
+</Note>
+
+---
+
+## Variables claims
+
+Variables add no claim of their own — each check maps to an existing claim at the reach the operation actually has.
+
+| Operation | Required claim |
+|---|---|
+| Reading a variable value | `entries:read` on any collection in the environment (a value is substituted into every entry that references it) |
+| Setting a variable value | `collections:{project}/{env}/*:entries:update` (one value rewrites what every entry in that environment answers) |
+| Declaring a variable | `collections:{project}/*/*:entries:create` |
+| Undeclaring a variable | `collections:{project}/*/*:entries:delete` |
+
+---
+
+## Editing claims after creation
+
+You can change a key's label and claims after creation with `PATCH /api/keys/{id}`, `silo keys update`, or **Edit** in the admin UI. The secret does not change, so new claims apply immediately to the key already in use. Its holder gets no notice of the change. You need `keys:create` to do this, and your own claims must cover both what the key holds now and what you are giving it. Silo writes both lists to the audit trail.

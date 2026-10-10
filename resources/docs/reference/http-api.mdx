@@ -1,0 +1,233 @@
+---
+title: "Silo HTTP API: REST endpoints for content and media"
+sidebarTitle: "HTTP API"
+description: "Complete REST API reference for Silo. JSON everywhere, clean routes under /api, no URL versioning. Authenticate with Authorization: Bearer or X-Api-Key."
+---
+
+Silo speaks JSON everywhere. All routes live under `/api`, CORS is enabled for `/api/*`, and there is no URL versioning — a breaking change is a release-note event and the data format carries its own version. Present an API key as `Authorization: Bearer <key>` or `X-Api-Key: <key>`.
+
+## Base URL
+
+The server listens on `http://localhost:8090` by default. Change it with the `--listen` flag or the `[http] listen` setting in `silo.toml`.
+
+## Authentication
+
+Every route except `GET /api/health` requires a valid API key. Silo has no users or sessions — only keys with explicit claims.
+
+<CodeGroup>
+
+```bash Authorization header
+curl http://localhost:8090/api/projects/default/envs/prod/collections/posts \
+  -H "Authorization: Bearer $SILO_KEY"
+```
+
+```bash X-Api-Key header
+curl http://localhost:8090/api/projects/default/envs/prod/collections/posts \
+  -H "X-Api-Key: $SILO_KEY"
+```
+
+</CodeGroup>
+
+<Note>
+  The secret for a newly created key is returned exactly once, at creation time. Store it immediately — it cannot be retrieved again.
+</Note>
+
+## Routes
+
+### Health & Session
+
+| Method | Path | Description |
+|--------|------|-------------|
+| `GET` | `/api/health` | Liveness and version — never authenticated |
+| `GET` | `/api/session` | Current key label, prefix, and effective claims |
+
+### MCP
+
+| Method | Path | Description |
+|--------|------|-------------|
+| `POST` | `/api/mcp` | MCP over Streamable HTTP: one JSON-RPC message, or a batch, in; the reply out. Requires a key. `GET` and `DELETE` answer `405` |
+
+### Projects & Environments
+
+| Method | Path | Description |
+|--------|------|-------------|
+| `GET` / `POST` | `/api/projects` | List projects visible to the key / create `{id}` |
+| `PATCH` | `/api/projects/{project}` | Rename a project, with claim rewrite (`?dry_run=true`) |
+| `DELETE` | `/api/projects/{project}` | Delete a project, its environments, and their collections (`?force=true`) |
+| `GET` / `POST` | `/api/projects/{project}/envs` | List environments / create `{id}` |
+| `PATCH` | `/api/projects/{project}/envs/{env}` | Rename an environment (`?dry_run=true`) |
+| `DELETE` | `/api/projects/{project}/envs/{env}` | Delete an environment and its collections (`?force=true`) |
+| `POST` | `/api/projects/{project}/envs/{env}/copy` | Copy another environment of this instance into it |
+
+<Tip>
+  `/environments` is accepted anywhere `/envs` appears. Collection, entry, and environment-copy routes are scoped to a `(project, environment)` pair. Everything else is instance-wide.
+</Tip>
+
+### Variables
+
+| Method | Path | Description |
+|--------|------|-------------|
+| `POST` | `/api/projects/{project}/variables` | Declare a variable, optionally value it in one environment with `?env=` |
+| `PATCH` / `DELETE` | `/api/projects/{project}/variables/{name}` | Rename or re-describe a declaration / undeclare it everywhere |
+| `GET` | `/api/projects/{project}/envs/{env}/variables` | The declarations with this environment's values |
+| `PUT` / `DELETE` | `/api/projects/{project}/envs/{env}/variables/{name}` | Set / unset one value in this environment |
+
+<Note>
+  Pass `?variables=raw` on an entry or search read to receive stored text with `{{NAME}}` references unresolved. An editor needs this so a form cannot save a resolved value over the reference a user typed.
+</Note>
+
+### Collections & Schemas
+
+| Method | Path | Description |
+|--------|------|-------------|
+| `GET` / `POST` | `/api/projects/{project}/envs/{env}/collections` | List / create `{name, schema}` |
+| `PATCH` | `/api/projects/{project}/envs/{env}/collections/{name}` | Rename a collection (`?dry_run=true`) |
+| `GET` / `PUT` / `DELETE` | `/api/projects/{project}/envs/{env}/collections/{name}/schema` | Fetch / update / delete a collection's JSON Schema |
+
+### Entries
+
+| Method | Path | Description |
+|--------|------|-------------|
+| `GET` / `POST` | `/api/projects/{project}/envs/{env}/collections/{name}` | List entries (filter, sort, paginate) / create an entry |
+| `GET` / `PUT` / `DELETE` | `/api/projects/{project}/envs/{env}/collections/{name}/{id}` | Read / full replace / delete an entry |
+
+<Warning>
+  `PUT` and `DELETE` on an entry require the revision you last read, supplied as `If-Match: "<rev>"` or `?rev=<n>`. A mismatch returns `409 conflict`. See [Optimistic concurrency](#optimistic-concurrency) below.
+</Warning>
+
+<CodeGroup>
+
+```bash List entries
+curl http://localhost:8090/api/projects/default/envs/prod/collections/posts
+```
+
+```bash Create an entry
+curl -X POST http://localhost:8090/api/projects/default/envs/prod/collections/posts \
+  -H "Authorization: Bearer $SILO_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"title": "Hello"}'
+```
+
+</CodeGroup>
+
+### Search
+
+| Method | Path | Description |
+|--------|------|-------------|
+| `GET` | `/api/projects/{project}/envs/{env}/collections/{name}/search` | Full-text search in one collection |
+| `GET` | `/api/projects/{project}/envs/{env}/search` | Full-text search across one environment |
+| `GET` | `/api/search` | Full-text search across everything the key can read |
+| `POST` | `/api/search/reindex` | Rebuild the search index |
+
+```bash
+curl "http://localhost:8090/api/search?q=pricing" \
+  -H "Authorization: Bearer $SILO_KEY"
+```
+
+Search results name where each match was found and quote why it matched:
+
+```json
+{
+  "data": [{
+    "project": "acme",
+    "env": "prod",
+    "collection": "posts",
+    "entry": {"id": "01J8…", "title": "Pricing changes"},
+    "snippets": [{
+      "path": "$.data.body",
+      "before": "…our ",
+      "match": "pricing",
+      "after": " page…"
+    }]
+  }],
+  "total": 1,
+  "limit": 50,
+  "offset": 0,
+  "truncated": false,
+  "engine": "fts5"
+}
+```
+
+The `engine` field is `fts5` when SQLite's full-text index answered, or `scan` when the portable engine walked the entries. `truncated` is only `true` for a scan result, and it means `total` counts only what was examined. Omit `sort` to rank by relevance; adding a sort overrides relevance ranking.
+
+### Transfer
+
+| Method | Path | Description |
+|--------|------|-------------|
+| `GET` | `/api/export?include=&media=` | Stream a `tar.gz` archive — whole instance or narrowed to a project, environment, or collection |
+| `POST` | `/api/import?mode=&include=&media=` | Accept a `tar.gz` archive |
+| `POST` | `/api/copy` | Pull and import directly from another running Silo instance |
+
+### API Keys
+
+| Method | Path | Description |
+|--------|------|-------------|
+| `GET` / `POST` | `/api/keys` | List keys / create one. The secret is returned exactly once |
+| `DELETE` | `/api/keys/{id}` | Revoke a key and everything descended from it |
+
+### Media
+
+| Method | Path | Description |
+|--------|------|-------------|
+| `GET` / `POST` | `/api/media` | List / upload media assets |
+| `GET` | `/api/media/extensions` | File extensions present in the library, for the Type filter |
+| `GET` | `/api/media/{id}` | One asset's catalog record |
+| `GET` | `/api/media/{id}/usages` | Entries that reference this asset — answers `total`, `visible`, and `visible_capped` |
+| `PATCH` | `/api/media/{id}` | Rename, move, or retag one asset (`{filename, folder, tags}`) |
+| `POST` | `/api/media/{id}/content` | Replace the file behind an asset (multipart `file`). Keeps the id and URL so every referencing entry shows the new file. Must keep the same file type |
+| `DELETE` | `/api/media/{id}` | Delete a media asset. Refused while an entry still references it, unless `?force=true` |
+| `POST` | `/api/media/delete` | Delete up to 100 assets at once (`{ids, force}`). Always `200` with a `deleted`/`failed` body |
+| `POST` | `/api/media/purge` | Empty the whole library (`{confirm: "purge", force?}`). Always `200` with a `deleted`/`failed` body plus a folder count. Requires `media:delete` and `media:purge` |
+| `GET` | `/api/media/folders` | All folders present in the library |
+| `POST` | `/api/media/folders` | Create a folder (`{path}`) |
+| `PATCH` | `/api/media/folders` | Rename or move a folder (`{from, to}`) — updates every asset and descendant folder within |
+| `DELETE` | `/api/media/folders` | Delete a folder (empty only by default, or everything inside with `?recursive=true`) |
+| `GET` / `PUT` | `/api/media/storage` | Read / change where the library keeps its bytes |
+| `GET` / `PUT` | `/api/media/settings` | Read / change media URL origin and upload constraints |
+
+### Settings & Observability
+
+| Method | Path | Description |
+|--------|------|-------------|
+| `GET` | `/api/settings` | The rest of `silo.toml` — shows what is in force and what a restart is owed for |
+| `PUT` | `/api/settings/{table}` | Rewrite one of `log`, `search`, `schema`, or `auth` |
+| `GET` | `/api/audit` | Authority change log — who changed what claims, and when |
+| `GET` | `/api/observability` | Aggregate API traffic, errors, latency, and process resources |
+
+### Plugins
+
+| Method | Path | Description |
+|--------|------|-------------|
+| `GET` | `/api/plugins` | List plugins: what each requested, what was granted, and its current state |
+| `GET` | `/api/plugins/{name}` | One plugin, with an `ETag` to send back as `If-Match` |
+| `PUT` / `DELETE` | `/api/plugins/{name}/grant` | Approve or narrow a grant / withdraw it |
+| `POST` | `/api/plugins/{name}/enable` | Start a plugin now |
+| `POST` | `/api/plugins/{name}/disable` | Stop a plugin now |
+| `PATCH` / `DELETE` | `/api/plugins/{name}/config` | Change its config / return it to `silo.toml` defaults |
+| `POST` | `/api/plugins/{name}/restart` | Bring a dead worker back |
+| `POST` | `/api/plugins/rescan` | Re-read `silo.toml` and apply plugin changes |
+
+### Public Media Streaming
+
+| Method | Path | Description |
+|--------|------|-------------|
+| `GET` | `/media/{id}` | Stream a media asset — no authentication required, no `/api/` prefix |
+
+The file is read from the store as it is sent and never held whole. A single `Range: bytes=…` header answers `206 Partial Content` with `Content-Range`; a range past the end of the file answers `416`. A whole (non-range) response carries no `Content-Length`. Every response carries `X-Content-Type-Options: nosniff` and `Content-Security-Policy: sandbox`. Images, video, audio, and PDF are served `inline`; SVG and all other types are sent as `attachment` so a browser downloads them rather than rendering them as a page. An `<img>` tag still displays an attachment.
+
+## Optimistic concurrency
+
+`PUT` and `DELETE` on an entry require the revision you expect. Supply it as `If-Match: "<rev>"` or `?rev=<n>`. Every entry response carries its current `rev`, so send back the one you read. A mismatch returns `409 conflict`, which prevents two editor tabs from overwriting each other silently.
+
+```bash
+# Read the entry and capture its rev
+curl http://localhost:8090/api/projects/default/envs/prod/collections/posts/01J8ABCD \
+  -H "Authorization: Bearer $SILO_KEY"
+
+# Replace it, sending the rev you read
+curl -X PUT http://localhost:8090/api/projects/default/envs/prod/collections/posts/01J8ABCD \
+  -H "Authorization: Bearer $SILO_KEY" \
+  -H "If-Match: \"3\"" \
+  -H "Content-Type: application/json" \
+  -d '{"title": "Updated title"}'
+```

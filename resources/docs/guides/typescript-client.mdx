@@ -1,0 +1,349 @@
+---
+title: "Silo TypeScript client SDK — @org-quicko/silo-client"
+sidebarTitle: "TypeScript SDK"
+description: "The Silo TypeScript client provides typed access to collections, entries, media, and search. Runs on Node 18+, Bun, Deno, and browsers."
+---
+
+The Silo TypeScript client mirrors the shape of Silo itself: a client holds projects, a project holds environments, an environment holds collections, and a collection holds entries. Every handle is a plain value object that makes no network request until you call a method on it. The client runs on Node 18+, Bun, Deno, browsers, and workers.
+
+## Installation
+
+```bash
+npm install @org-quicko/silo-client
+```
+
+Published to npm as `@org-quicko/silo-client`.
+
+## Basic setup
+
+```ts
+import { Silo } from "@org-quicko/silo-client"
+
+const silo = new Silo({ url: "http://localhost:8090", key: process.env.SILO_KEY })
+const movies = silo.project("moviespace").environment("prod").collection("movies")
+
+const page = await movies.list({ limit: 10 })
+for (const movie of page.entries) {
+  console.log(movie.title)
+}
+```
+
+`silo.project("moviespace").environment("prod")` sends no request — it only builds the path. Nothing needs an `await` until the actual read.
+
+## Typed collections
+
+Describe your fields once and the collection becomes fully typed.
+
+```ts
+interface Movie {
+  title: string
+  year: number
+  status: "draft" | "published"
+  genres: string[]
+}
+
+const movies = silo.project("moviespace").environment("prod").collection<Movie>("movies")
+```
+
+With a type parameter, filter field names are checked at compile time and returned entries carry your type alongside the Silo envelope.
+
+## CRUD operations
+
+<Steps>
+  <Step title="Create an entry">
+    ```ts
+    const created = await movies.create({
+      title: "Arrival",
+      year: 2016,
+      status: "draft",
+      genres: ["sci-fi"],
+    })
+    ```
+  </Step>
+  <Step title="Replace an entry">
+    `replace` takes the revision you read. Pass a stale `rev` and the call raises `ConflictError`.
+    ```ts
+    await movies.replace(created.id, created.rev, {
+      title: "Arrival",
+      year: 2016,
+      status: "published",
+      genres: ["sci-fi", "drama"],
+    })
+    ```
+  </Step>
+  <Step title="Delete an entry">
+    ```ts
+    await movies.delete(id, rev)
+    ```
+  </Step>
+  <Step title="Read a single entry">
+    Pass `{ variables: "raw" }` when you plan to edit the entry (see below).
+    ```ts
+    const movie = await movies.get(id)
+    const draft  = await movies.get(id, { variables: "raw" })
+    ```
+  </Step>
+  <Step title="List entries">
+    ```ts
+    const page = await movies.list({ limit: 25 })
+    ```
+  </Step>
+</Steps>
+
+### Reading raw before editing
+
+Silo substitutes `{{VARIABLE}}` references in content on the way out. If you read a resolved value and write it back, you replace the stored reference with whatever it happened to mean today — and you cannot recover the template from the result.
+
+```ts
+const draft = await movies.get(id, { variables: "raw" })
+draft.trailerUrl  // "{{CDN_URL}}/trailers/arrival.mp4", as stored
+
+const { id: _, rev, created_at, updated_at, ...fields } = draft
+await movies.replace(draft.id, rev, { ...fields, status: "published" })
+```
+
+`{ variables: "raw" }` works on every read: `get`, `list`, `all`, and `pages`. Writes always send raw, so `create` and `replace` echo back what you sent.
+
+### Entry response shape
+
+An entry is the wire's own flat object. Your fields and the Silo envelope live together in one record.
+
+```ts
+{
+  id: "01M24ZX2ZK60T72CNPCM222E3Z",
+  rev: 1,
+  title: "Arrival",
+  year: 2016,
+  status: "published",
+  genres: ["sci-fi", "drama"],
+  created_at: "2026-09-10T06:25:55.699Z",
+  updated_at: "2026-09-10T06:25:55.699Z",
+}
+```
+
+The envelope keys are `id`, `rev`, `created_at`, and `updated_at`. Silo refuses a schema that declares one of them as a field name.
+
+## Queries
+
+Build filters with the collection's `.filter` builder. A typed collection checks field names at compile time.
+
+```ts
+import { Filter, Sort } from "@org-quicko/silo-client"
+
+const page = await movies.list({
+  where: movies.filter.field("status").equals("published")
+    .and(movies.filter.each("genres").equals("sci-fi")),
+  sort: Sort.recentlyUpdated(),
+  limit: 20,
+})
+```
+
+`field` addresses scalar fields. `each` addresses every element of an array. `meta` addresses the envelope (`id`, `rev`, `created_at`, `updated_at`).
+
+```ts
+movies.filter.field("title").contains("arrival")
+movies.filter.each("genres").equals("sci-fi")
+Filter.meta("updated_at").greaterThan("2026-01-01T00:00:00Z")
+```
+
+A dot path reaches inside nested objects: `field("director.name")` addresses the `name` property of a `director` object.
+
+### `field` vs `each`
+
+The two accessors ask different questions when applied to an array:
+
+```ts
+movies.filter.each("genres").notEquals("horror")          // some genre is not "horror"
+Filter.not(movies.filter.each("genres").equals("horror")) // no genre is "horror"
+```
+
+### Filter operators
+
+`equals`, `notEquals`, `contains`, `greaterThan`, `atLeast`, `lessThan`, `atMost`, `oneOf`, `exists` — combined with `and`, `or`, and `not`. `Filter` provides the same operators without type constraints, for filters assembled at runtime. `Filter.raw(node)` accepts the wire format directly.
+
+## Pagination
+
+```ts
+const first = await movies.list({ limit: 25 })
+first.total       // 137
+first.pageNumber  // 1
+first.hasMore     // true
+
+const second = await first.next()
+```
+
+Silo caps `limit` at 500 and replaces a limit of zero or less with 50. `.next()` advances by the window Silo actually used, so an oversized request still pages correctly.
+
+You can also iterate:
+
+```ts
+for (const entry of page) { }
+
+for await (const entry of movies.all({ where })) { }
+for await (const page of movies.pages({ limit: 100 })) { }
+```
+
+<Warning>
+  Paging by offset over data that is being written is not a snapshot. Sort by something stable when that matters.
+</Warning>
+
+## Media
+
+```ts
+import { MediaReference } from "@org-quicko/silo-client"
+
+const poster = await silo.media.upload({
+  bytes,
+  filename: "arrival.jpg",
+  contentType: "image/jpeg",
+  folder: "posters",
+})
+
+await movies.create({
+  title: "Arrival",
+  year: 2016,
+  status: "draft",
+  genres: ["sci-fi"],
+  poster: MediaReference.of(poster.id),
+})
+```
+
+Store `MediaReference.of(id)` in your entry, not the URL. If a file is renamed or moved later, every entry that holds a reference still resolves correctly — only entries that stored a raw URL break.
+
+```ts
+await poster.rename("arrival-2016.jpg")
+await poster.moveTo("posters/2016")
+await poster.setTags(["poster"])        // replaces the whole list
+await poster.replace(file)              // new bytes, same id and URL
+await poster.delete()                   // refused while an entry refers to it
+await poster.delete({ force: true })
+
+const usage = await poster.usages()
+usage.usages    // the referring entries this key may read
+usage.total     // the true count
+usage.visible   // how many of them this key may see
+```
+
+`replace` swaps the bytes behind an asset. The id, reference, name, and URL all stay the same, so every entry that references the asset shows the new file without any entries being rewritten.
+
+Folder operations and a bulk delete that takes up to 100 ids:
+
+```ts
+await silo.media.folders.list()
+await silo.media.folders.create("posters/2016")
+await silo.media.folders.rename("posters", "artwork", { merge: true })
+await silo.media.folders.delete("artwork", { recursive: true })
+
+const report = await silo.media.deleteMany(ids, { force: true })
+report.deleted
+report.failed
+```
+
+## Variables
+
+Declare a variable once per project, then give it a value per environment. Silo substitutes `{{NAME}}` in entries on the way out.
+
+```ts
+const moviespace = silo.project("moviespace")
+await moviespace.variables.declare("CDN_URL", {
+  environment: "prod",
+  value: "https://cdn.moviespace.com",
+})
+
+const environment = moviespace.environment("prod")
+await environment.variables.list()
+await environment.variables.set("CDN_URL", "https://cdn.moviespace.com")
+await environment.variables.unset("CDN_URL")
+```
+
+An unset variable leaves `{{CDN_URL}}` standing in the response rather than substituting an empty string. An empty value (`""`) substitutes as empty.
+
+## Search
+
+The scope is wherever you call `search` — you cannot accidentally widen it by omitting a parameter.
+
+```ts
+await movies.search({ query: "arrival" })          // one collection
+await environment.search({ query: "arrival" })     // one environment
+await silo.search({ query: "arrival" })            // everything the key can read
+```
+
+A hit reports where it was found and quotes the matching text:
+
+```ts
+const results = await silo.search({ query: "arrival" })
+results.hits[0].collection   // "movies"
+results.hits[0].snippets     // [{ path, before, match, after }]
+results.engine               // "fts5" or "scan"
+```
+
+## Error handling
+
+There is one error class per failure mode, so you can branch precisely.
+
+```ts
+import { ConflictError, ValidationFailedError } from "@org-quicko/silo-client"
+
+try {
+  await movies.replace(movie.id, movie.rev, fields)
+} catch (error) {
+  if (error instanceof ConflictError) {
+    // Someone else wrote first. Read the current revision and retry.
+    const current = await movies.get(movie.id)
+    await movies.replace(current.id, current.rev, fields)
+  } else if (error instanceof ValidationFailedError) {
+    console.error(error.details)  // [{ path: "/title", message }]
+  }
+}
+```
+
+`SiloError` is the base for anything Silo refused: `ValidationFailedError`, `UnauthorizedError`, `ForbiddenError`, `NotFoundError`, `ConflictError`, `MediaInUseError`, `MediaDeleteStalledError`, and `InternalError`.
+
+`NetworkError`, `TimeoutError`, `RequestAbortedError`, and `InvalidResponseError` are **not** `SiloError` — Silo never answered. A `NetworkError` on a write does not prove the write failed; read the entry back before deciding whether to retry.
+
+## Cancellation
+
+Every call accepts the same cancellation options as a trailing argument.
+
+```ts
+await movies.list({ limit: 20 }, { signal: controller.signal })
+await movies.get(id, { timeoutMilliseconds: 2_000 })
+```
+
+`abort()` raises `RequestAbortedError`. A timeout raises `TimeoutError`. Nothing is retried automatically — a retried `POST` creates a second entry.
+
+## Anonymous access
+
+Omit the key to reach collections whose schema does not require authentication.
+
+```ts
+const silo = new Silo({ url: "https://cms.moviespace.com" })
+```
+
+## Optional caching
+
+Enable in-memory caching of entry reads with a TTL and a capacity limit.
+
+```ts
+const silo = new Silo({
+  url: "http://localhost:8090",
+  key: process.env.SILO_KEY,
+  cache: { enabled: true, ttl: 10 * 60 * 1000, maxSize: 1_000 },
+})
+
+const stats = silo.cache().statistics()
+console.log(stats.hits, stats.misses, stats.hitRate())
+
+// Discard this client's cached responses after changes made by another client.
+silo.cache().clear()
+```
+
+Only collection entry reads are cached — `get()` and `list()`; `all()` and `pages()` reuse `list()`. Schemas, searches, variables, media, and writes are never cached. Successful collection writes (`create`, `replace`, `delete`) automatically invalidate that collection's cached entries. Use `clear()` after variable or media changes when a fresh read is needed.
+
+<Info>
+  Caching is local to one process, worker, or browser tab. Clients created with `withKey()` or `withUrl()` have independent caches.
+</Info>
+
+## What this client does not cover
+
+Keys, claims, plugins, export and import, settings, audit, and observability. Those are operator surfaces owned by the admin UI and the CLI. There is also no generic `request()` escape hatch — `RouteInventory` lists every route the client covers and every route it intentionally leaves out.

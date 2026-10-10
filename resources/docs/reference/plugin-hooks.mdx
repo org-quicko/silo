@@ -1,0 +1,207 @@
+---
+title: "Silo plugin hooks: entry and collection lifecycle events"
+sidebarTitle: "Plugin Hooks"
+description: "All six Silo plugin hooks: payloads, mutation rules, delivery semantics, claim format, dispatch order, and error handling for entry and collection events."
+---
+
+Silo provides six hooks that let plugins observe or intercept the entry and collection lifecycle. Three pairs cover the two moments of an entry write (before and after), one pair covers delete, and one hook fires when a collection or its parent scope is erased. Hooks fire for the CRUD API and for a plugin's own `ctx` writes — they deliberately do not fire for `silo import` or a scope copy.
+
+---
+
+## Hook reference
+
+| Hook | Scope | May do | Notes |
+|---|---|---|---|
+| `entry.beforeValidate` | Entry write (create/update) | Replace `data`, reject | The only mutating hook. Schema validates the result, not the original input. |
+| `entry.beforeWrite` | Entry write (create/update) | Reject | Data is already validated; cannot rewrite. |
+| `entry.afterWrite` | Entry write (create/update) | Observe | Best-effort, at-most-once. Does not fail the request. |
+| `entry.beforeDelete` | Entry delete | Reject | Carries the full entry, not just its id. |
+| `entry.afterDelete` | Entry delete | Observe | Best-effort, at-most-once. Does not fail the request. |
+| `collection.afterDelete` | Collection / env / project delete | Observe | One event per collection erased, however many entries went. Carries `cause`. |
+
+---
+
+## Declaring hooks in the manifest
+
+Hooks must be declared in `package.json` under `contributes.hooks`. A hook the module exports but does not declare here is never called. Silo automatically adds a `hooks:<project>/<env>/<collection>:<hook>` claim to the grant request for each declared hook.
+
+```json
+{
+  "silo": {
+    "contributes": {
+      "hooks": ["entry.beforeValidate", "entry.afterWrite"]
+    }
+  }
+}
+```
+
+<Note>
+A plugin whose grant does not cover a hook it declares in any scope refuses the start. A missing API claim is not an error — a plugin may run on less than it asked for. But a hook that can never fire means the plugin loads, looks healthy, and never does the thing it was installed for.
+</Note>
+
+---
+
+## Hook handler signatures
+
+Implement a hook by exporting a function whose key matches the hook name from `defineSiloPlugin`:
+
+```ts
+import { defineSiloPlugin, ValidationError } from "silo:api";
+
+export default defineSiloPlugin({
+  "entry.beforeValidate"(event, ctx) {
+    if (event.collection !== "posts") return;
+    const title = event.data[ctx.config.field];
+    if (typeof title !== "string") throw new ValidationError("a post needs a title");
+    return { data: { ...event.data, slug: title.toLowerCase().replace(/[^a-z0-9]+/g, "-") } };
+  },
+
+  "entry.afterWrite"(event, ctx) {
+    // observe only — cannot reject or mutate
+    console.log("wrote", event.entry.id, "to", event.collection);
+  },
+
+  "collection.afterDelete"(event, ctx) {
+    // clean up any derived data keyed on this collection
+    console.log("collection", event.collection, "erased, cause:", event.cause);
+  },
+});
+```
+
+---
+
+## Event payloads
+
+All entry hooks receive a common base payload, with hook-specific additions:
+
+### Common fields (all entry hooks)
+
+| Field | Type | Description |
+|---|---|---|
+| `op` | `"create" \| "update" \| "delete"` | The operation that triggered the hook. |
+| `scope` | `{ project: string, env: string }` | The project and environment of the entry. |
+| `collection` | `string` | The collection name. |
+| `entry` | `object` | The entry being operated on, in its Silo envelope (`id`, `rev`, `seq`, timestamps). |
+
+### entry.beforeValidate additions
+
+| Field | Type | Description |
+|---|---|---|
+| `data` | `Record<string, unknown>` | The incoming fields, **before** schema validation. Return `{ data: newData }` to replace them. |
+
+### collection.afterDelete fields
+
+| Field | Type | Description |
+|---|---|---|
+| `collection` | `string` | The collection name that was erased. |
+| `erased` | `number` | The count of entries that were removed. |
+| `cause` | `"collection" \| "environment" \| "project"` | What triggered the delete. `"environment"` or `"project"` means every sibling collection is going too. |
+
+<Note>
+The envelope fields `id`, `rev`, `seq`, and timestamps belong to Silo. No hook can set them. Plugins shape `data` only.
+</Note>
+
+---
+
+## Hook claim format
+
+Delivery to a plugin is its own claim, separate from any `entries:*` permission. Being handed an entry before validation — with the chance to rewrite it — is a different authority from reading a committed one.
+
+```
+hooks:<project>/<env>/<collection>:<hook-name>
+```
+
+**Example:** `hooks:blog/prod/posts:entry.beforeValidate`
+
+Silo checks this claim **before the event crosses into the worker**. A check on the far side would be an audit trail rather than a boundary.
+
+<CodeGroup>
+```toml silo.toml (declarative grant)
+[[plugins]]
+name   = "silo-plugin-slug"
+claims = ["hooks:blog/prod/posts:entry.beforeValidate"]
+```
+
+```sh CLI grant
+silo plugin grant silo-plugin-slug --claims hooks:blog/prod/posts:entry.beforeValidate
+```
+</CodeGroup>
+
+---
+
+## Delivery semantics
+
+<Steps>
+  <Step title="Claim check before crossing the worker boundary">
+    Silo verifies the hook claim before dispatching the event. A plugin whose grant does not cover the event's scope never receives it.
+  </Step>
+  <Step title="Mutation before validation">
+    `entry.beforeValidate` fires before the schema runs. The schema judges exactly what gets stored. After validation, a hook may reject but not rewrite — storing a value the schema never saw is not allowed.
+  </Step>
+  <Step title="After hooks never fail the request">
+    `entry.afterWrite` and `entry.afterDelete` are best-effort and at-most-once. The write has already committed; a failure there would invite a retry that writes twice.
+  </Step>
+  <Step title="Import and scope copy are excluded">
+    Hooks do not fire for `silo import` or a scope copy. An import reproduces an archive faithfully; a hook rewriting data mid-import would make export-then-import non-idempotent.
+  </Step>
+</Steps>
+
+### collection.afterDelete and forced deletes
+
+`collection.afterDelete` is the only way to hear about a forced delete (`DELETE .../collections/{name}?force=true`). A forced delete erases every entry without dispatching `entry.afterDelete` for each one — one event per row on a 100k-row delete would be a 100k-event fan-out for a fact that is one sentence long.
+
+There is no `collection.beforeDelete` counterpart. A veto there would overrule an explicit `force` from a caller who already had to hold `entries:delete` at that reach.
+
+---
+
+## Error handling from hooks
+
+| Thrown value | Effect |
+|---|---|
+| `throw ValidationError(msg)` | `400` response to the API caller. Deliberate rejection. |
+| `throw ForbiddenError(msg)` | `403` response to the API caller. Deliberate rejection. |
+| Any other throw (before hook) | Governed by `on_error` in `silo.toml`. |
+| Any other throw (after hook) | Logged. The request always succeeds regardless. |
+
+`on_error` values:
+
+| Value | Behaviour |
+|---|---|
+| `fail` *(default)* | Refuses the write. Logs the error. |
+| `skip` | Logs the error. Write proceeds as if the plugin were not present. |
+
+---
+
+## Dispatch order
+
+Hooks are dispatched in the order plugins appear in `[[plugins]]` blocks in `silo.toml`, top to bottom. There is no priority number to compete over and no load-order surprise.
+
+```toml
+# plugin-a fires before plugin-b for every shared hook
+[[plugins]]
+name = "plugin-a"
+
+[[plugins]]
+name = "plugin-b"
+```
+
+---
+
+## Plugin timeout and recovery
+
+Each hook dispatch has a per-plugin `timeout_ms` (default `5000`). A dispatch that exceeds its budget leaves the plugin in `failed` state. The plugin is torn down and **not** automatically restarted — a plugin that missed its budget is usually still spinning, so an automatic respawn would walk into the same wall while hiding that anything happened.
+
+```sh
+# Bring a failed plugin back deliberately via the management API:
+# POST /api/plugins/silo-plugin-slug/restart
+curl -X POST http://localhost:8090/api/plugins/silo-plugin-slug/restart \
+  -H "Authorization: Bearer $SILO_KEY"
+```
+
+A timed-out `before` hook answers `504` to the API caller (governed by `on_error`). A timed-out `after` hook is logged and the original request succeeds.
+
+---
+
+## Hooks and the admin UI
+
+The admin UI's **Settings > Plugins** panel flags any hook that can change or stop a write. `entry.beforeValidate` over a collection is a larger authority than `entries:update` and reads like a smaller one — the UI makes that visible beside the claim checkbox when an operator reviews the grant.

@@ -1,0 +1,170 @@
+---
+title: "Silo concepts: instances, projects, collections, and entries"
+sidebarTitle: "Concepts"
+description: "Understand the data model behind Silo: how instances, projects, environments, collections, entries, variables, and API keys relate to each other."
+---
+
+Silo organises content in a deliberate hierarchy. Understanding the names and how they nest makes every API route, every claim, and every export command immediately readable. This page defines each term, explains how the pieces fit together, and covers the details you will reach for when building real applications.
+
+## Glossary
+
+| Term | What it is |
+|------|------------|
+| **Instance** | One data directory with one `instance_id`. Everything below is inside it. |
+| **Project** | A named container — for example a tenant or an application. |
+| **Environment** | A named container inside a project — for example `prod` or `staging`. |
+| **Collection** | A name and a JSON Schema document, identified by `(project, environment, name)`. |
+| **Entry** | A JSON document in a Silo envelope: a ULID `id`, a `rev`, a `seq`, and UTC timestamps. |
+| **Variable** | A name declared once in a project, valued per environment, substituted into each `{{NAME}}` an entry holds on the way out. |
+| **API key** | A key with explicit claims. Silo has no users and no sessions. |
+
+## Scope hierarchy
+
+The hierarchy flows from broadest to narrowest: **Instance → Project → Environment → Collection → Entry**. Every API route reflects this nesting directly in its URL path.
+
+```
+Instance
+└── Project  (e.g. "default")
+    └── Environment  (e.g. "prod")
+        └── Collection  (e.g. "posts")
+            └── Entry  (a single JSON document)
+```
+
+Projects and environments are plain string containers with no metadata of their own. All three — projects, environments, and collections — are ULID-keyed records, so you can rename any of them at any time. The claims that name them follow the rename automatically, with no broken references.
+
+<Tip>
+  On first start, Silo creates a default project and environment for you (`default` / `prod`). You can rename or delete them just like any other project or environment.
+</Tip>
+
+## Entries and the envelope
+
+An entry is a JSON document wrapped in a Silo envelope. When you read an entry, Silo returns it flattened — the envelope fields come first, followed by your own fields:
+
+```json
+{
+  "id": "01J8XXXXXXXXXXXXXXXXXXXX",
+  "title": "Hello World",
+  "body": "My first post.",
+  "created_at": "2025-01-15T10:30:00Z",
+  "updated_at": "2025-01-15T10:30:00Z"
+}
+```
+
+The envelope fields are:
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `id` | ULID string | Unique, sortable identifier. ULIDs are lexicographically ordered by creation time. |
+| `rev` | integer | Revision counter. Incremented on every update. Used for optimistic concurrency. |
+| `seq` | integer | Instance-wide write cursor. Monotonically increasing across all collections. |
+| `created_at` | RFC 3339 UTC | When the entry was first created. |
+| `updated_at` | RFC 3339 UTC | When the entry was last updated. |
+
+Your own fields live under `$.data` in JSONPath filter expressions, so a field you name `id` can never shadow the envelope's `id`.
+
+### Optimistic concurrency
+
+`PUT` and `DELETE` on an entry require the revision you expect, sent as `If-Match: "3"` or `?rev=3`. Every entry response carries the current `rev`, so send back the one you read. A mismatch returns `409 Conflict`. This is what prevents two admin tabs from overwriting each other silently.
+
+<Note>
+  A read is never refused because of a schema mismatch. Silo validates only writes, so a schema change can never make stored data unreadable.
+</Note>
+
+## Collections and JSON Schema
+
+A collection is defined by a name and a JSON Schema document (draft 2020-12, validated in full by Ajv). The schema describes exactly what documents the collection accepts.
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "title": { "type": "string" },
+    "body":  { "type": "string" },
+    "status": { "type": "string", "enum": ["draft", "published"] }
+  },
+  "required": ["title", "status"]
+}
+```
+
+Key rules about collections and schema:
+
+- **Every write is validated.** There is no way to bypass schema validation on create or update.
+- **Reads are never validated.** A schema change cannot make existing entries unreadable.
+- **The schema is frozen while entries exist.** To change the fields that determine validity, you must delete the entries first — or export them, create a new collection, and import them back.
+- **Some schema fields stay editable at any time.** `x-silo-auth`, `x-silo-search`, `title`, `description`, `$comment`, and `$schema` do not change which entries are valid, so they can always be edited even when the collection holds entries.
+
+<Warning>
+  Attempting to update a schema in a way that would invalidate existing entries returns `409 Conflict`. The message names the collection and the entry count. The admin UI makes the schema read-only while entries exist.
+</Warning>
+
+### `x-silo-*` schema keywords
+
+Silo extends JSON Schema with a small set of `x-silo-*` keywords that control rendering and protection in the admin UI — for example, marking a field as private or declaring which fields contribute to the full-text search index. These keywords are always editable regardless of entry count.
+
+## System collections
+
+Names that start with `_` belong to Silo. You cannot create a collection whose name begins with `_`.
+
+The most important system collection is `_keys`, which lives at the reserved scope `_system/_system`. Silo stores API keys there exactly like any other content — which is why every storage driver and the export engine handle keys with no special code.
+
+<Note>
+  `_system/_system` is not a project and environment you created. It is a reserved scope managed by Silo itself.
+</Note>
+
+## Variables
+
+Variables let one value differ between environments without duplicating entries. You declare a variable name once in a project, then set its value separately in each environment.
+
+When Silo returns an entry, it substitutes each `{{NAME}}` placeholder in the document with the current environment's value for that variable. A name that has no declaration and a name with no value for this environment are left as-is rather than blanked.
+
+```
+Declaration (project level):  API_BASE
+Value in prod:                 https://api.example.com
+Value in staging:              https://staging.api.example.com
+```
+
+An entry stored as:
+```json
+{ "endpoint": "{{API_BASE}}/v1/users" }
+```
+
+Is returned in `prod` as:
+```json
+{ "endpoint": "https://api.example.com/v1/users" }
+```
+
+And in `staging` as:
+```json
+{ "endpoint": "https://staging.api.example.com/v1/users" }
+```
+
+<Tip>
+  Pass `?variables=raw` on any entry or search read to receive the unresolved `{{NAME}}` templates. The admin UI uses this so a form cannot save a resolved value back over the reference a user typed.
+</Tip>
+
+## API Keys and claims
+
+Silo has no user accounts and no sessions. Every request is authenticated with an API key. A key carries a set of explicit claims that enumerate exactly what it may do. Access is **deny by default** — a key with no claims can do nothing.
+
+A key can only mint keys whose claims are a subset of its own. The root key (printed once on first start) holds all claims and can delegate any of them.
+
+Claims are scoped to the hierarchy. For example, a claim might allow reading entries in all collections inside `default/prod`, or only in a specific collection. Wildcards are available per segment.
+
+```sh
+# Mint a read-only key scoped to a specific collection
+silo keys create --preset read --label frontend --project default --env prod --collections posts
+
+# Mint a key with full access to all projects and environments
+silo keys create --preset root --label admin
+```
+
+<Warning>
+  If you lose every key, you can mint a new root key directly against the data directory without a running server:
+
+  ```sh
+  silo keys create --preset root --label recovery
+  ```
+</Warning>
+
+The secret for a new key is returned **exactly once** — by the CLI at creation time or in the API response body. Silo stores only the hash.

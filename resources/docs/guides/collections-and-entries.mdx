@@ -1,0 +1,231 @@
+---
+title: "Define and manage collections and entries in Silo"
+sidebarTitle: "Collections & Entries"
+description: "Collections are JSON Schema documents that define your content structure. Entries are validated JSON documents with ULIDs, revisions, and UTC timestamps."
+---
+
+Collections are the backbone of every Silo project. A collection pairs a name with a [JSON Schema draft 2020-12](https://json-schema.org/specification) document that describes exactly what your content looks like. Every write is validated against that schema in full — there is no way to turn that off. Reads are never validated, so a schema change can never make already-stored data unreadable.
+
+## Creating a collection
+
+To create a collection, POST its name and schema to the collections endpoint for a project/environment pair.
+
+<CodeGroup>
+```bash curl
+curl -X POST http://localhost:8090/api/projects/acme/envs/prod/collections \
+  -H "Authorization: Bearer $SILO_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "posts",
+    "schema": {
+      "type": "object",
+      "properties": {
+        "title":  { "type": "string", "minLength": 1, "maxLength": 200 },
+        "body":   { "type": "string" },
+        "status": { "type": "string", "enum": ["draft", "published"] },
+        "tags":   { "type": "array", "items": { "type": "string" } }
+      },
+      "required": ["title", "status"]
+    }
+  }'
+```
+</CodeGroup>
+
+The JSON Schema block above defines a blog posts collection. `title` and `status` are required; `body` and `tags` are optional. Silo validates every entry write against this shape.
+
+## Managing collections
+
+Beyond creating a collection, Silo provides endpoints to list, rename, and delete collections within a project/environment.
+
+| Method | Path | Description |
+|--------|------|-------------|
+| `GET` | `/api/projects/{project}/envs/{env}/collections` | List all collections |
+| `POST` | `/api/projects/{project}/envs/{env}/collections` | Create a collection with `{name, schema}` |
+| `PATCH` | `/api/projects/{project}/envs/{env}/collections/{name}` | Rename a collection (`?dry_run=true` available) |
+| `DELETE` | `/api/projects/{project}/envs/{env}/collections/{name}` | Delete a collection and all its entries (`?force=true`) |
+
+## Managing a collection's schema
+
+After a collection is created, you can read, replace, or delete its schema through the schema sub-resource.
+
+| Method | Path | Description |
+|--------|------|-------------|
+| `GET` | `/api/projects/{project}/envs/{env}/collections/{name}/schema` | Fetch the current schema |
+| `PUT` | `/api/projects/{project}/envs/{env}/collections/{name}/schema` | Replace the schema |
+| `DELETE` | `/api/projects/{project}/envs/{env}/collections/{name}/schema` | Remove the schema |
+
+<Note>
+  `PUT` returns `409` if the collection holds entries and the new schema changes which entries are valid. See [Schema validation](#schema-validation) for the full rules on what can and cannot change.
+</Note>
+
+## Entry CRUD operations
+
+Every entry gets a ULID `id` assigned at creation time. Use that `id` — along with the `rev` — for all subsequent reads, updates, and deletes.
+
+<Steps>
+  <Step title="List entries">
+    ```bash
+    curl http://localhost:8090/api/projects/acme/envs/prod/collections/posts \
+      -H "Authorization: Bearer $SILO_KEY"
+    ```
+
+    Supports `filter`, `sort`, `limit`, and `offset` query parameters. See [List queries](/guides/search) for the full filter grammar.
+  </Step>
+
+  <Step title="Create an entry">
+    ```bash
+    curl -X POST http://localhost:8090/api/projects/acme/envs/prod/collections/posts \
+      -H "Authorization: Bearer $SILO_KEY" \
+      -H "Content-Type: application/json" \
+      -d '{"title": "Hello world", "status": "draft", "tags": ["intro"]}'
+    ```
+
+    Silo validates the body against the collection schema before writing. A failed validation returns `400 validation_failed` with JSON Pointer paths in `details`.
+  </Step>
+
+  <Step title="Read a single entry">
+    ```bash
+    curl http://localhost:8090/api/projects/acme/envs/prod/collections/posts/01J8XYZ... \
+      -H "Authorization: Bearer $SILO_KEY"
+    ```
+  </Step>
+
+  <Step title="Update an entry (PUT)">
+    ```bash
+    curl -X PUT http://localhost:8090/api/projects/acme/envs/prod/collections/posts/01J8XYZ... \
+      -H "Authorization: Bearer $SILO_KEY" \
+      -H "Content-Type: application/json" \
+      -H 'If-Match: "1"' \
+      -d '{"title": "Hello world", "status": "published", "tags": ["intro"]}'
+    ```
+
+    `PUT` replaces the whole entry. Supply every field, not just the ones that changed.
+  </Step>
+
+  <Step title="Delete an entry">
+    ```bash
+    curl -X DELETE http://localhost:8090/api/projects/acme/envs/prod/collections/posts/01J8XYZ... \
+      -H "Authorization: Bearer $SILO_KEY" \
+      -H 'If-Match: "2"'
+    ```
+  </Step>
+</Steps>
+
+## Entry response format
+
+Silo returns entries as flat objects. The envelope fields (`id`, `rev`, `created_at`, `updated_at`) appear alongside your own fields — there is no nested `data` key in the response body.
+
+```json
+{
+  "id": "01J8XYZ2ZK60T72CNPCM222E3Z",
+  "rev": 2,
+  "title": "Hello world",
+  "status": "published",
+  "tags": ["intro"],
+  "created_at": "2024-09-10T06:25:55.699Z",
+  "updated_at": "2024-09-10T09:14:02.301Z"
+}
+```
+
+<Note>
+  The `id`, `rev`, `created_at`, and `updated_at` fields are reserved envelope keys. Silo refuses a schema that declares any of them, and refuses an entry body that includes one. The `seq` counter is an internal field used by Silo for ordering; it is never included in the API response.
+</Note>
+
+## Optimistic concurrency
+
+Every `PUT` and `DELETE` requires you to send back the revision you last read. This stops two browser tabs (or two processes) from silently overwriting each other.
+
+Pass the revision as an `If-Match` header or a `?rev=` query parameter:
+
+<CodeGroup>
+```bash If-Match header
+curl -X PUT .../posts/01J8XYZ... \
+  -H 'If-Match: "3"' \
+  -H "Content-Type: application/json" \
+  -d '{"title": "Updated title", "status": "published"}'
+```
+
+```bash ?rev query parameter
+curl -X DELETE ".../posts/01J8XYZ...?rev=3"
+```
+</CodeGroup>
+
+<Warning>
+  A revision mismatch returns `409 conflict`. Read the entry again to get the current `rev`, merge your changes, and retry.
+</Warning>
+
+## Schema validation
+
+Every write — create and update alike — is validated against the collection's schema. Reads are never validated, so stored data that pre-dates a schema change is always readable.
+
+The schema itself is **frozen while entries exist**. Attempting to `PUT` a new schema that changes which entries are valid returns `409`. The error message names the collection and the entry count.
+
+<Note>
+  The following schema keywords are **always** editable, even while entries exist, because they do not affect entry validity: `x-silo-auth`, `x-silo-search`, `title`, `description`, `$comment`, and `$schema`.
+</Note>
+
+The admin UI enforces this by making the validating shape read-only while a collection holds entries. Field descriptions and the privacy toggle remain editable.
+
+## x-silo-* schema keywords
+
+Silo extends JSON Schema with vendor keywords that control access and indexing. They live at the top level of your schema object.
+
+<ResponseField name="x-silo-auth" type="boolean">
+  Set to `true` to require authentication to read this collection. Anonymous callers receive `401` instead of entry data.
+
+  ```json
+  {
+    "type": "object",
+    "x-silo-auth": true,
+    "properties": { ... }
+  }
+  ```
+</ResponseField>
+
+<ResponseField name="x-silo-search" type="array">
+  An array of JSONPath expressions identifying which fields Silo indexes for full-text search. Paths are scoped to the internal entry document (`$.data.*`).
+
+  ```json
+  {
+    "type": "object",
+    "x-silo-search": ["$.data.title", "$.data.body"],
+    "properties": { ... }
+  }
+  ```
+
+  Omitting this keyword means the collection is not searchable. See [Search](/guides/search) for details.
+</ResponseField>
+
+<Tip>
+  Labels (`title`, `description`, `$comment`) and search fields (`x-silo-search`) are always editable — even when the validating shape is frozen. To change which fields are indexed on a live collection, update the schema via `PUT /api/projects/{project}/envs/{env}/collections/{name}/schema`.
+</Tip>
+
+## Collection references
+
+A `$ref` can point at another collection in the same project and environment using the `silo://collections/<name>` URI scheme:
+
+```json
+{
+  "type": "object",
+  "properties": {
+    "author": {
+      "$ref": "silo://collections/authors"
+    }
+  }
+}
+```
+
+This tells Silo that the `author` field holds a reference to an entry in the `authors` collection of the same project/environment.
+
+## Public access
+
+Collections that do **not** include `x-silo-auth: true` in their schema are readable by unauthenticated callers. No API key is required to list or read entries from those collections — useful for public content like blog posts or product catalogs.
+
+```bash
+# No Authorization header needed for public collections
+curl http://localhost:8090/api/projects/acme/envs/prod/collections/posts
+```
+
+<Info>
+  Writes always require an authenticated key with the appropriate `entries:create` or `entries:update` claim, regardless of `x-silo-auth`.
+</Info>

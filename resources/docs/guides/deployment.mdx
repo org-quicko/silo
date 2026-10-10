@@ -1,0 +1,175 @@
+---
+title: "Deploy Silo: Docker, systemd, Homebrew, or binaries"
+sidebarTitle: "Deployment"
+description: "Silo runs as a single process. Use Docker with a volume at /data, systemd with Type=simple, or Homebrew services. One process per data directory."
+---
+
+Silo is a single self-contained process. Run it in the **foreground** and let Docker, systemd, or another supervisor own the process lifecycle, its restarts, and its output stream. The `--detach` flag is for bare-metal and development use only — inside a container it exits the entrypoint at once and takes the container down with it. Leave `[log] file` unset in both cases so logs reach `docker logs` and journald rather than a file inside the container.
+
+## Docker
+
+The fastest way to run Silo is with a single `docker run` command:
+
+```bash
+docker run -p 8090:8090 -v silo_data:/data labsatquicko/silo
+```
+
+The image is published to two registries — both are the same image:
+
+| Registry | Image |
+|---|---|
+| Docker Hub | `labsatquicko/silo` |
+| GitHub Container Registry | `ghcr.io/org-quicko/silo` |
+
+Each release has a version tag (e.g. `labsatquicko/silo:1.3.0`) and `:latest` points at the newest release. Every tag carries both an `amd64` and an `arm64` image; Docker pulls the one your machine needs automatically.
+
+### Image details
+
+- Runs as the unprivileged **`bun` user**
+- `/data` volume holds the SQLite database, uploads under `/data/media`, and `silo.toml`
+- A **`HEALTHCHECK`** on `GET /api/health` is built into the image
+- `SILO_CONFIG=/data/silo.toml` is set so Settings pages can write the config file
+
+<Warning>
+  **Always mount a volume at `/data`.** Without it, `/data` is part of the container layer and each new deployment starts on an empty data directory: a new database, no collections, no media, and a **new root key printed to the logs**. Silo mints a root key the first time an instance holds no keys — a key that changes on every deploy is this symptom, not a policy. Mount the volume and the first key carries on across deploys.
+</Warning>
+
+### Verifying image signatures
+
+Every release image is signed with Sigstore. Verify the signature before running an image in production:
+
+<CodeGroup>
+```bash cosign
+cosign verify docker.io/labsatquicko/silo:1.3.0 \
+  --certificate-identity-regexp '^https://github\.com/org-quicko/silo/\.github/workflows/release\.yml@' \
+  --certificate-oidc-issuer https://token.actions.githubusercontent.com
+```
+
+```bash gh attestation
+gh attestation verify oci://docker.io/labsatquicko/silo:1.3.0 --repo org-quicko/silo
+```
+</CodeGroup>
+
+### Building the image yourself
+
+```bash
+docker build --pull -t silo .
+docker run -p 8090:8090 -v silo_data:/data silo
+```
+
+An image you build yourself reports a version ending in `-dev`. A released image reports the release version.
+
+### Docker Compose
+
+```yaml
+services:
+  silo:
+    image: labsatquicko/silo:latest
+    ports:
+      - "8090:8090"
+    volumes:
+      - silo_data:/data
+    restart: unless-stopped
+
+volumes:
+  silo_data:
+```
+
+## systemd
+
+Run Silo as a foreground process managed by systemd, with journald collecting the log:
+
+```ini
+[Unit]
+Description=silo
+After=network.target
+
+[Service]
+ExecStart=/usr/local/bin/silo serve --data /var/lib/silo --listen :8090
+User=silo
+Restart=on-failure
+
+[Install]
+WantedBy=multi-user.target
+```
+
+<Note>
+  Keep the default `Type=simple`. Silo stays in the foreground, so systemd tracks it directly without a pid file. Do not add `--detach` — the unit would treat the service as dead the moment the parent returned. Leave `[log] file` unset so `journalctl -u silo` captures everything.
+</Note>
+
+If you install via `dnf`, a systemd unit is included with the package:
+
+```bash
+sudo curl -fsSL -o /etc/yum.repos.d/silo.repo https://org-quicko.github.io/silo/silo.repo
+sudo dnf install silo
+sudo systemctl enable --now silo
+```
+
+The `dnf` package adds a `silo` system user, a config file at `/etc/silo/silo.toml`, and a data directory at `/var/lib/silo`. Both packages and the repository index are signed and verified by `dnf` automatically.
+
+## Homebrew
+
+```bash
+brew install org-quicko/tap/silo
+brew services start silo   # run in background
+```
+
+`brew services start silo` runs Silo in the background and keeps it running across reboots. Data is kept in `$(brew --prefix)/var/silo`. To run in the foreground instead, use `silo serve` directly.
+
+## Reverse proxy
+
+Silo listens on `:8090` by default. To serve it under a domain or alongside other services, proxy requests from your web server to `http://localhost:8090`.
+
+The key setting to watch is `[http] idle_timeout`. A reverse proxy such as nginx or Caddy will close a connection that stays quiet for longer than its own timeout, and report a `502` or `503`. Silo's log will show the request finishing normally while the proxy sees a closed upstream connection.
+
+<Tip>
+  The better answer for long-running imports and copies is the **progress stream**: send `Accept: application/x-ndjson` on import and copy requests. This keeps the connection alive with progress lines throughout the transfer. See the [Transfer guide](/guides/transfer) for details.
+</Tip>
+
+If you still need to raise the timeout, set it in `silo.toml`:
+
+```toml
+[http]
+idle_timeout = 240   # seconds; maximum is 255
+```
+
+The setting is also editable in the admin under **Settings > Configuration > Connections**.
+
+## Multiple instances
+
+Several Silo instances on one machine are fine. Give each its own data directory and its own port:
+
+```bash
+silo serve --detach --data /srv/silo-a --listen :8090
+silo serve --detach --data /srv/silo-b --listen :8091
+```
+
+Each instance is fully independent: separate databases, media stores, API keys, and `instance_id` values. Manage each with `--data`, the same flag you started it with.
+
+<Warning>
+  **Two processes over one data directory is actively refused.** The prohibition is structural, not cautionary:
+
+  - The filesystem driver tracks `last_seq` in memory — two processes hand out duplicate `seq` values that cannot be repaired.
+  - Writes are serialized on an in-process lock that makes `If-Match` optimistic concurrency sound. A second process makes silent lost updates possible again.
+  - Compiled schema validators are cached per process — one server would not see the other's schema changes.
+
+  Horizontal scaling would require moving `seq` allocation and write serialization into the storage layer. That is a design change, not a configuration flag.
+</Warning>
+
+## Prebuilt binaries
+
+Each [GitHub release](https://github.com/org-quicko/silo/releases) includes archives for macOS and Linux on both `x64` and `arm64`. Each archive holds one self-contained `silo` executable with the admin UI compiled inside it — the full installation is placing it on your `PATH`.
+
+Releases carry a `SHA256SUMS` file with two signatures: Sigstore keyless and GPG.
+
+## Building from source
+
+Requires [Bun](https://bun.sh) 1.3 or later.
+
+```bash
+bun install
+bun run --cwd apps/admin build
+bun run start
+```
+
+From source, the server reads the admin UI from `./apps/admin/dist`. Skip the admin build if you only need the API. A released binary has the UI compiled inside it and serves it from any working directory.

@@ -1,0 +1,110 @@
+---
+title: "Authenticate requests to Silo with API keys"
+sidebarTitle: "Authentication"
+description: "Silo uses API keys for all authentication. Present your key as a Bearer token or X-Api-Key header. No users, no sessions, no OAuth."
+---
+
+Silo has no users and no browser sessions. Every request is authenticated with an API key, and the claims attached to that key authorize each individual operation. There is no login flow, no session cookie, and no OAuth handshake — a key is the only credential Silo recognizes.
+
+## Presenting a key
+
+Every authenticated request must carry the key in one of two headers. Both are equivalent; use whichever fits your client or framework.
+
+<CodeGroup>
+
+```bash Bearer token
+# Bearer token
+curl http://localhost:8090/api/projects \
+  -H "Authorization: Bearer $SILO_KEY"
+```
+
+```bash X-Api-Key header
+# X-Api-Key header
+curl http://localhost:8090/api/projects \
+  -H "X-Api-Key: $SILO_KEY"
+```
+
+</CodeGroup>
+
+## What a key looks like
+
+A Silo API key is the prefix `silo_` followed by 32 random bytes encoded in base64url. It looks like this:
+
+```
+silo_dGhpcyBpcyBhIHNhbXBsZSBrZXkgZm9yIGRvY3M
+```
+
+Silo stores only the **SHA-256 hash** of each key — never the plaintext. The secret exists exactly once: in the response body of the request that created it. After that it is gone from the server. Copy it immediately; it cannot be recovered.
+
+<Warning>
+  If you close the creation response without saving the key, it is unrecoverable. You will need to revoke the key and create a new one.
+</Warning>
+
+## Deny by default
+
+Claims are deny-by-default. If the claim required for an operation is absent from the key making the request, Silo refuses the operation with a `403 Forbidden` response. There is no implicit permission; every allowed action must be explicitly covered by at least one claim the key carries.
+
+## Public access
+
+Collection schema reads and entry reads are **public by default** — no key is needed to read them. To require a key for a collection, set `"x-silo-auth": true` in its JSON Schema. Once a key is presented it becomes the visibility boundary: a scoped key sees only the projects, environments, and collections its claims cover, including public ones.
+
+<Info>
+  Anonymous callers can reach only collections whose schema does not set `x-silo-auth`. A presented key narrows that reach to what the key's claims allow.
+</Info>
+
+## Checking the current session
+
+Send `GET /api/session` to inspect the key you are currently using. The response includes the key's label, its prefix (the first few characters), and its full list of effective claims.
+
+```bash
+curl http://localhost:8090/api/session \
+  -H "Authorization: Bearer $SILO_KEY"
+```
+
+```json
+{
+  "label": "Frontend read key",
+  "prefix": "silo_dGh",
+  "claims": ["collections:acme/prod/*:entries:read"]
+}
+```
+
+## First run and the root key
+
+On the very first start of an empty Silo instance, a root API key is generated and printed **once** to the console. This is the only time the plaintext appears anywhere.
+
+```
+✦ Root API key (shown once):
+  silo_dGhpcyBpcyBhIHNhbXBsZSBrZXkgZm9yIGRvY3M
+```
+
+<Warning>
+  Store this key immediately — in a password manager, a secrets store, or an environment variable. It cannot be displayed again. If you lose it before creating another key, see the recovery section below.
+</Warning>
+
+Open `http://localhost:8090`, add the server URL and this key in the admin UI, and you are in.
+
+## Recovery after losing all keys
+
+If you lose every key, you can mint a new root key directly against the data directory. No server needs to be running:
+
+```bash
+silo keys create --preset root --label recovery
+```
+
+The new key's plaintext secret is printed once to the terminal. The command works offline — it reads and writes the data directory directly, so it is also the path back from a lockout on a remote machine.
+
+## Claim presets
+
+Every key is created with a set of claims. Four built-in presets cover the most common patterns. For full details on claims, wildcards, and delegation, see [API Keys](/guides/api-keys).
+
+| Preset | What it covers |
+|---|---|
+| `root` | Full access (`*`) — every operation on every resource |
+| `manage` | Collection lifecycle, keys (read/create/revoke), media (not purge or configure), plugins (read and configure), audit and observability |
+| `write` | Entries (create/read/update/delete), schema reads, media upload and delete, transfer export |
+| `read` | Read entries and schemas (default for `silo keys create`) |
+
+<Tip>
+  For most integrations, start with `read` and add only the claims your use case actually needs. A frontend that only displays content needs nothing more than read access.
+</Tip>

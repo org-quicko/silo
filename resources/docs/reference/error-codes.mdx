@@ -1,0 +1,183 @@
+---
+title: "Silo HTTP error codes and response format"
+sidebarTitle: "Error Codes"
+description: "All Silo errors follow a consistent JSON envelope with code, message, and details. Learn what each code means and how to handle retries, conflicts, and validation failures."
+---
+
+Every error Silo returns — whether a bad request, a missing resource, or an unexpected server fault — uses the same JSON envelope. The `code` field is a stable string you can branch on in code; `message` is a human-readable explanation; `details` carries structured context when the error warrants it.
+
+```json
+{
+  "error": {
+    "code": "...",
+    "message": "...",
+    "details": [...]
+  }
+}
+```
+
+## Error code reference
+
+| HTTP Status | Code | When |
+|-------------|------|------|
+| `400` | `validation_failed` | Request body failed JSON Schema validation. The `details` array carries JSON Pointer paths pointing to each invalid field |
+| `401` | `unauthorized` | No key was presented, or the key was not found |
+| `403` | `forbidden` | A key was present but lacks the required claim for this operation |
+| `404` | `not_found` | The requested resource does not exist |
+| `405` | `method_not_allowed` | Only returned by `GET` or `DELETE` on `/api/mcp`, which only accepts `POST` |
+| `409` | `conflict` | Revision mismatch on `PUT`/`DELETE`, or a schema change attempted while entries exist |
+| `413` | `payload_too_large` | Request body exceeds `[http] max_json_body_size_mb` (default 4 MB) |
+| `413` | `archive_too_large` | Import archive exceeds `[transfer] max_archive_size_mb` or would unpack beyond `[transfer] max_extracted_size_mb` |
+| `500` | `internal` | Unexpected server error |
+| `500` | `media_delete_stalled` | A media delete did not complete. The `details` object carries a `remedy` field describing how to recover |
+| `500` | `plugin_start_failed` | A plugin worker failed to start. The `details` object carries a `remedy` field |
+| `503` | `busy` | The entry list or search queue is full. The response includes `Retry-After: 1` |
+
+### Special: media\_in\_use (409)
+
+When a `DELETE` on a media asset is refused because entries still reference it, the code is `media_in_use` and `details` is an object (not an array):
+
+```json
+{
+  "error": {
+    "code": "media_in_use",
+    "message": "Asset is referenced by 3 entries.",
+    "details": {
+      "usage_count": 3,
+      "visible_count": 2,
+      "visible_capped": false,
+      "referrers": [
+        { "project": "acme", "env": "prod", "collection": "posts", "id": "01J8…" }
+      ]
+    }
+  }
+}
+```
+
+`usage_count` is the true number of referring entries. `visible_count` is how many the calling key may read. `visible_capped` signals the sample was truncated. `referrers` enumerates up to 20 entries. Pass `?force=true` to delete the asset anyway — this also requires `entries:update` at every scope the referencing entries occupy.
+
+## Validation errors
+
+When a write fails schema validation, `details` is an array of objects, each with a `path` (JSON Pointer) and a `message`:
+
+```json
+{
+  "error": {
+    "code": "validation_failed",
+    "message": "Request body is invalid.",
+    "details": [
+      { "path": "/title",       "message": "must be a string" },
+      { "path": "/publishedAt", "message": "must match format \"date-time\"" }
+    ]
+  }
+}
+```
+
+Every write is validated against the collection's JSON Schema. Reads are never validated, so a schema change can never make already-stored data unreadable.
+
+## Optimistic concurrency (409 conflict)
+
+`PUT` and `DELETE` on an entry require the revision you last read, supplied as `If-Match: "<rev>"` or `?rev=<n>`. When two clients race to update the same entry, only the first one through succeeds — the second receives `409 conflict`.
+
+<Steps>
+  <Step title="Read the current entry">
+    Fetch the entry. The response includes a `rev` field — the current revision number.
+  </Step>
+  <Step title="Submit your change with the rev">
+    Pass the revision as `If-Match: "<rev>"` in the request header or `?rev=<n>` as a query parameter.
+  </Step>
+  <Step title="Handle a 409 by re-reading">
+    If the response is `409`, another writer got there first. Fetch the entry again to get the new `rev` and the latest field values, then resubmit with your changes.
+  </Step>
+</Steps>
+
+```ts
+try {
+  await posts.replace(post.id, post.rev, fields)
+} catch (error) {
+  if (error instanceof ConflictError) {
+    const current = await posts.get(post.id)
+    await posts.replace(current.id, current.rev, fields)
+  } else if (error instanceof ValidationFailedError) {
+    console.error(error.details) // [{ path: "/title", message: "..." }]
+  }
+}
+```
+
+## 503 busy — entry queue full
+
+Entry list and search operations that apply a filter or sort over entry data run on a dedicated storage thread with a queue of 64. When the queue is full, Silo immediately returns `503` with `Retry-After: 1` rather than holding the connection.
+
+<Warning>
+  Do not spin in a tight loop on a `503`. Implement exponential backoff: wait 1 second on the first retry, 2 seconds on the second, 4 on the third, and so on. Back-pressure from a full queue usually resolves in under a second for small instances.
+</Warning>
+
+## Schema frozen (409 conflict)
+
+`PUT /api/projects/{project}/envs/{env}/collections/{name}/schema` returns `409 conflict` when the collection holds entries and the new schema would change which entries are valid. The `message` includes the collection name and the entry count.
+
+The constraint is limited to the **validating shape** of the schema. The following properties are always editable even when entries exist, because they do not affect entry validity:
+
+- `x-silo-auth` — access control
+- `x-silo-search` — search field configuration
+- `title`, `description`, `$comment`, `$schema` — labels and metadata
+
+## TypeScript error hierarchy
+
+The `@org-quicko/silo-client` package maps every `code` value to a typed error class.
+
+<CardGroup cols={2}>
+  <Card title="SiloError (base)" icon="circle-exclamation">
+    Base class for all server-side errors. Has `code`, `message`, and `details` properties matching the JSON envelope.
+  </Card>
+  <Card title="Network errors" icon="wifi">
+    `NetworkError`, `TimeoutError`, `RequestAbortedError`, and `InvalidResponseError` are **not** subclasses of `SiloError` — they indicate a transport-level failure before a response was received.
+  </Card>
+</CardGroup>
+
+| Class | Code | Status |
+|-------|------|--------|
+| `ValidationFailedError` | `validation_failed` | 400 |
+| `UnauthorizedError` | `unauthorized` | 401 |
+| `ForbiddenError` | `forbidden` | 403 |
+| `NotFoundError` | `not_found` | 404 |
+| `MethodNotAllowedError` | `method_not_allowed` | 405 |
+| `ConflictError` | `conflict` | 409 |
+| `MediaInUseError` | `media_in_use` | 409 |
+| `PayloadTooLargeError` | `payload_too_large` | 413 |
+| `ArchiveTooLargeError` | `archive_too_large` | 413 |
+| `InternalError` | `internal` | 500 |
+| `MediaDeleteStalledError` | `media_delete_stalled` | 500 |
+| `PluginStartFailedError` | `plugin_start_failed` | 500 |
+| `BusyError` | `busy` | 503 |
+
+### TypeScript error handling example
+
+```ts
+import {
+  ConflictError,
+  ValidationFailedError,
+  NotFoundError,
+  NetworkError,
+} from "@org-quicko/silo-client"
+
+try {
+  await posts.replace(post.id, post.rev, fields)
+} catch (error) {
+  if (error instanceof ConflictError) {
+    // Another writer updated the entry first — re-read and retry
+    const current = await posts.get(post.id)
+    await posts.replace(current.id, current.rev, fields)
+  } else if (error instanceof ValidationFailedError) {
+    // details is an array of { path, message } objects
+    console.error(error.details)
+  } else if (error instanceof NotFoundError) {
+    console.error("Entry no longer exists")
+  } else if (error instanceof NetworkError) {
+    // Transport failure — no HTTP response was received
+    console.error("Could not reach Silo:", error.message)
+  } else {
+    throw error
+  }
+}
+```
