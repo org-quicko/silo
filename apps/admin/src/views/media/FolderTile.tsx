@@ -10,8 +10,6 @@ interface Props {
   /** `undefined` while its count is still loading. */
   itemCount: number | undefined
   canEdit: boolean
-  /** Also whether the tile is selectable at all — the checkbox is a bulk
-   *  delete tool, so it needs the same claim the trash icon does. */
   canDelete: boolean
   selected: boolean
   onToggleSelect: () => void
@@ -113,11 +111,9 @@ export function FolderTile({
       </div>
 
       <div className={`${styles.thumb} ${styles.thumbFolder}`}>
-        {canDelete && (
-          <span className={styles.thumbCheckbox} onClick={(e) => e.stopPropagation()}>
-            <Checkbox checked={selected} onChange={onToggleSelect} aria-label={`Select ${name}`} />
-          </span>
-        )}
+        <span className={styles.thumbCheckbox} onClick={(e) => e.stopPropagation()}>
+          <Checkbox checked={selected} onChange={onToggleSelect} aria-label={`Select ${name}`} />
+        </span>
         <Folder size={44} strokeWidth={1.5} fill="currentColor" />
       </div>
 

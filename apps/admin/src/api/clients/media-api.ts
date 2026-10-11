@@ -1,9 +1,11 @@
 import type { MediaAsset as SiloMediaAsset, MediaAssetRecord } from '@org-quicko/silo-client'
+import type { MediaArchive } from '../types/media-archive'
 import type { MediaAsset } from '../types/media-asset'
 import type { MediaBulkDeleteResult } from '../types/media-bulk-delete'
 import type { MediaFolderDeleteResult } from '../types/media-folder-delete'
 import type { MediaQuery } from '../types/media-query'
 import type { MediaPolicyInput, MediaPolicyView } from '../types/media-settings'
+import type { MediaStats } from '../types/media-stats'
 import type { MediaStorageInput, MediaStorageView } from '../types/media-storage'
 import type { MediaUsage } from '../types/media-usage'
 import type { HttpTransport } from '../transport/http-transport'
@@ -162,6 +164,19 @@ export class MediaApi {
    *  (D55), built from what is actually there rather than a fixed list. */
   listExtensions(url: string, key: string): Promise<string[]> {
     return this.transport.silo(url, key).media.extensions()
+  }
+
+  stats(url: string, key: string): Promise<MediaStats> {
+    return this.transport.request<MediaStats>(url, key, '/api/media/stats')
+  }
+
+  /** Plans a bulk download into ZIP parts (D106). Each part URL works without a key. */
+  prepareArchive(url: string, key: string, ids: string[], folders: string[]): Promise<MediaArchive> {
+    return this.transport.request<MediaArchive>(url, key, '/api/media/archives', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ids, folders }),
+    })
   }
 
   async createFolder(url: string, key: string, path: string): Promise<{ path: string }> {

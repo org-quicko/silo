@@ -10,7 +10,9 @@ import { Claims } from "@silo/shared/claims";
  * what declaring one and valuing one ask for, `create` and `entries:update`
  * over the whole project (every environment, every collection). A row whose
  * project the archive does not name is asked at `null`, which only an
- * instance-wide grant answers.
+ * instance-wide grant answers. `instance` is whether the audit log and the
+ * plugin grants of a whole-instance move may load (D97): no claim reaches
+ * that, so only `Trusted` answers yes.
  *
  * `Trusted` is what an in-process caller holds — the CLI on the host, a test —
  * and is also the answer when an import is given none, since a caller that
@@ -22,17 +24,20 @@ export class ImportGrants {
   readonly media: boolean;
   readonly mediaReplace: boolean;
   readonly variables: (project: string | null) => boolean;
+  readonly instance: boolean;
 
   constructor(answers: {
     keys: boolean;
     media: boolean;
     mediaReplace: boolean;
     variables: (project: string | null) => boolean;
+    instance?: boolean;
   }) {
     this.keys = answers.keys;
     this.media = answers.media;
     this.mediaReplace = answers.mediaReplace;
     this.variables = answers.variables;
+    this.instance = answers.instance ?? false;
   }
 
   static readonly Trusted = new ImportGrants({
@@ -40,6 +45,7 @@ export class ImportGrants {
     media: true,
     mediaReplace: true,
     variables: () => true,
+    instance: true,
   });
 
   /** Nothing from `_system` at all: what a content-only key amounts to. */

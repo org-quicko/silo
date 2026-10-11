@@ -1,0 +1,130 @@
+---
+title: "Connect AI clients to Silo via Model Context Protocol"
+sidebarTitle: "MCP / AI"
+description: "Silo is an MCP server at POST /api/mcp. Connect Claude Code, Claude Desktop, Codex, or Cursor to browse, search, and manage content with an API key."
+---
+
+Silo speaks MCP (Model Context Protocol) at `POST /api/mcp`, using the same API key as the HTTP API. The key's claims decide exactly what the AI client may do — a call the key is not allowed to make comes back as a refusal that names the missing claim, so the model can reason about what went wrong. There is nothing extra to install and nothing extra to start.
+
+## Transport options
+
+Two transports are available. Use the URL transport when your client can send an HTTP header. Use `silo mcp` when your client can only spawn a local process.
+
+### Streamable HTTP
+
+Send the key as `Authorization: Bearer <key>` to `<your-silo>/api/mcp`.
+
+<CodeGroup>
+
+```bash Claude Code
+claude mcp add --transport http silo https://cms.example.com/api/mcp \
+  --header "Authorization: Bearer $SILO_API_KEY"
+```
+
+```toml Codex (~/.codex/config.toml)
+[mcp_servers.silo]
+url = "https://cms.example.com/api/mcp"
+http_headers = { Authorization = "Bearer silo_..." }
+```
+
+```json Cursor (mcp.json)
+{
+  "mcpServers": {
+    "silo": {
+      "url": "https://cms.example.com/api/mcp",
+      "headers": { "Authorization": "Bearer silo_..." }
+    }
+  }
+}
+```
+
+</CodeGroup>
+
+### stdio via `silo mcp`
+
+`silo mcp` speaks MCP on stdin and stdout and forwards every message to a running Silo instance. It accepts `--url` and `--key` flags, or reads the same values from `SILO_URL` and `SILO_API_KEY` environment variables.
+
+<Note>
+  Prefer environment variables over flags. A key on the command line is visible to every process on the machine.
+</Note>
+
+```json Claude Desktop (claude_desktop_config.json)
+{
+  "mcpServers": {
+    "silo": {
+      "command": "silo",
+      "args": ["mcp", "--url", "http://localhost:8090"],
+      "env": { "SILO_API_KEY": "silo_..." }
+    }
+  }
+}
+```
+
+Claude Code can also use the stdio bridge directly:
+
+```bash
+claude mcp add silo --env SILO_API_KEY=silo_... -- silo mcp --url http://localhost:8090
+```
+
+## Connect from Silo Admin
+
+**Settings &gt; AI assistants** prepares client-specific setup using the API key already saved for the current Silo connection. It does not create a new key or widen access — the assistant can do exactly what the current connection can do. Each client is named `silo`, so setting up a second connection replaces the first.
+
+<CardGroup cols={2}>
+  <Card title="Claude Desktop" icon="desktop">
+    Download the extension (`silo.mcpb`), then open the file. It appears as **Silo** under Settings &gt; Extensions, with the server URL and API key pre-filled from the current connection. No separate Node or Silo installation is needed. The downloaded file contains the saved API key as a default; keep it private.
+  </Card>
+  <Card title="Claude Code" icon="terminal">
+    Copy and run the displayed user-scope command. It removes an existing user-scope `silo` server first, so running it again from a different connection switches Claude Code over automatically.
+  </Card>
+  <Card title="Codex" icon="code">
+    Copy the setup prompt into a local Codex task and approve the configuration change when asked. The page also shows the TOML block for manual setup. A cloud task cannot change a local configuration.
+  </Card>
+  <Card title="Cursor" icon="mouse-pointer">
+    Click **Add to Cursor** to open Cursor directly, or merge the manual JSON shown on the page. The credential is not sent through a web proxy.
+  </Card>
+</CardGroup>
+
+## Available tools
+
+Every key sees the same tool list. What differs is which calls succeed. The claim column names what the route requires — `<p>/<e>/<c>` stands for project, environment, and collection.
+
+| Tool | What it does | Claim needed |
+|---|---|---|
+| `whoami` | Key label and claims | any key |
+| `list_projects` | Projects the key can see | any collection claim in the project |
+| `create_project` | Create a project | `collections:<p>/*/*:create` |
+| `list_environments` | Environments of a project | any collection claim in the environment |
+| `create_environment` | Create an environment | `collections:<p>/<e>/*:create` |
+| `list_variables` | Declared variables with this environment's values | `collections:<p>/<e>/*:entries:read` |
+| `list_collections` | Collections with entry counts | `collections:<p>/<e>/<c>:schema:read` per collection |
+| `get_schema` | One collection's JSON Schema, references bundled | `collections:<p>/<e>/<c>:schema:read` |
+| `create_collection` | Create a collection from a schema | `collections:<p>/<e>/<c>:create` |
+| `update_schema` | Replace a schema (frozen while entries exist) | `collections:<p>/<e>/<c>:schema:update` |
+| `delete_collection` | Delete a collection; `force` erases its entries | `collections:<p>/<e>/<c>:delete`, plus `entries:delete` with `force` |
+| `list_entries` | Filtered, sorted page of entries | `collections:<p>/<e>/<c>:entries:read` |
+| `get_entry` | One entry with its `rev` | `collections:<p>/<e>/<c>:entries:read` |
+| `create_entry` | Create an entry, validated against the schema | `collections:<p>/<e>/<c>:entries:create` |
+| `update_entry` | Replace an entry's fields, with the `rev` you read | `collections:<p>/<e>/<c>:entries:update` |
+| `delete_entry` | Delete an entry, with the `rev` you read | `collections:<p>/<e>/<c>:entries:delete` |
+| `search` | Text search across one collection, environment, or everything | `entries:read` where it looks |
+| `list_media` | Media catalog, filtered and paged | public read (the MCP endpoint still needs a key) |
+| `get_media` | One asset's catalog record | public read (the MCP endpoint still needs a key) |
+
+<Note>
+  Media uploads have no MCP tool — a tool call carries JSON and a file is bytes. Upload media directly with `POST /api/media`.
+</Note>
+
+`list_entries` and `search` accept the same `filter`, `sort`, `limit`, and `offset` parameters as the HTTP routes. The filter is the JSON AST described in the HTTP API guide, passed as an object.
+
+<Tip>
+  Mint a read-only key with `--preset read` to give a model a CMS it can browse freely but not modify.
+</Tip>
+
+## Protocol details
+
+Silo implements `initialize`, `ping`, `tools/list`, and `tools/call`, and accepts `notifications/*` messages. It has no resources, no prompts, and never sends requests of its own.
+
+The endpoint is **stateless**. There is no `Mcp-Session-Id`, so nothing expires and any number of clients may share one key. `GET /api/mcp` and `DELETE /api/mcp` return `405` — there is no event stream to open and no session to close. A JSON array (batch request) is accepted and answered as an array. A notification (a message without an `id`) returns `202` with no body.
+
+A request without a key returns `401` with a `WWW-Authenticate: Bearer` challenge, even on an instance with public collections — the endpoint requires a key regardless of collection visibility. The endpoint sits under `/api/*`, so CORS, the JSON body size limit, and the auth middleware all apply exactly as they do on every other API route.

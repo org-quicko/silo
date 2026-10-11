@@ -29,6 +29,11 @@ export class SqliteCompiler {
     lte: "<=",
   };
 
+  /** A sort key's JSON type as its rank in `EntryNodes.compare`'s order. */
+  private static readonly TypeRank =
+    "CASE json_type(data, ?) WHEN 'integer' THEN 1 WHEN 'real' THEN 1 WHEN 'text' THEN 2 " +
+    "WHEN 'true' THEN 3 WHEN 'false' THEN 3 WHEN 'array' THEN 4 WHEN 'object' THEN 5 ELSE 0 END";
+
   /**
    * Envelope fields are columns, always present, with a known SQL type. Read
    * only through {@link SqliteCompiler.envelope} — a bare lookup would find
@@ -80,19 +85,32 @@ export class SqliteCompiler {
     return SqliteCompiler.leaf(path, f);
   }
 
+  /**
+   * Missing and JSON null first, then numbers, strings, booleans, arrays and
+   * objects, which is `EntryNodes.compare` (D92). Ranking by JSON type first is
+   * what stops SQLite ordering a boolean among the numbers and an object among
+   * the strings; arrays and objects then tie, so the next key decides.
+   */
   static buildOrder(sort: SortKey[]): { order: string; args: any[] } {
     const parts: string[] = [];
     const args: any[] = [];
 
     for (const k of sort) {
+      const direction = k.desc ? " DESC" : "";
       const path = QueryUtils.sortPath(k.path);
       const envelope = SqliteCompiler.envelope(path.root);
       if (envelope) {
-        parts.push(envelope.column + (k.desc ? " DESC" : ""));
+        parts.push(envelope.column + direction);
         continue;
       }
-      parts.push("json_extract(data, ?)" + (k.desc ? " DESC" : ""));
-      args.push(SqliteCompiler.sqlitePath(path.selectors));
+      const sqlitePath = SqliteCompiler.sqlitePath(path.selectors);
+      parts.push(SqliteCompiler.TypeRank + direction);
+      parts.push(
+        "CASE WHEN json_type(data, ?) IN ('array','object') THEN NULL " +
+          "ELSE json_extract(data, ?) END" +
+          direction
+      );
+      args.push(sqlitePath, sqlitePath, sqlitePath);
     }
 
     parts.push("id ASC");
@@ -188,37 +206,38 @@ export class SqliteCompiler {
         return { cond: e.sql, args: e.args };
       }
       case "eq":
+        return SqliteCompiler.equalsAny(node, [f.value]);
       case "neq": {
+        // Present and not equal. `COALESCE` because a bare `NOT` over SQL NULL
+        // is NULL, never true.
         const e = exists();
-        const v = value();
-        const cmp = f.op === "eq" ? "IS" : "IS NOT";
+        const match = SqliteCompiler.equalsAny(node, [f.value]);
         return {
-          cond: `${e.sql} AND ${v.sql} ${cmp} ?`,
-          args: [...e.args, ...v.args, f.value],
+          cond: `${e.sql} AND NOT COALESCE((${match.cond}), 0)`,
+          args: [...e.args, ...match.args],
         };
       }
       case "gt":
       case "gte":
       case "lt":
       case "lte": {
-        const e = exists();
+        // A number compares with numbers and a string with strings, and any
+        // other pairing matches nothing (D92). Without the type guard SQLite
+        // would order every number below every string and a boolean as 0 or 1.
+        const guard = SqliteCompiler.orderedType(f.value);
+        if (guard === null) return { cond: "0", args: [] };
+        const t = type();
         const v = value();
         return {
-          cond: `${e.sql} AND ${v.sql} ${SqliteCompiler.cmpOps[f.op]} ?`,
-          args: [...e.args, ...v.args, f.value],
+          cond: `${t.sql} IN (${guard}) AND ${v.sql} ${SqliteCompiler.cmpOps[f.op]} ?`,
+          args: [...t.args, ...v.args, f.value],
         };
       }
       case "in": {
         if (!Array.isArray(f.value) || f.value.length === 0) {
           throw new ValidationError(`op "in" requires a non-empty array value`);
         }
-        const e = exists();
-        const v = value();
-        const ph = Array(f.value.length).fill("?").join(",");
-        return {
-          cond: `${e.sql} AND ${v.sql} IN (${ph})`,
-          args: [...e.args, ...v.args, ...f.value],
-        };
+        return SqliteCompiler.equalsAny(node, f.value);
       }
       case "contains": {
         // Substring on a string, and nothing else (D29). The type guard is
@@ -235,6 +254,39 @@ export class SqliteCompiler {
       default:
         throw new ValidationError(`unknown filter op "${f.op}"`);
     }
+  }
+
+  /**
+   * True when the node strictly equals one of `values`: the same JSON type and
+   * the same value (D92). JSON null, `true` and `false` are type tests alone,
+   * because SQLite binds a boolean as 0 or 1 and would match it against numbers.
+   */
+  private static equalsAny(node: NodeExpr, values: any[]): { cond: string; args: any[] } {
+    const parts: string[] = [];
+    const args: any[] = [];
+    const compare = (types: string, group: any[]) => {
+      if (group.length === 0) return;
+      const placeholders = group.map(() => "?").join(",");
+      parts.push(`(${node.type} IN (${types}) AND ${node.value} IN (${placeholders}))`);
+      args.push(...node.args, ...node.args, ...group);
+    };
+    compare("'text'", values.filter((value) => typeof value === "string"));
+    compare("'integer','real'", values.filter((value) => typeof value === "number"));
+
+    const literals = values.filter((value) => value === null || typeof value === "boolean");
+    for (const literal of new Set(literals.map(String))) {
+      parts.push(`${node.type} = '${literal}'`);
+      args.push(...node.args);
+    }
+    return { cond: parts.length > 0 ? parts.join(" OR ") : "0", args };
+  }
+
+  /** The JSON types a range comparison against `value` can match, or null when
+   *  none can: only numbers against numbers and strings against strings. */
+  private static orderedType(value: any): string | null {
+    if (typeof value === "number") return "'integer','real'";
+    if (typeof value === "string") return "'text'";
+    return null;
   }
 
   /** Selector groups between wildcards; N wildcards yield N+1 groups. */

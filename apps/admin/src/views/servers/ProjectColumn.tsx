@@ -4,6 +4,7 @@ import { BrowserColumn } from '../../components/browser/BrowserColumn'
 import { ColumnItem } from '../../components/browser/ColumnItem'
 import { ColumnPlaceholder } from '../../components/browser/ColumnPlaceholder'
 import { ColumnSearch } from '../../components/browser/ColumnSearch'
+import { ColumnSettingsButton } from '../../components/browser/ColumnSettingsButton'
 import { InlineNameForm } from './InlineNameForm'
 import styles from '../../components/browser/ScopeBrowser.module.css'
 
@@ -15,6 +16,8 @@ interface Props {
   loading: boolean
   onSelect: (project: string) => void
   onCreate: (project: string) => Promise<void>
+  /** Straight to this project's own settings, without choosing it first. */
+  onOpenSettings: (project: string) => void
 }
 
 /** The second column: which project within the chosen server. */
@@ -25,6 +28,7 @@ export function ProjectColumn({
   loading,
   onSelect,
   onCreate,
+  onOpenSettings,
 }: Props) {
   const [adding, setAdding] = useState(false)
   const [query, setQuery] = useState('')
@@ -81,6 +85,12 @@ export function ProjectColumn({
                 index={index}
                 chevron
                 onSelect={() => onSelect(project)}
+                action={
+                  <ColumnSettingsButton
+                    title="Project settings"
+                    onOpen={() => onOpenSettings(project)}
+                  />
+                }
               />
             ))
           )}

@@ -1,4 +1,4 @@
-import type { MediaConfig } from "./media-config";
+import type { MediaConfig, MediaDownloadField } from "./media-config";
 
 /**
  * What `[media]` means when a file does not say (D46).
@@ -40,7 +40,35 @@ export class MediaDefaults {
     "pdf",
   ];
 
+  /**
+   * Each bulk download ceiling's default and the range it accepts (D106).
+   * Files stop well short of ZIP's 65,535 entries; the size is split into
+   * 2 GiB parts whatever it is.
+   */
+  static readonly Downloads: Readonly<Record<MediaDownloadField, { value: number; min: number; max: number }>> = {
+    download_max_files: { value: 5_000, min: 1, max: 50_000 },
+    download_max_size_mb: { value: 5 * 1024, min: 1, max: 1024 * 1024 },
+    download_max_streams: { value: 3, min: 1, max: 32 },
+  };
+
   static config(): MediaConfig {
-    return { extensions: [...MediaDefaults.Extensions] };
+    return {
+      extensions: [...MediaDefaults.Extensions],
+      ...MediaDefaults.downloads(),
+    };
+  }
+
+  static downloads(): Record<MediaDownloadField, number> {
+    return {
+      download_max_files: MediaDefaults.Downloads.download_max_files.value,
+      download_max_size_mb: MediaDefaults.Downloads.download_max_size_mb.value,
+      download_max_streams: MediaDefaults.Downloads.download_max_streams.value,
+    };
+  }
+
+  /** `value` as a ceiling for `field`: a whole number in its range, or `undefined`. */
+  static download(field: MediaDownloadField, value: unknown): number | undefined {
+    const { min, max } = MediaDefaults.Downloads[field];
+    return typeof value === "number" && Number.isInteger(value) && value >= min && value <= max ? value : undefined;
   }
 }

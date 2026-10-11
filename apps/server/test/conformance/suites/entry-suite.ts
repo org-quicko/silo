@@ -42,6 +42,34 @@ export class EntrySuite {
         await expect(store.get(scope, "posts", e.id)).rejects.toThrow();
       });
 
+      test("OverwriteKeepsCreatedAt", async () => {
+        // An entry is created once (D92). SQLite's upsert never updated the
+        // column and the fs adapter rewrote it, so an import that overwrote an
+        // entry answered two different creation times.
+        const store = await getFreshStore();
+        const scope = Scope.Default;
+        const first = await putEntry(store, scope, "posts", 1, { title: "first" });
+
+        const later = new Date(Date.UTC(2026, 5, 1));
+        await store.put(
+          { ...first, rev: 2, created_at: later, updated_at: later, data: { title: "second" } },
+          { usages: [], search: null }
+        );
+
+        const got = await store.get(scope, "posts", first.id);
+        expect(got.data).toEqual({ title: "second" });
+        expect(got.created_at.toISOString()).toBe(first.created_at.toISOString());
+        expect(got.updated_at.toISOString()).toBe(later.toISOString());
+      });
+
+      test("CloseTwiceIsSafe", async () => {
+        // Several CLI commands close the store they were handed, and the runtime
+        // closes it again on the way out.
+        const store = await getFreshStore();
+        await store.close();
+        await store.close();
+      });
+
       test("SeqMonotonic", async () => {
         const store = await getFreshStore();
         const scope = Scope.Default;

@@ -37,17 +37,26 @@ describe("MediaTable", () => {
     expect(await MediaTable.read(configPath)).toEqual({ base_url: "https://cdn.example.com" });
   });
 
-  test("a write round-trips through the loader", async () => {
+  test("a write round-trips through the loader, which fills the ceilings it leaves out", async () => {
     await MediaTable.write(configPath, {
       base_url: "https://cms.example.com",
       extensions: ["jpg", "png"],
+      download_max_files: 200,
     });
 
     const loaded = await ConfigLoader.loadConfig(configPath, true);
     expect(loaded.media).toEqual({
       base_url: "https://cms.example.com",
       extensions: ["jpg", "png"],
+      download_max_files: 200,
+      download_max_size_mb: 5120,
+      download_max_streams: 3,
     });
+  });
+
+  test("a download ceiling out of range reads as unset, so the default applies", async () => {
+    await fs.writeFile(configPath, "[media]\ndownload_max_files = 0\ndownload_max_streams = 2.5\n", "utf8");
+    expect(await MediaTable.read(configPath)).toEqual({});
   });
 
   test("an unset base URL is left out, so the request's origin keeps deciding", async () => {
@@ -107,6 +116,6 @@ describe("MediaTable", () => {
 
     const loaded = await ConfigLoader.loadConfig(configPath, true);
     expect(loaded.blob_storage.bucket).toBe("b");
-    expect(loaded.media).toEqual({ extensions: ["jpg"] });
+    expect(loaded.media.extensions).toEqual(["jpg"]);
   });
 });

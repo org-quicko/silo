@@ -1,0 +1,312 @@
+---
+title: "Silo plugin API: manifest, ctx, routes, and admin panels"
+sidebarTitle: "Plugin API"
+description: "Reference for Silo plugins: manifest structure, silo:api virtual module, ctx API, route handlers, return values, admin panels, and the plugin trust model."
+---
+
+A plugin is a directory under `<data dir>/plugins/` whose name appears in `silo.toml`. Silo transpiles TypeScript itself, so no build step is required. The virtual module `silo:api` is injected into the plugin's import graph before it loads — there is no file on disk and nothing to install from npm. That is why a plugin declares no dependencies and why there is only ever one copy of `ValidationError` in play instead of one per plugin.
+
+Scaffold a new plugin from a working template with:
+
+```sh
+npm create silo-plugin
+# or
+bun create silo-plugin
+```
+
+`create-silo-plugin` asks what the plugin is for, then writes the manifest, a runnable stub per hook you pick, the `silo:api` type declarations, and the `[[plugins]]` block to paste into `silo.toml`.
+
+---
+
+## package.json manifest
+
+The manifest lives in the `"silo"` key of `package.json`. It is static on purpose: `silo plugin info` must show an operator what a package wants **before** any of its code runs.
+
+```json
+{
+  "name": "silo-plugin-slug",
+  "type": "module",
+  "main": "index.ts",
+  "silo": {
+    "silo": "^1",
+    "contributes": {
+      "hooks": ["entry.beforeValidate"],
+      "routes": [
+        { "method": "GET", "path": "/health", "auth": "public" },
+        { "method": "POST", "path": "/reindex/:collection" }
+      ],
+      "ui": { "entry": "./panel.html", "title": "My Plugin" },
+      "runtime": true,
+      "providers": [
+        { "port": "storage", "driver": "my-driver", "entry": "./provider.ts" }
+      ]
+    },
+    "permissions": {
+      "required": [
+        { "claim": "collections:*/*/*:entries:read", "reason": "To check uniqueness." }
+      ],
+      "optional": [
+        { "claim": "audit:read", "reason": "To log authority changes." }
+      ]
+    },
+    "config": {
+      "type": "object",
+      "properties": { "field": { "type": "string" } },
+      "required": ["field"]
+    }
+  }
+}
+```
+
+### Manifest field reference
+
+| Key | Meaning |
+|---|---|
+| `silo` | Version range of Silo this plugin supports, checked at startup. A breaking change to a hook payload is a major version of Silo. |
+| `contributes.hooks` | Which lifecycle hooks to receive. A hook the module exports but does not declare here is never called. |
+| `contributes.routes` | HTTP routes served under `/api/ext/<name>/`, each with `method`, `path`, optional `auth`, and optional `body`. Declaring any route automatically adds the `http:route` claim to the grant request. The `body` field sets `kind` (`"text"` or `"bytes"`) and `max_bytes`, defaulting to text at 1 MiB. |
+| `contributes.ui` | Admin panel HTML file: `{ "entry": "./panel.html", "title": "..." }`. One inlined HTML file. |
+| `contributes.runtime` | `true` when the module exports `activate(ctx)` and `deactivate(ctx)`. Declaring it without exporting them refuses the start. |
+| `contributes.providers` | Storage or blob-storage port implementations, each `{ "port", "driver", "entry" }`. The `entry` field is required because Silo imports a provider before storage exists; the provider module cannot share the worker module the rest of the plugin runs from. |
+| `permissions.required` | Claims the plugin does not work without. **This is what a default grant approves.** Each entry is `{ "claim", "reason" }` — the `reason` field is not optional; it is what an operator reads while deciding. |
+| `permissions.optional` | Extra claims. Ungranted is a normal outcome, never an error. Each entry is `{ "claim", "reason" }`. |
+| `config` | A JSON Schema for `[plugins.config]` settings in `silo.toml`, validated at startup. |
+
+<Note>
+A package must contribute *something*. A plugin that contributes nothing is refused at startup. Silo automatically adds a `hooks:` claim per declared hook and `http:route` for declared routes to the grant request — you do not need to list them again in `permissions`.
+</Note>
+
+---
+
+## index.ts entry point
+
+The entry module uses `defineSiloPlugin` to declare hook handlers, route handlers, and lifecycle callbacks in one object. Key names match hook names and `"METHOD /path"` route patterns.
+
+```ts
+import { defineSiloPlugin, ValidationError, ForbiddenError } from "silo:api";
+
+export default defineSiloPlugin({
+  // Hook handler
+  "entry.beforeValidate"(event, ctx) {
+    if (event.collection !== "posts") return;
+    const title = event.data[ctx.config.field];
+    if (typeof title !== "string") throw new ValidationError("a post needs a title");
+    return { data: { ...event.data, slug: title.toLowerCase().replace(/[^a-z0-9]+/g, "-") } };
+  },
+
+  // Route handlers
+  async "GET /health"() {
+    return { ok: true };
+  },
+
+  async "POST /reindex/:collection"(request, ctx) {
+    if (!request.caller.claims.includes("*")) {
+      throw new ForbiddenError("admins only");
+    }
+    const page = await ctx.entries.list(
+      { project: "blog", env: "prod" },
+      request.params.collection,
+    );
+    return { status: 202, json: { queued: page.total } };
+  },
+
+  // Lifecycle callbacks
+  async activate(ctx) {
+    // Runs once before Silo takes its first request.
+    // A throw here refuses the start and names the plugin.
+  },
+
+  async deactivate(ctx) {
+    // Best-effort on shutdown; the decision to stop has already been taken.
+  },
+});
+```
+
+---
+
+## ctx API
+
+`ctx` is how a plugin acts on the world. Every call through `ctx` is an HTTP request against Silo's own API, using the same routes, guards, and responses a key with those claims would receive. The claim check is not an analogy — **a plugin is an API key with code attached.**
+
+<CardGroup cols={3}>
+  <Card title="ctx.entries.list()" icon="list">
+    Typed client for the most common operations. `ctx.entries.list(scope, collection, query)` returns a paginated result.
+  </Card>
+  <Card title="ctx.fetch()" icon="arrow-up-right">
+    Raw HTTP for everything else. Paths must be under `/api/`. A refusal comes back as a status, not a throw.
+  </Card>
+  <Card title="ctx.config" icon="gear">
+    The plugin's own `[plugins.config]` values from `silo.toml`, validated against the manifest's `config` schema.
+  </Card>
+</CardGroup>
+
+```ts
+// Typed client — for what a plugin usually wants
+const page = await ctx.entries.list(event.scope, "posts", { limit: 10 });
+
+// Raw HTTP — for everything else; paths must be under /api/
+// A refusal comes back as a status, not a throw.
+const response = await ctx.fetch("/api/media?limit=5");
+```
+
+<Warning>
+A plugin may never be granted `root`, any `plugins:*` claim, or `keys:create | keys:revoke | keys:import`. A plugin runs code, so any of those would let it widen its own grant or make the grant irrelevant.
+</Warning>
+
+---
+
+## Route handler: request object
+
+Every route handler receives `(request, ctx)`. The `request` object carries:
+
+| Property | Type | Notes |
+|---|---|---|
+| `request.method` | `string` | The HTTP verb. |
+| `request.path` | `string` | The declared path pattern. |
+| `request.params` | `Record<string, string>` | Bound `:name` parameters. |
+| `request.query` | `URLSearchParams` | Query string. |
+| `request.headers` | `Headers` | Request headers. `Authorization`, `X-Api-Key`, and `Cookie` are withheld. |
+| `request.body` | `string \| null` | Text body (default). `null` when the route declares `body: { kind: "bytes" }`. |
+| `request.bytes` | `Uint8Array \| null` | Binary body for routes declaring `body: { kind: "bytes" }`. `null` on text routes. |
+| `request.caller` | `{ id, label, claims } \| null` | Who is calling — never the raw credential. `null` on a `public` route reached with no credential. |
+
+<Info>
+A route runs with the **plugin's authority**, not the caller's. This is what a plugin route is for, since a handler bounded by the caller's claims could only do what the caller could have done directly. Check `request.caller.claims` when a route should be narrower than the plugin's grant.
+</Info>
+
+---
+
+## Route handler: return values
+
+A handler returns a value, never a `Response` object. Silo maps the return to an HTTP response:
+
+| Return value | HTTP response |
+|---|---|
+| Plain object | `200` with `application/json` body |
+| String | `200` with `text/plain` body |
+| `{ json }` | `200` with the value serialised as JSON |
+| `{ status, headers, body }` | Explicit status, headers, and body |
+| Nothing (`undefined`) | `204 No Content` |
+| `throw ValidationError(msg)` | `400 Bad Request` |
+| `throw ForbiddenError(msg)` | `403 Forbidden` |
+
+<Note>
+Silo adds `X-Content-Type-Options: nosniff` and `Content-Security-Policy: default-src 'none'; sandbox` to every route response, replacing your own value for either header. A route answers data, not a web page — use `contributes.ui` to ship a browser-facing panel.
+</Note>
+
+---
+
+## Route body declarations
+
+The default body kind is text, capped at 1 MiB. A route that receives a file declares `bytes` instead:
+
+```json
+{ "method": "POST", "path": "/source", "body": { "kind": "bytes", "max_bytes": 67108864 } }
+```
+
+- The cap is yours to declare, bounded by Silo at 64 MiB.
+- Silo **refuses** a request past the cap rather than truncating it. A plugin cannot tell a body it was not given from one that was never sent, so the alternative is a `200` describing work done on the wrong input.
+- `max_bytes` is visible to operators when they approve `http:route`.
+
+---
+
+## Admin panel (contributes.ui)
+
+A plugin can ship one inlined HTML file as an admin panel. It appears under **Settings > Plugins > your plugin**, below the grant.
+
+```json
+{ "entry": "./panel.html", "title": "My Plugin" }
+```
+
+The panel runs in an `<iframe>` with `sandbox="allow-scripts"` and **no** `allow-same-origin`. It has no origin of its own: `localStorage` throws, `document.cookie` is empty, and nothing it fetches carries a credential automatically.
+
+The admin injects `window.silo` to bridge that gap:
+
+```html
+<script>
+  // Fetches JSON from /api/ext/<name>/source — returns parsed object
+  const data = await silo.json('/source');
+
+  // Raw fetch to your plugin's routes with the operator's key attached
+  await silo.fetch('/source', { method: 'POST', body: await file.arrayBuffer() });
+</script>
+```
+
+`silo.json` and `silo.fetch` reach **your plugin's routes only**, with the operator's key attached by the admin. None of your routes needs to be `auth: "public"` for a panel to work.
+
+The admin's theme is available as CSS custom properties: `var(--text)`, `var(--accent)`, and others follow whatever the operator has configured.
+
+---
+
+## silo.toml plugin block
+
+```toml
+[[plugins]]
+name       = "silo-plugin-slug"
+claims     = ["collections:blog/prod/posts:entries:read"]
+timeout_ms = 5000
+on_error   = "fail"  # "fail" (default) | "skip"
+
+  [plugins.config]
+  field = "title"
+```
+
+- `name` resolves under `<data dir>/plugins/`, as either a plain directory or a `node_modules/<name>` layout.
+- `claims` is a declarative grant. Effective authority is the **union** of this and any `PUT /api/plugins/{name}/grant` approval, each bounded by what the manifest requested.
+- `on_error` governs what happens when a non-`ValidationError`/`ForbiddenError` throw escapes a hook. `fail` refuses the write; `skip` logs the error and carries on.
+- The array order of `[[plugins]]` blocks is hook dispatch order. There is no priority number.
+
+---
+
+## Trust model
+
+<Steps>
+  <Step title="A Worker bounds faults, not malice">
+    A plugin that crashes, spins forever, or consumes memory is timed out, torn down, and reported. The server keeps serving. Silo does not restart the plugin automatically.
+  </Step>
+  <Step title="A plugin is an API key with code attached">
+    Every `ctx` call goes through the same auth middleware any external key hits. The plugin never receives the database or the service layer directly.
+  </Step>
+  <Step title="Forbidden grant targets">
+    A plugin may never be granted `root`, `plugins:*`, or `keys:create | keys:revoke | keys:import`. These would let a plugin widen its own grant.
+  </Step>
+  <Step title="Read before you install">
+    The claim check expresses intent and catches mistakes; it is not a sandbox. Worker code holds full process privileges. Read a plugin before placing its directory.
+  </Step>
+</Steps>
+
+---
+
+## silo add validation
+
+`silo add` validates a package thoroughly **before writing a single file**. A bad package leaves nothing behind.
+
+1. **Manifest is valid** — the `silo` key parses and all required fields are present.
+2. **Version range** — the `silo` field in the manifest includes the running binary's version. A plugin that excludes this version is refused.
+3. **Reserved driver names** — a `contributes.providers` entry may not use a built-in driver name (`sqlite`, `fs`, `s3`). The reserved names are refused before anything is written.
+4. **Archive safety** — archives are inspected in full before extraction. Refused if they contain: absolute paths, `..` path components, symlinks, hard links, device nodes, or setuid/setgid/sticky mode bits. An ordinary executable at `0755` is fine; the check is about privilege, not the executable bit.
+
+```sh
+silo add ./my-plugin                     # a local directory
+silo add ./silo-plugin-slug-1.2.0.tgz    # a package archive
+silo add silo-plugin-slug@^1             # from npm
+silo add https://example.com/p.tgz --integrity sha512-...
+silo add https://github.com/acme/silo-plugin-slug --ref v1.2.0
+```
+
+After the checks pass, `silo add` unpacks the package into `<data dir>/plugins/<name>/` and appends a `[[plugins]]` block to `silo.toml`. It runs none of the package's code and no lifecycle script, ever.
+
+---
+
+## Upgrading plugins
+
+An upgrade never escalates automatically. When a new version of a plugin requests claims the current grant does not cover, the plugin's record moves to **`needs_review`** and the plugin **keeps running on the grant it had**. The new claims are simply not in it.
+
+Silo does not advance the approved digest while a review is outstanding. A second install would settle the review in silence, so `silo add --force` with a version that changes the claim set requires an explicit re-grant:
+
+```sh
+silo add --force ./silo-plugin-slug-2.0.0.tgz   # installs new files
+silo plugin grant silo-plugin-slug               # review and approve the new claims
+```
+
+Until re-granted, `silo plugin list` and `silo plugin doctor` both flag the plugin as `needs_review`. Its hooks and routes continue to run with the previously approved claims.

@@ -1,0 +1,27 @@
+.code,
+.prompt {
+  display: block;
+  width: 100%;
+  overflow: auto;
+  white-space: pre-wrap;
+  padding: 10px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: var(--panel);
+  color: var(--text);
+  font: 12px/1.5 var(--font-mono);
+}
+
+.prompt { margin-bottom: 8px; }
+
+.note,
+.manual {
+  max-width: 700px;
+  margin: 12px 0 0;
+  color: var(--text-2);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.manual p { margin: 8px 0; }
+.manual .code { margin-bottom: 8px; }

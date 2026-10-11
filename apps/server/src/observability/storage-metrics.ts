@@ -1,5 +1,6 @@
 import fs from "fs/promises";
 import path from "node:path";
+import type { StorageMeasurement } from "../core/ports/storage-measurement";
 
 interface DirectoryMetric {
   bytes: number;
@@ -18,6 +19,8 @@ interface StorageMetricsOptions {
   mediaDirectory?: string;
   storageDriver?: string;
   blobDriver?: string;
+  /** Sampled with the directories, never per snapshot (`MeasuredStorage`). */
+  measure?: () => Promise<StorageMeasurement>;
   now?: () => number;
 }
 
@@ -70,10 +73,11 @@ export class StorageMetrics {
     // pinned it elsewhere, so the two probes overlap by default. See `contains`.
     const nested = dataRoot !== null && mediaRoot !== null && StorageMetrics.contains(dataRoot, mediaRoot);
 
-    const [dataDirectory, mediaDirectory, filesystem] = await Promise.all([
+    const [dataDirectory, mediaDirectory, filesystem, database] = await Promise.all([
       dataRoot ? StorageMetrics.directory(dataRoot, nested ? mediaRoot : null) : null,
       mediaRoot ? StorageMetrics.directory(mediaRoot) : null,
       dataRoot ? StorageMetrics.filesystem(dataRoot) : null,
+      this.options.measure ? this.options.measure().catch(() => null) : null,
     ]);
     const expected = Number(Boolean(this.options.dataDirectory)) + Number(Boolean(this.options.mediaDirectory));
     const available = Number(dataDirectory !== null) + Number(mediaDirectory !== null);
@@ -86,6 +90,7 @@ export class StorageMetrics {
       data_directory: dataDirectory,
       media_directory: mediaDirectory,
       filesystem,
+      database,
     };
   }
 
@@ -99,6 +104,8 @@ export class StorageMetrics {
       data_directory: null as DirectoryMetric | null,
       media_directory: null as DirectoryMetric | null,
       filesystem: null as FilesystemMetric | null,
+      /** A database store's own report; null for a store that lives in the data directory. */
+      database: null as StorageMeasurement | null,
     };
   }
 

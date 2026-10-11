@@ -1,7 +1,7 @@
 import type { Config } from "../../config/config";
 import { HttpDefaults } from "../../config/http-defaults";
 import { SiloServer } from "../../http/server";
-import type { SiloRuntime } from "../runtime/silo-runtime";
+import { SiloRuntime } from "../runtime/silo-runtime";
 import { BootId } from "../../runtime/boot-id";
 import { ListenAddress } from "../../runtime/listen-address";
 import { ProcessTitle } from "../../runtime/process-title";
@@ -110,6 +110,8 @@ export class ServeCommand {
           config.blob_storage.driver === "fs" ? config.blob_storage.path : undefined,
         storageDriver: config.storage.driver,
         blobDriver: config.blob_storage.driver,
+        // A store in a database reports its own size, pool and owner lock.
+        measure: SiloRuntime.measurer(store),
       }),
     }).build();
 
@@ -222,6 +224,17 @@ export class ServeCommand {
     };
     process.on("uncaughtException", crash("uncaught exception"));
     process.on("unhandledRejection", crash("unhandled rejection"));
+
+    // Another server took this one's storage after it lost its owner lock
+    // (D25). The store already refuses writes; stopping makes that permanent.
+    runtime.whenStorageLost((reason) => {
+      try {
+        logger.error("fatal: lost ownership of storage; stopping", { message: reason.message });
+      } catch {
+        // The log itself may be what failed.
+      }
+      void shutdown(1);
+    });
 
     // Prevent process exiting
     await new Promise(() => {});

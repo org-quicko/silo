@@ -129,6 +129,11 @@ export class Claims extends ClaimVocabulary {
     return ClaimAuthorizer.any(claims, required);
   }
 
+  /** Whether any collection claim reaches this project, environment or collection. */
+  static reaches(claims: HeldClaims, project: string, env?: string, collection?: string): boolean {
+    return ClaimAuthorizer.reaches(claims, project, env, collection);
+  }
+
   static hasAnyCollectionPermission(
     claims: HeldClaims,
     permission: CollectionPermission,

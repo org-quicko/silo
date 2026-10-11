@@ -12,8 +12,8 @@ export const TimeLayout = "YYYY-MM-DDTHH:mm:ss.SSSZ";
 // filenames and virtually every filesystem caps a name at 255 bytes. A looser
 // cap would let a value through on SQLite that the fs adapter rejects with a
 // raw ENAMETOOLONG mid-write — the exact cross-adapter divergence this
-// contract exists to prevent. Collection names cap at 64 anyway (Claims
-// grammar); ids are ULIDs (26 chars) going forward, but imported historical
+// contract exists to prevent. Collection names cap at 128 anyway
+// (`CollectionName`, D104); ids are ULIDs (26 chars) going forward, but imported historical
 // ids are deliberately NOT narrowed to that shape (D18/Importer) — this only
 // guards against pathological/adversarial length, not format.
 const MaxSegmentBytes = 255;
@@ -55,6 +55,11 @@ export class EntryUtils {
     }
     if (/[/\\\0]/.test(value)) {
       throw new ValidationError(`invalid ${label} "${value}": must not contain "/", "\\", or a NUL byte`);
+    }
+    // Every adapter encodes a segment as UTF-8, which has no spelling for a
+    // lone surrogate: one store would substitute U+FFFD and another refuse (D92).
+    if (!value.isWellFormed()) {
+      throw new ValidationError(`invalid ${label} ${JSON.stringify(value)}: contains an unpaired surrogate`);
     }
   }
 

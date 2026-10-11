@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { FetchTransport as Transport } from "../../src/transport/fetch-transport";
+import { Transport } from "../../src/transport/transport";
 import { ProjectVariables } from "../../src/variables/project-variables";
 import { StubFetch } from "../support/stub-fetch";
 import { StubResponse } from "../support/stub-response";

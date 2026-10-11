@@ -30,7 +30,7 @@ import { TomlSnippet } from "../../../../packages/create-silo-plugin/src/render/
  * runtime dependency the rest of the scaffolder does not. `WorkerHost` boots
  * from a `data:` URL of roughly 4 KB, and Bun 1.3.13 on macOS rejected one that
  * size outright (§13.10) — every plugin test in this directory failed, for a
- * reason that had nothing to do with any of them. The pin is 1.4.0, where they
+ * reason that had nothing to do with any of them. The pin is 1.4.2, where they
  * pass; the split is kept so that if the floor ever moves again, it takes down
  * the end-to-end test and not the assertions about generated code.
  */

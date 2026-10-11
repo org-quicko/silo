@@ -1,9 +1,9 @@
-import { Globe, Server as ServerIcon, Settings } from 'lucide-react'
+import { Globe, Server as ServerIcon } from 'lucide-react'
 import { BrowserColumn } from '../../components/browser/BrowserColumn'
 import { ColumnItem } from '../../components/browser/ColumnItem'
 import { ColumnPlaceholder } from '../../components/browser/ColumnPlaceholder'
+import { ColumnSettingsButton } from '../../components/browser/ColumnSettingsButton'
 import type { Server } from './server'
-import styles from '../../components/browser/ScopeBrowser.module.css'
 
 interface Props {
   servers: Server[]
@@ -33,17 +33,10 @@ export function ServerColumn({ servers, selectedId, onSelect, onOpenStatus }: Pr
             chevron
             onSelect={() => onSelect(server.id)}
             action={
-              <button
-                type="button"
-                className={styles.itemSettings}
-                onClick={(event) => {
-                  event.stopPropagation()
-                  onOpenStatus(server.id)
-                }}
+              <ColumnSettingsButton
                 title="Server status & configuration"
-              >
-                <Settings size={13} />
-              </button>
+                onOpen={() => onOpenStatus(server.id)}
+              />
             }
           />
         ))

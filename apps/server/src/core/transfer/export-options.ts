@@ -3,6 +3,12 @@ import type { TransferSelection } from "./transfer-selection";
 
 export interface ExportOptions {
   withKeys?: boolean;
+  /**
+   * A whole-instance move (`silo export --instance`, D97): everything a whole
+   * export carries, every key including the ones silo minted for plugins, the
+   * plugin grants and the audit log. Offered by the CLI only.
+   */
+  instance?: boolean;
   siloVersion?: string;
   exportedAt?: Date;
   /** Named after the `include` parameter that carries it. Absent, or

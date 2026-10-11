@@ -60,6 +60,18 @@
   .notes { margin: 4px 0 0; padding-left: 16px; color: var(--text-3); font-size: 11.5px; }
   .hidden { display: none; }
   .err { color: var(--bad); }
+  .btn-sm { padding: 3px 8px; font-size: 12px; line-height: 1.4; }
+  .btn-toggle.active { background: var(--accent-soft); color: var(--accent); border-color: var(--accent); }
+  .batch-panel {
+    background: var(--panel-2); border: 1px solid var(--line-2);
+    border-radius: var(--radius-sm); padding: 10px 12px; margin: 8px 0 12px;
+    display: flex; flex-direction: column; gap: 8px; font-size: 12px;
+  }
+  .batch-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+  .batch-row input[type='text'], .batch-row select { width: auto; }
+  .batch-label { min-width: 90px; font-size: 11.5px; font-weight: 600; color: var(--text-2); }
+  .ok-text { color: var(--ok); }
+  tr.selected td { background: var(--accent-soft); }
 </style>
 
 <div class="wrap">
@@ -142,10 +154,79 @@
       <select id="env" class="grow" style="max-width: 200px"></select>
     </div>
 
+    <div class="row spread" style="margin: 12px 0 8px">
+      <div class="row" style="gap: 6px">
+        <button id="plan-select-all" type="button" class="btn-sm">Select all</button>
+        <button id="plan-deselect-all" type="button" class="btn-sm">Deselect all</button>
+        <span class="dim" id="plan-selected-count" style="margin-left: 4px"></span>
+      </div>
+      <div>
+        <button id="plan-batch-toggle" type="button" class="btn-sm btn-toggle">Batch edit</button>
+      </div>
+    </div>
+
+    <div id="plan-batch-box" class="batch-panel hidden">
+      <div class="row spread">
+        <div class="row" style="gap: 8px">
+          <b>Batch edit mode</b>
+          <span class="dim" id="batch-scope-desc">Applying to selected collections</span>
+        </div>
+        <div class="row" style="gap: 10px">
+          <label class="dim" style="cursor: pointer; display: flex; align-items: center; gap: 4px">
+            <input type="radio" name="batch-scope" value="selected" id="batch-scope-selected" checked>
+            <span id="batch-scope-selected-label">Selected only</span>
+          </label>
+          <label class="dim" style="cursor: pointer; display: flex; align-items: center; gap: 4px">
+            <input type="radio" name="batch-scope" value="all" id="batch-scope-all">
+            <span id="batch-scope-all-label">All</span>
+          </label>
+          <button id="batch-close" type="button" class="btn-sm" style="margin-left: 6px">✕ Close</button>
+        </div>
+      </div>
+
+      <div class="batch-row">
+        <span class="batch-label">If it exists</span>
+        <select id="batch-mode-select" style="min-width: 140px">
+          <option value="append">add to it</option>
+          <option value="replace">empty it first</option>
+          <option value="skip">leave it alone</option>
+        </select>
+        <button id="batch-mode-apply" type="button" class="btn-sm">Apply mode</button>
+      </div>
+
+      <div class="batch-row">
+        <span class="batch-label">Prefix</span>
+        <input id="batch-prefix-input" type="text" placeholder="e.g. strapi_" style="width: 160px; max-width: 100%">
+        <button id="batch-prefix-add" type="button" class="btn-sm">Add prefix</button>
+        <button id="batch-prefix-remove" type="button" class="btn-sm">Remove prefix</button>
+      </div>
+
+      <div class="batch-row">
+        <span class="batch-label">Find & Replace</span>
+        <input id="batch-find-input" type="text" placeholder="Find..." style="width: 140px; max-width: 100%">
+        <span class="dim">→</span>
+        <input id="batch-replace-input" type="text" placeholder="Replace with..." style="width: 140px; max-width: 100%">
+        <button id="batch-replace-apply" type="button" class="btn-sm">Replace</button>
+      </div>
+
+      <div class="batch-row">
+        <span class="batch-label">Quick actions</span>
+        <button id="batch-reset-names" type="button" class="btn-sm">Reset names to default</button>
+        <span id="batch-flatten-group" class="batch-row hidden" style="margin: 0; gap: 6px">
+          <span class="dim" style="margin: 0 2px">·</span>
+          <button id="batch-flatten-enable" type="button" class="btn-sm">Flatten all</button>
+          <button id="batch-flatten-disable" type="button" class="btn-sm">Unflatten all</button>
+        </span>
+        <span id="batch-feedback" style="font-size: 11.5px; margin-left: 6px"></span>
+      </div>
+    </div>
+
     <table>
       <thead>
         <tr>
-          <th class="cell-tick"></th>
+          <th class="cell-tick">
+            <input id="plan-master-check" type="checkbox" title="Select all / Deselect all" aria-label="Select all / Deselect all">
+          </th>
           <th>Strapi content type</th>
           <th class="cell-name">silo collection</th>
           <th class="cell-mode">If it exists</th>
@@ -188,7 +269,7 @@
     node.textContent = message
   }
 
-  const state = { source: null, inventory: null, files: null, plan: null, targets: [], job: null, timer: null, ttlHours: 0 }
+  const state = { source: null, inventory: null, files: null, plan: null, targets: [], job: null, timer: null, ttlHours: 0, batchMode: false }
 
   function bytes(n) {
     if (n < 1024) return n + ' B'
@@ -265,6 +346,7 @@
     state.inventory = null
     state.files = null
     state.plan = null
+    setBatchMode(false)
     render()
   })
 
@@ -507,7 +589,27 @@
   }
 
   function setBusy(busy) {
-    for (const id of ['pick-folder', 'pick-files', 'forget-files', 'run']) $(id).disabled = busy
+    for (const id of [
+      'pick-folder',
+      'pick-files',
+      'forget-files',
+      'run',
+      'plan-select-all',
+      'plan-deselect-all',
+      'plan-master-check',
+      'plan-batch-toggle',
+      'batch-mode-apply',
+      'batch-prefix-add',
+      'batch-prefix-remove',
+      'batch-replace-apply',
+      'batch-reset-names',
+      'batch-flatten-enable',
+      'batch-flatten-disable',
+      'batch-close',
+    ]) {
+      const el = $(id)
+      if (el) el.disabled = busy
+    }
   }
 
   /**
@@ -609,6 +711,11 @@
     state.plan = plan.plan
     state.targets = plan.targets || []
     state.files = files
+    for (const step of (state.plan && state.plan.steps) || []) {
+      if (!step.proposedCollection) {
+        step.proposedCollection = step.collection
+      }
+    }
   }
 
   function listOf(id) {
@@ -675,6 +782,7 @@
       if (step.include) total += entries
 
       const row = document.createElement('tr')
+      if (step.include) row.className = 'selected'
 
       const tick = document.createElement('td')
       const check = document.createElement('input')
@@ -752,11 +860,259 @@
       body.appendChild(row)
     }
 
+    const totalSteps = state.plan.steps.length
     const included = state.plan.steps.filter((step) => step.include).length
     $('plan-total').textContent =
       included + ' collection' + (included === 1 ? '' : 's') + ', ' + total + ' entries'
     $('run').disabled = included === 0
+
+    const master = $('plan-master-check')
+    if (master) {
+      master.checked = totalSteps > 0 && included === totalSteps
+      master.indeterminate = included > 0 && included < totalSteps
+      master.disabled = totalSteps === 0
+    }
+
+    const countEl = $('plan-selected-count')
+    if (countEl) {
+      countEl.textContent =
+        totalSteps === 0
+          ? ''
+          : included === totalSteps
+          ? 'All ' + totalSteps + ' selected'
+          : included === 0
+          ? 'None selected'
+          : included + ' of ' + totalSteps + ' selected'
+    }
+
+    $('plan-select-all').disabled = totalSteps === 0
+    $('plan-deselect-all').disabled = totalSteps === 0
+    $('plan-batch-toggle').disabled = totalSteps === 0
+
+    updateBatchControls()
   }
+
+  function setBatchMode(on) {
+    state.batchMode = on
+    const box = $('plan-batch-box')
+    const btn = $('plan-batch-toggle')
+    if (box) box.className = on ? 'batch-panel' : 'batch-panel hidden'
+    if (btn) {
+      btn.className = on ? 'btn-sm btn-toggle active' : 'btn-sm btn-toggle'
+      btn.textContent = on ? 'Batch edit ✓' : 'Batch edit'
+    }
+    if (on) updateBatchControls()
+  }
+
+  function getBatchTargetSteps() {
+    if (!state.plan || !state.plan.steps) return []
+    const isAll = $('batch-scope-all') && $('batch-scope-all').checked
+    if (isAll) return state.plan.steps
+    return state.plan.steps.filter((s) => s.include)
+  }
+
+  function updateBatchControls() {
+    if (!state.plan || !state.plan.steps) return
+    const totalSteps = state.plan.steps.length
+    const included = state.plan.steps.filter((s) => s.include).length
+
+    const selectedLabel = $('batch-scope-selected-label')
+    if (selectedLabel) selectedLabel.textContent = 'Selected only (' + included + ')'
+    const allLabel = $('batch-scope-all-label')
+    if (allLabel) allLabel.textContent = 'All (' + totalSteps + ')'
+
+    const isAll = $('batch-scope-all') && $('batch-scope-all').checked
+    const desc = $('batch-scope-desc')
+    if (desc) {
+      desc.textContent = isAll
+        ? 'Applying to all ' + totalSteps + ' collections'
+        : 'Applying to ' + included + ' selected collection' + (included === 1 ? '' : 's')
+    }
+
+    const targets = getBatchTargetSteps()
+    const hasFlattenable = targets.some((step) => {
+      const list = listOf(step.list)
+      return Boolean(list && list.flatten)
+    })
+    const flattenGroup = $('batch-flatten-group')
+    if (flattenGroup) {
+      flattenGroup.className = hasFlattenable ? 'batch-row' : 'batch-row hidden'
+    }
+  }
+
+  let feedbackTimer = null
+  function showBatchFeedback(message, kind) {
+    const el = $('batch-feedback')
+    if (!el) return
+    clearTimeout(feedbackTimer)
+    el.textContent = message
+    el.className = kind === 'warn' ? 'err' : 'dim ok-text'
+    feedbackTimer = setTimeout(() => {
+      if (el) el.textContent = ''
+    }, 3500)
+  }
+
+  $('plan-master-check').addEventListener('click', () => {
+    if (!state.plan || !state.plan.steps) return
+    const allIncluded = state.plan.steps.length > 0 && state.plan.steps.every((s) => s.include)
+    const next = !allIncluded
+    for (const step of state.plan.steps) step.include = next
+    renderSteps()
+  })
+
+  $('plan-select-all').addEventListener('click', () => {
+    if (!state.plan || !state.plan.steps) return
+    for (const step of state.plan.steps) step.include = true
+    renderSteps()
+  })
+
+  $('plan-deselect-all').addEventListener('click', () => {
+    if (!state.plan || !state.plan.steps) return
+    for (const step of state.plan.steps) step.include = false
+    renderSteps()
+  })
+
+  $('plan-batch-toggle').addEventListener('click', () => {
+    setBatchMode(!state.batchMode)
+  })
+
+  $('batch-close').addEventListener('click', () => {
+    setBatchMode(false)
+  })
+
+  for (const id of ['batch-scope-selected', 'batch-scope-all']) {
+    $(id).addEventListener('change', updateBatchControls)
+  }
+
+  $('batch-mode-apply').addEventListener('click', () => {
+    const targets = getBatchTargetSteps()
+    if (targets.length === 0) {
+      showBatchFeedback('No collections selected', 'warn')
+      return
+    }
+    const chosenMode = $('batch-mode-select').value
+    for (const step of targets) step.mode = chosenMode
+    renderSteps()
+    showBatchFeedback('Set mode to "' + chosenMode + '" for ' + targets.length + ' collection' + (targets.length === 1 ? '' : 's'))
+  })
+
+  $('batch-prefix-add').addEventListener('click', () => {
+    const targets = getBatchTargetSteps()
+    if (targets.length === 0) {
+      showBatchFeedback('No collections selected', 'warn')
+      return
+    }
+    const prefix = $('batch-prefix-input').value.trim()
+    if (!prefix) {
+      showBatchFeedback('Enter a prefix first', 'warn')
+      return
+    }
+    let added = 0
+    for (const step of targets) {
+      if (!step.collection.startsWith(prefix)) {
+        step.collection = prefix + step.collection
+        added++
+      }
+    }
+    renderSteps()
+    showBatchFeedback('Prefixed ' + added + ' of ' + targets.length + ' collection' + (targets.length === 1 ? '' : 's'))
+  })
+
+  $('batch-prefix-remove').addEventListener('click', () => {
+    const targets = getBatchTargetSteps()
+    if (targets.length === 0) {
+      showBatchFeedback('No collections selected', 'warn')
+      return
+    }
+    const prefix = $('batch-prefix-input').value.trim()
+    if (!prefix) {
+      showBatchFeedback('Enter a prefix to remove', 'warn')
+      return
+    }
+    let removed = 0
+    for (const step of targets) {
+      if (step.collection.startsWith(prefix)) {
+        const remainder = step.collection.slice(prefix.length)
+        if (remainder.length > 0) {
+          step.collection = remainder
+          removed++
+        }
+      }
+    }
+    renderSteps()
+    showBatchFeedback('Removed prefix from ' + removed + ' of ' + targets.length + ' collection' + (targets.length === 1 ? '' : 's'))
+  })
+
+  $('batch-replace-apply').addEventListener('click', () => {
+    const targets = getBatchTargetSteps()
+    if (targets.length === 0) {
+      showBatchFeedback('No collections selected', 'warn')
+      return
+    }
+    const findText = $('batch-find-input').value
+    if (!findText) {
+      showBatchFeedback('Enter text to find', 'warn')
+      return
+    }
+    const replaceText = $('batch-replace-input').value
+    let replaced = 0
+    for (const step of targets) {
+      if (step.collection.includes(findText)) {
+        const next = step.collection.split(findText).join(replaceText)
+        if (next.trim().length > 0) {
+          step.collection = next.trim()
+          replaced++
+        }
+      }
+    }
+    renderSteps()
+    showBatchFeedback('Replaced in ' + replaced + ' of ' + targets.length + ' collection' + (targets.length === 1 ? '' : 's'))
+  })
+
+  $('batch-reset-names').addEventListener('click', () => {
+    const targets = getBatchTargetSteps()
+    if (targets.length === 0) {
+      showBatchFeedback('No collections selected', 'warn')
+      return
+    }
+    let resetCount = 0
+    for (const step of targets) {
+      if (step.proposedCollection && step.collection !== step.proposedCollection) {
+        step.collection = step.proposedCollection
+        resetCount++
+      }
+    }
+    renderSteps()
+    showBatchFeedback('Reset ' + resetCount + ' collection name' + (resetCount === 1 ? '' : 's'))
+  })
+
+  $('batch-flatten-enable').addEventListener('click', () => {
+    const targets = getBatchTargetSteps()
+    let count = 0
+    for (const step of targets) {
+      const list = listOf(step.list)
+      if (list && list.flatten && !step.flatten) {
+        step.flatten = true
+        count++
+      }
+    }
+    renderSteps()
+    showBatchFeedback('Flattened ' + count + ' collection' + (count === 1 ? '' : 's'))
+  })
+
+  $('batch-flatten-disable').addEventListener('click', () => {
+    const targets = getBatchTargetSteps()
+    let count = 0
+    for (const step of targets) {
+      const list = listOf(step.list)
+      if (list && list.flatten && step.flatten) {
+        step.flatten = false
+        count++
+      }
+    }
+    renderSteps()
+    showBatchFeedback('Unflattened ' + count + ' collection' + (count === 1 ? '' : 's'))
+  })
 
   $('run').addEventListener('click', async () => {
     alert_('')

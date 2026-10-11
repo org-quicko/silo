@@ -26,6 +26,25 @@ describe("claim matching", () => {
     expect(Claims.has(nameScoped, Claims.collection("acme", "prod", "authors", Claims.CollectionEntriesRead))).toBe(false);
   });
 
+  test("reaches asks whether any collection claim touches a project, environment or collection", () => {
+    const acmePosts = [Claims.collection("acme", "prod", "posts", Claims.CollectionSchemaRead)];
+    expect(Claims.reaches(acmePosts, "acme")).toBe(true);
+    expect(Claims.reaches(acmePosts, "acme", "prod")).toBe(true);
+    expect(Claims.reaches(acmePosts, "acme", "prod", "posts")).toBe(true);
+    expect(Claims.reaches(acmePosts, "acme", "prod", "pages")).toBe(false);
+    expect(Claims.reaches(acmePosts, "acme", "dev")).toBe(false);
+    expect(Claims.reaches(acmePosts, "beta")).toBe(false);
+
+    // A prefix pattern reaches the names it matches (D64).
+    const team = [Claims.collection("acme*", "*", "*", Claims.CollectionEntriesRead)];
+    expect(Claims.reaches(team, "acme-web", "prod", "posts")).toBe(true);
+    expect(Claims.reaches(team, "beta")).toBe(false);
+
+    expect(Claims.reaches([Claims.Root], "anything", "at", "all")).toBe(true);
+    // A fixed claim reaches no scope, observability:read included.
+    expect(Claims.reaches([Claims.ObservabilityRead, Claims.MediaCreate], "acme")).toBe(false);
+  });
+
   test("root covers fixed and future claims", () => {
     expect(Claims.has([Claims.Root], Claims.TransferCopy)).toBe(true);
     // Deliberately outside the Claim union: root must still cover claims minted

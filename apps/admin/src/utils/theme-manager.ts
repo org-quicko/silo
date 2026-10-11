@@ -1,9 +1,12 @@
+export type ThemeMode = 'dark' | 'light'
+
 export interface ThemeSettings {
   font: string
   accent: string
   theme: string
   sidebar: string
   sidebarHover: string
+  mode: ThemeMode
 }
 
 export interface FontPreset {
@@ -29,17 +32,17 @@ export class ThemeManager {
   public static readonly DEFAULT_FONT = 'Hanken Grotesk'
   public static readonly DEFAULT_ACCENT = '#7c86ff'
   public static readonly DEFAULT_THEME = 'Silo Indigo'
-  // Matches the shipped --panel/--panel-2 values, so the default theme
-  // repaints the sidebar to exactly what it already looked like.
+  public static readonly DEFAULT_MODE: ThemeMode = 'dark'
   public static readonly DEFAULT_SIDEBAR = '#14171f'
   public static readonly DEFAULT_SIDEBAR_HOVER = '#1c202a'
 
-  /**
-   * The families offered as specimens on the Appearance page. Trimming this
-   * list never strips a font somebody is already using: `applyFont` fetches
-   * whatever family is stored through its own link, so a saved choice that is
-   * no longer a preset keeps working — it simply stops being one of the cards.
-   */
+  public static readonly DEFAULT_LIGHT_THEME = 'Prussian Blue'
+  public static readonly DEFAULT_LIGHT_ACCENT = '#24588a'
+  public static readonly DEFAULT_LIGHT_SIDEBAR = '#f8fafd'
+  public static readonly DEFAULT_LIGHT_SIDEBAR_HOVER = '#edf2f7'
+
+  private static listeners = new Set<(settings: ThemeSettings) => void>()
+
   public static readonly FONT_PRESETS: FontPreset[] = [
     { name: 'Hanken Grotesk', category: 'Sans-Serif' },
     { name: 'Inter', category: 'Sans-Serif' },
@@ -51,19 +54,52 @@ export class ThemeManager {
     { name: 'Fira Code', category: 'Monospace' },
   ]
 
-  // Curated to a spread of visually distinct hues rather than every shade —
-  // near-duplicates (Cyan Glow beside Sky Blue, Teal beside Emerald, Magenta
-  // Pulse beside Electric Violet, Sunset Orange beside Amber Gold, Lime Volt
-  // beside Emerald) added variety without adding a meaningfully different
-  // choice, so they're gone rather than kept for the sake of a bigger grid.
-  public static readonly THEME_PRESETS: ThemePreset[] = [
-    { name: 'Silo Indigo', description: 'Default', accent: ThemeManager.DEFAULT_ACCENT, sidebar: ThemeManager.DEFAULT_SIDEBAR, sidebarHover: ThemeManager.DEFAULT_SIDEBAR_HOVER },
+  // Curated presets for Dark Mode: vibrant, luminescent accents on dark slate chrome.
+  public static readonly DARK_PRESETS: ThemePreset[] = [
+    { name: 'Silo Indigo', description: 'Default', accent: '#7c86ff', sidebar: '#14171f', sidebarHover: '#1c202a' },
     { name: 'Violet', accent: '#bf5af2', sidebar: '#1d1630', sidebarHover: '#2a2040' },
     { name: 'Sky Blue', accent: '#4c8df6', sidebar: '#101d2b', sidebarHover: '#19293b' },
     { name: 'Emerald', accent: '#00a86b', sidebar: '#0f1f1a', sidebarHover: '#172c25' },
     { name: 'Amber Gold', accent: '#f59e0b', sidebar: '#221a10', sidebarHover: '#302617' },
     { name: 'Rose Pink', accent: '#f43f5e', sidebar: '#26121a', sidebarHover: '#351b26' },
   ]
+
+  // Curated presets for Light Mode: rich archival inks harmonized with the warm parchment palette.
+  public static readonly LIGHT_PRESETS: ThemePreset[] = [
+    { name: 'Prussian Blue', description: 'Default', accent: '#24588a', sidebar: '#fcfbf8', sidebarHover: '#f0ece3' },
+    { name: 'Forest Cypress', accent: '#216e4e', sidebar: '#fcfbf8', sidebarHover: '#f0ece3' },
+    { name: 'Burnt Terracotta', accent: '#a84b2c', sidebar: '#fcfbf8', sidebarHover: '#f0ece3' },
+    { name: 'Imperial Plum', accent: '#7b3868', sidebar: '#fcfbf8', sidebarHover: '#f0ece3' },
+    { name: 'Antique Brass', accent: '#96681e', sidebar: '#fcfbf8', sidebarHover: '#f0ece3' },
+    { name: 'Iron Ore', accent: '#3f4756', sidebar: '#fcfbf8', sidebarHover: '#f0ece3' },
+  ]
+
+  private static readonly PRESET_MAP_DARK_TO_LIGHT: Record<string, string> = {
+    'Silo Indigo': 'Prussian Blue',
+    'Violet': 'Imperial Plum',
+    'Sky Blue': 'Prussian Blue',
+    'Emerald': 'Forest Cypress',
+    'Amber Gold': 'Antique Brass',
+    'Rose Pink': 'Burnt Terracotta',
+  }
+
+  private static readonly PRESET_MAP_LIGHT_TO_DARK: Record<string, string> = {
+    'Prussian Blue': 'Silo Indigo',
+    'Forest Cypress': 'Emerald',
+    'Burnt Terracotta': 'Rose Pink',
+    'Imperial Plum': 'Violet',
+    'Antique Brass': 'Amber Gold',
+    'Iron Ore': 'Silo Indigo',
+  }
+
+  public static get THEME_PRESETS(): ThemePreset[] {
+    return [...ThemeManager.DARK_PRESETS, ...ThemeManager.LIGHT_PRESETS]
+  }
+
+  public static getPresets(mode?: ThemeMode): ThemePreset[] {
+    const activeMode = mode || ThemeManager.getSettings().mode
+    return activeMode === 'light' ? ThemeManager.LIGHT_PRESETS : ThemeManager.DARK_PRESETS
+  }
 
   public static getSettings(): ThemeSettings {
     const defaults: ThemeSettings = {
@@ -72,6 +108,7 @@ export class ThemeManager {
       theme: ThemeManager.DEFAULT_THEME,
       sidebar: ThemeManager.DEFAULT_SIDEBAR,
       sidebarHover: ThemeManager.DEFAULT_SIDEBAR_HOVER,
+      mode: ThemeManager.DEFAULT_MODE,
     }
     try {
       const raw = localStorage.getItem(ThemeManager.STORAGE_KEY)
@@ -83,6 +120,7 @@ export class ThemeManager {
           theme: parsed.theme || defaults.theme,
           sidebar: parsed.sidebar || defaults.sidebar,
           sidebarHover: parsed.sidebarHover || defaults.sidebarHover,
+          mode: parsed.mode === 'light' ? 'light' : 'dark',
         }
       }
     } catch {
@@ -93,8 +131,10 @@ export class ThemeManager {
 
   public static setFont(fontName: string): void {
     const trimmed = fontName.trim() || ThemeManager.DEFAULT_FONT
-    ThemeManager.saveSettings({ ...ThemeManager.getSettings(), font: trimmed })
+    const updated = { ...ThemeManager.getSettings(), font: trimmed }
+    ThemeManager.saveSettings(updated)
     ThemeManager.applyFont(trimmed)
+    ThemeManager.emit(updated)
   }
 
   public static setTheme(themeName: string): void {
@@ -109,6 +149,7 @@ export class ThemeManager {
     }
     ThemeManager.saveSettings(updated)
     ThemeManager.repaint(updated)
+    ThemeManager.emit(updated)
   }
 
   public static setAccent(colorHex: string): void {
@@ -116,6 +157,49 @@ export class ThemeManager {
     const updated: ThemeSettings = { ...ThemeManager.getSettings(), accent: formatted, theme: 'Custom' }
     ThemeManager.saveSettings(updated)
     ThemeManager.repaint(updated)
+    ThemeManager.emit(updated)
+  }
+
+  public static setMode(mode: ThemeMode): void {
+    const current = ThemeManager.getSettings()
+    if (current.mode === mode) return
+
+    let nextTheme = current.theme
+    let nextAccent = current.accent
+    let nextSidebar = current.sidebar
+    let nextSidebarHover = current.sidebarHover
+
+    if (mode === 'light') {
+      const targetName = ThemeManager.PRESET_MAP_DARK_TO_LIGHT[current.theme] || ThemeManager.DEFAULT_LIGHT_THEME
+      const lightPreset = ThemeManager.LIGHT_PRESETS.find((p) => p.name === targetName) || ThemeManager.LIGHT_PRESETS[0]
+      if (current.theme !== 'Custom') {
+        nextTheme = lightPreset.name
+        nextAccent = lightPreset.accent
+        nextSidebar = lightPreset.sidebar
+        nextSidebarHover = lightPreset.sidebarHover
+      }
+    } else {
+      const targetName = ThemeManager.PRESET_MAP_LIGHT_TO_DARK[current.theme] || ThemeManager.DEFAULT_THEME
+      const darkPreset = ThemeManager.DARK_PRESETS.find((p) => p.name === targetName) || ThemeManager.DARK_PRESETS[0]
+      if (current.theme !== 'Custom') {
+        nextTheme = darkPreset.name
+        nextAccent = darkPreset.accent
+        nextSidebar = darkPreset.sidebar
+        nextSidebarHover = darkPreset.sidebarHover
+      }
+    }
+
+    const updated: ThemeSettings = {
+      ...current,
+      mode,
+      theme: nextTheme,
+      accent: nextAccent,
+      sidebar: nextSidebar,
+      sidebarHover: nextSidebarHover,
+    }
+    ThemeManager.saveSettings(updated)
+    ThemeManager.repaint(updated)
+    ThemeManager.emit(updated)
   }
 
   public static reset(): ThemeSettings {
@@ -125,11 +209,28 @@ export class ThemeManager {
       theme: ThemeManager.DEFAULT_THEME,
       sidebar: ThemeManager.DEFAULT_SIDEBAR,
       sidebarHover: ThemeManager.DEFAULT_SIDEBAR_HOVER,
+      mode: ThemeManager.DEFAULT_MODE,
     }
     ThemeManager.saveSettings(defaults)
     ThemeManager.applyFont(defaults.font)
     ThemeManager.repaint(defaults)
+    ThemeManager.emit(defaults)
     return defaults
+  }
+
+  public static subscribe(listener: (settings: ThemeSettings) => void): () => void {
+    ThemeManager.listeners.add(listener)
+    return () => ThemeManager.listeners.delete(listener)
+  }
+
+  private static emit(settings: ThemeSettings): void {
+    for (const listener of ThemeManager.listeners) {
+      try {
+        listener(settings)
+      } catch {
+        /* ignore listener failure */
+      }
+    }
   }
 
   public static init(): void {
@@ -154,10 +255,19 @@ export class ThemeManager {
     }
   }
 
-  /** Applies accent and sidebar tint together — every setter above funnels
-   *  through this so the two never drift out of sync. */
+  /** Applies accent, color scheme, and sidebar tint together — every setter above funnels
+   *  through this so they never drift out of sync. */
   private static repaint(settings: ThemeSettings): void {
     if (typeof document === 'undefined') return
+
+    document.documentElement.setAttribute('data-theme', settings.mode)
+    document.documentElement.style.colorScheme = settings.mode
+
+    const metaColorScheme = document.querySelector('meta[name="color-scheme"]')
+    if (metaColorScheme) {
+      metaColorScheme.setAttribute('content', settings.mode)
+    }
+
     ThemeManager.applyAccent(settings.accent)
     document.documentElement.style.setProperty('--sidebar', settings.sidebar)
     document.documentElement.style.setProperty('--sidebar-hover', settings.sidebarHover)

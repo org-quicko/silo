@@ -1,0 +1,284 @@
+---
+title: "Silo Java client reference — in.org.quicko.silo:client"
+sidebarTitle: "Java Client"
+description: "The Silo Java client publishes to Maven Central as in.org.quicko.silo:client. OkHttp and Jackson, Java 25, blocking calls, optional Caffeine caching."
+---
+
+The Silo Java client carries the same object model as the TypeScript client — immutable handles, typed entries, filter builders, window-driven pagination, and a `RouteInventory` that lists every route the client covers — adapted for Java idioms. A consumer reading both clients should not meet two vocabularies for one service. Three things that could not cross the language boundary are called out explicitly below.
+
+## Installation
+
+<CodeGroup>
+
+```xml Maven
+<dependency>
+  <groupId>in.org.quicko.silo</groupId>
+  <artifactId>client</artifactId>
+  <version><!-- check Maven Central for latest --></version>
+</dependency>
+```
+
+```groovy Gradle
+implementation 'in.org.quicko.silo:client:<version>'
+```
+
+</CodeGroup>
+
+Published to Maven Central as `in.org.quicko.silo:client`. Built on OkHttp and Jackson, requiring Java 25 or newer.
+
+## Basic usage
+
+The path model is identical to TypeScript: client → project → environment → collection.
+
+```java
+Silo silo = Silo.at("http://localhost:8090", System.getenv("SILO_KEY"));
+CollectionHandle<Movie> movies = silo.project("moviespace").environment("prod").collection("movies", Movie.class);
+
+EntryPage<Movie> page = movies.list();
+for (Entry<Movie> movie : page.entries()) {
+    System.out.println(movie.fields().title());
+}
+```
+
+`silo.project("moviespace").environment("prod")` sends no request — it only builds the path.
+
+## Entry shape
+
+The Java client splits the flat TypeScript row into `Entry<F>`. TypeScript can express `Fields & EntryEnvelope` as a single flat type because it has structural typing; Java cannot name a type that is both the caller's `Movie` and an envelope without requiring every consumer DTO to extend a library base class.
+
+```java
+Entry<Movie> entry = movies.get(entryId);
+
+// Envelope fields
+String id       = entry.id();
+int    rev      = entry.rev();
+Instant created = entry.createdAt();
+Instant updated = entry.updatedAt();
+
+// Your fields
+Movie fields = entry.fields();
+String title = fields.title();
+```
+
+Everything the TypeScript design was protecting — no transport on the row, no accidental serialisation of credentials — is intact. Timestamps become `Instant` on the same reasoning: the flat TypeScript row went back out unchanged, so strings were kept there; the Java row never does.
+
+## CRUD operations
+
+```java
+// Create
+Entry<Movie> created = movies.create(new Movie("Arrival", 2016, "draft", List.of("sci-fi")));
+
+// Replace — takes the revision you read; raises ConflictException if stale
+movies.replace(created.id(), created.rev(),
+    new Movie("Arrival", 2016, "published", List.of("sci-fi", "drama")));
+
+// Delete
+movies.delete(created.id(), created.rev());
+
+// Read — pass EntryReadOptions.raw() when you plan to edit
+Entry<Movie> entry = movies.get(entryId);
+Entry<Movie> draft = movies.get(entryId, EntryReadOptions.raw());
+```
+
+### Reading raw before editing
+
+Silo resolves `{{VARIABLE}}` references on the way out. Read raw before editing to avoid writing a resolved value back over a template reference.
+
+```java
+Entry<Movie> draft = movies.get(entryId, EntryReadOptions.raw());
+// draft.fields().trailerUrl() → "{{CDN_URL}}/trailers/arrival.mp4"
+
+movies.replace(draft.id(), draft.rev(),
+    draft.fields().withStatus("published"));
+```
+
+## Filters
+
+Filters are **untyped** — there is no Java equivalent of TypeScript's `keyof Movie`. Use string field names directly.
+
+```java
+import in.org.quicko.silo.client.Filter;
+import in.org.quicko.silo.client.Sort;
+
+EntryPage<Movie> page = movies.list(EntryListQuery.all()
+    .where(Filter.field("status").isEqualTo("published")
+        .and(Filter.each("genres").isEqualTo("sci-fi")))
+    .sort(Sort.recentlyUpdated())
+    .limit(20));
+```
+
+<Note>
+  The Java method is `isEqualTo` where TypeScript uses `equals`. See the naming differences table below.
+</Note>
+
+Filter operators: `isEqualTo`, `notEqualTo`, `contains`, `greaterThan`, `atLeast`, `lessThan`, `atMost`, `oneOf`, `exists` — combined with `and`, `or`, `not`.
+
+## Pagination
+
+```java
+EntryPage<Movie> first = movies.list(EntryListQuery.withLimit(25));
+first.total();       // 137
+first.pageNumber();  // 1
+first.hasMore();     // true
+
+Optional<EntryPage<Movie>> second = first.next();
+```
+
+`all()` and `pages()` iterate for you:
+
+```java
+for (Entry<Movie> entry : movies.all()) { }
+for (EntryPage<Movie> page : movies.pages(EntryListQuery.withLimit(100))) { }
+```
+
+## All calls block
+
+Every method blocks the calling thread. There is no `CompletableFuture` counterpart — Java 25 virtual threads supply the concurrency model underneath, and a parallel API would double the surface for the same result.
+
+Use `CancellationSignal` to cancel or time out a call:
+
+```java
+CancellationSignal signal = CancellationSignal.create();
+signal.cancel();  // or set a deadline
+
+movies.list(EntryListQuery.all(), RequestOptions.until(signal));
+```
+
+<Warning>
+  OkHttp reports a cancelled call as an `IOException`. The client checks the signal before interpreting the exception type, so a cancellation is reported as `RequestAbortedException` rather than `NetworkException`.
+</Warning>
+
+## Variables
+
+Declare a variable once per project, then give it a value per environment. Silo substitutes `{{NAME}}` in entries on the way out.
+
+```java
+// Declared for the project, with an initial value in one environment.
+silo.project("moviespace").variables().declare("CDN_URL",
+    DeclareVariableOptions.none()
+        .environment("prod")
+        .value("https://cdn.moviespace.com"));
+
+// List and set per environment.
+for (Variable v : silo.scope("moviespace", "prod").variables().list()) {
+    System.out.printf("%s = %s%n", v.name(), v.value().orElse("(unset)"));
+}
+
+silo.scope("moviespace", "staging").variables().set("CDN_URL", "https://cdn.staging.moviespace.com");
+silo.scope("moviespace", "staging").variables().unset("CDN_URL");
+```
+
+An unset variable leaves `{{CDN_URL}}` standing in the response. An empty value substitutes as empty.
+
+## Search
+
+The reach is wherever you call `search` — it cannot be widened by forgetting a parameter.
+
+```java
+silo.search(SearchQuery.matching("arrival").limit(20));                             // everything
+silo.scope("moviespace", "prod").search(SearchQuery.matching("arrival"));           // one environment
+silo.scope("moviespace", "prod").collection("movies", Movie.class).search(query);  // one collection
+```
+
+## Media
+
+The media library is instance-global and hangs off the client.
+
+```java
+MediaAsset poster = silo.media().upload(
+    MediaUpload.of(Path.of("arrival.jpg")).folder("posters"));
+
+// Store the reference, never the URL.
+// A rename keeps the reference and can change the URL.
+fields.poster = poster.reference();  // silo://media/<id>
+```
+
+Asset operations:
+
+```java
+MediaAsset asset = silo.media().get(id);
+
+asset.rename("arrival-2016.jpg");
+asset.moveTo("posters/2016");
+asset.setTags(List.of("poster"));   // replaces the list
+
+// Swaps bytes; keeps id, reference, URL and filename.
+asset.replace(MediaReplace.of(Path.of("arrival-hd.jpg")));
+
+// Refused while an entry references it, unless forced.
+asset.delete();
+asset.delete(DeleteOptions.forced());
+
+// Usage information.
+MediaUsagePage usages = asset.usages();
+usages.total();    // the true referrer count
+usages.visible();  // how many this key may see
+```
+
+## Optional Caffeine caching
+
+Enable caching on `SiloOptions`:
+
+```java
+Silo silo = new Silo(SiloOptions.of(url, key)
+    .cache(CacheOptions.on(Duration.ofSeconds(30), 1024)));
+```
+
+`@Cache(ttl = 30, maxSize = 1024)` decorates the entry read methods. Both values are optional in the annotation — what a read states wins, and what it leaves out is taken from `CacheOptions`. A number neither side names is refused rather than invented.
+
+Only entry reads are cached. Successful writes (`create`, `replace`, `delete`, rename, schema delete) invalidate the affected collection's cached responses. Schemas, searches, variables, and media always reach the server. Each `Silo` instance owns its own cache; `withKey()` and `withUrl()` start empty.
+
+```java
+silo.cache().clear();                 // after a write made somewhere else
+silo.cache().statistics().hitRate();
+```
+
+## Naming differences from TypeScript
+
+Five names differ from their TypeScript counterparts, each because of a collision or a language convention:
+
+| Java | TypeScript | Reason |
+|---|---|---|
+| `isEqualTo` | `equals` | `Object.equals` collision |
+| `CollectionCatalog` | `CollectionPage` | `java.util.Collection` collision |
+| `RequestTimeoutException` | `TimeoutError` | Java `Error` vs `Exception` convention |
+| `SiloException` | `SiloError` | Java `Error` vs `Exception` convention |
+| `within` / `preview` / `matching` | `for` / `preview` / `where` | `for` is a reserved keyword |
+
+`RouteInventoryDriftTest` parses the TypeScript route inventory and holds the two lists equal, so the clients stay in sync as routes are added.
+
+## Error handling
+
+```java
+import in.org.quicko.silo.client.ConflictException;
+import in.org.quicko.silo.client.ValidationFailedException;
+
+try {
+    movies.replace(movie.id(), movie.rev(), fields);
+} catch (ConflictException e) {
+    Entry<Movie> current = movies.get(movie.id());
+    movies.replace(current.id(), current.rev(), fields);
+} catch (ValidationFailedException e) {
+    e.details();  // List<ValidationDetail>
+}
+```
+
+`SiloException` is the base for anything Silo refused: `ValidationFailedException`, `UnauthorizedException`, `ForbiddenException`, `NotFoundException`, `ConflictException`, `MediaInUseException`, `MediaDeleteStalledException`, and `InternalException`.
+
+`NetworkException`, `RequestTimeoutException`, `RequestAbortedException`, and `InvalidResponseException` are not `SiloException` — Silo never answered.
+
+## Anonymous access
+
+Omit the key to reach collections whose schema does not require authentication.
+
+```java
+Silo silo = Silo.at("https://cms.moviespace.com");
+```
+
+## Source and releases
+
+The Java client lives in `packages/silo-client-java` in the Silo repository and releases independently under `silo-client-java-v*` tags.
+
+<Info>
+  A `module-info.java` is written but deferred — the compiler plugin in use cannot parse Java 25 class files. Treat the `transport` package as internal by convention until the descriptor ships.
+</Info>

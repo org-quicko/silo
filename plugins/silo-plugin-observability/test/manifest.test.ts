@@ -9,4 +9,12 @@ describe("the static manifest", () => {
       "observability:read",
     ]);
   });
+
+  test("asks for collection names only as an optional grant, and the least of the read permissions", () => {
+    // D99: the snapshot names only scopes the caller's claims reach, and the
+    // panel's caller is the plugin, so this is what turns names on.
+    expect(manifest.silo.permissions.optional.map((entry) => entry.claim)).toEqual([
+      "collections:*/*/*:schema:read",
+    ]);
+  });
 });

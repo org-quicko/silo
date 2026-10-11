@@ -1,0 +1,1084 @@
+# HTTP API
+
+> Part of silo's design spec. The decisions log (D1–…) that governs it
+> is [decisions.md](decisions.md), indexed in [IMPLEMENTATION.md](../../IMPLEMENTATION.md).
+
+## 8. HTTP API
+
+Hono web framework on Bun. JSON everywhere. Admin UI served at `/`; API under `/api` — no URL versioning (D13): breaking API changes are release-note events tied to binary upgrades, and the data format is versioned independently via `format_version`.
+
+| Method | Path | Notes |
+|--------|------|-------|
+| GET | `/api/health` | liveness + version |
+| GET | `/api/session` | authenticated key label, prefix, and effective claims |
+| GET / POST | `/api/projects` | list projects as `{id, name}` (filtered by claims) / create one. `id` is the record's ULID; `name` is what every path addresses (D51) |
+| PATCH | `/api/projects/{project}` | rename (`{name}`), bound to `?expected_id=`, previewable with `?dry_run=true` (`RenamePermissions` at `{project}/*/*`, at **both** names — D51) |
+| PATCH | `/api/projects/{project}/envs/{env}` | rename an environment, same shape and reach `{project}/{env}/*` (D51) |
+| DELETE | `/api/projects/{project}/envs/{env}` | delete scope and its collections (`?force=true`, which also requires `entries:delete` across the scope — D37) |
+| GET / POST | `/api/projects/{project}/envs/{env}/collections` | list / create (body: `{name, schema}`). Since D54 a listed item is a **summary** — `{id, name, entries, requires_auth, created_at, updated_at}` — and carries **no schema**: a schema is the largest thing a collection holds and the one thing a list of them never draws, and the entry count comes with it rather than costing a request each |
+| GET | `/api/projects/{project}/envs/{env}/schemas` | every schema in the scope, as stored, for a caller that genuinely reads across all of them — the admin's search bar matching a collection by one of its *field* names is the one such caller (D54). A sibling of `collections`, not a path beneath it: `schemas` is a legal collection name, so `/collections/schemas` would shadow that collection's own entry list |
+| PATCH | `/api/projects/{project}/envs/{env}/collections/{name}` | rename a collection, and repoint every `$ref` to it — additionally requires `collections:schema:update` on **every referring collection** (D51) |
+| GET / PUT / DELETE | `/api/projects/{project}/envs/{env}/collections/{name}/schema` | schema fetch / update / delete (`?force=true` also requires `entries:delete` — D37). The `GET` **bundles on the way out** (D54): `PUT` already embeds every referenced collection's schema into `$defs` transitively, but only as of that save, so a target whose shape changed since was embedded as it was then. Re-resolving on read is what makes one schema a document a client can render on its own — and what makes fetching every schema in the scope unnecessary rather than merely wasteful |
+| GET / POST | `/api/projects/{project}/envs/{env}/collections/{name}` | list (query below) / create |
+| GET / PUT / DELETE | `/api/projects/{project}/envs/{env}/collections/{name}/{id}` | PUT is full replace |
+| GET / POST | `/api/projects/{project}/variables` | *(POST)* declare a name for the whole project, optionally valuing it in `?env=` in the same call (§5.6, D57) |
+| PATCH / DELETE | `/api/projects/{project}/variables/{name}` | rename a declaration or rewrite its description / undeclare it and every environment's value with it (D57) |
+| GET | `/api/projects/{project}/envs/{env}/variables` | every declaration in the project, with **this** environment's value: `{name, description, value, set_in, created_at, updated_at}` (D57) |
+| PUT / DELETE | `/api/projects/{project}/envs/{env}/variables/{name}` | set this environment's value (`{value}`) / clear it, leaving the name declared (D57) |
+| GET | `/api/projects/{project}/envs/{env}/collections/{name}/search` | search one collection (§5.5) |
+| GET | `/api/projects/{project}/envs/{env}/search` | search one scope |
+| GET | `/api/search` | search the instance |
+| POST | `/api/search/reindex` | rebuild the index; export-level read claims |
+| GET | `/api/export?include=&media=` | streams tar.gz as it is walked (§7.1); `include` is repeatable and narrows it, `media` is `all\|referenced\|none` (§7.6, §7.7). `transfer:export`, plus read permissions at the reach `include` names or instance-wide without one; `keys:export` and instance-wide read when including keys |
+| POST | `/api/import?mode=&include=&media=` | streams in a tar.gz — a raw body, or a `multipart/form-data` `file` part. `transfer:import` + write permissions at the same reach, `media:create` unless `media=none`, plus the delete permissions in replace mode; archives containing keys also require `keys:import`. `Accept: application/x-ndjson` answers with a progress stream (§7.8) |
+| POST | `/api/copy` | pulls and imports another silo (`{source_url, source_api_key, mode, with_keys, dry_run, prefer, include, media}`; `transfer:copy`). `include` is forwarded to the source's own export, and the progress stream applies here too |
+| GET / POST | `/api/keys` | list (`keys:read`) / create (`keys:create`); create returns the secret exactly once |
+| PATCH | `/api/keys/{id}` | edit a key's label and/or claims (`keys:create`, **and** the authority to have minted both what it holds and what it is being given — D63) |
+| DELETE | `/api/keys/{id}` | revoke a key (`keys:revoke`, **and** the authority to have minted it — D37) |
+| GET / POST | `/api/media` | search (no claim — D58) / upload (`media:create`) — see §8.1 |
+| GET / PATCH / DELETE | `/api/media/{id}` | asset detail / rename·move·retag (`media:create`) / guarded delete, `?force=true` to delete over a live reference (`media:delete` plus `entries:update` at the scopes it reaches — D48, D49) — see §8.1 |
+| POST | `/api/media/{id}/content` | replace the asset’s bytes, multipart `file`, keeping its id, URL and every reference (`media:replace` **and** `entries:update` at the scopes it reaches — D67) — see §8.1 |
+| POST | `/api/media/delete` | bulk delete (`{ids, force}`, up to 100), always `200` with per-id outcomes (`media:delete`, force as above — D48, D49) — see §8.1 |
+| POST | `/api/media/purge` | empty the whole library (`{confirm: "purge", force?}`), always `200` with per-id outcomes plus a folder count (`media:delete` **and** `media:purge` — D49, D65; force as above) — see §8.1 |
+| GET | `/api/media/{id}/usages` | paginated referrers, claim-filtered (no claim to read; the rows are still filtered by what the caller may see — D58) |
+| GET | `/api/media/extensions` | every distinct file extension in the library, for the admin’s Type filter (no claim — D55, D58) — see §8.1 |
+| GET | `/api/media/stats` | file, byte and folder totals and a split by kind, in one catalog pass (no claim — D58, D106) — see §8.1 |
+| POST | `/api/media/archives` | plan a bulk download of `{ids, folders}` into ZIP parts of ≤ 2 GiB behind an hour-long ticket; a file over 2 GiB goes to `separate` with its own `/media/{id}?download=true`; ≤ `[media] download_max_files` files and `download_max_size_mb` (defaults 5000 and 5120 MB; `413 archive_too_large` naming the key); `503 busy` while `download_max_streams` parts stream (default 3) (any key, no claim — D106) — see §8.1 |
+| GET | `/api/media/archives/{ticket}/{part}` | stream one part as a STORE-only ZIP, read from the store as it is written; no key, the ticket is the credential (D106) — see §8.1 |
+| GET / POST | `/api/media/folders` | list (no claim) / create an empty folder (`media:create`) |
+| PATCH | `/api/media/folders` | rename or move a folder (`{from, to, merge?}`), and every asset and descendant folder within — refuses on collision unless `merge: true` (`media:create`, D49) |
+| DELETE | `/api/media/folders` | delete a folder — empty only by default, or `?recursive=true` for everything inside it, `?force=true` as above (`media:delete`, D23/D49) |
+| POST | `/api/media/reconcile` | backfill and repair the catalog (`media:create` + `media:delete`) |
+| GET / PUT | `/api/media/storage` | where the library keeps its bytes, read and changed (`media:configure`) — see §8.2 |
+| GET / PUT | `/api/media/settings` | where media URLs point and what may be uploaded (`media:configure`) — see §8.3 |
+| GET | `/api/settings` | every other table of `silo.toml`, with what is in force and what a restart is owed for (`settings:configure`) — see §8.4 |
+| PUT | `/api/settings/{table}` | rewrite one of them (`settings:configure`) |
+| GET | `/media/{id}` | public asset streaming, read from the store as it is sent and never held whole, one `Range` honoured as a `206` (D80; pre-D23 `/media/{blobKey}` still resolves). Every answer carries `nosniff` and `Content-Security-Policy: sandbox`; images, video, audio and PDF are `inline`, an SVG or any other type is a `Content-Disposition: attachment` (D83), because this origin also serves the admin and its saved keys. `?download=true` makes every type an `attachment` and never the reverse (D100): the admin's Download link, which a `download` attribute cannot make work across origins. CORS to any origin for `GET` and `HEAD` only (D101), for the admin's text preview on another origin; the bytes are public (D58) and `GET /api/media` already lists them to any origin |
+| GET | `/api/plugins` | plugin grants, state, the gap between requested and granted, what each package `contributes`, and the author's reason for every claim (`plugins:read`) |
+| GET | `/api/plugins/{name}` | one grant; carries `ETag: "<rev>"` for the mutations below |
+| PUT / DELETE | `/api/plugins/{name}/grant` | approve or narrow (body is the **complete** granted set; omitted means everything the package says it **requires**) / withdraw (`plugins:grant`, `If-Match` required) |
+| POST | `/api/plugins/{name}/enable` · `/disable` | start or stop it **now** (`plugins:enable`, `If-Match` required); every view carries a `runtime` block, which replaced `restart_required` (D39) |
+| PATCH / DELETE | `/api/plugins/{name}/config` | pin an [RFC 7396](https://www.rfc-editor.org/rfc/rfc7396) merge patch over `silo.toml`'s block / clear it (`plugins:configure`, `If-Match` required) |
+| POST | `/api/plugins/{name}/restart` | tear the worker down and bring it back (`plugins:enable`); writes no record, so no `If-Match` |
+| GET | `/api/plugins/{name}/ui` | the plugin's declared admin panel (`plugins:read`, D41). Answered as **JSON** (`{title, entry, html}`) with `nosniff`, `default-src 'none'; sandbox` and `no-store` — never as a document, because this origin also serves the admin SPA, which keeps an API key per configured server in its `localStorage`. Only the admin makes it a document, inside `sandbox="allow-scripts"` with no `allow-same-origin` |
+| POST | `/api/plugins/rescan` | re-read `silo.toml` and apply it (`plugins:enable`); reports per plugin rather than refusing on one |
+| ALL | `/api/ext/{name}/*` | the routes a plugin declares (D36), every answer sent with `nosniff` and `default-src 'none'; sandbox` whatever type the plugin declared (D83); see the note below |
+| GET | `/api/audit` | authority changes, newest first (`audit:read`); `?subject=` filters to one key id or plugin name |
+| GET | `/api/observability` | bounded process-lifetime API, latency, memory/CPU, and local-storage metrics (`observability:read`) |
+
+**`?variables=` (D57):** every route that answers an entry — the list, the single `GET`, the `POST`/`PUT` echoes, and search — substitutes `{{NAME}}` from the environment's variables by default. `?variables=raw` answers the **stored** text instead. Resolving is the default because a template only some callers see resolved is a feature nobody can rely on; `raw` exists for **editors**, and the admin uses it on every entry it reads (§9), because a form seeded with a resolved value saves that value back and replaces the reference with a snapshot of what it meant in one environment on one day. Any other value is a `400` rather than a guess: reading `?variables=false` as "resolved" would be exactly the mistake the parameter exists to let a caller avoid.
+
+**List query encoding:** `?filter=<url-encoded JSON Filter>&sort=-$.updated_at,$.data.title&limit=50&offset=0`. Since D29 both `filter` paths and `sort` keys are RFC 9535 JSONPath over the API response shape (§5.3); the pre-D29 `author.name` / `$id` spellings are rejected. Response: `{"data": [...], "total": n, "limit": ..., "offset": ...}`. The search routes (§5.5) take the same `filter`, `sort`, `limit` and `offset`, plus `q`.
+
+**Optimistic concurrency:** PUT/DELETE require the expected rev (`If-Match: "3"` or `?rev=3`); mismatch → `409` with the current entry. Prevents lost updates from two admin tabs — cheap now, painful to retrofit.
+
+**Errors:** `{"error": {"code": "validation_failed", "message": "...", "details": [...]}}`; validation details use JSON Pointer paths from the validator. Since D79 a body over its route class's ceiling is `413 payload_too_large`, answered from the headers before the route or auth runs (§10.4 in configuration.md). Since D81 an entry list or a search whose scan cannot be queued on the storage read worker is `503 busy` with `Retry-After: 1`, and a filter naming more than `MaxFilterLeaves` (16) field tests is a `400` (§6.2 in storage.md). Any route can be `503 busy` while storage cannot answer — on Postgres, while the database is unreachable (D94) — and since D102 that includes the key lookup every request makes: a `StorageBusyError` from `KeyService.authenticate` goes to the error handler instead of becoming `401 invalid API key`, which would have sent every admin tab back to the server manager (below) and told every client to drop a valid key during a database blip. Since D85 an import or a copy whose archive, or whose unpacked tree, is past `[transfer]`'s ceilings is `413 archive_too_large`, naming the setting (§10.5 in configuration.md).
+
+**Auth: claims-based API keys, Shlink-style.** No users or browser sessions: a presented key authenticates a request and its claims authorize individual operations. Claims are deny-by-default. Anonymous collection schema and entry reads remain public within their scope unless the schema sets `"x-silo-auth": true`. When a key is presented, its claims become the visibility boundary and even public collections require the corresponding read claim.
+
+- **Format & storage:** `silo_` + 32 random bytes base64url. Only the SHA-256 hash is stored, as an entry in the `_keys` system collection (§5.4) with label, validated `claims` array, display prefix (`silo_ab12…`), and the usual envelope. Lookup = hash the presented key, exact-match fetch. The plaintext secret exists only in the creation response.
+- **Claims:** root `*`; `collections:<project>/<env>/<name>:create|delete|schema:read|schema:update|access:update|entries:create|entries:read|entries:update|entries:delete`; `media:create|delete`; `keys:read|create|revoke|export|import`; `transfer:export|import|copy`; `plugins:read|configure|grant|enable`; `audit:read`; `observability:read`; and `http:route`. Each segment (`project`, `env`, `name`) independently supports `*` wildcards (e.g. `collections:acme/*/*:entries:read`, `collections:*/prod/*:...`). Action wildcards are invalid.
+- **Name patterns (D64):** a scope segment may also be a **prefix pattern** — three or more literal characters then a trailing `*`, e.g. `collections:acme*/prod/*:entries:read` for every project whose name begins `acme`. Only a trailing `*` is a pattern (`ac*me`, `*cme` and `a*` are all invalid grammar, the last because a one- or two-character prefix is `*` in disguise). Every segment question — matching, delegation containment, search narrowing, and the SQL the search index compiles — is answered by `ClaimSegment` in `@silo/shared` and nowhere else; the index uses `GLOB`, not `LIKE`, because `LIKE` is case-insensitive for ASCII and its `_` wildcard is a legal id character. Delegation is prefix containment: `ac*` covers `acme` and `acme*`, and covers neither `a*` nor `*`. A pattern also **matches scopes that do not exist yet**, which is the whole point of it and the whole hazard: it is the only way to express "this team owns the `acme-` namespace" short of `*`, and it reads on the page like the projects currently on screen. A rename never rewrites one (see D51 and §8.6); it is reported as `pattern_affected_claims` in the trail when the rename carries an entity across the pattern's edge.
+- **Retired claims:** `media:read` (D58). Reading the library needs no claim, so the string is no longer grantable and `POST /api/keys` will not mint one carrying it. It is not *rejected* either: `ClaimVocabulary.RetiredClaims` keeps it known, `Claims.normalize` **drops** it, and a key imported from an older instance loads with the rest of its claims intact. Held on an existing key it grants nothing.
+- **Non-escalating delegation:** `keys:create` permits minting a key only when every requested claim is already covered by the caller. A segment wildcard can delegate matching named segments; named segments cannot widen to wildcards.
+- **No legacy translation:** stored role/collection-allowlist key records are rejected rather than upgraded implicitly.
+- **Presets:** `read`, `write`, `manage`, `root` — a ladder, each including the one before it. `read` is `schema:read` + `entries:read`; `write` adds the three entry mutations; `manage` adds collection lifecycle (`create`, `schema:update`, `access:update`, `delete`); `root` is `*`. `write` and `manage` also carry `media:create` and `media:delete`; `read` carries no fixed claim at all, since D58 retired the one it had. A preset expands over one or more `project/env/collection` targets and is otherwise just a claim set — nothing is stored on a key but its claims.
+- **Bootstrap:** on first boot with no keys, silo generates a root (`*`) key and prints it to stderr exactly once, boxed under the silo wordmark on a terminal and as flat ASCII when redirected. Locked out? `silo keys create --preset root` on the host works directly against the data dir.
+- **Editing a key (D63):** `PATCH /api/keys/{id}` takes `{label?, claims?}` and replaces the claim list outright rather than merging into it, because a merge cannot express removing a claim. `hash`, `prefix`, `owner` and `parent_id` are unreachable — an edit that could move any of them would be a way to mint a credential without minting one. Gated on `keys:create` rather than a claim of its own, because an edit confers nothing a mint does not: whatever list it writes, the caller could have minted a key carrying it. What makes it *different* from a mint is the other end — it acts on a secret someone already holds, and that holder is told nothing — so it is bounded by **two** `canDelegate` checks: against the target's **current** claims (revoke's bound, D37: without it the narrowest key holding `keys:create` rewrites the root key down to its own and locks the instance out) and against the **requested** claims (minting's bound). A key edits itself freely in the narrowing direction and not at all in the widening one, since a claim list always covers itself. A **managed** plugin key is refused, naming `silo plugin grant`, for the reason revoke refuses one. Descendants are **not** re-bounded when a parent narrows: a minted key is bounded by its minter's authority at the moment of minting and by nothing afterwards (D38), and re-bounding here would make revocation and editing two different theories of `parent_id`. `updated_at` on a key view moves only for this, so a listing can say the record is not what was handed out. Recorded as `key.update` with `label_from`/`label_to` and `claims_from`/`claims_to` — both sides, because "what did this key lose when it stopped working" is the question an edit creates and nothing else answers.
+- **Revocation** = deleting the key entry, **and every key descended from it** (D38): `POST /api/keys` records `parent_id`, so a minted key cannot outlive the authority that vouched for it. Not a flag — the correct behaviour behind an argument nobody passes is the same as not having it. The response stays 204; `GET /api/audit` names what went. No expiry and no `last_used_at` in v1 (tracking last-use would turn every request into a storage write, which the fs adapter pays for dearly).
+- **Revocation is bounded the way minting is (D37):** `DELETE /api/keys/{id}` requires `keys:revoke` **and** that `canDelegate` accept the target key's claims — if you could not have minted a key this powerful, you may not destroy one. Without the bound, the narrowest key holding `keys:revoke` could revoke root and leave the instance with no administrative credential, which is unrecoverable without filesystem access. A key still revokes itself, since a claim list always covers itself. Managed plugin keys are refused separately, naming `silo plugin revoke` (D34).
+- **`?force=true` is a second operation, not a modifier (D37):** without it, the collection, environment and project delete routes refuse while content exists, so `collection:delete` alone is an honest ask. With it, the same request erases every entry underneath — asking for no revision — so it additionally requires `entries:delete` at the reach it destroys: the collection, `{project}/{env}/*`, or `{project}/*/*`. Same rule `replace` mode applies to import and to scope copy. Since D36 it also dispatches one `collection.afterDelete` per erased collection, after the write lock is released, carrying how many entries went and whether the scope above it went too — before that it dispatched nothing at all, and an auditing plugin saw entries appear and never saw them go (D37's F6).
+- **Every authority change is recorded (D38):** minting and revoking a key, and granting, revoking, enabling or disabling a plugin, append to the reserved `_audit` collection — written by the services, so the offline CLI is in the trail too. Read it with `GET /api/audit` (`audit:read`, carried by `manage` and `root`). There is no write or delete route and no `audit:write` claim: nothing updates an event, so a claim guarding that would imply a capability that does not exist. `_audit` is excluded from every archive, like every other `_`-prefixed collection but `_keys`.
+- **Operating metrics are aggregate and low-cardinality:** `GET /api/observability` groups requests by Hono's registered method and route pattern, never by the requested path; a successful request's project, environment and collection are filled into the pattern and every other parameter stays a placeholder, and each caller sees names only for the scopes its own collection claims reach, the rest folded into the pattern (D99). It retains process-lifetime counters and sixty one-minute chart buckets, with bounded latency histograms rather than individual requests. Query strings, ids and other route parameters, caller identities, bodies, credentials, content and filesystem paths never enter it. Latency percentiles are bucket upper bounds clamped to the slowest request observed, so one never reads above the `max` beside it. Memory and cumulative CPU time are sampled from the process; local directory size and filesystem capacity are cached background probes that do not follow symlinks and stop after 50,000 entries. The data and media directory figures are disjoint — the data walk skips the media subtree when the library is nested inside it, which it is by default. Remote-provider capacity is `null`, not guessed. A store that lives in a database (`postgres`) reports itself in `storage.database`, sampled on the same cache: the bytes its tables take, its pool (in use, scans waiting, scans shed, retries, failures, and pools the driver broke that were replaced), whether this server holds its owner lock, and `tls` — the `sslmode` the URL asked for and the protocol a session actually uses (D96); it is `null` for `sqlite` and `fs`. `observability:read` is carried by `manage` and `root`, is grantable to a plugin, and has no write counterpart.
+- **Plugins reach this table in-process (D35):** a plugin's `ctx.fetch` is dispatched against the same Hono app, with its principal attached by the host on the `env` argument under a module-private symbol rather than presented as a header — so `AuthMiddleware` reads it *before* the `--no-auth` branch and every guard below applies unchanged. Two consequences for anyone adding a route: it is a plugin capability the moment it exists, so a route asking for less authority than it exercises is a plugin escalation and not merely a bug (D37); and a dispatched request has **no origin**, so `RequestUtils.getBaseUrl` returns `""` and media references reach a plugin as stored rather than expanded against a host that does not exist. Only `/api/` is reachable — the SPA fallback and `/media/{id}` sit outside the auth middleware entirely. §13.15 of [plugins.md](plugins.md).
+- **A default grant is what the package says it requires (D36):** a manifest splits its `permissions` into `required` and `optional`, each entry carrying the author's `reason`, and `PUT .../grant` with no `claims` approves the required half. It read *everything requested* before the split, which is the same answer for a package declaring nothing optional and the wrong one for a package that does — a default approving the optional half would make the word mean nothing. `required` is stored on the record beside `requested`, because this surface acts on the record and never on the filesystem (D38), and the reasons come from the package because they are documentation rather than authority. §13.19 of [plugins.md](plugins.md).
+- **Plugins also serve routes of their own, under `/api/ext/{name}/*` (D36):** declared statically in the manifest, gated by `http:route` — which since D36 is **derived** from the declared routes rather than written out by the author — and each declaring `auth: "key"` (any authenticated key) or `"public"` (no credential). silo matches them itself against that list rather than letting a plugin register anything, so a plugin can neither shadow nor reorder a route in this table, and the set is resolved per request — enable, disable, revoke and rescan therefore apply to routes as they do to hooks (D39). A handler runs with **the plugin's** authority and not the caller's, which is why exposure is a claim and why `public` is called out separately: it publishes whatever the plugin was granted at a URL anyone can reach. The caller's `Authorization`, `X-Api-Key` and `Cookie` are withheld from the handler, which receives an id, a label and claims instead. A thrown `ValidationError` or `ForbiddenError` maps to 400/403 through the same `onError` as everything else; a handler that misses `timeout_ms` is a 504 naming `POST /api/plugins/{name}/restart`; a request body is bounded by the route's own declared `body` — text and 1 MiB unless the manifest says `{"kind": "bytes", "max_bytes": n}` up to silo's 64 MiB ceiling (D41) — and **refused** past it rather than truncated, since a plugin cannot tell a body it was not given from one that was never sent. A `bytes` route is handed `request.bytes` and no text. `HEAD` reaches a declared `GET`, as it does everywhere else in this table. Every answer leaves with `X-Content-Type-Options: nosniff` and `Content-Security-Policy: default-src 'none'; sandbox`, replacing the plugin's own spelling of either (D83): a plugin route is an API answer and never a page, since this origin also holds the admin's saved keys. §13.18 of [plugins.md](plugins.md).
+- The UI stores each saved server's key in `localStorage` (`silo_servers`), verifies it with `GET /api/session`, and sends it as a header on every request; no cookies, so no CSRF surface. Any `401` returns the UI to the server manager.
+- **A project, environment or collection can be renamed (D51):** three `PATCH`
+  routes taking `{name}`. Authority is `RenamePermissions =
+  [collections:create, collections:delete]` at the subject's own reach —
+  `{project}/*/*`, `{project}/{env}/*`, or the one collection — checked at
+  **both** the old and the new name, so a key scoped to one namespace cannot
+  move a project into another. Neither permission suffices alone: `create`
+  would let a caller who may only add collections retire an existing name, and
+  `delete` would let one who may only remove them introduce a new one on
+  content it cannot otherwise write to. A rename is bound to `?expected_id=`,
+  because a name-addressed mutation can arrive after the thing it named was
+  renamed and something else took the name; a mismatch is a `409`.
+  `?dry_run=true` answers the same body and writes nothing.
+
+  **What the response carries is the interesting part.** A rename rewrites claim
+  strings — they name these things by name, and they stay that way, because a
+  ULID fails the claim grammar's id pattern and ULID claims would be unreadable
+  and would break the cross-instance key portability `--with-keys` exists for. So
+  the rewrite turns on one distinction: **a literal segment is a reference and is
+  rewritten; a wildcard segment is a pattern over names and never is.**
+  `collections:*/dev/*:entries:read` means "any project's `dev`" and already
+  matches scopes that do not exist yet, which is what independent per-segment
+  wildcards are *for* (D19) — so rewriting it to `*/prod/*` would silently change
+  authority in every project on the instance, while leaving it alone genuinely
+  changes what the key reaches. Both readings are correct and neither is a
+  rewrite, so the answer is **disclosure**: the body carries `rewritten_claims`
+  and `pattern_affected_claims` separately, the audit `detail` records both, and
+  the admin prints both before asking for confirmation. Nothing else in the
+  product would ever tell an operator that a key's reach moved without its
+  claims changing.
+
+  A **prefix pattern** (D64) is the same rule with a sharper edge, and the
+  reason `patternAffected` had to generalise rather than stay a special case for
+  `*`. `de*` is not a reference to `dev`, so a rename cannot rewrite it, but the
+  claim does stop reaching that environment. It is reported when the rename
+  carries the entity **across the pattern's edge**, in either direction: `dev` to
+  `prod` loses it, `prod` to `devops` gains it, and `dev` to `devel` moves
+  nothing because the pattern matched before and matches after. A bare `*` can
+  never cross its own edge, which is why a wildcard *subject* segment is still
+  reported as nothing at all while a wildcard *ancestor* is reported. Without
+  this branch, adding patterns would have made renames silently move authority —
+  the exact failure D51 exists to prevent, reintroduced through a new spelling.
+
+  The rewrite covers `_keys` and `_plugins`, and is **staged**: a
+  `_scope_renames` marker carrying the enumerated record ids — a bounded
+  worklist, not a re-derived query, which would rewrite the wrong records if a
+  new project took the freed name first — written before the first rewrite and
+  cleared after the last, replayed by `resumePending` **before plugins load**,
+  since a plugin boots on the authority its record holds. The marker doubles as
+  a **name reservation**, which is what makes that replay safe to be non-fatal
+  the way D23's and D49's resumes are: nothing can have taken the old name in
+  the meantime. A plugin whose grant moved is restarted onto it. Completeness is
+  a correctness requirement rather than a nicety, because D34 checks `hooks:`
+  claims *before* an event crosses into a worker, so a claim the cascade missed
+  stops hook delivery with no error anyone sees.
+
+  `silo.toml`'s `[[plugins]] claims` half is **refused rather than rewritten**.
+  Effective plugin authority is config ∪ record, so a rename that rewrote only
+  the record would leave the file naming a scope that no longer exists — and
+  rewriting the file is the thing D34 forbids in as many words: an API able to
+  write it is a code-execution primitive wearing a management claim. So the
+  rename stops with a `409` naming the blocks and leaves the edit to the
+  operator. Fail closed, rather than complete three quarters of an authority
+  change.
+
+  A **collection** rename additionally rewrites the schema graph, because
+  `$ref`s address collections by name: every referring schema's `$ref` strings,
+  self-references included, and the `$defs` keys `SchemaBundler` derives from
+  collection names — stripped and re-bundled rather than patched, since the
+  bundler regenerates what it owns and would otherwise leave the old key behind
+  forever. The whole graph is validated before anything is written, and
+  `collections:schema:update` is asked for on every referrer up front rather
+  than discovered half way through.
+
+### 8.1 Media: catalog, folders, search, and reference integrity (D23)
+
+Media stays **instance-global** — one library for the whole server, not per
+project/env — and `media:create|delete` stay unscoped. Reading needs no claim at
+all since D58: the bytes have been public since this section was written, so a
+claim over the catalog was a lock on the index of an open shelf. Folders organize;
+they do not authorize.
+
+**Catalog.** Every asset is a `_media` document in `Scope.System`, id = a ULID:
+
+```json
+{
+  "filename": "hero.png",
+  "folder": "/marketing/launch",
+  "blob_key": "01J8XQ4Z8K9M2P3R5T7V9X1B3D.png",
+  "size": 20481,
+  "content_type": "image/png",
+  "hash": "e3b0c442...",
+  "state": "active",
+  "tags": ["hero"]
+}
+```
+
+`blob_key` is a stored field, so the policy that generates it is one function
+and can change without touching the record shape. Folders are metadata: the
+key carries no directory component, so moving an asset writes one field and
+performs no object-store work — no S3 copy-and-delete, and the archive's flat
+`media/` layout (§7.1) is unchanged, so D23 needs no `format_version` bump.
+
+**Folders** follow D20's existence rule in both halves: a folder exists when it
+was created explicitly (a `_media_folders` document, id a ULID, `path` in the
+data because a `/`-bearing path is not a safe path segment) **or** when some
+asset names it. Without the explicit half a folder could not be made before
+something was filed into it — the exact gap D20 found with empty projects.
+
+**Search** is the existing Query AST over `_media`: `contains` on `filename`
+for `?q=`, `eq` on `folder`, `contains` on `content_type` for `?type=`,
+membership on `tags`. No new op, so §5.3's "every op is forever" cost is zero,
+and paging plus `total` come from `Storage.list` unchanged. `?ext=` (D55)
+is the same shape — `contains` on `filename` with the leading dot, e.g.
+`.png` — for the admin's Type filter, whose menu comes from `GET
+/api/media/extensions`: every distinct extension
+`MediaExtensions.of` finds across the whole catalog, so the menu never
+names an extension nothing in the library actually has. `?modified_after=`/
+`?modified_before=` (D55) are `gte`/`lte` on `$.updated_at` — the **envelope**
+field, not `$.data.updated_at`, since `created_at`/`updated_at` live on
+`Entry` itself and a query against the `data` path would silently match
+nothing. Both take an ISO-8601 timestamp and are inclusive.
+
+**References.** Entries name an asset by id — `silo://media/<ulid>` — never by
+path, which is what lets a rename leave every entry alone. Extraction is
+**structural**, not schema-driven: `MediaRefs.extract` walks the whole `data`
+value and collects every string that parses as a reference, regardless of what
+the schema says. A schema-driven walk would find nothing in a field the schema
+does not declare — and JSON Schema admits undeclared properties unless a schema
+says otherwise — so a missed reference would delete a live file. Over-capture (a free-text field holding a literal reference string)
+blocks a delete: visible and recoverable. Under-capture orphans: silent. Take
+the asymmetry.
+
+Pre-D23 entries hold `/media/<blobKey>`; those are **dual-read** into the token
+`blob:<blobKey>` and counted as usages, so a partially backfilled instance
+still refuses to delete a referenced file. `silo media reconcile` backfills
+catalog records for blobs uploaded before D23, rebuilds usages from entries,
+and reports orphan blobs.
+
+**Deletion** is a saga in `Service`, under `writeMu`, because the catalog and a
+remote object store cannot share a transaction:
+
+1. Count usages for the asset's id **and** its `blob:` token. Non-zero → `409`.
+2. Mark the asset `state: "deleting"` and commit that.
+3. Delete the blob.
+4. Delete the catalog record.
+
+A crash between 3 and 4 leaves an asset in `deleting`; startup retries the
+idempotent blob delete and finishes. `Service` refuses to create a *new*
+reference to an asset in `deleting`, so the window cannot be re-entered.
+Import does **not** run that check: an archive carries its assets alongside the
+entries naming them, so rejecting an entry for pointing at one mid-delete would
+refuse a restore for a state the restore itself resolves. This is the one thing
+§7.2 stayed fidelity-first about after D70 made entry validation unconditional —
+it is about reference *timing*, not about shape.
+
+**The abort.** A blob delete that fails *permanently* — rotated credentials, a
+changed bucket policy — would otherwise strand the asset in `deleting`
+forever: unusable, refusing new references, with no operator path out. So
+`silo media reconcile` **attempts** the deletion and, if that attempt throws,
+returns the asset to `active` and reports it. This is the reverse of the
+saga's last step, not a force-delete, and it does not reopen D21.
+
+A blob delete that fails returns **`500 media_delete_stalled`** rather than a
+bare internal error: the asset is in a recoverable state, and the body names
+it (`media_id`, `blob_key`, the underlying `reason`, and `remedy:
+"silo media reconcile"`). An operator driving the API rather than reading the
+server's startup log would otherwise have no way to know the asset is staged,
+or that a command exists to un-stage it. It is deliberately not a `409` —
+`media_in_use` is a refusal the caller fixes by editing entries, this is a
+storage failure the caller fixes by fixing the blob store, and a client should
+be able to tell the two media-delete outcomes apart by code alone.
+
+Reconcile judges by the *attempt*, never by whether the blob is still present:
+a crash between steps 2 and 3 leaves the bytes in place too, and that case must
+**complete** rather than reverse. Only an actual failure distinguishes
+"interrupted" from "impossible". Startup, by contrast, only ever retries —
+one failure is not evidence the operation cannot succeed, and reversing a
+deletion is an operator decision, not a boot-time one. Startup therefore counts
+failures instead of throwing, because a misconfigured blob store must not stop
+the server booting over a deletion someone staged days ago.
+
+The `409` always reports the total count (`usage_count`), and enumerates only
+the referrers the calling key may read: media is instance-global but
+referrers are scoped, so a key confined to one project must learn that a file
+is in use without learning where. The remainder is reported as a count only,
+`visible_count` — the **true** number of referrers the key may read, not how
+many happened to fit on the `referrers` sample page (D49 audit fix: it used
+to be `items.length`, which made `visible_count < usage_count` for any asset
+with more referrers than one page holds, readable or not). `visible_count` is
+itself counted up to `MediaUsageScopes.EnumerationCap` (2000 rows, the same
+force-authority cap described a few paragraphs down) — reused rather than a
+second cap of its own — and once a single asset's referrers exceed it,
+`visible_capped: true` says the count is a lower bound rather than pretending
+to be exact.
+
+**`?force=true` deletes over a live reference (D48).** Only the literal
+string `"true"` enables it; anything else is read as absent. Force skips step
+1 — the usage check — and nothing else: the rest of the saga, and the write
+lock around it, are unchanged. The entries that named the asset are **not
+rewritten** — no mass mutation of entry data on a delete — and the usage rows
+those entries produced are **not deleted**: they are adapter-owned derived
+state that honestly records the entries still hold the reference, and `silo
+media reconcile` re-derives them from entries regardless of what a delete did
+or did not touch. What changes instead is the read path: a media field whose
+reference no longer resolves answers `null` rather than a URL that 404s (see
+below).
+
+**Force additionally requires `entries:update` at every scope it actually
+reaches (D49).** D48 shipped force gated on `media:delete` alone, reasoning
+that the claim was already instance-global and unscoped, so a holder could
+already delete any unreferenced file in any project — an acceptance, not a
+claim that force grants nothing new. That acceptance did not survive folder
+rename, recursive delete and purge arriving together: a force-deleted asset's
+referring entries do not have their *stored* value rewritten, but the read
+path changes what every one of them *resolves to*, which is a bulk
+`entries:update` wearing a `media:delete` claim — the same rule
+`ForcedDeletePermissions`, `TransferPermissions.Replace` and
+`ScopeCopyPermissions.Replace` already state: a force must additionally hold
+the claims for the effects it cascades into. `entries:update`, not
+`entries:delete`, because the entry is not deleted and its stored content is
+not rewritten — only what one field of it resolves to. `MediaContentPermissions.All
+= [entries:update]` lives beside `Claims.ForcedDeletePermissions` for the
+reason it does: the admin gates its affordances on the same list this
+enforces. It is named for the *effect* rather than for force-delete because
+D67's replace exercises the same rule at the same reach.
+
+Unlike the other three force routes, media's reach is **data-derived** rather
+than read off the route's own parameters: `RouteAuth.requireMediaContentAuthority`
+(async, unlike its sibling `requireForcedDelete`, because it queries usages)
+enumerates the distinct `(project, env, collection)` scopes currently
+referring to the assets being force-deleted — via `MediaUsageScopes.reach`,
+which pages `Storage.listMediaUsages` up to a **2000-row** cap — and requires
+`entries:update` on each, checked against the **true** referrer set, never the
+claim-filtered one the `409`/per-id body above shows the caller. Filtering
+first would let a key force-delete *because* it cannot see the referrers; a
+key that cannot read a scope necessarily lacks `entries:update` there too, so
+refusing it is the correct and self-consistent outcome. Past the cap, the
+distinct-scope reduction is not attempted and force is refused unless the key
+holds `*` — silo cannot enumerate everything the operation would break, so
+only a key that can do anything may do it.
+
+**The `403` takes the same hidden-versus-visible split the `409` does.** The
+check runs against the true reach, so the refusal must not be the one place
+that discloses it: it names only the missing scopes the key may already read
+(the ones the `409` would have enumerated anyway) and reports the rest as a
+bare count, "N scopes this key cannot read". Naming the first missing scope
+would have handed a project-confined key exactly the project, environment and
+collection names the enumeration above is written to withhold — and would
+have leaked them from the alphabetically first hidden referrer, which no
+`409` ever shows.
+
+A `Storage.listMediaUsageScopes`
+port method would make the cap unnecessary by answering the question exactly
+rather than by paging rows; it was not added because port growth needs its
+own justification beyond one caller, and a fixed cap with a root fallback is
+honest about what it does not know rather than silently wrong. The exposure
+this closes is concentrated on plugins: `media:delete` is not on
+`PluginForbiddenClaims`, so a plugin already holding it gains
+reference-breaking reach with no manifest change and therefore no
+`needs_review` re-approval — force alone was never enough of a check on that,
+and `entries:update` at the reached scopes now is. No new audit action is
+added for it either: `core/audit/audit-action.ts` audits
+*authority* changes, and entry and content writes are deliberately not
+audited; a force-delete is a content decision like any other media delete, not
+an authority one.
+
+**`POST /api/media/delete`** is the bulk sibling, behind the same
+`media:delete`: `{"ids": ["id1", "id2"], "force": false}`, capped at 100 ids.
+Each id is deleted through the same saga as the single-asset route, in a
+sequential loop — never one write lock over the whole batch, since that would
+serialize every other media write behind an operator's spring-cleaning. It
+**always answers `200`**, never `204` and never a `207`: the request itself
+succeeded, and each id's outcome is data the caller reads out of the body
+rather than a status code that cannot carry the referrers a partial refusal
+needs explaining with.
+
+```jsonc
+// POST /api/media/delete
+{
+  "deleted": ["id1"],
+  "failed": [
+    { "id": "id3", "code": "media_in_use", "message": "...",
+      "usage_count": 4, "visible_count": 2, "visible_capped": false,
+      "referrers": [ /* claim-filtered, as above */ ] },
+    { "id": "id4", "code": "not_found", "message": "..." },
+    { "id": "id5", "code": "media_delete_stalled", "message": "..." },
+    { "id": "../x", "code": "invalid_id", "message": "..." }
+  ]
+}
+```
+
+`invalid_id` is what a malformed id becomes: `MediaCatalogStore.asset` runs
+`EntryUtils.assertSafeSegment` before it touches storage, which throws for a
+path separator, a NUL byte, `.`/`..`, or a segment over 255 bytes. That is a
+per-id 4xx condition, not grounds to fail the whole request — a batch that hit
+it after already deleting earlier ids would 400 with no `deleted` list to show
+for them. `ids` themselves are deduplicated preserving first-seen order before
+the loop runs, so `{"ids": ["x", "x"]}` deletes `x` once rather than reporting
+a spurious `not_found` for the id its own first pass just removed.
+
+Any error the route does not recognise as one of those four propagates as a
+normal `5xx`/`4xx` rather than being folded silently into `failed`.
+
+**`POST /api/media/{id}/content`** replaces an asset's bytes (D67). A
+multipart body with one `file` part, the same shape an upload takes. The id,
+the `silo://media/<id>` reference, the URL, the filename, the folder and the
+tags all survive; `size`, `hash` and `content_type` are re-derived from what
+arrived, the record's `rev` and `updated_at` move, and **no entry is
+rewritten** — every reference now resolves to the new file because it always
+resolved through the id.
+
+The **blob key does not change**. Silo's own route is `/media/<id>` and
+survives anything, but a bucket-backed instance addresses objects by key
+(D58), so re-keying would move the public URL out from under whoever already
+holds it. Staying put also keeps the pre-D23 `blob:` usage token matching,
+leaves `reconcile` nothing to adopt or report, and leaves no second object to
+clean up, so a replace needs no staged marker and no saga. **The extension may
+not change** either, though since D88 that is no longer because the key carries
+one — it does not. It is the record: an asset's `content_type` is read off its
+filename and off nothing else (D83), and a replacement keeps the filename, so a
+`.png` asset takes a `.png` replacement and a `400` says so. Converting a file
+is a new upload, not a replacement of this one. The library's extension
+allowlist is checked here too, exactly as it is at upload and at rename, so an
+extension retired from the policy since upload stops being replaceable.
+
+Two authority asks, the way purge takes two:
+
+- **`media:replace`**, a claim of its own rather than the `media:create` that
+  covers upload and rename. Both the `write` and the `manage` preset carry
+  `media:create`, so gating on it would mean every integration key that
+  uploads its own files could also overwrite anybody else's, anywhere in the
+  instance-global library. Unlike `media:purge` (D65) it **is** in `manage`:
+  replacing a stale asset is ordinary content work, and pricing it at `root`
+  would put editors in the account D38 says to use least.
+- **`entries:update` at every scope that refers to the asset**, through the
+  same `RouteAuth.requireMediaContentAuthority` a force-delete passes, against
+  the true unfiltered referrer set and with the same root fallback past the
+  2000-row enumeration cap. A force-delete leaves every referring entry's
+  stored value untouched and changes what the reference *resolves to*, from a
+  URL to `null`; a replace does the same thing, to a different file rather
+  than to `null`, and is the **less** visible of the two — a force surfaces as
+  a broken field, a replace as a field that still works and shows something
+  else. The quieter operation is not the one to gate more loosely.
+
+An unreferenced asset reaches nothing, so the second ask is satisfied
+trivially and the claim is what covers it. That is deliberate rather than an
+oversight: silo cannot see a reader that holds the URL and no entry, which is
+exactly the case where the reach check has nothing to say.
+
+Bytes are written before the record, as an upload does, and for a sharper
+reason here: `MediaReconciler` *prunes* a record whose blob has gone, so a
+record must never point at bytes that are not there yet. A crash in that
+window leaves the new file with the record's old `hash` and `size` beside it —
+a stale `ETag` until the replace is retried, and no reference lost. The
+filesystem blob driver writes a temp sibling and renames over the key so that
+the key itself never holds a partial object; S3 `PUT` already behaved that
+way.
+
+Nothing changes on the read path. `/media/<id>` has answered
+`Cache-Control: public, max-age=3600` with an `ETag` of the record's hash
+since D23, and stopped being `immutable` there for precisely this reason, so a
+browser picks the new file up within the hour and a conditional request is
+told exactly when it changed. A CDN in front of silo, or a public bucket, is
+the operator's to purge. No audit action is added, for the reason a
+force-delete adds none: `core/audit/audit-action.ts` audits *authority*
+changes, and this is a content decision.
+
+**`PATCH /api/media/folders`** renames or moves a folder (D49): `{"from":
+"/a", "to": "/b", "merge": false}`, behind `media:create` — the same claim
+and reasoning as an asset rename/move, since where a thing sits is the same
+kind of statement as what it is called. A body rather than a path parameter,
+because a folder path contains `/`. It updates the explicit `_media_folders`
+record for the folder and every descendant, and `folder` on every asset
+within the subtree — no entry is touched and no blob moves, the same D23
+property a single asset's rename has always had, one level up. Refuses with a
+`409` if `to` already exists, as an explicit record or implied by any asset's
+folder, **unless the caller opts in with `merge: true`** (D49 amendment),
+which joins the subtree into whatever already sits at `to` instead; refuses
+with a `400` if `to` is inside `from` (which would otherwise loop) or if
+either path normalizes to root — both guards apply whether or not `merge` is
+set. No cap on subtree size — a large rename holds the write lock for as many
+record writes as it takes, which is the cost of not inventing a limit that
+would leave a large library with no way to rename a folder at all.
+
+**`merge` is opt-in rather than automatic because it is genuinely
+irreversible.** Once two subtrees have joined, a rename back cannot separate
+them again — which asset came from which no longer means anything, so the
+default stays a refusal and merging is a deliberate second step. With it, the
+write proceeds into a folder that may already hold files, including one with
+the same filename as something already there, and that is legal on purpose:
+a filename is display metadata, never addressing (D23) — assets are
+referenced by stable id and blob keys are flat — so two files both named
+`logo.svg` in one folder after a merge is the same ordinary state the
+library already permits everywhere else. Nothing about this route should
+ever be "hardened" into refusing that.
+
+The **depth ceiling still applies to the whole subtree regardless of
+`merge`**, checked on its deepest path before anything is written: a
+descendant's rewritten path is stored as a field and never passes back
+through `MediaPaths.normalizeFolder`, so a move under a deeper parent would
+otherwise store paths past `MaxDepth` that no upload could have created.
+
+**The rename is staged, because there is no transaction across the record
+writes.** A `_media_folder_moves` record naming `from` and `to` is written
+after every refusal above and before the first record write, and cleared
+after the last, so the only states a crash can leave are "no marker, nothing
+started" and "marker, possibly half-applied" — never half-applied with no
+record that it was. `MediaFolderMoveService.resumePending` replays any marker
+at the next start, beside the staged-deletion resume above, and the replay is
+idempotent by construction: it selects by "still within `from`", so a subtree
+already partly moved converges instead of doubling, and a marker whose move
+had in fact completed clears without writing anything. A marker naming
+nothing is dropped rather than retried forever. Failures are counted, never
+thrown — a rename staged days ago must not stop the server booting, the same
+judgement the deletion resume makes. The marker is carried in an export for
+the reason the rest of the catalog is: an archive taken mid-rename holds the
+half-moved subtree either way, and carrying the marker is what lets the
+destination converge on the state the source will reach at its own next
+start, rather than restoring a split nothing has a record of.
+
+The staging is what makes recovery automatic; the write order is what makes
+a crash non-destructive in the first place. Each folder record write is a
+`putFolder` (a fresh id, at the moved
+path) followed by a `deleteFolder` (the old id) — put before delete,
+deliberately, so a crash between the two leaves *both* records standing
+rather than neither: a harmless duplicate `MediaFolderService.list` already
+collapses through a `Set` on the read side, never a folder that silently
+stopped existing. A crash is the *only* thing that may leave such a
+duplicate: the put is skipped whenever the destination path already holds an
+explicit record — reachable only under `merge`, since otherwise `to` would
+not exist — because the record the delete would be racing already stands,
+so there is no window to protect and the put would only duplicate it.
+Without that skip, every merge into a destination with explicit records of
+its own left one behind permanently, and the `Set` that makes a crash's
+duplicate harmless is also what guaranteed nobody would ever see it (D49
+audit fix). `merge: true` is therefore a deliberate operation rather than
+the recovery mechanism — the saga is that — though it remains how an operator
+finishes a move whose marker the resume could not apply, and the reason a
+replay meets no collision it cannot pass. Each asset write is a single `putAsset` to its own
+unchanged id, never a delete followed by a put, so it carries no equivalent
+loss window; a crash mid-loop there only ever splits the subtree's assets
+between `from` and `to`, both of which already exist per D20's existence
+rule the moment either name is used by anything. Either way, a crash leaves
+the rename looking *unfinished*, never *lost* — and a plain retry then
+refuses on exactly the collision the crash created, which is the scenario
+`merge: true` exists to finish. It is not a repair tool bolted on after the
+fact; it is the same opt-in an operator reaches for on purpose, run once
+against whatever a crash happened to leave behind. That is also why capping
+subtree size to make the rename atomic was never the fix worth building: it
+would still leave an operator with no way to rename a folder bigger than the
+cap, where `merge` costs nothing extra and resolves the interrupted case for
+free.
+
+**`DELETE /api/media/folders?recursive=true&force=true`** takes a folder
+delete recursive (D49). Without `recursive`, behaviour is exactly what it was
+before this decision: `MediaFolderService.delete` refuses with a `409` while
+anything is inside, and an empty folder deletes trivially — D23's absolute
+"a folder delete must never route around the reference guard" premise was
+already reversed by D48 making that guard opt-in force everywhere else it
+applies, and D49 is what makes the recursive path *coherent* rather than what
+makes the non-recursive one *obsolete*. `force=true` without `recursive=true`
+is a `400 ValidationError`, not a silently ignored flag: without `recursive`
+nothing in the request deletes anything, so there is nothing for `force` to
+force, and accepting the flag while dropping it would be indistinguishable
+from a verified request in the response — the same reasoning D32 already
+states for a source that cannot honour `--integrity` (D49 audit fix; this
+route used to return before `force` was even read). With `recursive`, every asset in the
+subtree is deleted through the same saga a single-asset delete uses
+(`MediaDeletionService.delete`, so the blob delete and
+`MediaDeleteStalledError` both still apply), via the same per-id outcome loop
+`POST /api/media/delete` runs — factored into one shared `MediaDeleteBatch`
+rather than a second failure shape — and only once every asset in the
+subtree comes back gone are the folder records (the subtree's own and every
+descendant's) removed. `force` is read the same as everywhere else and needs
+the D49 authority check above, computed once over every id the subtree
+enumerates. The response is `200` with the same `{deleted, failed}` shape
+`POST /api/media/delete` answers, plus `folders_deleted`: an asset that comes
+back `media_in_use` means the folder is not actually empty, so the count is
+`0` and the records stay, reported honestly rather than deleted out from
+under what still names them.
+
+**`POST /api/media/purge`** empties the whole library (D49): `{"confirm":
+"purge", "force": false}`, behind `media:delete` **and `media:purge`** (D65).
+Both halves, the way `POST /api/media/reconcile` asks for both of the ones it
+exercises: purge is a delete, and `media:delete` alone cannot be what gates
+it, because the `write` and `manage` presets both carry that claim — so every
+integration key that manages its own uploads could otherwise end every asset
+in the instance in one request. `media:purge` is carried by no preset but
+`root`, so an operator delegates it deliberately or not at all. The literal
+confirmation word is required — a missing or wrong value is a `ValidationError` — as the
+cheapest insurance against a stray or replayed request emptying a library
+with no undo. Every catalog asset is deleted through the same saga
+(`MediaDeletionService.delete`) and the same `MediaDeleteBatch` outcome loop,
+but `MediaPurgeService` **pages the catalog** in fixed-size batches rather
+than calling `allAssets()` the way `MediaFolderService` does — deliberately
+not that pattern, since purge's whole point is a library too large to hold
+in memory at once. Its offset advances by each page's *surviving-failure*
+count, not its size: a plain `offset += batchSize` scan over a table the
+same request is deleting rows from would silently skip whatever a
+successful page's deletions shifted past the next boundary, and advancing by
+the failures left behind is the exact correction, landing the next page
+exactly on the first row this pass never touched. "Surviving" excludes
+`not_found`: that row is already gone before the page that reports it, so
+counting it toward the offset would skip one untried asset past it the same
+way a successful delete's row does (a narrow bug the offset arithmetic could
+only hit under a concurrent delete racing the scan, fixed in the same change
+that made the force check below pre-flight, D49 audit fix).
+
+`force` needs the D49 authority check **once, over the whole catalog's id
+set, before the first delete runs** — never per page. A per-page check would
+let earlier pages finish deleting, blobs included, before a later page's
+refusal aborted the request with a `403` whose body has nowhere to record
+what already vanished (D49 audit fix; the other three force routes —
+`media-routes.ts`'s single and bulk delete, `media-folder-routes.ts`'s
+recursive delete — already complete their authority check over the whole id
+set before any mutation, and purge now matches them). Purge, unlike those
+three, has no caller-supplied or route-derived id list to check against, so
+it pages the whole catalog once, collecting every id, before running
+`requireForce` over that complete set through the same `MediaUsageScopes`
+path and the same 2000-row cap rule the other three routes use — past the
+cap, force requires `*`, which for a purge-sized reach is an honest cost, not
+a defect, since forcing past the entire library's referrers is a near-root
+act already. Unforced purge is unaffected: it needs no authority check at
+all and pages exactly as it always did. Unforced, an in-use asset is a
+per-id `media_in_use` failure and
+everything else still deletes — "delete everything you can, report what
+refused," the same posture bulk delete already takes. The response is `200`
+with `{deleted, failed, folders_deleted}`, the same shape the recursive
+folder delete answers with, for the same reason: a partial purge needs
+somewhere to report what refused, and every explicit folder record is removed
+only once nothing failed.
+
+**Bulk download (D106)** follows the cloud-drive shape: one file downloads as
+itself (the admin sends it to `/media/{id}?download=true` and never asks the
+server to zip it), anything more becomes a ZIP built on the server. It is two
+requests, because a browser download is a navigation and a navigation carries
+no `Authorization` header. `POST /api/media/archives` takes `{ids, folders}`
+under any valid key, resolves it once against the catalog
+(`MediaArchivePlanner`), and holds the plan in process memory behind a
+192-bit random ticket for an hour (`MediaArchiveTickets`, at most 32 at once,
+oldest evicted first). `GET /api/media/archives/{ticket}/{part}` reads no key:
+the ticket is the credential, as a signed URL's signature is. The plan is fixed
+at prepare time, so an upload in between does not move a file from one part
+to another; a file deleted in between is skipped rather than failing the
+part, and named in a `missing-files.txt` appended last. Paths follow the
+selection: a selected folder is a top-level directory under its own name,
+carrying its tree and an explicit entry for each empty subfolder; a selected
+file sits at the root; collisions, compared case-blind because Windows and
+macOS extract `A.png` and `a.png` onto one file, become `name (1).ext`.
+
+What keeps it from costing the server: **no buffering** — `ZipWriter` is a
+pull-driven `ReadableStream` that opens each blob only when the archive
+reaches it (through `MediaDelivery.open`, the same D80 path `/media/{id}`
+uses) and holds one chunk plus the central directory; **no compression** —
+STORE with a data descriptor per file, CRC-32 from `Bun.hash.crc32` as the
+bytes pass, since media is mostly already-compressed images and video and
+deflate would buy CPU for nothing; **bounded requests** — parts close before
+2 GiB (Drive's split), a single file over 2 GiB is left out of every part and
+listed in `separate` for a direct download that also supports `Range`, and
+one download holds at most `[media] download_max_files` files and
+`download_max_size_mb` megabytes (defaults 5000 and 5120), counted before
+the split, past which the answer is `413 archive_too_large` and the message
+names the key to raise; **bounded concurrency** — `download_max_streams`
+parts (default 3) stream at once server-wide, and one more, or a prepare
+while every slot is busy, is `503 busy` with `Retry-After: 30`. The prepare refuses up front so the admin
+can say why, rather than a browser showing a failed download. A `HEAD` on a
+part answers headers without opening the stream, and a slot a stream never
+returned (a response nobody read) is reclaimed after six hours. Those bounds
+also keep every part inside plain ZIP: under 4 GiB and 65,535 entries, so no
+ZIP64. The three ceilings are `[media]` keys, edited on the media library's
+settings page and read from `ServiceContext.mediaConfig` on every prepare and
+every part, so a save applies to the next request with no restart. What stays
+fixed in `MediaArchiveLimits` is what keeps the format plain: the 2 GiB part,
+and the 50,000-file ceiling's upper bound, well short of 65,535 entries.
+
+**`GET /api/media/stats`** (D106) totals the catalog in one pass: files,
+bytes and folders (explicit and implied, ancestors included), a split by
+kind read off the content type, the largest file and the last upload. No
+blob is read, and a file staged for deletion is counted only in `deleting`.
+No claim, for the reason `GET /api/media` has none (D58).
+
+**A media field resolves to `null` when its reference does not resolve
+(D48).** Before D48 a reference was rewritten from the id alone, so a
+force-deleted asset left an entry answering with a link that 404s — the delete
+became visible only when something tried to fetch the file. `MediaLinkResolver`
+now consults the catalog for every reference in a response, not only in
+`store` mode: **one `catalog.findAsset(id)` point read per distinct reference**
+in the payload, in a loop, capped at 200 — never one filtered query over the
+whole catalog. That query shape was tried and reverted: `FsEntryStore.list`
+reads and parses every document in `_media` before filtering anything, which
+is the O(n)-per-query character §6.3 commits the fs adapter to by design, so a
+single `in` lookup over `$.id` would cost the entire catalog on every response
+holding even one reference; on SQLite it is two statements, because `list`
+always runs a `SELECT COUNT(*)` the caller never uses. A reference the catalog
+no longer holds answers `null`, in place: a single field is `null`, and an
+element of a media array is `null` in that slot rather than removed, so an
+array's length never depends on whether every reference in it still resolves.
+A reference that was never looked up at all — past the resolver's lookup cap,
+or a pre-D23 `blob:`/`/media/<blobKey>` legacy value, which is never looked up
+— resolves exactly as it always has; only an id the catalog was actually asked
+about and came back empty for is ever `null`. This costs `EntryUtils.
+toApiResponse` a property D46 bought it: the lookup used to run only in
+`store` mode and now always runs on all five read paths that call it
+(`entries-routes.ts` ×4, `search-routes.ts` ×1), so the ordinary `server`-mode
+response now pays one point read per distinct reference, capped at 200, that
+it used to pay zero for. That is the honest price of a `null` the caller can
+trust rather than a link that 404s. The lookup still runs once per response
+before entries are mapped, so `toApiResponse` itself stays synchronous.
+
+**The reference itself is not rewritten, and that makes the `null` dangerous
+to echo back.** A force-delete leaves the entry's stored value exactly as it
+was — the reference and the usage row it produced both survive, and `silo
+media reconcile` would re-derive that usage row from the entry regardless of
+what the delete did or did not touch. Only the *read* path answers `null`. A
+client that fetches such an entry, edits an unrelated field and PUTs the whole
+object back therefore sends `null` for the media field, and `MediaRefs.
+canonicalize` passes `null` through unchanged on the way in — the reference and
+its usage row are destroyed for real, this time by the client's own write.
+Worse, for the ordinary media schema, `{"type": "string", "x-silo-type":
+"media"}`, `null` **fails validation** in both RJSF's ajv8 and the server's own
+validator, so a user editing a field they never touched hits an error on the
+one they did not. The admin's fix lives at the write path: a media field that
+reads back `null` is **omitted** from what the form submits, never sent as
+`null`. An optional field then saves cleanly, and a required one fails with an
+honest "required" error on that field — which is the truth, since the entry
+has lost a file it is required to have.
+
+### 8.2 Media storage: reading and changing where the bytes go (D45)
+
+`GET`/`PUT /api/media/storage`, behind **`media:configure`**. The rationale, the
+ordering and the rollback are §6.4 in
+[storage.md](storage.md); this is the wire shape.
+
+Both verbs ask for one claim rather than a read/write pair. The read is not the
+harmless half: it names the bucket, the endpoint and the access key id the
+instance authenticates with.
+
+```jsonc
+// GET /api/media/storage
+{
+  "file":     { "driver": "s3", "bucket": "silo-media", "region": "ap-south-1",
+                "access_key_id": "AKIA…", "secret_access_key_set": true },
+  "in_force": { "driver": "s3", "bucket": "from-the-environment", "region": "ap-south-1",
+                "access_key_id": "AKIA…", "secret_access_key_set": true },
+  "drivers":  ["fs", "s3"],
+  "overrides": [{ "field": "bucket", "env": "SILO_BLOB_S3_BUCKET" }],
+  "config_path": "/srv/silo/silo.toml",
+  "writable": true
+}
+```
+
+**`file` and `in_force` are both reported**, because the page edits a file and a
+file is the third thing consulted (flags > `SILO_*` > file > defaults, §10).
+`overrides` names each field the file does not decide, with `env` set when the
+source can be named exactly; no `env` means a flag, or a file edited since the
+process started. The **fs media path derivation is not an override** — unset
+means "follow the data dir", so `<data dir>/media` appearing in `in_force` is
+the file being obeyed rather than overruled.
+
+`drivers` is what *this process* can open, so a provider plugin's blob driver
+(§13.7) is offered without the admin carrying a second copy of the list.
+`writable` is false when the file cannot be written, and `read_only_reason` says
+which of the two it is: the process was started with no config file, or the path
+is one this server has no write access to (D50). The admin prints that sentence
+as it stands. Either way a `PUT` is a `400` saying so, and never a guess at a
+path. The probe is advisory — permissions change between a `GET` and a `PUT` —
+so a refusal at write time is reported the same way, naming the path and the
+remedy rather than answering `500 internal error`.
+
+`PUT` takes the same field names as a **whole document**, not a patch — the
+fields are few and all on one screen, so a `PUT` of what was read cannot leave a
+stale value behind by omission:
+
+```jsonc
+{ "driver": "s3", "bucket": "silo-media", "region": "ap-south-1",
+  "endpoint": "https://…", "access_key_id": "AKIA…",
+  "secret_access_key": "…",        // omitted keeps the file's; "" clears it
+  "force_path_style": false }
+```
+
+`secret_access_key` is the one exception, and it has to be: the read never
+returned it, so a caller sending back what it read has nothing to send. It is
+also merged over **the file's** value rather than the config in force, so a
+secret supplied through `SILO_BLOB_S3_SECRET_ACCESS_KEY` is never copied into
+`silo.toml` by somebody who came to change the region.
+
+### 8.3 Media settings: where URLs point, and what may be uploaded (D46)
+
+`GET`/`PUT /api/media/settings`, behind the same **`media:configure`** claim as
+§8.2 and separate from it on purpose. They are two tables with two failure
+modes — a bad allowlist is a typo, a bad bucket cannot be opened at all — and
+one route would make correcting the first depend on the second still working.
+
+```jsonc
+// GET /api/media/settings
+{
+  "file":     { "base_url": "https://cms.example.com" },
+  "in_force": { "base_url": "https://cms.example.com",
+                "extensions": ["jpg", "png", "pdf"],
+                "download_max_files": 5000, "download_max_size_mb": 5120,
+                "download_max_streams": 3 },
+  "overrides": [],
+  "default_extensions": ["jpg", "jpeg", "png", "…"],
+  "download_defaults": { "download_max_files": { "value": 5000, "min": 1, "max": 50000 }, "…": {} },
+  "config_path": "/srv/silo/silo.toml",
+  "writable": true
+}
+```
+
+`file` is a **partial** and `in_force` is not: a `[media]` naming only
+`base_url` has not also decided the extension list, and reporting silo's
+defaults as though the file had asked for them would be the same lie §8.2
+avoids for the fs media path.
+
+**The bulk download ceilings** (D106) are three more keys here:
+`download_max_files`, `download_max_size_mb` and `download_max_streams`, each a
+whole number within the range `download_defaults` reports. In a `PUT` an
+omitted one keeps the file's value, `null` removes it from the file so the
+default applies, and one out of range is a `400`. Like the rest of the table
+they apply to the next request, since the archive service reads them from the
+running configuration each time.
+
+**`base_url` decides the host of a media URL and never its path** (D58). What the
+path looks like follows the provider in §8.2, because that is what decides who
+serves the bytes:
+
+| provider | a media field resolves to | who serves it |
+|---|---|---|
+| `base_url` set | `<base_url>/media/<id>` | silo, wherever that name reaches it |
+| unset, a bucket serving its own objects | `<bucket root>/<blob key>` | the bucket, with silo out of the read path |
+| unset, anything else | `<request origin>/media/<id>` | silo, with its ETag and 304 handling |
+
+**`base_url` names silo and takes silo's route** (D60), whatever the store is.
+The base is set in order to name *this instance* — behind a proxy, on a custom
+domain, under a path prefix — so whatever domain and path it carries is kept and
+`/media/<id>` is appended. D58 had it swap only the host while the store still
+chose the path, which on a bucket produced `<base_url>/<blob key>`: a
+well-formed URL for a path silo has no route for. The cost is that a CDN in
+front of the *bucket* is no longer expressible here; one in front of *silo* is.
+
+The middle row is what a configured bucket does by default, and
+`[blob_storage] public_read = false` is the only thing that opts out of it
+(D59). Configuring a bucket is the decision to let it deliver, so nothing
+further is asked; but whether it *will* is a policy on the bucket rather than a
+fact in the credentials silo writes with, so an operator whose bucket is
+deliberately private has to be able to say so.
+
+There used to be a `base_url_target` here saying which of the two applied. It
+was a second answer to a question the provider had already settled, and the two
+could disagree: an instance moved to a bucket kept answering `server`, so this
+route and `GET /api/media` reported a relative `/media/<id>` for the very asset
+`GET /api/collections/…/entries` answered a bucket URL for. The store is now
+asked instead (`BlobStorage.publicRoot`), so the disagreement cannot be
+expressed.
+
+The bucket shape is what an email client needs, since it cannot authenticate and
+will not follow silo's cache headers; it requires the bucket to be publicly
+readable. It also costs one catalog lookup per response — a blob key lives on
+the record, not in the reference — which is why the resolution happens once
+per response before entries are mapped rather than inside `toApiResponse`
+(§8.1's purity is what makes that mapping cheap).
+
+Since D48 the catalog is consulted on the fs driver too, for a different
+reason: not to find a blob key, but to tell a reference that still resolves
+from one that does not. An id past `MediaLinkResolver`'s lookup cap was never
+asked about and falls back to silo's own origin rather than to `base_url`,
+exactly as it always has: the CDN has never heard of `/media/<id>`, so a link
+rooted there would 404. An id that **was** asked about and the catalog no
+longer holds — most often a force-delete (§8.1, D48) — answers `null`
+instead, whatever the provider. Those are the only two outcomes a lookup miss
+can mean, and a client cannot tell one from the other unless the server does not
+paper over the difference with the same fallback for both.
+
+`PUT` takes the whole table. Unlike §8.2's secret, **an omitted field is
+cleared, not kept** — nothing here is write-only, so the form always holds the
+real value and a missing one can only mean it was removed.
+
+```jsonc
+{ "base_url": "https://cdn.example.com",   // "" clears it; must be absolute http(s)
+  "extensions": ["jpg", "png", "pdf"] }    // ["*"] accepts everything; [] is a 400
+```
+
+The allowlist is enforced on the **filename extension**, not the declared
+content type: a multipart part carries whatever `Content-Type` the client chose,
+so trusting it would let the caller decide whether the caller is allowed. It is
+enforced on `PATCH /api/media/{id}` too — a rename is the other way a filename
+enters the library — and before any bytes are written, so a refused upload
+leaves nothing behind. Only the last extension counts, so `invoice.pdf.exe` is
+an `.exe`.
+
+Neither field reaches backwards. Changing `base_url` does not rewrite a URL
+already sitting in a sent email, and narrowing the allowlist does not remove
+files already in the library.
+
+### 8.4 Server settings: the rest of the config file (D47)
+
+`GET /api/settings` and `PUT /api/settings/{table}`, behind
+**`settings:configure`**. One read for every section, because the page draws
+them together and four requests to fill one screen is four ways for it to come
+up half-formed; one write per section, because they are separate tables with
+separate failure modes.
+
+```jsonc
+// GET /api/settings
+{
+  "sections": [{
+    "table": "log",
+    "title": "Logging",
+    "summary": "How much the server writes down, in what format, and where.",
+    "fields": [
+      { "key": "level", "type": "enum", "values": ["debug", "info", "warn", "error", "silent"],
+        "env": "SILO_LOG_LEVEL", "label": "Level" },
+      { "key": "file", "type": "string", "env": "SILO_LOG_FILE", "restart": true, "label": "File" }
+    ],
+    "file":     { "level": "warn" },
+    "in_force": { "level": "warn", "format": "text", "requests": false },
+    "overrides": [],
+    "writable": true,
+    "restart_pending": []
+  }],
+  "config_path": "/srv/silo/silo.toml",
+  "writable": true,
+  "restart_pending": false
+}
+```
+
+`writable` and `read_only_reason` are §8.2's, and mean the same thing here: a
+file this process cannot write makes every section read-only, and the reason is
+the sentence the page shows.
+
+**The field list travels with the answer.** It is the spec `ConfigSections`
+holds, so a setting added there appears on the page with its label, its type and
+its restart behaviour intact. A form built from a second list written out in the
+admin goes stale one release after somebody adds a field to only one of them.
+
+`file` versus `in_force` is §8.2's split, and `restart_pending` is what this
+route adds to it. Not every setting can be applied to a running process: a log
+level is a threshold read on every line, while a tokenizer rebuilds an index at
+boot and a log file is a handle opened once. So a field carries `restart: true`
+or it does not, and a saved value the process has not adopted is reported in
+`restart_pending` and **left out of `in_force`** rather than echoed back into it.
+
+```jsonc
+// PUT /api/settings/log   ->  the whole view, since a save can change what another section reports
+{ "level": "debug", "requests": true }
+```
+
+The body is the whole table, not a patch. An **unknown key is refused**, not
+dropped: a typo that saves cleanly and does nothing is the one outcome a caller
+cannot tell from success. An omitted key means the file does not decide that
+field, which is what keeps an unset `[log] file` meaning "the console".
+
+Two limits are deliberate and are reported rather than hidden:
+
+- **`[storage]` is `writable: false`.** Changing the driver or the data
+  directory does not configure this instance, it names a different one, and a
+  `PUT` is a 400 that says so.
+- **A `secret` field is never sent in full.** `[storage] url` may carry the
+  database password, so `file` and `in_force` report it redacted
+  (`ConfigSecrets`): a URL keeps its host, port, database and user, with the
+  password and any credential in its query string replaced by `*****`. The
+  override and restart checks compare the real values before the redaction.
+- **`[auth] disabled` may be set to `false` and never to `true`.** An API that
+  can switch off the authentication protecting it is a lock whose key opens
+  itself. The other direction is always safe: an instance running with auth off
+  is one where every caller is already root.
+
+`[blob_storage]` and `[media]` are not here — they have §8.2 and §8.3, where a
+save applies live and rolls back. `[[plugins]]` is not here either, and that one
+is not an omission: it decides what code runs, so it goes through the install
+API and the grant model (§13.21) rather than a text field.
+
+
+
+The response is the view a fresh `GET` would give, already reflecting the applied
+change: the running server is repointed before it answers. Refusals are `400`
+(unknown driver, a body that is not a configuration, a configuration the driver
+cannot be opened with, no config file to write, or a config file the filesystem
+refused the write to), `403` without the claim.
+Changes are appended to the audit trail as `media.configure`.
+
+### 8.5 Variables: what each route asks for (D57)
+
+The concept is §5.6; this is the authorization, and its one design point is that
+there is **no new claim**. Every check below is an existing claim at an existing
+reach, chosen to match what the operation actually does. A new claim would have
+had to be granted to every key that already manages content before any of them
+could use the feature, and — worse — it would have implied that a variable's
+value is protected by something the entries referencing it are not.
+
+| Operation | Claim | Why that reach |
+|-----------|-------|----------------|
+| Read the list | `entries:read` on **any** collection in the environment | A value is substituted into every entry that references it, so a key that can read one entry can already see it. This is the honest floor, not a concession: requiring more would guard a secret that is not one |
+| Set or clear a value | `entries:update` at `{project}` / `{env}` / `*` | Changing one value rewrites what **every** entry in that environment answers, so it is exactly a scope-wide content edit and asks for scope-wide content authority — `RouteAuth.requireScopeWide`, the same rule a scope-to-scope copy already takes |
+| Declare | `create` at `{project}` / `*` / `*` | The name is added to every environment in the project. What creating an environment already asks for at that reach |
+| Undeclare | `delete` at `{project}` / `*` / `*` | Removes the name and every environment's value. What deleting an environment already asks for |
+| Rename | both of the above | A create at the new name and a delete at the old, the pair `RenamePermissions` states for the other three record kinds |
+| Rewrite a description | `create` at `{project}` / `*` / `*` | Metadata about the declaration, so it asks the declaration's authority rather than the value's |
+
+Two consequences worth stating, because both are places a first pass gets it
+wrong:
+
+- **An initial value supplied to `POST .../variables` is held to both.** Without
+  that, a project-wide `create` would be a way to write one environment's
+  content while holding none of that environment's authority. The value check
+  runs before anything is written, so a refusal leaves no half-made declaration.
+- **The paths follow the reach, not the page.** Declarations hang off
+  `/api/projects/{project}/variables` and values off the environment, even
+  though the admin draws both on one screen. Putting the project-wide delete
+  under an environment's path would make one environment's settings screen
+  quietly the place every environment's value disappears from.
+
+A read a key holds no `entries:read` for is a `403`, never an empty list: "you
+cannot see this" and "there are none" are different answers and an operator
+debugging an unresolved `{{NAME}}` needs to tell them apart.
+
+Refusals are `400` (a malformed name, a non-string value, a value past 4,096
+characters, an empty update), `403` without the claim, `404` for a name the
+project does not declare — a `PUT` never silently declares one — and `409` for a
+name already declared. None of it is audited: `AuditAction` is the trail of
+**authority** changes and says in its own words that entry writes stay out of it
+because `rev` and `updated_at` already record them. A variable's value is
+content, and every declaration carries its own `rev` and `updated_at` for the
+same reason an entry does.
+
+### 8.6 MCP: the API as a tool set (D86)
+
+`POST /api/mcp` speaks the Model Context Protocol over its Streamable HTTP
+transport, so an AI client — Claude Code, Codex, Cursor, or Claude Desktop
+through `silo mcp` — calls silo the way it calls any other tool server. The
+design is one dispatch and four refusals.
+
+**Every tool is a route, dispatched through the same app (the D35 move,
+again).** `McpToolRunner` turns a `tools/call` into a `Request` against the
+Hono app the MCP message arrived on, carrying the caller's own `Authorization`
+header, and `AuthMiddleware` and `RouteAuth` decide as they would for any
+request. A tool therefore cannot be more permissive than its route, because
+there is no second evaluator; a `read` key hands a model a CMS it can browse and
+cannot dent; a refusal reaches the model as the route's own message naming the
+missing claim; and a route added later is one catalog entry away from being a
+tool. The plugin dispatcher *injects* a synthesised principal because a worker
+holds no secret; the tool runner *forwards* the presented one because the caller
+does, and forwards `Host` and the `X-Forwarded-*` pair with it, so
+`RequestUtils.getBaseUrl` roots media URLs where the client reached the instance
+instead of answering `""` as it does for a plugin.
+
+**The catalog is hand-written, like `openapi.json`.** Nineteen tools in five
+groups — `InstanceTools`, `CollectionTools`, `EntryTools`, `SearchTools`,
+`MediaTools` — each a name, a description written for a model, a closed JSON
+Schema for its arguments, the spec's annotations, and the mapping to a request.
+Deriving them from the route table was considered and rejected: Hono has no
+table to read, and a good tool description is not a route summary — it says
+what to call first, what `rev` is for, and that `data` is the whole document.
+Arguments are checked against the tool's schema by AJV before anything is
+dispatched. A wrong shape is a JSON-RPC `-32602`, because the route was never
+reached and there is nothing it refused; a route's `4xx` is a *result* with
+`isError: true`, because that is the answer the model has to read and correct.
+Media has read tools only: a tool call carries JSON and an upload carries bytes.
+
+**Stateless, and a key is required.** No `Mcp-Session-Id` is issued, `GET` and
+`DELETE` answer `405`, and there is no SSE stream: the server never initiates a
+request, the tool list never changes while the process runs, and every message
+already carries the credential, so a session would be state with nothing to
+remember. A `POST` without a key is `401` with a `WWW-Authenticate: Bearer`
+challenge even where a plain `GET` would be public — a client with no key
+configured has nothing to call and should learn that at connect time, not as
+nineteen refusals. OAuth is not offered; the key is the credential, and every
+client silo documents has a place for a bearer header or an environment
+variable.
+
+**No SDK.** `@modelcontextprotocol/sdk` would bring zod and a transport layer
+to do what `McpRoutes` and `McpServer` do in two short files: parse JSON-RPC,
+answer `initialize`, `ping`, `tools/list` and `tools/call`, `202` a
+notification, `-32601` the rest. Version negotiation is the spec's — echo a
+known revision, else answer `McpProtocol.Latest`. Resources, prompts, sampling,
+elicitation and `listChanged` notifications are not implemented; a collection's
+schema is a tool's answer rather than a resource because the tool is the one
+call every client supports. The route sits under `/api/*` on purpose, so CORS,
+`BodyLimitMiddleware` and the auth middleware apply with no MCP-specific rule.
+
+**`silo mcp` is a client.** Some hosts spawn a process and speak
+newline-delimited JSON-RPC on its stdio. `McpStdioBridge` forwards each line to
+`/api/mcp` and writes the reply, turning an HTTP refusal or a connection failure
+into a JSON-RPC error for the request it answers. It is deliberately *not* an
+in-process server over the data directory: that would wire a second app per
+spawn, and a stdio process writing to a data directory a `serve` owns is the
+very thing D25 forbids. Being a client is also what lets it run from any working
+directory with no config file (§10.6).

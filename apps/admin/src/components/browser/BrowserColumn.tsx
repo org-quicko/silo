@@ -15,6 +15,9 @@ interface Props {
   /** Omitted when the column has nothing to create. */
   onAdd?: () => void
   addTitle?: string
+  /** A control at the far end of the header, opposite the title: the select-all
+   *  box where the browser chooses rather than navigates. */
+  headerAction?: ReactNode
   children: ReactNode
 }
 
@@ -28,6 +31,7 @@ export function BrowserColumn({
   active,
   onAdd,
   addTitle,
+  headerAction,
   children,
 }: Props) {
   return (
@@ -46,6 +50,7 @@ export function BrowserColumn({
             </span>
           )}
         </div>
+        {headerAction}
         {onAdd && (
           <button type="button" className={styles.headerBtn} onClick={onAdd} title={addTitle}>
             <Plus size={14} />

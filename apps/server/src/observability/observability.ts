@@ -1,3 +1,5 @@
+import type { StorageMeasurement } from "../core/ports/storage-measurement";
+import type { EndpointScope } from "./endpoint-name";
 import { RequestMetrics } from "./request-metrics";
 import { StorageMetrics } from "./storage-metrics";
 
@@ -6,10 +8,12 @@ interface ObservabilityOptions {
   mediaDirectory?: string;
   storageDriver?: string;
   blobDriver?: string;
+  /** The store's own report, when it lives outside the data directory. */
+  measure?: () => Promise<StorageMeasurement>;
   now?: () => number;
 }
 
-/** Bounded process-local operating metrics; no content or identity enters it. */
+/** Bounded process-local operating metrics; no content, id or caller identity enters it. */
 export class Observability {
   private readonly now: () => number;
   private readonly requests: RequestMetrics;
@@ -25,6 +29,8 @@ export class Observability {
     completedAt: number;
     method: string;
     route: string;
+    pattern?: string;
+    scope?: EndpointScope;
     status: number;
     durationMs: number;
     internal: boolean;
@@ -32,14 +38,15 @@ export class Observability {
     this.requests.record(observation);
   }
 
-  snapshot() {
+  /** `reveals` decides which scopes' names this caller may see (`RequestMetrics.snapshot`). */
+  snapshot(reveals?: (scope: EndpointScope) => boolean) {
     const generatedAt = this.now();
     const memory = process.memoryUsage();
     const cpu = process.cpuUsage();
     return {
       generated_at: new Date(generatedAt).toISOString(),
       since: this.requests.since(),
-      requests: this.requests.snapshot(generatedAt),
+      requests: this.requests.snapshot(generatedAt, reveals),
       process: {
         uptime_seconds: process.uptime(),
         rss_bytes: memory.rss,

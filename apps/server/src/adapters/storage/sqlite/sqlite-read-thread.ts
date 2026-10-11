@@ -19,7 +19,14 @@ interface Waiter {
  * module from outside its bundle. It speaks plain JSON: `{id, path, sql, args}`
  * or `{id, release: path}` in, `{id, rows}` or `{id, error}` out. `PRAGMA
  * query_only` on every connection means a bug here cannot become a second
- * writer (D25). Unref'd, so an idle thread never holds a CLI command open.
+ * writer (D25).
+ *
+ * The worker is **held (`ref`) while anything waits on it and let go
+ * (`unref`) when nothing does.** Both halves matter: an idle thread must not
+ * keep a finished CLI command alive, and a pending read must keep the process
+ * alive. Permanently unref'd, the first threaded read of `silo keys list` or
+ * `serve` was the only thing on the loop, the loop drained, and the process
+ * exited 0 before the answer arrived (see docs/design/storage.md, D81).
  */
 export class SqliteReadThread {
   private static readonly ReleaseGraceMs = 2000;
@@ -62,6 +69,7 @@ export class SqliteReadThread {
       }
       const id = ++this.sequence;
       this.pending.set(id, { resolve, reject });
+      this.hold();
       this.worker.postMessage({ id, ...message });
     });
   }
@@ -69,9 +77,10 @@ export class SqliteReadThread {
   private start(): Promise<void> {
     if (this.ready) return this.ready;
     this.ready = new Promise<void>((resolve, reject) => {
+      // Ref'd, as constructed, until it says it is ready: the start is itself a
+      // wait, and one nothing else holds the loop open for.
       const worker = new Worker(SqliteReadThread.url(), { type: "module" });
       this.worker = worker;
-      worker.unref?.();
       let started = false;
       worker.addEventListener("message", (event: MessageEvent) => {
         const message: any = event.data;
@@ -81,6 +90,7 @@ export class SqliteReadThread {
         }
         if (message.ready) {
           started = true;
+          this.settle();
           resolve();
           return;
         }
@@ -103,8 +113,19 @@ export class SqliteReadThread {
     const waiter = this.pending.get(message.id);
     if (!waiter) return;
     this.pending.delete(message.id);
+    this.settle();
     if (message.error !== undefined) waiter.reject(new Error(message.error));
     else waiter.resolve(message.rows ?? []);
+  }
+
+  /** Keeps the process alive while a message is out. */
+  private hold(): void {
+    this.worker?.ref?.();
+  }
+
+  /** Lets the process end once nothing waits on the thread. */
+  private settle(): void {
+    if (this.pending.size === 0) this.worker?.unref?.();
   }
 
   /** Fails every waiting read and drops the worker; the next read starts a new one. */

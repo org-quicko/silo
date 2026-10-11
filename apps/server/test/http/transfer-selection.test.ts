@@ -7,6 +7,7 @@ import { SiloService } from "../../src/core/services/silo-service";
 import { Scope } from "../../src/core/domain/scope";
 import { MediaRef } from "@silo/shared/media-ref";
 import type { ExportManifest } from "../../src/core/transfer/export-manifest";
+import { MediaPaths } from "../../src/core/media/media-paths";
 import { MediaModes } from "../../src/core/transfer/media-mode";
 import { TransferSelection } from "../../src/core/transfer/transfer-selection";
 
@@ -111,7 +112,10 @@ describe("selective transfer", () => {
     expect(manifest.media?.mode).toBe(MediaModes.Referenced);
     expect(manifest.media?.referenced).toBe(1);
     expect(manifest.media?.files).toBe(1);
-    expect(await names(path.join(destination, "media"))).toEqual([sitePhoto.blob_key]);
+    // Flat, prefix stripped: the archive keeps the layout D23 fixed (D88).
+    expect(await names(path.join(destination, "media"))).toEqual([
+      MediaPaths.archiveName(sitePhoto.blob_key),
+    ]);
   });
 
   test("media none carries the catalog and not one byte", async () => {

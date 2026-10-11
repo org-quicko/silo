@@ -1,5 +1,6 @@
 # Cuts a silo release: one executable per platform, checksummed, signed twice,
-# published, and pushed to the Homebrew tap.
+# published, pushed to the Homebrew tap, and a multi-arch container image in
+# Docker Hub and GHCR.
 #
 # Everything the build does lives in `tools/build/`, which is also what
 # `bun run build` runs, so a release is the local build with flags rather than a
@@ -9,18 +10,25 @@
 #
 #     git tag -a v0.2.0 -m "v0.2.0" && git push origin v0.2.0
 #
+# Only a release tag, vMAJOR.MINOR.PATCH, starts it. v0.2.0-rc.1, -beta,
+# -SNAPSHOT and every other suffix fall outside the filter, so such a tag builds
+# nothing and publishes nothing.
+#
 # `workflow_dispatch` runs the same build and uploads the artifacts to the run
-# without publishing anything, which is how to rehearse a release — or bisect a
-# broken one — without burning a version number.
+# without publishing anything — the image is built and smoke-tested on both
+# architectures and pushed nowhere — which is how to rehearse a release, or
+# bisect a broken one, without burning a version number.
 name: release
 
 on:
   push:
-    tags: ["v*"]
+    # GitHub's tag filter matches the whole tag name, and `+` is "one or more
+    # of the preceding", so this is v1.2.3 and nothing after it.
+    tags: ["v[0-9]+.[0-9]+.[0-9]+"]
   workflow_dispatch:
     inputs:
       version:
-        description: "Version to build, without the leading v. Nothing is published."
+        description: "Version to build, MAJOR.MINOR.PATCH without the leading v. Nothing is published."
         required: true
         type: string
 
@@ -31,8 +39,13 @@ permissions:
 env:
   # Keep in step with the Dockerfile's BUN_VERSION: the binary users install and
   # the image they deploy should not be built by different runtimes.
-  BUN_VERSION: "1.4.0"
+  BUN_VERSION: "1.4.2"
   NFPM_VERSION: "2.47.0"
+  # Where the container image goes. Written out rather than read back from the
+  # login credentials, so a release log names the image it pushed instead of
+  # masking the namespace as `***` everywhere it appears.
+  DOCKERHUB_IMAGE: "docker.io/labsatquicko/silo"
+  GHCR_IMAGE: "ghcr.io/org-quicko/silo"
   # How many past releases stay installable from the dnf repo. GitHub Pages has
   # a 1 GB soft limit and each release is ~60 MB of RPMs, so this cannot be
   # "all of them". Nothing is lost by trimming: the release assets are the
@@ -51,7 +64,6 @@ jobs:
     runs-on: ubuntu-24.04
     outputs:
       version: ${{ steps.resolve.outputs.version }}
-      prerelease: ${{ steps.resolve.outputs.prerelease }}
     steps:
       - uses: actions/checkout@v7
       - id: resolve
@@ -62,18 +74,16 @@ jobs:
             version="${GITHUB_REF_NAME#v}"
           fi
 
-          case "$version" in
-            [0-9]*.[0-9]*.[0-9]*) ;;
-            *) echo "::error::'$version' is not a semantic version" && exit 1 ;;
-          esac
-
-          # A version with a pre-release suffix (1.0.0-rc.1) is published as a
-          # GitHub pre-release and never reaches the tap: `brew install silo`
-          # must not hand someone a release candidate.
-          case "$version" in
-            *-*) prerelease=true ;;
-            *) prerelease=false ;;
-          esac
+          # Releases are MAJOR.MINOR.PATCH and nothing else, so nothing
+          # downstream has a pre-release to keep away from the tap or the dnf
+          # repo. The tag filter already enforces the shape; this also refuses
+          # the leading zeros the filter cannot express, and is the only check a
+          # dispatch meets, since it has no tag to filter.
+          release='^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$'
+          if ! [[ "$version" =~ $release ]]; then
+            echo "::error::'$version' is not a release version — expected MAJOR.MINOR.PATCH with no suffix"
+            exit 1
+          fi
 
           # package.json is the single source of truth (D28); the tag is a
           # request to publish what it already says. When the two disagree the
@@ -91,17 +101,40 @@ jobs:
           fi
 
           echo "version=$version" >> "$GITHUB_OUTPUT"
-          echo "prerelease=$prerelease" >> "$GITHUB_OUTPUT"
-          echo "silo $version (prerelease=$prerelease, declared=$declared)"
+          echo "silo $version (declared=$declared)"
 
+  # The suite as test.yml runs it, Postgres included (D96): a release carries
+  # the postgres driver, so a failing Postgres test must stop it.
   verify:
     runs-on: ubuntu-24.04
+    services:
+      postgres:
+        image: postgres:18
+        env:
+          POSTGRES_USER: silo
+          POSTGRES_PASSWORD: silo
+          POSTGRES_DB: silo_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U silo -d silo_test"
+          --health-interval 2s
+          --health-timeout 5s
+          --health-retries 30
+    env:
+      SILO_TEST_PG_URL: postgres://silo:silo@localhost:5432/silo_test
+      SILO_TEST_PG_REQUIRED: "1"
     steps:
       - uses: actions/checkout@v7
       - uses: oven-sh/setup-bun@v2
         with:
           bun-version: ${{ env.BUN_VERSION }}
       - run: bun install --frozen-lockfile
+      - name: Find initdb for the TLS tests
+        run: |
+          bin=$(ls -d /usr/lib/postgresql/*/bin 2>/dev/null | sort -V | tail -n 1)
+          test -n "$bin" || { echo "::error::no Postgres binaries on the runner"; exit 1; }
+          echo "SILO_TEST_PG_BIN=$bin" >> "$GITHUB_ENV"
       - name: Type-check
         run: bunx tsc -b
       # The admin suites import @org-quicko/silo-client, whose exports point at
@@ -304,6 +337,109 @@ jobs:
           if-no-files-found: error
           retention-days: 7
 
+  # The container image, one native runner per architecture. Emulation would do
+  # it in a single job, but stage 1 of the Dockerfile builds the admin UI with
+  # Bun and Vite, which is CPU-bound work QEMU makes several times slower for
+  # nothing — the arm64 runner is free to this repository, and each half builds
+  # in well under a minute on it. arm64 is not optional: silo already ships
+  # linux-arm64 binaries and aarch64 RPMs, and a Pi, a Graviton box and an
+  # Apple laptop are all places a self-hosted CMS gets run.
+  #
+  # Each half is pushed **by digest** — a manifest no tag points at, which no
+  # `docker pull silo` can reach — and `publish-image` joins the two into the
+  # tags users see, after the GitHub release exists. A `workflow_dispatch`
+  # builds and smoke-tests both halves and pushes nothing, which is how a
+  # Dockerfile change is rehearsed without a version number.
+  image:
+    needs: [version, verify]
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: amd64
+            runs-on: ubuntu-24.04
+          - arch: arm64
+            runs-on: ubuntu-24.04-arm
+    runs-on: ${{ matrix.runs-on }}
+    permissions:
+      contents: read
+      packages: write # ghcr.io, which is this repository's own registry
+    steps:
+      - uses: actions/checkout@v7
+      - uses: docker/setup-buildx-action@v4
+
+      # Built and loaded first, pushed second, over the same builder: the push
+      # re-exports layers this job has already run, rather than building them
+      # again. A broken Dockerfile fails here, before either registry has seen
+      # anything at all.
+      - name: Build linux/${{ matrix.arch }}
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          platforms: linux/${{ matrix.arch }}
+          load: true
+          tags: silo:ci
+          # The image runs from source, where the `--define` a compiled binary
+          # carries cannot reach it, so this is how a released image knows it is
+          # one instead of reporting `-dev` (D90).
+          build-args: |
+            SILO_VERSION=${{ needs.version.outputs.version }}
+
+      - name: Smoke-test the image
+        run: |
+          version="${{ needs.version.outputs.version }}"
+          got="$(docker run --rm silo:ci version)"
+          echo "$got"
+          [ "$got" = "silo $version" ] || { echo "::error::expected 'silo $version'"; exit 1; }
+
+      - name: Log in to Docker Hub
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: docker/login-action@v4
+        with:
+          username: ${{ vars.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Log in to GHCR
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      # One build, two registries: the same manifest lands in both under the
+      # same digest, which is what lets `publish-image` tag each of them from a
+      # single list of digests and keeps a blob from crossing between them.
+      - name: Push linux/${{ matrix.arch }} by digest
+        id: push
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          platforms: linux/${{ matrix.arch }}
+          build-args: |
+            SILO_VERSION=${{ needs.version.outputs.version }}
+          outputs: 'type=image,"name=${{ env.DOCKERHUB_IMAGE }},${{ env.GHCR_IMAGE }}",push-by-digest=true,name-canonical=true,push=true'
+
+      # The digest is the whole handoff, and an empty file named after it is
+      # the whole message. The architecture is in the artifact name because two
+      # uploads may not share one.
+      - name: Hand the digest on
+        if: startsWith(github.ref, 'refs/tags/')
+        run: |
+          mkdir -p "$RUNNER_TEMP/digests"
+          digest="${{ steps.push.outputs.digest }}"
+          touch "$RUNNER_TEMP/digests/${digest#sha256:}"
+          echo "linux/${{ matrix.arch }} is $digest"
+
+      - uses: actions/upload-artifact@v7
+        if: startsWith(github.ref, 'refs/tags/')
+        with:
+          name: image-digest-${{ matrix.arch }}
+          path: ${{ runner.temp }}/digests/*
+          if-no-files-found: error
+          retention-days: 1
+
   release:
     needs: [version, build, rpm]
     if: startsWith(github.ref, 'refs/tags/')
@@ -371,13 +507,18 @@ jobs:
           # `gh` read a remote URL is not.
           GH_REPO: ${{ github.repository }}
           VERSION: ${{ needs.version.outputs.version }}
-          PRERELEASE: ${{ needs.version.outputs.prerelease }}
         run: |
           cat > notes.md <<'EOF'
           ## Install
 
           ```sh
           brew install org-quicko/tap/silo
+          ```
+
+          Or pull the container image, which is also on `ghcr.io/org-quicko/silo`:
+
+          ```sh
+          docker pull labsatquicko/silo:__VERSION__
           ```
 
           Or download the archive for your platform below and put `silo` on your `PATH`.
@@ -406,19 +547,127 @@ jobs:
           ```sh
           gh attestation verify silo-*.tar.gz --repo org-quicko/silo
           ```
+
+          The container image is signed and attested the same two ways:
+
+          ```sh
+          cosign verify docker.io/labsatquicko/silo:__VERSION__ \
+            --certificate-identity-regexp '^https://github\.com/org-quicko/silo/\.github/workflows/release\.yml@' \
+            --certificate-oidc-issuer https://token.actions.githubusercontent.com
+
+          gh attestation verify oci://docker.io/labsatquicko/silo:__VERSION__ --repo org-quicko/silo
+          ```
           EOF
 
+          # The heredoc is quoted so that the code fences arrive as fences
+          # rather than as command substitutions, which leaves it no way to
+          # read $VERSION. The one place the notes need it is filled in here.
+          sed -i "s/__VERSION__/$VERSION/g" notes.md
+
           flags=(--title "silo $VERSION" --notes-file notes.md --generate-notes)
-          if [ "$PRERELEASE" = "true" ]; then flags+=(--prerelease); fi
 
           assets=(dist/silo-*.tar.gz dist/silo-*.rpm dist/SHA256SUMS dist/SHA256SUMS.cosign.bundle)
           if [ -f dist/SHA256SUMS.asc ]; then assets+=(dist/SHA256SUMS.asc); fi
 
           gh release create "v$VERSION" "${flags[@]}" "${assets[@]}"
 
+  # Names the two digests `image` pushed. Until this job runs, both registries
+  # hold a pair of manifests nothing points at; after it, `:VERSION` and
+  # `:latest` are one multi-arch index over both — the moment the image becomes
+  # public, which is why it waits for the release rather than racing it.
+  #
+  # Needs the whole matrix: a `fail-fast: false` strategy lets one architecture
+  # fail on its own, and a manifest naming one of two is worse than none.
+  publish-image:
+    needs: [version, image, release]
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      packages: write
+      id-token: write # Sigstore keyless signing, and the provenance attestation
+      attestations: write
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          path: digests
+          pattern: image-digest-*
+          merge-multiple: true
+
+      - uses: docker/setup-buildx-action@v4
+
+      - name: Log in to Docker Hub
+        uses: docker/login-action@v4
+        with:
+          username: ${{ vars.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      # `imagetools create` builds nothing: the per-arch images are already in
+      # both registries, and this writes the index that points a tag at both of
+      # them. Once per registry, over that registry's own copies, and the
+      # inspect afterwards is the proof in the log that the tag really carries
+      # two architectures.
+      - name: Tag the release
+        id: tag
+        working-directory: digests
+        env:
+          VERSION: ${{ needs.version.outputs.version }}
+        run: |
+          ls -l
+          for registry in dockerhub ghcr; do
+            case "$registry" in
+              dockerhub) image="$DOCKERHUB_IMAGE" ;;
+              ghcr)      image="$GHCR_IMAGE" ;;
+            esac
+
+            sources=()
+            for digest in *; do sources+=("$image@sha256:$digest"); done
+            docker buildx imagetools create \
+              --tag "$image:$VERSION" --tag "$image:latest" \
+              "${sources[@]}"
+            docker buildx imagetools inspect "$image:$VERSION"
+
+            # What the signatures below are over. Both registries should hold
+            # the same index under the same digest, but each is asked for its
+            # own rather than one being assumed to answer for the other.
+            index=$(docker buildx imagetools inspect "$image:$VERSION" --format '{{.Manifest.Digest}}')
+            echo "${registry}_digest=$index" >> "$GITHUB_OUTPUT"
+          done
+
+      # The same two signatures the release assets carry, for the same reason:
+      # Sigstore is keyless, so the signing identity is this workflow's OIDC
+      # token and there is no key in this repository to leak, and the
+      # attestation records which workflow at which commit produced the image.
+      #
+      # Both are over the *index* digest, the one a `docker pull silo:1.2.3`
+      # resolves to, so one signature covers both architectures. The signature
+      # lands in the registry beside the image, as a `sha256-....sig` tag; the
+      # attestation lands in GitHub's own store, which is what lets
+      # `gh attestation verify oci://...` need no tooling but `gh`.
+      - uses: sigstore/cosign-installer@v3
+      - name: Sign both indexes with Sigstore
+        run: |
+          cosign sign --yes "$DOCKERHUB_IMAGE@${{ steps.tag.outputs.dockerhub_digest }}"
+          cosign sign --yes "$GHCR_IMAGE@${{ steps.tag.outputs.ghcr_digest }}"
+
+      - uses: actions/attest-build-provenance@v4
+        with:
+          subject-name: ${{ env.DOCKERHUB_IMAGE }}
+          subject-digest: ${{ steps.tag.outputs.dockerhub_digest }}
+
+      - uses: actions/attest-build-provenance@v4
+        with:
+          subject-name: ${{ env.GHCR_IMAGE }}
+          subject-digest: ${{ steps.tag.outputs.ghcr_digest }}
+
   homebrew:
     needs: [version, release]
-    if: needs.version.outputs.prerelease == 'false'
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v7
@@ -476,7 +725,6 @@ jobs:
   # policy nobody wrote down.
   dnf-repo:
     needs: [version, release]
-    if: needs.version.outputs.prerelease == 'false'
     runs-on: ubuntu-24.04
     permissions:
       contents: read
@@ -491,8 +739,10 @@ jobs:
       - name: Install createrepo_c
         run: sudo apt-get update && sudo apt-get install -y --no-install-recommends createrepo-c
 
-      # Newest first, drafts and pre-releases excluded — a release candidate
-      # must not be installable by someone who just typed `dnf install silo`.
+      # Newest first, drafts and pre-releases excluded. This workflow publishes
+      # neither, but one made by hand, or before releases were limited to
+      # vMAJOR.MINOR.PATCH, must still not be installable by someone who just
+      # typed `dnf install silo`.
       - name: Collect the RPMs of the last ${{ env.DNF_REPO_RELEASES }} releases
         env:
           GH_TOKEN: ${{ github.token }}

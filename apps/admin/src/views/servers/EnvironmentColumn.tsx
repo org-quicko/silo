@@ -4,6 +4,7 @@ import { BrowserColumn } from '../../components/browser/BrowserColumn'
 import { ColumnItem } from '../../components/browser/ColumnItem'
 import { ColumnPlaceholder } from '../../components/browser/ColumnPlaceholder'
 import { ColumnSearch } from '../../components/browser/ColumnSearch'
+import { ColumnSettingsButton } from '../../components/browser/ColumnSettingsButton'
 import { InlineNameForm } from './InlineNameForm'
 import styles from '../../components/browser/ScopeBrowser.module.css'
 
@@ -15,8 +16,15 @@ interface Props {
   loading: boolean
   onSelect: (env: string) => void
   onCreate: (env: string) => Promise<void>
-  /** Double-clicking an environment opens the workspace directly. */
+  /**
+   * Opens the workspace. Reached by double-clicking an environment, and by
+   * clicking one that is already chosen: this is the last column, so a click
+   * that selects what is already selected has nothing else it could mean, and
+   * requiring the footer button after it is a second click for no answer.
+   */
   onActivate: () => void
+  /** Straight to this environment's own settings. */
+  onOpenSettings: (env: string) => void
 }
 
 /** The third column: which environment of the chosen project. */
@@ -29,6 +37,7 @@ export function EnvironmentColumn({
   onSelect,
   onCreate,
   onActivate,
+  onOpenSettings,
 }: Props) {
   const [adding, setAdding] = useState(false)
   const [query, setQuery] = useState('')
@@ -85,8 +94,18 @@ export function EnvironmentColumn({
                 title={env}
                 selected={env === selected}
                 index={index}
-                onSelect={() => onSelect(env)}
+                // The last column leads somewhere too, now that clicking a
+                // chosen environment opens it, so it carries the same chevron
+                // the two columns before it do.
+                chevron
+                onSelect={() => (env === selected ? onActivate() : onSelect(env))}
                 onActivate={onActivate}
+                action={
+                  <ColumnSettingsButton
+                    title="Environment settings"
+                    onOpen={() => onOpenSettings(env)}
+                  />
+                }
               />
             ))
           )}

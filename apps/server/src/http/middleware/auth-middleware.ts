@@ -1,4 +1,5 @@
 import type { Context, Next } from "hono";
+import { StorageBusyError } from "../../core/errors/storage-busy-error";
 import type { SiloService } from "../../core/services/silo-service";
 import { InjectedPrincipals } from "../auth/injected-principals";
 
@@ -60,16 +61,22 @@ export class AuthMiddleware {
         return;
       }
 
+      let info: Awaited<ReturnType<SiloService["keys"]["authenticate"]>>;
       try {
-        const info = await service.keys.authenticate(secret);
-        c.set("keyInfo", info);
-        await next();
-      } catch (caught: any) {
+        info = await service.keys.authenticate(secret);
+      } catch (caught: unknown) {
+        // Storage that could not look the key up says nothing about the key:
+        // the error handler answers 503 with Retry-After. A 401 here would
+        // tell every client with a valid key to drop it during a database
+        // blip, or whenever the scan queue is full.
+        if (caught instanceof StorageBusyError) throw caught;
         return c.json(
           { error: { code: "unauthorized", message: "invalid API key" } },
           401
         );
       }
+      c.set("keyInfo", info);
+      await next();
     };
   }
 }

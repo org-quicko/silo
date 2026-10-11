@@ -157,6 +157,23 @@ export class QuerySuite {
             filter: { op: "eq", path: "$.data.title[*]", value: "alpha" },
             want: [],
           },
+          {
+            // Nor does an index. Postgres's `-> 0` on a string answers the
+            // string itself, which is what this pins.
+            name: "index does not select a scalar",
+            filter: { op: "eq", path: "$.data.title[0]", value: "alpha" },
+            want: [],
+          },
+          {
+            name: "negative index does not select a scalar",
+            filter: { op: "exists", path: "$.data.views[-1]" },
+            want: [],
+          },
+          {
+            name: "an index no array can reach selects nothing",
+            filter: { op: "exists", path: "$.data.tags[3000000000]" },
+            want: [],
+          },
         ];
 
         for (const tc of cases) {
@@ -205,6 +222,32 @@ export class QuerySuite {
           });
           const got = getTitles(items);
           expect(got).toEqual(tc.want);
+        }
+      });
+
+      // A client that pages until it gets an empty page asks for this every
+      // time. The count then runs on its own, without the sort.
+      test("A page past the end is empty and keeps its total", async () => {
+        const store = await getFreshStore();
+        await seed(store);
+
+        const cases = [
+          { sort: [{ path: "$.data.views", desc: true }], filter: undefined, total: 3 },
+          { sort: [{ path: "$.created_at", desc: false }], filter: undefined, total: 3 },
+          {
+            sort: [{ path: "$.data.author.name", desc: false }],
+            filter: { op: "gt", path: "$.data.views", value: 5 },
+            total: 2,
+          },
+        ];
+        for (const tc of cases) {
+          const page = await store.list(Scope.Default, "posts", {
+            sort: tc.sort,
+            filter: tc.filter as any,
+            limit: 10,
+            offset: 10,
+          });
+          expect(page).toEqual({ items: [], total: tc.total });
         }
       });
 

@@ -1,0 +1,267 @@
+---
+title: "Silo configuration reference: silo.toml and SILO_* variables"
+sidebarTitle: "Configuration"
+description: "Every silo.toml setting and its SILO_* environment variable override. Generate a template with silo init. Configuration layers: flags > env vars > file > defaults."
+---
+
+Silo is configured through a layered system. From highest priority to lowest: **CLI flags** override **`SILO_*` environment variables**, which override the **`silo.toml` file**, which falls back to **built-in defaults**. Every key is optional — an empty or absent `silo.toml` is perfectly valid. Run `silo init` to generate a fully-annotated template at the defaults.
+
+## Annotated silo.toml
+
+The file below is exactly what `silo init` writes. Every setting is at its default value, with alternatives and S3 keys commented inline.
+
+```toml
+# silo.toml
+listen          = ":8090"
+default_project = "default"   # created on startup if missing
+default_env     = "prod"
+
+[http]
+idle_timeout = 120      # seconds a connection may stay quiet; 0 disables, 255 is the maximum
+max_body_size_mb      = 128   # the largest request body on any route: a media upload, an import
+max_json_body_size_mb = 4     # every other route: an entry, a schema, a list of ids
+
+[transfer]
+max_archive_size_mb   = 1024  # an import upload, or the export a copy pulls
+max_extracted_size_mb = 4096  # what it may unpack to on disk, checked before anything is written
+
+[storage]
+driver = "sqlite"       # "sqlite" | "fs"
+path   = "./silo_data"  # data dir; the sqlite file lives at <path>/silo.db
+
+[blob_storage]
+driver = "fs"                 # "fs" | "s3"
+# path = "/srv/silo-media"    # fs driver; unset means <data dir>/media, and --data moves it
+# bucket           = "my-silo-media"   # required by the s3 driver
+# region           = "ap-south-1"
+# endpoint         = "https://..."     # for S3-compatible providers
+# access_key_id    = "..."
+# secret_access_key = "..."
+# force_path_style = false
+# public_read      = true              # default. Media URLs name the bucket, so it needs a bucket
+#                                      # policy granting anonymous s3:GetObject. Set false for a
+#                                      # private bucket: silo then streams the bytes at /media/<id>.
+
+[media]
+# base_url   = "https://cdn.example.com"  # the host every media URL is rooted at
+# Unset, media URLs point at the bucket when the provider above is a bucket, and
+# at the address each request arrives on when silo serves the bytes itself.
+extensions = ["jpg", "jpeg", "png", "gif", "webp", "avif", "ico", "bmp",
+              "mp4", "webm", "mov", "mp3", "wav", "ogg", "m4a", "pdf"]
+# Uploads are refused unless the filename ends in one of these. ["*"] accepts anything.
+# svg is not in the default: it can carry script. Add it where every uploader is trusted.
+
+[auth]
+disabled = false        # dev only: if true, every request is treated as root
+
+[schema]
+allow_remote_refs = false  # opt in to fetching http(s) $refs during validation
+
+[search]
+enabled             = true          # false keeps no index; search falls back to a full scan
+tokenizer           = "unicode61"   # "unicode61" (words) | "trigram" (substrings; required for CJK)
+max_entry_bytes     = 65536         # per-entry cap on indexed text
+scan_limit          = 20000         # entries one un-indexed scan may visit before truncating
+scan_time_budget_ms = 3000          # ...and how long, whichever comes first
+# Changing the tokenizer rebuilds the index on the next start.
+
+[log]
+level       = "info"          # "debug" | "info" | "warn" | "error" | "silent"
+format      = "text"          # "text" (human) | "json" (one object per line)
+requests    = true            # a line per HTTP request
+max_size_mb = 10              # rotate past this size; 0 never rotates
+max_files   = 5               # kept as silo.log.1 ... silo.log.5
+# file = "/var/log/silo.log"  # unset means the console
+
+# Plugins. An *ordered* array: the order is hook dispatch order. This says
+# *which* plugins load. What each may do is a grant in the store, and `claims`
+# here is a second, declarative way to say it. Absent by default; `init` writes
+# none. See plugins.md.
+# [[plugins]]
+# name   = "silo-plugin-slug"           # a directory under <data dir>/plugins/
+# claims = ["collections:*/*/*:entries:read"]
+```
+
+## Environment variables
+
+Every `silo.toml` key has a corresponding `SILO_*` variable. Set these in your container environment, systemd unit, or `.env` file to override the file without editing it.
+
+| Environment variable | Overrides |
+|---|---|
+| `SILO_CONFIG` | Which file this table is read from and written to, below `--config` |
+| `SILO_LISTEN` | `listen` |
+| `SILO_HTTP_IDLE_TIMEOUT` | `[http] idle_timeout` |
+| `SILO_HTTP_MAX_BODY_SIZE_MB`, `SILO_HTTP_MAX_JSON_BODY_SIZE_MB` | `[http] max_body_size_mb`, `[http] max_json_body_size_mb` |
+| `SILO_TRANSFER_MAX_ARCHIVE_SIZE_MB`, `SILO_TRANSFER_MAX_EXTRACTED_SIZE_MB` | `[transfer] max_archive_size_mb`, `[transfer] max_extracted_size_mb` |
+| `SILO_READ_THREAD` | `on` or `off`: whether entry lists and searches on SQLite run on a separate storage thread. On by default; off under the test runner. Not present in the file |
+| `SILO_DEFAULT_PROJECT`, `SILO_DEFAULT_ENV` | `default_project`, `default_env` |
+| `SILO_STORAGE_DRIVER`, `SILO_STORAGE_PATH` | `[storage] driver`, `[storage] path` |
+| `SILO_BLOB_DRIVER`, `SILO_BLOB_PATH` | `[blob_storage] driver`, `[blob_storage] path` |
+| `SILO_BLOB_S3_BUCKET`, `SILO_BLOB_S3_REGION`, `SILO_BLOB_S3_ENDPOINT` | `[blob_storage] bucket`, `region`, `endpoint` |
+| `SILO_BLOB_S3_ACCESS_KEY_ID`, `SILO_BLOB_S3_SECRET_ACCESS_KEY` | `[blob_storage] access_key_id`, `secret_access_key` |
+| `SILO_BLOB_S3_FORCE_PATH_STYLE` | `[blob_storage] force_path_style` |
+| `SILO_BLOB_S3_PUBLIC_READ` | `[blob_storage] public_read` |
+| `SILO_AUTH_DISABLED` | `[auth] disabled` |
+| `SILO_SCHEMA_ALLOW_REMOTE_REFS` | `[schema] allow_remote_refs` |
+| `SILO_SEARCH_ENABLED`, `SILO_SEARCH_TOKENIZER` | `[search] enabled`, `[search] tokenizer` |
+| `SILO_LOG_LEVEL`, `SILO_LOG_FILE`, `SILO_LOG_FORMAT` | `[log] level`, `[log] file`, `[log] format` |
+| `SILO_LOG_REQUESTS`, `SILO_LOG_MAX_SIZE_MB`, `SILO_LOG_MAX_FILES` | `[log] requests`, `[log] max_size_mb`, `[log] max_files` |
+| `SILO_MEDIA_BASE_URL`, `SILO_MEDIA_BASE_URL_TARGET` | `[media] base_url` and its target |
+| `SILO_MEDIA_EXTENSIONS` | `[media] extensions`, comma-separated |
+| `SILO_VERSION` | The version silo reports. Not configuration and not in the file. The release sets it in the container image. A binary ignores it. If you set it, silo will report a version that it is not |
+
+## Storage drivers
+
+Silo ships two storage drivers. Choose one per deployment; switching later requires an export and import.
+
+<CardGroup cols={2}>
+  <Card title="sqlite (default)" icon="database">
+    Stores all data at `<path>/silo.db`. A single file, zero external dependencies, and the right choice for the vast majority of deployments. Writes are serialised inside the process, which is what makes optimistic concurrency (`If-Match`) sound.
+  </Card>
+  <Card title="fs" icon="folder-open">
+    Writes one JSON file per entry as a flat directory tree. The on-disk layout **is** the export format, making it ideal for reviewing changes with `git diff` and backing up with `rsync`. No binary blob to inspect.
+  </Card>
+</CardGroup>
+
+<Warning>
+Two processes over one data directory are not supported. Silo refuses it. The `fs` driver keeps `last_seq` in memory, so two processes would hand out duplicate sequence values — and those are not repairable.
+</Warning>
+
+<Note>
+`[storage]` is reported by the settings API but never written. Changing the storage driver means pointing at a different instance, not reconfiguring this one. Use `silo export` and `silo import` to move data between drivers.
+</Note>
+
+## Blob storage
+
+Media files (uploads) are stored separately from structured data. Two blob drivers are available.
+
+<CardGroup cols={2}>
+  <Card title="fs (default)" icon="hard-drive">
+    Files are stored at `<data dir>/media`, or at the path you set via `[blob_storage] path`, `SILO_BLOB_PATH`, or `--blob-path`. Moving the data directory moves media with it unless you pin the path explicitly.
+  </Card>
+  <Card title="s3" icon="cloud">
+    Any S3-compatible bucket: AWS S3, MinIO, Cloudflare R2, DigitalOcean Spaces. Requires `bucket` and `region`. Set `endpoint` for non-AWS providers. Credentials go in `access_key_id` and `secret_access_key`, or the standard AWS environment variables.
+  </Card>
+</CardGroup>
+
+<Note>
+`public_read` defaults to `true` for S3 buckets: media URLs point directly at the bucket, which requires a bucket policy granting anonymous `s3:GetObject`. Set `public_read = false` for a private bucket — silo then streams each file from storage at `/media/<id>` instead, using the credentials you configured. Nothing else changes and no URL breaks.
+</Note>
+
+## Media URLs
+
+How a media URL is formed depends on two settings: whether you have a `base_url`, and who is serving the file.
+
+When `base_url` is set, every media link is rooted at that address:
+
+| `base_url` value | A media URL looks like |
+|---|---|
+| `https://api.example.com` | `https://api.example.com/media/<id>` |
+| `https://example.com/silo` | `https://example.com/silo/media/<id>` |
+
+When `base_url` is not set, the URL depends on the blob provider:
+
+| Provider, no `base_url` | A media URL looks like |
+|---|---|
+| Local directory | `<your server's address>/media/<id>` |
+| Bucket | `<the bucket's own address>/<blob key>` |
+| Bucket with `public_read = false` | `<your server's address>/media/<id>` |
+
+A bucket with no `base_url` addresses each file directly at the bucket, with silo out of the read path. That is the shape an email client needs, because it cannot authenticate.
+
+### Public S3 bucket policy
+
+If you use an S3 bucket and want silo to hand out direct bucket URLs (i.e. `public_read` is on), you must apply a bucket policy that allows anonymous reads. Turning off Block Public Access alone is not enough — without a policy, S3 answers `AccessDenied` for every file and each media URL breaks.
+
+```json
+{
+  "Version": "2012-10-17",
+  "Statement": [{
+    "Sid": "PublicReadForSilo",
+    "Effect": "Allow",
+    "Principal": "*",
+    "Action": "s3:GetObject",
+    "Resource": "arn:aws:s3:::YOUR-BUCKET/*"
+  }]
+}
+```
+
+Apply that policy and the bucket URLs silo hands out will start working. If you would rather not make the bucket public, set `public_read = false` instead.
+
+## Authentication
+
+`[auth] disabled = true` is a development escape hatch: every request is treated as root with no key required. It is settable to `false` via the settings API, but **never to `true`** — an API that can switch off its own authentication is a lock whose key opens itself. Use the CLI or the config file to enable it.
+
+## Log file
+
+Silo's logging behaviour is intentionally simple.
+
+<Info>
+With no `[log] file` set, silo logs to the console regardless of whether a terminal is attached. This is the correct behavior under Docker and systemd — let the supervisor own the output stream.
+</Info>
+
+- **No `file` set**: all output goes to stdout (correct for containers and process supervisors).
+- **`file` set**: silo writes to that file **and** to the console when stdout is a terminal. A foreground server you are watching still shows itself.
+- **`--detach`**: automatically picks `<data dir>/silo.log` as the log file. This is the only case where silo chooses a path for you.
+
+Only the running server writes to the log. Every other subcommand writes its output to stdout, because that output is data you might pipe somewhere.
+
+## Schema references
+
+A schema can reference another schema with standard JSON Schema `$ref`. Silo supports two kinds of reference, with different trust levels.
+
+<CardGroup cols={2}>
+  <Card title="silo://collections/&lt;name&gt;" icon="link">
+    Always allowed. Resolved locally against another collection in the same project and environment. No network involved. The schema builder offers these as **Reference** fields; entry forms render the referenced collection's fields inline.
+  </Card>
+  <Card title="https:// remote refs" icon="globe">
+    **Rejected by default.** Fetching a schema over the network during validation makes writes non-deterministic, adds an availability dependency, and lets any schema editor trigger outbound fetches. Set `allow_remote_refs = true` to opt in. Fetched schemas are cached in memory until a schema changes.
+  </Card>
+</CardGroup>
+
+<Warning>
+Enabling `allow_remote_refs` means your server will fetch arbitrary URLs named in any schema. Only enable it if you trust everyone who can edit schemas in your instance.
+</Warning>
+
+## Search tokenizer
+
+The search index uses SQLite FTS5 under the hood. Two tokenizer modes are available.
+
+| Tokenizer | Behavior | Best for |
+|---|---|---|
+| `unicode61` (default) | Word-based tokenization | Latin scripts and most European languages |
+| `trigram` | Substring search on character trigrams | CJK languages; also enables mid-word search in any language |
+
+<Warning>
+Changing the tokenizer causes the search index to be rebuilt on the next start. On a large instance this may take a moment. The index is rebuilt once and then kept current.
+</Warning>
+
+## Plugin configuration block
+
+Plugins are declared as an ordered `[[plugins]]` array in `silo.toml`. The order matters: hook dispatch runs top-to-bottom through this list.
+
+```toml
+[[plugins]]
+name      = "silo-plugin-slug"     # directory under <data dir>/plugins/
+claims    = ["collections:*/*/*:entries:read"]   # declarative grant
+timeout_ms = 5000                  # how long a hook may run before it is cancelled
+on_error  = "fail"                 # "fail" | "skip"
+
+[plugins.config]
+# arbitrary plugin-specific keys go here
+my_setting = "value"
+```
+
+Each block accepts:
+
+| Key | Meaning |
+|---|---|
+| `name` | Directory name under `<data dir>/plugins/`. Required |
+| `claims` | A declarative list of claims to grant this plugin. A second way to say what `silo plugin grant` stores |
+| `timeout_ms` | Milliseconds a hook call may run. The plugin is terminated and the call fails if it exceeds this |
+| `on_error` | `fail` (default): a plugin error fails the request. `skip`: log the error and continue |
+| `[plugins.config]` | Arbitrary plugin-specific configuration, passed to the plugin at load time |
+
+<Note>
+There is no `SILO_PLUGINS` environment variable by design. Which code runs on your server is not something the environment should be able to change. Plugin configuration is always explicit in `silo.toml`.
+</Note>

@@ -6,12 +6,14 @@ interface Props {
   /** Named in the prompt so a drop's destination is never a surprise. */
   folder: string
   uploading: boolean
-  onFiles: (files: FileList) => void
+  /** Handed the whole drop, not its file list: a dropped folder is only
+   *  readable from the `DataTransfer`, and only inside the handler. */
+  onDrop: (transfer: DataTransfer) => void
   onBrowse: () => void
 }
 
 /** The drag-and-drop target above the grid. */
-export function UploadZone({ folder, uploading, onFiles, onBrowse }: Props) {
+export function UploadZone({ folder, uploading, onDrop: onTransfer, onBrowse }: Props) {
   const [dragActive, setDragActive] = useState(false)
 
   const onDrag = (event: DragEvent) => {
@@ -24,7 +26,7 @@ export function UploadZone({ folder, uploading, onFiles, onBrowse }: Props) {
     event.preventDefault()
     event.stopPropagation()
     setDragActive(false)
-    if (event.dataTransfer.files?.length) onFiles(event.dataTransfer.files)
+    if (event.dataTransfer.files?.length) onTransfer(event.dataTransfer)
   }
 
   return (
@@ -42,7 +44,7 @@ export function UploadZone({ folder, uploading, onFiles, onBrowse }: Props) {
           <span>Uploading files…</span>
         ) : (
           <span>
-            Drag &amp; drop files here, or <strong>browse</strong>
+            Drag &amp; drop files or folders here, or <strong>browse</strong>
             {folder ? ` into ${folder}` : ''}
           </span>
         )}

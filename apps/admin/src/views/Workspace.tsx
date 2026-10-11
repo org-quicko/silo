@@ -296,6 +296,14 @@ export function Workspace({
             setShowServerBrowser(false)
             router.navigate(Routes.serverSettings(id, 'connection'))
           }}
+          onOpenProjectSettings={(id, project) => {
+            setShowServerBrowser(false)
+            router.navigate(Routes.projectSettings(id, project, 'general'))
+          }}
+          onOpenEnvSettings={(id, project, env) => {
+            setShowServerBrowser(false)
+            router.navigate(Routes.envSettings(id, project, env, 'general'))
+          }}
           onClose={() => setShowServerBrowser(false)}
         />
       )}

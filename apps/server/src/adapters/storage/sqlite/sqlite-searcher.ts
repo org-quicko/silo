@@ -5,6 +5,7 @@ import type { Entry } from "../../../core/domain/entry";
 import { Scope } from "../../../core/domain/scope";
 import type { Storage } from "../../../core/ports/storage";
 import type { SearchAccess } from "../../../core/search/search-access";
+import type { SearchEngine } from "../../../core/search/search-engine";
 import type { SearchHit } from "../../../core/search/search-hit";
 import type { SearchIntegrity } from "../../../core/search/search-integrity";
 import type { SearchRequest } from "../../../core/search/search-request";
@@ -79,7 +80,7 @@ export class SqliteSearcher implements Searcher {
     this.reads = reads;
   }
 
-  capabilities(): { engine: "fts5" | "scan"; snippets: boolean } {
+  capabilities(): { engine: SearchEngine; snippets: boolean } {
     return { engine: "fts5", snippets: true };
   }
 
@@ -161,6 +162,12 @@ export class SqliteSearcher implements Searcher {
    * Refills the index from the entries themselves, through the same extractor
    * a write would have used — one definition of "the searchable text of an
    * entry", not two.
+   *
+   * Safe beside writes (D103), which keep their own rows: a page is read by
+   * id after the last one, so an entry deleted behind it cannot make the next
+   * page skip one, and a row is written only while its entry still has the
+   * `seq` the page read, inside the one synchronous transaction, so text read
+   * before a save never overwrites the row that save wrote.
    */
   async reindex(target?: SearchTarget): Promise<{ collections: number; entries: number }> {
     let collections = 0;
@@ -180,14 +187,20 @@ export class SqliteSearcher implements Searcher {
         collections++;
         this.clear({ project: scope.project, env: scope.env, collection: name });
 
-        let offset = 0;
-        while (true) {
-          const page = await this.store.list(scope, name, { limit: 200, offset });
+        const pageSize = 200;
+        for (let after = ""; ; ) {
+          const page = await this.store.list(scope, name, {
+            filter: { op: "gt", path: "$.id", value: after },
+            sort: [{ path: "$.id", desc: false }],
+            limit: pageSize,
+            offset: 0,
+          });
           if (page.items.length === 0) break;
           const insert = this.db.query(
             `INSERT INTO ${SearchIndex.Documents}
                (project_id, env_id, collection_id, entry_id, label, body)
-             VALUES (?, ?, ?, ?, ?, ?)
+             SELECT ?, ?, ?, ?, ?, ?
+             WHERE EXISTS (SELECT 1 FROM entries WHERE collection_id = ? AND id = ? AND seq = ?)
              ON CONFLICT (collection_id, entry_id) DO UPDATE SET
                label = excluded.label, body = excluded.body`
           );
@@ -200,14 +213,17 @@ export class SqliteSearcher implements Searcher {
                 record.id,
                 entry.id,
                 text.label,
-                text.body
+                text.body,
+                record.id,
+                entry.id,
+                entry.seq
               );
               entries++;
             }
           });
           tx();
-          offset += page.items.length;
-          if (offset >= page.total) break;
+          after = page.items[page.items.length - 1].id;
+          if (page.items.length < pageSize) break;
         }
       }
     }
@@ -220,7 +236,7 @@ export class SqliteSearcher implements Searcher {
    * has vanished — or an entry with no document row — is invisible to it and
    * needs the second, hand-written anti-join.
    */
-  check(): SearchIntegrity {
+  async check(): Promise<SearchIntegrity> {
     let index = "ok";
     try {
       this.db.exec(`INSERT INTO ${SearchIndex.Fts}(${SearchIndex.Fts}) VALUES('integrity-check')`);

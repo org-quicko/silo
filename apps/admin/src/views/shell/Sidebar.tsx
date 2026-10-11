@@ -1,5 +1,5 @@
 import { useState, useMemo, useCallback, useRef, useEffect } from 'react'
-import { Plus, Image, ChevronsUpDown, Settings, Search, X, Shield } from 'lucide-react'
+import { Plus, Image, ChevronsUpDown, Settings, Search, X, Shield, Sun, Moon } from 'lucide-react'
 import { Claims } from '@silo/shared/claims'
 import { SiloMark } from '../../components/brand/SiloMark'
 import { Link } from '../../router/Link'
@@ -7,6 +7,8 @@ import { Routes } from '../../router/routes'
 import type { ScopeRef } from '../../api/types/scope-ref'
 import { ACCESS_TEXT, type SessionBadge } from './session-badge'
 import { PlatformKeys } from '../../utils/platform-keys'
+import { useThemeMode } from '../../utils/use-theme-mode'
+import { ThemeManager } from '../../utils/theme-manager'
 import styles from './Sidebar.module.css'
 
 const DEFAULT_WIDTH = 248
@@ -45,6 +47,7 @@ export function Sidebar({
   onScopeChange?: (next: ScopeRef) => void
   onOpenServerBrowser?: () => void
 }) {
+  const mode = useThemeMode()
   const [width, setWidth] = useState<number>(() => {
     const stored = localStorage.getItem(SIDEBAR_WIDTH_KEY)
     if (stored) {
@@ -149,13 +152,15 @@ export function Sidebar({
       className={`${styles.sidebar} ${isResizing ? styles.resizing : ''}`}
       style={{ width: `${width}px` }}
     >
-      <Link to={Routes.collections(serverId, scope.project, scope.env)} className={styles.brand} title="Silo">
-        <div className={styles.brandLogo}>
-          <SiloMark size={16} />
-        </div>
-        <span className={styles.brandName}>silo</span>
-        {version && <span className={styles.version}>v{version}</span>}
-      </Link>
+      <div className={styles.header}>
+        <Link to={Routes.collections(serverId, scope.project, scope.env)} className={styles.brand} title="Silo">
+          <div className={styles.brandLogo}>
+            <SiloMark size={16} />
+          </div>
+          <span className={styles.brandName}>silo</span>
+          {version && <span className={styles.version}>v{version}</span>}
+        </Link>
+      </div>
 
       <div className={styles.instance}>
         <button
@@ -276,15 +281,26 @@ export function Sidebar({
           <span className={styles.itemIcon}><Image size={15} /></span>
           <span className={styles.itemName}>Media Library</span>
         </Link>
-        <Link
-          to={Routes.projectSettings(serverId, scope.project, 'general')}
-          className={styles.item}
-        >
-          <span className={styles.itemIcon}>
-            <Settings size={15} />
-          </span>
-          <span className={styles.itemName}>Settings</span>
-        </Link>
+        <div className={styles.settingsRow}>
+          <Link
+            to={Routes.projectSettings(serverId, scope.project, 'general')}
+            className={`${styles.item} ${styles.settingsLink} ${activePanel === 'settings' ? styles.active : ''}`}
+          >
+            <span className={styles.itemIcon}>
+              <Settings size={15} />
+            </span>
+            <span className={styles.itemName}>Settings</span>
+          </Link>
+          <button
+            type="button"
+            className={styles.themeToggleBtn}
+            onClick={() => ThemeManager.setMode(mode === 'light' ? 'dark' : 'light')}
+            title={mode === 'light' ? 'Switch to dark mode' : 'Switch to light mode'}
+            aria-label={mode === 'light' ? 'Switch to dark mode' : 'Switch to light mode'}
+          >
+            {mode === 'light' ? <Sun size={15} /> : <Moon size={15} />}
+          </button>
+        </div>
       </div>
 
       <div className={styles.divider} />

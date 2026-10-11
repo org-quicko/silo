@@ -1,0 +1,157 @@
+---
+title: "Silo query language: filters, sort, pagination, and search"
+sidebarTitle: "Query Language"
+description: "Filter entries with a JSON AST over RFC 9535 JSONPath. Sort with dot-path expressions. Paginate with limit/offset. Full-text search with q."
+---
+
+Silo's filter is a JSON AST, not a string language. You describe exactly what you want, and Silo validates the shape before touching storage. Fields are addressed using [RFC 9535 JSONPath](https://www.rfc-editor.org/rfc/rfc9535) over a document of `{id, rev, created_at, updated_at, data}` — your own fields always live under `$.data`, so a field named `id` in your schema can never shadow the envelope's `$.id`.
+
+## JSONPath addressing
+
+Every filter, sort, and search path is a JSONPath expression over the entry document.
+
+| Path | Selects |
+|------|---------|
+| `$.id` | Entry ULID |
+| `$.rev` | Current revision number |
+| `$.created_at` | Creation timestamp (RFC 3339 UTC) |
+| `$.updated_at` | Last-updated timestamp (RFC 3339 UTC) |
+| `$.data.title` | A top-level field in your schema |
+| `$.data.author.name` | A nested field |
+| `$.data.tags[*]` | All elements of an array |
+| `$.data.tags[0]` | First element of an array (negative indices work too) |
+
+**Supported:** root (`$`), name selectors (`.field`), array indices (`[n]`, negative included), and the child wildcard (`[*]`).
+
+**Not supported (actively refused):** recursive descent (`..`), slices (`[0:2]`), unions (`[a,b]`), filter selectors (`[?…]`), and function extensions. Silo refuses these by name rather than silently ignoring them, so a typo or unsupported construct is an error, not a silent no-op.
+
+## Filter AST
+
+A filter is a JSON object with an `op` field. Logical operators nest leaf conditions.
+
+<CodeGroup>
+
+```json Leaf operators
+{ "op": "eq",       "path": "$.data.status",  "value": "published" }
+{ "op": "neq",      "path": "$.data.status",  "value": "draft" }
+{ "op": "gt",       "path": "$.data.score",   "value": 5 }
+{ "op": "gte",      "path": "$.data.score",   "value": 5 }
+{ "op": "lt",       "path": "$.data.score",   "value": 10 }
+{ "op": "lte",      "path": "$.data.score",   "value": 10 }
+{ "op": "in",       "path": "$.data.status",  "value": ["published", "archived"] }
+{ "op": "contains", "path": "$.data.title",   "value": "silo" }
+{ "op": "exists",   "path": "$.data.summary" }
+```
+
+```json Logical operators
+{ "op": "and", "args": [ ... ] }
+{ "op": "or",  "args": [ ... ] }
+{ "op": "not", "args": { ... } }
+```
+
+</CodeGroup>
+
+A leaf is true when **any** node the path selects satisfies it. Any over nothing is false.
+
+<Warning>
+  Array semantics are easy to get wrong. `neq($.data.tags[*], "x")` means *some tag is not "x"* (true if there is at least one tag that differs). `not(eq($.data.tags[*], "x"))` means *no tag is "x"* (true only if the value is absent from every element). Use `not(eq(…))` when you want strict exclusion.
+</Warning>
+
+### Compound example
+
+```json
+{
+  "op": "and",
+  "args": [
+    { "op": "eq",       "path": "$.data.status",      "value": "published" },
+    { "op": "contains", "path": "$.data.author.name", "value": "ada" },
+    { "op": "eq",       "path": "$.data.tags[*]",     "value": "release" }
+  ]
+}
+```
+
+This matches entries that are published, written by someone whose name contains "ada", **and** tagged with "release".
+
+## Using a filter in a request
+
+Pass the filter JSON as a URL-encoded `filter` query parameter.
+
+```bash
+curl "http://localhost:8090/api/projects/default/envs/prod/collections/posts?filter=%7B%22op%22%3A%22eq%22%2C%22path%22%3A%22%24.data.status%22%2C%22value%22%3A%22published%22%7D" \
+  -H "Authorization: Bearer $SILO_KEY"
+```
+
+<Note>
+  A filter may test at most **16 leaf conditions**. Filters with more leaves are rejected with `400 validation_failed`. Break large filters into multiple requests if needed.
+</Note>
+
+## Sorting
+
+The `sort` parameter accepts a comma-separated list of JSONPath expressions. Prefix a path with `-` for descending order.
+
+```
+?sort=-$.updated_at,$.data.title
+```
+
+- Sort paths must select **at most one node** per entry. Array paths (`[*]`) are not valid sort keys.
+- Multiple sort terms are applied left to right.
+- When no `sort` is given on a search request, results are ranked by relevance.
+
+## Pagination
+
+```
+?limit=50&offset=0
+```
+
+| Parameter | Default | Maximum |
+|-----------|---------|---------|
+| `limit` | 50 | 500 |
+| `offset` | 0 | — |
+
+### Response envelope
+
+Every list and search response wraps results in a consistent envelope:
+
+```json
+{
+  "data": [...],
+  "total": 137,
+  "limit": 50,
+  "offset": 0
+}
+```
+
+`total` is the count of all matching entries, regardless of the current page. Use it to drive pagination UI.
+
+## Full-text search
+
+Search takes the same `filter`, `sort`, `limit`, and `offset` parameters, plus `q` for the search text. It is available at three reaches:
+
+| Reach | Path |
+|-------|------|
+| One collection | `/api/projects/{project}/envs/{env}/collections/{name}/search?q=…` |
+| One environment | `/api/projects/{project}/envs/{env}/search?q=…` |
+| Everything the key can read | `/api/search?q=…` |
+
+The reach is determined by the path, never by a parameter, so a typo cannot accidentally widen a search to a scope you did not intend.
+
+<Tip>
+  Which fields are full-text indexed is a per-collection schema decision, controlled by the `x-silo-search` keyword. An anonymous caller can only reach collections whose schema does not set `x-silo-auth`.
+</Tip>
+
+## TypeScript client
+
+The `@org-quicko/silo-client` package ships a type-safe filter builder. The result is the same JSON AST described above.
+
+```ts
+import { Filter, Sort } from "@org-quicko/silo-client"
+
+const page = await posts.list({
+  where: posts.filter.field("status").equals("published")
+    .and(posts.filter.each("tags").equals("release")),
+  sort: Sort.recentlyUpdated(),
+  limit: 50,
+})
+```
+
+`posts.filter.field("status")` addresses `$.data.status`. `posts.filter.each("tags")` addresses `$.data.tags[*]`. `Sort.recentlyUpdated()` expands to `sort=-$.updated_at`.

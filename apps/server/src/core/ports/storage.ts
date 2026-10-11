@@ -11,11 +11,12 @@ import type { DerivedIndex } from "./derived-index";
 /**
  * Where entries, schemas and scopes live.
  *
- * Two adapters implement this — SQLite and the filesystem — and the
- * conformance suite is the contract: both must answer every question the same
- * way. See `docs/design/storage.md` for the rules behind the shape, including
- * record existence (D51, superseding D20), the path-segment contract, and why
- * `derived` is required rather than optional.
+ * Three adapters implement this — SQLite, the filesystem and Postgres — and
+ * the conformance suite is the contract: each must answer every question the
+ * same way. See `docs/design/storage.md` for the rules behind the shape, including
+ * record existence (D51, superseding D20), the path-segment contract, why
+ * `derived` is required rather than optional, and the query semantics and
+ * portable data every adapter shares (D92).
  */
 export interface Storage {
   // ---- Projects, environments and collections (D51) ----
@@ -145,5 +146,7 @@ export interface Storage {
   /** Records that the configured defaults were seeded. Idempotent. */
   markDefaultsInitialized(): Promise<void>;
 
+  /** Safe to call more than once: several CLI commands close the store they
+   *  opened, and the runtime closes it again on the way out. */
   close(): Promise<void>;
 }

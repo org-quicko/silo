@@ -1,0 +1,101 @@
+---
+title: "Silo: Self-Hosted Headless CMS Built on JSON Schema"
+sidebarTitle: "Introduction"
+description: "Silo is a single-binary headless CMS. Define collections in JSON Schema, get a generated admin UI, a REST API, and portable data you can move anywhere."
+---
+
+Silo is a small, standards-based headless CMS that runs as one process and lives in one data directory. You define your content collections in JSON Schema — a format your existing tools already understand — and Silo hands you a generated admin UI, a full REST API, and portable plain-JSON data that you can move anywhere. There is no proprietary field language, no query language, and no opaque binary format. What Silo stores, every other tool can already read.
+
+## Features
+
+<CardGroup cols={3}>
+  <Card title="Collections" icon="layer-group">
+    Define content types with JSON Schema draft 2020-12, validated in full by Ajv. Every write is checked; reads are never blocked by schema changes.
+  </Card>
+  <Card title="Generated Admin UI" icon="display">
+    The admin reads a collection's schema and draws the form automatically. `x-silo-*` keywords control how fields are rendered and protected. The UI is a plain client of the public API — extend, fork, or replace it.
+  </Card>
+  <Card title="REST API" icon="code">
+    Clean routes under `/api`, JSON everywhere, no URL versioning. Standard formats throughout: ULIDs for IDs, RFC 3339 UTC for timestamps, tarballs for archives, and the S3 API for media.
+  </Card>
+  <Card title="Media Library" icon="photo-film">
+    Upload files to local disk or any S3-compatible bucket — AWS S3, MinIO, Cloudflare R2, DigitalOcean Spaces. Folders, tags, type filters, and safe deletion guarded by reference checks.
+  </Card>
+  <Card title="Search" icon="magnifying-glass">
+    Full-text search at three scopes: one collection, one environment, or everything a key can read. Filter with a JSON AST over RFC 9535 JSONPath. All of it lives in the URL.
+  </Card>
+  <Card title="API Keys" icon="key">
+    Claims-based authentication with no users and no sessions. A key carries explicit claims; access is deny by default. A key can only mint keys covered by its own claims.
+  </Card>
+  <Card title="Safe Concurrent Writes" icon="shield-check">
+    `PUT` and `DELETE` on an entry require the revision you expect, as `If-Match`. A mismatch returns `409`, so two admin tabs cannot overwrite each other silently.
+  </Card>
+  <Card title="Per-Environment Variables" icon="sliders">
+    Declare a variable name once in a project, value it in each environment, and Silo substitutes each `{{NAME}}` on the way out. One entry, different resolved values in `staging` and `prod`.
+  </Card>
+  <Card title="Plugins" icon="puzzle-piece">
+    Drop a directory into `<data dir>/plugins/` and list it in `silo.toml`. A plugin can add hooks, HTTP routes, admin panels, or custom storage drivers — all through the same public API a key would use.
+  </Card>
+  <Card title="MCP / AI" icon="robot">
+    Point Claude Code, Codex, Cursor, or Claude Desktop at `/api/mcp` with an API key. The model gets tools to browse schemas, read, search, create, and update entries — bounded by that key's claims.
+  </Card>
+  <Card title="Portable Data" icon="arrow-right-arrow-left">
+    One command exports every project, environment, schema, entry, and media file. One command imports it again. Name a project, environment, or collection to move only that slice.
+  </Card>
+  <Card title="Replaceable Parts" icon="plug">
+    Storage is SQLite, flat files, or your own driver. Media is local disk or any S3-compatible bucket. The architecture is ports and adapters — every moving part sits behind an interface you can replace.
+  </Card>
+</CardGroup>
+
+## Architecture
+
+Silo is one TypeScript process on [Bun](https://bun.com), with six runtime dependencies. It needs no database server, no cache, no queue, and no search cluster. SQLite is bundled into the runtime. Media goes to local disk by default. The server hosts its own React admin UI and compiles to a standalone binary that you can place anywhere on your `PATH`.
+
+<Note>
+  Two Silo processes over a single data directory are explicitly refused. Each instance needs its own directory and its own port. Running multiple instances on one machine is fine — give each a separate `--data` path.
+</Note>
+
+Storage is swappable: use SQLite (the default), flat files, or your own driver. The filesystem driver's on-disk layout is the same format that `silo export` produces, so an `fs`-backed instance is a live backup you can copy with `cp`, replicate with `rsync`, or inspect in git.
+
+## Generated Admin UI
+
+The admin UI is a React application served from inside the binary itself. It reads a collection's JSON Schema and draws the form automatically — no code required. When a schema construct cannot be represented as a form field, Silo falls back to a raw JSON editor for that part only.
+
+`x-silo-*` keywords in a schema give you additional control over how the admin renders and protects a collection — for example, marking fields as private or declaring which fields are indexed for search.
+
+<Tip>
+  The admin UI is a plain client of the public REST API. You can extend it, fork it, or replace it entirely with your own interface.
+</Tip>
+
+## Portable Data
+
+One command exports every project, environment, schema, entry, and media file into a `.tar.gz` archive. One command imports it again — into any running Silo instance. You can name a single project, environment, or collection to move only that slice, and choose whether media travels with it.
+
+```sh
+silo export --out backup.tar.gz
+silo import backup.tar.gz
+```
+
+You can also pull an export straight from another running Silo instance using the HTTP API:
+
+```sh
+curl -X POST http://new-silo:8090/api/copy \
+  -H "Authorization: Bearer $SILO_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"source_url": "http://old-silo:8090", "source_key": "sk_..."}'
+```
+
+## Get Started
+
+<CardGroup cols={2}>
+  <Card title="Quickstart" icon="bolt" href="/quickstart">
+    Install Silo, start the server, and make your first API call in under five minutes.
+  </Card>
+  <Card title="Concepts" icon="book-open" href="/concepts">
+    Learn how instances, projects, environments, collections, entries, and API keys relate to each other.
+  </Card>
+</CardGroup>
+
+<Note>
+  Silo is licensed under AGPL-3.0-or-later. Source code and issue tracker live at [github.com/org-quicko/silo](https://github.com/org-quicko/silo).
+</Note>

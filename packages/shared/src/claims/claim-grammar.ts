@@ -7,6 +7,7 @@ import type { ClaimPreset } from "./claim-preset";
 import { ClaimSegment } from "./claim-segment";
 import { ClaimVocabulary } from "./claim-vocabulary";
 import type { CollectionClaim } from "./collection-claim";
+import { CollectionName } from "./collection-name";
 import type { CollectionPermission } from "./collection-permission";
 import type { FixedClaim } from "./fixed-claim";
 import { ParsedClaim } from "./parsed-claim";
@@ -19,9 +20,13 @@ import { ParsedClaim } from "./parsed-claim";
  * enforcement point that can disagree with the first.
  */
 export class ClaimGrammar {
-  /** Project, env and collection ids all use this — since D19 they are literal
-   *  segments of a collection claim. */
+  /** Project and env ids use this — since D19 they are literal segments of a
+   *  collection claim. A collection's segment is longer (D104). */
   static readonly IdSegment = "[a-z][a-z0-9_-]{0,63}";
+
+  /** A collection name as a claim segment: `CollectionName`'s rule, so every
+   *  name a collection may have can be named in a claim. */
+  static readonly CollectionSegment = CollectionName.Segment;
 
   /**
    * A prefix pattern: at least `ClaimSegment.MinimumPrefix` literal characters
@@ -33,8 +38,10 @@ export class ClaimGrammar {
    * somewhere else. A trailing `*` is the only position a pattern may take;
    * `ClaimSegment` says why.
    */
-  static readonly PrefixSegment =
-    `[a-z][a-z0-9_-]{${ClaimSegment.MinimumPrefix - 1},62}\\*`;
+  static readonly PrefixSegment = ClaimGrammar.prefix(64);
+
+  /** The same, for the collection segment, which is as long as a name may be. */
+  static readonly CollectionPrefixSegment = ClaimGrammar.prefix(CollectionName.MaxLength);
 
   /** Any of the three spellings a scope segment may take. Ordered so the
    *  pattern is tried before the bare id, which would otherwise match its
@@ -42,16 +49,20 @@ export class ClaimGrammar {
   private static readonly Segment =
     `(?:\\*|${ClaimGrammar.PrefixSegment}|${ClaimGrammar.IdSegment})`;
 
+  /** The collection segment's three spellings, in the same order. */
+  private static readonly CollectionSegmentAny =
+    `(?:\\*|${ClaimGrammar.CollectionPrefixSegment}|${ClaimGrammar.CollectionSegment})`;
+
   private static readonly NamePattern = new RegExp(`^${ClaimGrammar.IdSegment}$`);
 
   private static readonly CollectionPattern = new RegExp(
-    `^collections:(${ClaimGrammar.Segment})\\/(${ClaimGrammar.Segment})\\/(${ClaimGrammar.Segment}):(.+)$`,
+    `^collections:(${ClaimGrammar.Segment})\\/(${ClaimGrammar.Segment})\\/(${ClaimGrammar.CollectionSegmentAny}):(.+)$`,
   );
 
   /** The same three scope segments as a collection claim; only the prefix and
    *  the trailing vocabulary differ (D34). */
   private static readonly HookPattern = new RegExp(
-    `^hooks:(${ClaimGrammar.Segment})\\/(${ClaimGrammar.Segment})\\/(${ClaimGrammar.Segment}):(.+)$`,
+    `^hooks:(${ClaimGrammar.Segment})\\/(${ClaimGrammar.Segment})\\/(${ClaimGrammar.CollectionSegmentAny}):(.+)$`,
   );
 
   static collection(
@@ -68,7 +79,7 @@ export class ClaimGrammar {
   }
 
   static isCollectionName(name: string): boolean {
-    return ClaimGrammar.NamePattern.test(name);
+    return CollectionName.isValid(name);
   }
 
   /**
@@ -147,5 +158,10 @@ export class ClaimGrammar {
 
     if (claims.has(ClaimVocabulary.Root)) return [ClaimVocabulary.Root];
     return [...claims].sort();
+  }
+
+  /** A prefix of an id at most `longest` characters long: the literal part is one shorter, and `*` ends it. */
+  private static prefix(longest: number): string {
+    return `[a-z][a-z0-9_-]{${ClaimSegment.MinimumPrefix - 1},${longest - 2}}\\*`;
   }
 }

@@ -1,5 +1,6 @@
 import { ValidationError } from "@silo/shared/validation-error";
 import type { MediaConfig } from "../config/media-config";
+import { MediaDefaults } from "../config/media-defaults";
 import { MediaTable } from "../config/media-table";
 import type { MediaPolicyInput } from "./media-policy-input";
 import type { SettingsOverride } from "./settings-override";
@@ -19,6 +20,9 @@ export class MediaPolicySettings {
   static readonly Fields: readonly { field: keyof MediaPolicyInput; env: string }[] = [
     { field: "base_url", env: "SILO_MEDIA_BASE_URL" },
     { field: "extensions", env: "SILO_MEDIA_EXTENSIONS" },
+    { field: "download_max_files", env: "SILO_MEDIA_DOWNLOAD_MAX_FILES" },
+    { field: "download_max_size_mb", env: "SILO_MEDIA_DOWNLOAD_MAX_SIZE_MB" },
+    { field: "download_max_streams", env: "SILO_MEDIA_DOWNLOAD_MAX_STREAMS" },
   ];
 
   /**
@@ -58,6 +62,20 @@ export class MediaPolicySettings {
       }
     }
 
+    for (const field of MediaTable.DownloadFields) {
+      if (raw[field] === undefined) continue;
+      if (raw[field] === null) {
+        input[field] = null;
+        continue;
+      }
+      const value = MediaDefaults.download(field, raw[field]);
+      if (value === undefined) {
+        const { min, max } = MediaDefaults.Downloads[field];
+        throw new ValidationError(`"${field}" must be a whole number from ${min} to ${max}`);
+      }
+      input[field] = value;
+    }
+
     return input;
   }
 
@@ -69,7 +87,7 @@ export class MediaPolicySettings {
    * and into a file that is usually in version control.
    */
   static merge(file: Partial<MediaConfig> | null, input: MediaPolicyInput): MediaConfig {
-    return {
+    const merged: MediaConfig = {
       ...(input.base_url !== undefined
         ? input.base_url
           ? { base_url: input.base_url }
@@ -79,6 +97,11 @@ export class MediaPolicySettings {
           : {}),
       extensions: input.extensions ?? file?.extensions ?? [],
     };
+    for (const field of MediaTable.DownloadFields) {
+      const value = input[field] === undefined ? file?.[field] : input[field];
+      if (value !== null && value !== undefined) merged[field] = value;
+    }
+    return merged;
   }
 
   /**

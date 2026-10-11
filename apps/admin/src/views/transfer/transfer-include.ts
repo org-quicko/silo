@@ -4,19 +4,21 @@ import type { TransferTree } from './transfer-tree'
  * The `project[/env[/collection]]` rules a transfer carries, and the tri-state
  * a tree of checkboxes needs to draw them.
  *
- * Immutable, like `ScopeCopySelection`: every method answers a new list. An
- * empty list is the whole instance, which is the same thing the server means by
- * an absent `include` (§7.6).
+ * Immutable, like `ScopeCopySelection`: every method answers a new list. The
+ * list is literal — an empty one is an empty selection, not the whole
+ * instance. The server reads an absent `include` as the whole instance (§7.6),
+ * and `wire` is the one place those two spellings meet: it collapses a
+ * selection that already covers every project back to the empty list the route
+ * expects. Keeping the screen literal is what lets a picker open with nothing
+ * checked (D89).
  */
 export class TransferInclude {
   /**
    * Checks or unchecks one box.
    *
-   * The one entry point the picker uses, because "everything" has two
-   * spellings and only one of them is legal on the wire: a list naming every
-   * project means the same thing as an empty list, and the empty list is what
-   * the server reads as the whole instance. Collapsing here keeps the two from
-   * drifting apart on screen.
+   * The one entry point the picker uses, so every path through it ends in the
+   * same shape: rules are added or subtracted, then rolled back up, so a box
+   * whose children are all checked reads as checked rather than as partial.
    */
   static toggle(
     rules: readonly string[],
@@ -24,15 +26,10 @@ export class TransferInclude {
     checked: boolean,
     tree: TransferTree,
   ): string[] {
-    // "Everything" is the empty list, which has nothing to subtract from — so
-    // the first uncheck has to write out what was implied before it can take
-    // anything away from it.
-    const current = rules.length === 0 ? tree.projects.map((project) => project.name) : rules
     const next = checked
-      ? TransferInclude.add(current, rule)
-      : TransferInclude.remove(current, rule, tree)
-    const everything = tree.projects.every((project) => next.includes(project.name))
-    return everything ? [] : next
+      ? TransferInclude.add(rules, rule)
+      : TransferInclude.remove(rules, rule, tree)
+    return TransferInclude.collapse(next, tree)
   }
 
   /**
@@ -77,9 +74,34 @@ export class TransferInclude {
     return [...kept].sort()
   }
 
+  /**
+   * Rolls a complete set of children up into the parent that stands for them.
+   *
+   * Without it, checking every collection in a scope one by one leaves the
+   * scope above drawn as partial, and the column's own select-all box could
+   * never settle on checked. Stops below the instance: there is no rule string
+   * for "everything", and the empty list now means the opposite of it.
+   */
+  static collapse(rules: readonly string[], tree: TransferTree): string[] {
+    let next = [...rules]
+    for (const project of tree.projects) {
+      for (const env of project.envs) {
+        const scope = `${project.name}/${env.name}`
+        const collections = env.collections.map((each) => `${scope}/${each.name}`)
+        if (collections.length > 0 && collections.every((each) => TransferInclude.covered(next, each))) {
+          next = TransferInclude.add(next, scope)
+        }
+      }
+      const scopes = project.envs.map((env) => `${project.name}/${env.name}`)
+      if (scopes.length > 0 && scopes.every((each) => TransferInclude.covered(next, each))) {
+        next = TransferInclude.add(next, project.name)
+      }
+    }
+    return next.sort()
+  }
+
   /** Whether a rule is chosen outright or sits inside a broader chosen one. */
   static covered(rules: readonly string[], rule: string): boolean {
-    if (rules.length === 0) return true
     return rules.some((existing) => existing === rule || rule.startsWith(`${existing}/`))
   }
 
@@ -87,6 +109,24 @@ export class TransferInclude {
   static partial(rules: readonly string[], rule: string): boolean {
     if (TransferInclude.covered(rules, rule)) return false
     return rules.some((existing) => existing.startsWith(`${rule}/`))
+  }
+
+  /** Whether the selection already reaches every project the tree holds. */
+  static everything(rules: readonly string[], tree: TransferTree): boolean {
+    return tree.projects.every((project) => TransferInclude.covered(rules, project.name))
+  }
+
+  /** Every rule the tree offers at one level, for a column's select-all box. */
+  static allProjects(tree: TransferTree): string[] {
+    return tree.projects.map((project) => project.name).sort()
+  }
+
+  /**
+   * The selection as the route wants it: the whole instance is the empty list,
+   * never a list naming every project (§7.6).
+   */
+  static wire(rules: readonly string[], tree: TransferTree): string[] {
+    return TransferInclude.everything(rules, tree) ? [] : [...rules]
   }
 
   /** One level down from a rule, as the tree has it. */
@@ -102,7 +142,7 @@ export class TransferInclude {
 
   /** A one-line summary for a panel that has no room for the list. */
   static describe(rules: readonly string[]): string {
-    if (rules.length === 0) return 'The whole instance'
+    if (rules.length === 0) return 'Nothing selected'
     if (rules.length === 1) return rules[0]!
     return `${rules.length} selections`
   }

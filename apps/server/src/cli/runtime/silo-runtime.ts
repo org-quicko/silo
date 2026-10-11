@@ -1,12 +1,15 @@
 import path from "path";
-import { SqliteStore } from "../../adapters/storage/sqlite/sqlite-store";
 import type { Config } from "../../config/config";
 import { SiloService } from "../../core/services/silo-service";
-import { SearchTokenizers } from "../../core/search/search-tokenizers";
 import { Logger } from "../../logging/logger";
 import { PluginLoader, PluginRegistry, PluginSupervisor, ProviderRegistry } from "../../plugins";
 import { ConfigSupervisor, MediaPolicySupervisor, MediaStorageSupervisor } from "../../settings";
+import type { IndexedStorage } from "../../core/ports/indexed-storage";
+import type { MeasuredStorage } from "../../core/ports/measured-storage";
+import type { OwnedStorage } from "../../core/ports/owned-storage";
 import type { Storage } from "../../core/ports/storage";
+import type { StorageMeasurement } from "../../core/ports/storage-measurement";
+import type { Searcher } from "../../core/search/searcher";
 
 /**
  * Everything a data-directory subcommand needs, wired from config: the storage
@@ -41,6 +44,10 @@ export class SiloRuntime {
    *  waiting for a restart from one already in force. */
   readonly settings: ConfigSupervisor;
 
+  /** What happens when another server takes this one's storage (D25). Until
+   *  `serve` installs its orderly shutdown, the process logs and exits. */
+  private storageLost: (reason: Error) => void;
+
   private constructor(
     store: Storage,
     service: SiloService,
@@ -59,6 +66,19 @@ export class SiloRuntime {
     this.mediaStorage = mediaStorage;
     this.mediaPolicy = mediaPolicy;
     this.settings = settings;
+    this.storageLost = (reason) => SiloRuntime.abandon(logger, reason);
+  }
+
+  /** Replaces what happens when storage ownership is lost; `serve` shuts down. */
+  whenStorageLost(handler: (reason: Error) => void): void {
+    this.storageLost = handler;
+  }
+
+  /** The store's own report, when it keeps one (`MeasuredStorage`), for the
+   *  observability snapshot. */
+  static measurer(store: Storage): (() => Promise<StorageMeasurement>) | undefined {
+    const measured = store as Partial<MeasuredStorage>;
+    return typeof measured.measure === "function" ? () => measured.measure!() : undefined;
   }
 
   /**
@@ -81,9 +101,13 @@ export class SiloRuntime {
     // holding a silent logger would drop that on the floor exactly when it
     // matters.
     const logger = command === "serve" ? Logger.create(config.log) : Logger.silent();
+    let runtime: SiloRuntime | null = null;
     const { store, service, providers, rebuildNotice } = await SiloRuntime.openStorage(
       config,
-      logger
+      logger,
+      command === "serve"
+        ? (reason) => (runtime ? runtime.storageLost(reason) : SiloRuntime.abandon(logger, reason))
+        : null
     );
 
     if (rebuildNotice && command === "serve") console.error(rebuildNotice);
@@ -106,7 +130,15 @@ export class SiloRuntime {
     // plugin boots on the authority its `_plugins` record holds, so a cascade
     // replayed after it started would leave it running on claims that name a
     // scope which no longer exists (D51).
-    const renames = await service.resumePendingRenames();
+    let renames: Awaited<ReturnType<SiloService["resumePendingRenames"]>>;
+    try {
+      renames = await service.resumePendingRenames();
+    } catch (error) {
+      // The caller gets the error, and the pool (and for `serve` the owner
+      // lock) must not outlive it: a process that exits on its own would hang.
+      await store.close().catch(() => {});
+      throw error;
+    }
     if (renames.resumed > 0 || renames.failed > 0) {
       logger.info("finished pending scope renames", {
         resumed: renames.resumed,
@@ -181,7 +213,7 @@ export class SiloRuntime {
       reload,
       configPath,
     });
-    return new SiloRuntime(
+    runtime = new SiloRuntime(
       store,
       service,
       logger,
@@ -191,6 +223,7 @@ export class SiloRuntime {
       mediaPolicy,
       settings
     );
+    return runtime;
   }
 
   async close(): Promise<void> {
@@ -204,8 +237,14 @@ export class SiloRuntime {
    * third-party adapter reaches the same lookup the shipped ones do — and a
    * default install still resolves "sqlite" to `SqliteStore` with no plugin, no
    * network and no configuration.
+   *
+   * `lost` is given for `serve` only, which claims the store (below).
    */
-  private static async openStorage(config: Config, logger: Logger): Promise<{
+  private static async openStorage(
+    config: Config,
+    logger: Logger,
+    lost: ((reason: Error) => void) | null
+  ): Promise<{
     store: Storage;
     service: SiloService;
     /** Handed back rather than discarded: `MediaStorageSupervisor` opens the
@@ -219,15 +258,39 @@ export class SiloRuntime {
     await PluginLoader.loadProviders(PluginRegistry.directory(config), config.plugins, providers);
 
     const store = await providers.openStorage(config);
+    try {
+      return await SiloRuntime.wire(config, logger, store, providers, lost);
+    } catch (error) {
+      // Nothing opened here may outlive a start that failed: an open pool, or
+      // an owner lock, keeps a process alive that meant to exit.
+      await store.close().catch(() => {});
+      throw error;
+    }
+  }
+
+  /** Everything built on an open store, in the order ownership needs. */
+  private static async wire(
+    config: Config,
+    logger: Logger,
+    store: Storage,
+    providers: ProviderRegistry,
+    lost: ((reason: Error) => void) | null
+  ): Promise<{ store: Storage; service: SiloService; providers: ProviderRegistry; rebuildNotice: string | null }> {
+    // Before anything is written, the index rebuild and the rename resume
+    // included, because a store another server owns must not be written to at
+    // all (D25). And before the searcher is made: on Postgres the claim is what
+    // decides which index this server keeps (D103). A store with no owner lock
+    // of its own leaves this to `RunFile`, in `serve`.
+    if (lost) await SiloRuntime.claim(store, lost);
+
     const blobStorage = providers.openBlob(config.blob_storage);
 
-    // The native engine when this build has FTS5 and search is on, the portable
-    // one otherwise (D30). `createSearcher` returns null rather than throwing,
-    // because a SQLite without FTS5 cannot be repaired at runtime — the shipped
-    // build sets OMIT_LOAD_EXTENSION — so it must degrade.
-    const tokenizer = SearchTokenizers.sqlite(config.search.tokenizer);
-    const searcher =
-      store instanceof SqliteStore ? (store.createSearcher(tokenizer) ?? undefined) : undefined;
+    // The store's own engine when it keeps an index, the portable one otherwise
+    // (D30, D92). `createSearcher` returns null rather than throwing, because a
+    // SQLite without FTS5 cannot be repaired at runtime — the shipped build sets
+    // OMIT_LOAD_EXTENSION — so it must degrade.
+    const indexed = SiloRuntime.indexed(store);
+    const searcher = indexed?.createSearcher() ?? undefined;
 
     const service = new SiloService(store, {
       allowRemoteRefs: config.schema.allow_remote_refs,
@@ -252,8 +315,31 @@ export class SiloRuntime {
       store,
       service,
       providers,
-      rebuildNotice: await SiloRuntime.rebuildIndex(store, searcher),
+      rebuildNotice: await SiloRuntime.rebuildIndex(indexed, searcher),
     };
+  }
+
+  /** Claims the store for this process when it has an owner lock (`OwnedStorage`). */
+  private static async claim(store: Storage, lost: (reason: Error) => void): Promise<void> {
+    const owned = store as Partial<OwnedStorage>;
+    if (typeof owned.claimOwnership === "function") await owned.claimOwnership(lost);
+  }
+
+  /** Nothing may write without ownership, and nothing here can stop the writes
+   *  more surely than ending the process. */
+  private static abandon(logger: Logger, reason: Error): void {
+    try {
+      logger.error("fatal: lost ownership of storage", { message: reason.message });
+    } finally {
+      process.exit(1);
+    }
+  }
+
+  /** The store as one that keeps its own search index, or null (D92). */
+  private static indexed(store: Storage): IndexedStorage | null {
+    return typeof (store as Partial<IndexedStorage>).createSearcher === "function"
+      ? (store as IndexedStorage)
+      : null;
   }
 
   /**
@@ -263,10 +349,10 @@ export class SiloRuntime {
    * normal start does no work.
    */
   private static async rebuildIndex(
-    store: Storage,
-    searcher: { reindex: () => Promise<{ collections: number; entries: number }> } | undefined
+    store: IndexedStorage | null,
+    searcher: Searcher | undefined
   ): Promise<string | null> {
-    if (!(store instanceof SqliteStore) || !store.needsSearchRebuild() || !searcher) return null;
+    if (!store || !searcher || !store.needsSearchRebuild()) return null;
 
     const report = await searcher.reindex();
     store.searchRebuilt();

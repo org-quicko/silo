@@ -15,4 +15,37 @@ describe("the observability panel", () => {
     expect(source).toContain("Pause");
     expect(source).not.toMatch(/<(?:script|link)[^>]+(?:src|href)=/i);
   });
+
+  test("draws the database card from storage.database, and hides it when there is none", async () => {
+    const source = await fs.readFile(
+      path.resolve(import.meta.dir, "../src/panel/panel.html"),
+      "utf8",
+    );
+    expect(source).toContain('id="database-card" class="card hidden"');
+    expect(source).toContain("renderDatabase((snapshot.storage || {}).database || null)");
+    expect(source).toContain("$('database-card').classList.toggle('hidden', !database)");
+    for (const state of ["held", "retaking", "lost", "not_claimed"]) {
+      expect(source).toContain(`${state}: [`);
+    }
+    // UI copy carries no em dash (the repo's rule for admin text).
+    const card = source.slice(source.indexOf('<section id="database-card"'), source.indexOf("</section>", source.indexOf('<section id="database-card"')));
+    const render = source.slice(source.indexOf("const OWNER_STATES"), source.indexOf("/* ---- polling ---- */"));
+    expect(card + render).not.toContain("—");
+  });
+
+  test("styles endpoint method badges and renders hits traffic share bars", async () => {
+    const source = await fs.readFile(
+      path.resolve(import.meta.dir, "../src/panel/panel.html"),
+      "utf8",
+    );
+    expect(source).toContain(".method.get");
+    expect(source).toContain(".method.post");
+    expect(source).toContain(".method.put");
+    expect(source).toContain(".method.delete");
+    expect(source).toContain(".hits-cell");
+    expect(source).toContain(".hits-track");
+    expect(source).toContain(".hits-fill");
+    expect(source).toContain(".hits-pct");
+    expect(source).toContain("endpoint-path");
+  });
 });

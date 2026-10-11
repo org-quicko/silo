@@ -7,6 +7,11 @@ const view = (patch: Partial<MediaPolicyView> = {}): MediaPolicyView => ({
   in_force: { extensions: ['jpg', 'png'] },
   overrides: [],
   default_extensions: ['jpg', 'png', 'pdf'],
+  download_defaults: {
+    download_max_files: { value: 5000, min: 1, max: 50000 },
+    download_max_size_mb: { value: 5120, min: 1, max: 1048576 },
+    download_max_streams: { value: 3, min: 1, max: 32 },
+  },
   config_path: '/srv/silo.toml',
   writable: true,
   ...patch,
@@ -31,6 +36,13 @@ describe('MediaPolicyDraft', () => {
     // An empty list accepts nothing and the server refuses to save one, so a
     // form seeded with `[]` would be unsubmittable from the moment it loaded.
     expect(MediaPolicyDraft.of(view()).extensions).toEqual(['jpg', 'png'])
+  })
+
+  test('a download ceiling is seeded from the file, so an unset one stays blank and shows its default', () => {
+    const draft = MediaPolicyDraft.of(
+      view({ file: { download_max_files: 200 }, in_force: { extensions: ['png'], download_max_streams: 8 } }),
+    )
+    expect([draft.download_max_files, draft.download_max_streams]).toEqual(['200', ''])
   })
 
   test('a freshly loaded form is not dirty', () => {
@@ -76,15 +88,21 @@ describe('MediaPolicyDraft', () => {
     expect(MediaPolicyDraft.acceptsEverything(['jpg'])).toBe(false)
   })
 
-  test('the payload sends every field, since an omitted one reads as cleared', () => {
+  test('the payload sends every field, and a blank ceiling as null, its default', () => {
     expect(
       MediaPolicyDraft.payload({
         base_url: '  https://cms.example.com  ',
         extensions: ['png'],
+        download_max_files: ' 250 ',
+        download_max_size_mb: '',
+        download_max_streams: '4',
       })
     ).toEqual({
       base_url: 'https://cms.example.com',
       extensions: ['png'],
+      download_max_files: 250,
+      download_max_size_mb: null,
+      download_max_streams: 4,
     })
   })
 })

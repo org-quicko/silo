@@ -1,0 +1,288 @@
+---
+title: "Silo Dart client reference — silo_client on pub.dev"
+sidebarTitle: "Dart Client"
+description: "silo_client on pub.dev targets Dart VM, Flutter, and the web. Built on package:http and package:clock with Stream-based pagination and CancellationSignal."
+---
+
+The `silo_client` Dart package exposes the same surface as the TypeScript and Java clients — immutable path-based handles, typed entries, filter builders, pagination, search, media, and variables — targeting the Dart VM, Flutter, and the web. It is published to pub.dev as `silo_client`. Where Dart forces a naming difference the client follows the Java conventions, so a developer reading both should not encounter two vocabularies for the same concept.
+
+## Installation
+
+```yaml
+dependencies:
+  silo_client: ^1.0.0  # check pub.dev for the latest version
+```
+
+## Basic usage
+
+```dart
+import 'package:silo_client/silo_client.dart';
+
+final silo = Silo.at('https://silo.example.com', key: Platform.environment['SILO_KEY']);
+
+final posts = silo
+    .scope('acme', 'prod')
+    .collection('posts')
+    .withConverter(fromJson: Post.fromJson, toJson: (post) => post.toJson());
+
+final created = await posts.create(const Post(title: 'Hello', status: 'draft'));
+final published = await posts.replace(created.id, created.rev, const Post(title: 'Hello', status: 'published'));
+
+await for (final post in posts.all()) {
+  print('${post.id} ${post.fields.title}');
+}
+
+await posts.delete(published.id, published.rev);
+silo.close();
+```
+
+`silo.project('acme').environment('prod')` (or the shorthand `silo.scope('acme', 'prod')`) sends no request — it only builds the path. Nothing needs an `await` until the actual read.
+
+## Typed collections with converters
+
+Use `withConverter` to attach a typed converter to a collection. The entry shape then becomes `Entry<YourType>` with a strongly-typed `fields` property.
+
+```dart
+final movies = silo
+    .scope('moviespace', 'prod')
+    .collection('movies')
+    .withConverter(fromJson: Movie.fromJson, toJson: (m) => m.toJson());
+
+final page = await movies.list(limit: 10);
+for (final movie in page.entries) {
+  print(movie.fields.title);   // typed
+}
+```
+
+## Entry shape
+
+Like the Java client, the Dart client uses `Entry<F>` to separate the envelope from your fields. Dart has no intersection type, so the envelope sits beside your fields.
+
+```dart
+final entry = await movies.get(entryId);
+
+// Envelope
+final id        = entry.id;
+final rev       = entry.rev;
+final createdAt = entry.createdAt;
+
+// Your fields (typed via withConverter, or Map<String, dynamic> without one)
+final fields = entry.fields;
+```
+
+## CRUD operations
+
+```dart
+// Create
+final created = await movies.create({
+  'title': 'Arrival',
+  'year': 2016,
+  'status': 'draft',
+  'genres': ['sci-fi'],
+});
+
+// Replace — takes the revision you read; raises ConflictException if stale
+await movies.replace(created.id, created.rev, {
+  'title': 'Arrival',
+  'year': 2016,
+  'status': 'published',
+  'genres': ['sci-fi', 'drama'],
+});
+
+// Delete
+await movies.delete(created.id, created.rev);
+
+// Read raw before editing
+final draft = await movies.get(entryId, const EntryReadOptions.raw());
+```
+
+### Reading raw before editing
+
+Silo resolves `{{VARIABLE}}` references in content on the way out. Pass `const EntryReadOptions.raw()` when you intend to edit an entry, to avoid writing a resolved value back over a template reference.
+
+```dart
+final draft = await movies.get(entryId, const EntryReadOptions.raw());
+// draft.fields['trailerUrl'] → '{{CDN_URL}}/trailers/arrival.mp4'
+
+await movies.replace(draft.id, draft.rev, {
+  ...draft.fields,
+  'status': 'published',
+});
+```
+
+## Filters
+
+Filters are **untyped** — Dart has no equivalent of TypeScript's `keyof`. Use string field names directly. The filter operators follow the TypeScript names (`equals`, `notEquals`, etc.).
+
+```dart
+import 'package:silo_client/silo_client.dart';
+
+final page = await movies.list(
+  where: Filter.field('status').equals('published')
+      .and(Filter.each('genres').equals('sci-fi')),
+  sort: Sort.recentlyUpdated(),
+  limit: 20,
+);
+```
+
+Filter operators: `equals`, `notEquals`, `contains`, `greaterThan`, `atLeast`, `lessThan`, `atMost`, `oneOf`, `exists` — combined with `and`, `or`, `not`.
+
+## Pagination via Streams
+
+`all()` and `pages()` return `Stream`s rather than async iterators.
+
+```dart
+// Stream of individual entries
+await for (final entry in movies.all(where: filter)) {
+  print(entry.fields['title']);
+}
+
+// Stream of pages
+await for (final page in movies.pages(limit: 100)) {
+  print('page ${page.pageNumber} of ${page.total}');
+}
+
+// Manual pagination
+final first = await movies.list(limit: 25);
+first.total;      // 137
+first.hasMore;    // true
+final second = await first.next();
+```
+
+## Variables
+
+Declare a variable once per project, then give it a value per environment. Silo substitutes `{{NAME}}` in entries on the way out.
+
+```dart
+// Declare for the project with an initial value.
+await silo.project('moviespace').variables.declare('CDN_URL',
+    DeclareVariableOptions(environment: 'prod', value: 'https://cdn.moviespace.com'));
+
+// List and set per environment.
+final env = silo.scope('moviespace', 'prod');
+final vars = await env.variables.list();
+
+await env.variables.set('CDN_URL', 'https://cdn.moviespace.com');
+await env.variables.unset('CDN_URL');
+```
+
+An unset variable leaves `{{CDN_URL}}` standing in the response. An empty value substitutes as empty.
+
+## Media
+
+The media library is instance-global and hangs off the client.
+
+```dart
+final poster = await silo.media.upload(MediaUpload(
+  bytes: bytes,
+  filename: 'arrival.jpg',
+  folder: 'posters',
+));
+
+// Store the reference, never the URL.
+fields['poster'] = poster.reference;  // silo://media/<id>
+```
+
+Asset operations:
+
+```dart
+final asset = await silo.media.get(id);
+
+await asset.rename('arrival-2016.jpg');
+await asset.moveTo('posters/2016');
+await asset.setTags(['poster']);    // replaces the list
+
+// Swaps bytes; keeps id, reference, URL and filename.
+await asset.replace(MediaReplace(bytes: bytes, filename: 'arrival-hd.jpg'));
+
+// Refused while an entry references it, unless forced.
+await asset.delete();
+await asset.delete(const DeleteOptions(force: true));
+
+// Usage information.
+final usages = await asset.usages();
+usages.total;    // the true referrer count
+usages.visible;  // how many this key may see
+```
+
+## Cancellation
+
+`CancellationSignal` rides `package:http`'s `abortTrigger`. Pass a signal to any call.
+
+```dart
+final signal = CancellationSignal();
+signal.cancel();  // or set a deadline
+
+await movies.list(limit: 20, cancellationSignal: signal);
+```
+
+<Warning>
+  `package:http` surfaces a cancelled request as a `ClientException`. The client inspects the signal before interpreting the exception, so cancellation is reported as `RequestAbortedException` rather than `NetworkException`.
+</Warning>
+
+## Search
+
+```dart
+await movies.search(query: 'arrival');          // one collection
+await environment.search(query: 'arrival');     // one environment
+await silo.search(query: 'arrival');            // everything the key can read
+```
+
+## Error handling
+
+```dart
+import 'package:silo_client/silo_client.dart';
+
+try {
+  await movies.replace(movie.id, movie.rev, fields);
+} on ConflictException {
+  final current = await movies.get(movie.id);
+  await movies.replace(current.id, current.rev, fields);
+} on ValidationFailedException catch (e) {
+  print(e.details);
+}
+```
+
+`SiloException` is the base for anything Silo refused. `NetworkException`, `RequestTimeoutException`, `RequestAbortedException`, and `InvalidResponseException` are not `SiloException` — Silo never answered.
+
+## Naming conventions
+
+Where Dart forces a difference, the client follows Java for structural conventions. Filter operators use the same names as TypeScript (`equals`, `notEquals`, etc.), not Java's `isEqualTo`.
+
+| Dart | TypeScript | Reason |
+|---|---|---|
+| `CollectionCatalog` | `CollectionPage` | follows Java naming |
+| `...Exception` | `...Error` | Dart/Java exception convention |
+
+Entry types (`Entry<F>`), untyped filters, and `...Exception` names all follow the Java client.
+
+## Anonymous access
+
+Omit the key to reach collections whose schema does not require authentication.
+
+```dart
+final silo = Silo.at('https://cms.moviespace.com');
+```
+
+## Optional caching
+
+```dart
+final silo = Silo(SiloOptions(
+  url: url,
+  key: key,
+  cache: const CacheOptions.on(ttl: Duration(seconds: 30), maxSize: 1000),
+));
+
+silo.cache.statistics.hitRate;
+silo.cache.clear();
+```
+
+The cache is off by default. Only `get` and `list` are cached. A write through this client drops that collection's cached entries. Clients created with `withKey()` or `withUrl()` start with an empty cache.
+
+## Source and releases
+
+The Dart client lives in `packages/silo-client-dart` in the Silo repository and releases independently under `silo-client-dart-v*` tags. It is published by hand to pub.dev.
+
+<Info>
+  `route_inventory_drift_test.dart` parses the TypeScript route inventory and holds the Dart list equal to it, keeping all three clients in sync as routes are added to Silo.
+</Info>

@@ -1,3 +1,4 @@
+import type { ResponseCache } from "./cache/ResponseCache.js";
 import type { HealthReport } from "./instance/health-report.js";
 import { Media } from "./media/media.js";
 import type { RequestOptions } from "./request-options.js";
@@ -9,10 +10,8 @@ import type { SearchPage } from "./search/search-page.js";
 import type { SearchQuery } from "./search/search-query.js";
 import { SearchReach } from "./search/search-reach.js";
 import type { SiloOptions } from "./silo-options.js";
-import { SiloCache } from "./cache/silo-cache.js";
 import { ApiPath } from "./transport/api-path.js";
-import { FetchTransport } from "./transport/fetch-transport.js";
-import type { Transport } from "./transport/transport.js";
+import { Transport } from "./transport/transport.js";
 
 /**
  * One silo instance. Navigate it the way the API is shaped:
@@ -27,23 +26,13 @@ export class Silo {
   readonly projects: Projects;
   /** The media catalog. Media is instance-global, so it takes no scope. */
   readonly media: Media;
-  /** This instance's optional read cache. */
-  readonly cache: SiloCache;
 
   private readonly options: SiloOptions;
   private readonly transport: Transport;
 
   constructor(options: SiloOptions) {
-    this.cache = options.cache instanceof SiloCache ? options.cache : new SiloCache(options.cache);
-    this.options = { ...options, cache: this.cache };
-    const fetchTransport = new FetchTransport({
-      url: options.url,
-      key: options.key,
-      headers: options.headers,
-      timeoutMilliseconds: options.timeoutMilliseconds,
-      fetch: options.fetch,
-    });
-    this.transport = this.cache.wrap(fetchTransport);
+    this.options = options;
+    this.transport = new Transport(options);
     this.projects = new Projects(this.transport);
     this.media = new Media(this.transport);
   }
@@ -74,7 +63,6 @@ export class Silo {
       path: ApiPath.health(),
       signal: options?.signal,
       timeoutMilliseconds: options?.timeoutMilliseconds,
-      cache: "bypass",
     });
   }
 
@@ -86,5 +74,10 @@ export class Silo {
   /** The same options pointed at a different server. */
   withUrl(url: string): Silo {
     return new Silo({ ...this.options, url });
+  }
+
+  /** The cache owned by this client's transport. */
+  cache(): ResponseCache {
+    return this.transport.cache;
   }
 }

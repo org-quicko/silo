@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { MediaPage } from "../../src/media/media-page";
 import { PageWindow } from "../../src/pagination/page-window";
-import { FetchTransport as Transport } from "../../src/transport/fetch-transport";
+import { Transport } from "../../src/transport/transport";
 import { StubFetch } from "../support/stub-fetch";
 import { StubResponse } from "../support/stub-response";
 

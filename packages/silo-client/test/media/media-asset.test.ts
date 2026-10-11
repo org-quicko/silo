@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { MediaInUseError } from "../../src/errors/media-in-use-error";
 import { MediaAsset } from "../../src/media/media-asset";
 import type { MediaAssetRecord } from "../../src/media/media-asset";
-import { FetchTransport as Transport } from "../../src/transport/fetch-transport";
+import { Transport } from "../../src/transport/transport";
 import { StubFetch } from "../support/stub-fetch";
 import { StubResponse } from "../support/stub-response";
 

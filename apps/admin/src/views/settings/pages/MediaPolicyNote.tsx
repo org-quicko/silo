@@ -1,5 +1,5 @@
 import { Info } from 'lucide-react'
-import type { MediaPolicyView } from '../../../api/types/media-settings'
+import type { MediaPolicyFacts, MediaPolicyView } from '../../../api/types/media-settings'
 import styles from '../parts/SettingsLedger.module.css'
 
 /**
@@ -15,7 +15,7 @@ export function MediaPolicyNote({
   field,
 }: {
   view: MediaPolicyView
-  field: 'base_url' | 'extensions'
+  field: keyof MediaPolicyFacts
 }) {
   const override = view.overrides.find((each) => each.field === field)
   if (!override) return null
@@ -23,7 +23,9 @@ export function MediaPolicyNote({
   const inForce = view.in_force[field]
   const value = Array.isArray(inForce)
     ? `${inForce.length} type${inForce.length === 1 ? '' : 's'}`
-    : inForce || 'the address each request arrives on'
+    : typeof inForce === 'number'
+      ? inForce.toLocaleString()
+      : inForce || 'the address each request arrives on'
 
   return (
     <span className={styles.controlNote}>

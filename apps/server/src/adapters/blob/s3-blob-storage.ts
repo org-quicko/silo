@@ -98,7 +98,14 @@ export class S3BlobStorage implements BlobStorage {
   }
 
   async put(key: string, data: Uint8Array, options?: BlobPutOptions): Promise<void> {
-    await this.client.write(key, data, { type: options?.contentType });
+    // `contentDisposition` is the one presentation header Bun's client can put
+    // on an object; there is no Cache-Control and no user metadata, so anything
+    // else silo sends on its own answers has to come from whatever fronts the
+    // bucket.
+    await this.client.write(key, data, {
+      type: options?.contentType,
+      contentDisposition: options?.contentDisposition,
+    });
   }
 
   async get(key: string): Promise<BlobGetResult | null> {
@@ -109,10 +116,16 @@ export class S3BlobStorage implements BlobStorage {
         // Derived from the key, not fetched. Bun exposes the stored
         // Content-Type only through `stat()`, which is a second round trip per
         // read — and a HEAD that a bucket policy granting `s3:GetObject` alone
-        // refuses, turning reads that work today into failures. `FsBlobStorage`
-        // already answers this by extension, blob keys carry one (`<ulid><ext>`,
-        // D23), and every caller in `SiloService` reads the catalog's
-        // `content_type` first and falls back to exactly this lookup.
+        // refuses, turning reads that work today into failures.
+        //
+        // Since D88 a key carries no extension, so this answers nothing for an
+        // asset written after it and stays exact for the `<ulid><ext>` keys
+        // written before. That is not a regression: every caller in
+        // `SiloService` reads the catalog's `content_type` first — stored at
+        // upload off the filename (D83) — and falls back to this only for a
+        // blob with no record, which is the legacy shape that still carries an
+        // extension. What `put` sent is also on the object itself, so a reader
+        // that is not silo gets the right type from the bucket.
         contentType: MimeUtils.lookup(key),
         size: data.length,
       };

@@ -5,6 +5,7 @@ import { EntryUtils } from "../../../core/domain/entry-utils";
 import type { Scope } from "../../../core/domain/scope";
 import { ConflictError } from "../../../core/errors/conflict-error";
 import { NotFoundError } from "../../../core/errors/not-found-error";
+import { CodepointOrder } from "../../../core/query/codepoint-order";
 import { FsFiles } from "./fs-files";
 import { FsLayout } from "./fs-layout";
 import { FsMarker, type FsMarkerData } from "./fs-marker";
@@ -81,7 +82,7 @@ export class FsCollectionStore {
       const record = await this.read(scope, name, environment.project_id, environment.id);
       if (record) records.push(record);
     }
-    return records.sort((left, right) => left.name.localeCompare(right.name));
+    return records.sort((left, right) => CodepointOrder.compare(left.name, right.name));
   }
 
   async find(scope: Scope, collection: string): Promise<CollectionRecord | null> {

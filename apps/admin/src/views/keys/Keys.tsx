@@ -76,7 +76,12 @@ export function KeysView({
    */
   const editable = (key: KeyView) =>
     canCreate && !key.owner && Claims.canDelegate(claims, Claims.normalize(key.claims))
-  const gridCols = '1.25fr 0.8fr 2fr 0.8fr 150px'
+  /** Wide enough for the busiest row, which is Edit beside Revoke. Each row is
+   *  its own grid, so this track is a fixed width rather than a content-sized
+   *  one: `max-content` would let every row pick its own and the columns would
+   *  stop lining up. Too narrow and `.cell` clips the buttons instead of
+   *  letting them spill. */
+  const gridCols = '1.25fr 0.8fr 2fr 0.8fr 180px'
 
   /** A key whose record has moved since it was minted (D63). Worth saying,
    *  because the secret in circulation is unchanged and its claims are not. */

@@ -12,6 +12,12 @@ import fs from "fs/promises";
  * one grew the process by 24 MB for six concurrent 60 MB downloads and slices
  * exactly. The handle is opened on the first pull and closed on the last, or
  * on cancel, so a client that leaves mid-body leaves no descriptor behind.
+ *
+ * The high-water mark is zero so that the first pull waits for a reader. At
+ * the default of one the stream pulls as it is built, and a body nobody reads
+ * — a `HEAD`, which Hono answers by dropping the GET's body uncancelled —
+ * would hold an open handle until the collector closed it, which Bun 1.4
+ * raises as an error.
  */
 export class FileByteStream {
   static readonly ChunkBytes = 64 * 1024;
@@ -54,6 +60,6 @@ export class FileByteStream {
         }
       },
       cancel: release,
-    });
+    }, { highWaterMark: 0 });
   }
 }

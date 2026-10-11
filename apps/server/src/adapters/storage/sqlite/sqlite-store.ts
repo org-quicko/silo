@@ -10,7 +10,7 @@ import type { ProjectRecord } from "../../../core/domain/project-record";
 import type { Scope } from "../../../core/domain/scope";
 import type { MediaUsage } from "../../../core/media/media-usage";
 import type { DerivedIndex } from "../../../core/ports/derived-index";
-import type { Storage } from "../../../core/ports/storage";
+import type { IndexedStorage } from "../../../core/ports/indexed-storage";
 import type { Query } from "../../../core/query/query";
 import { SearchIndex, type SearchIndexOptions } from "./search-index";
 import { SqliteCollectionStore } from "./sqlite-collection-store";
@@ -39,7 +39,7 @@ export interface SqliteStoreOptions {
  * sees the handle, which is why `createSearcher` is here rather than in the
  * wiring.
  */
-export class SqliteStore implements Storage {
+export class SqliteStore implements IndexedStorage {
   private readonly database: SqliteConnection;
   private readonly meta_: SqliteMetaStore;
   private readonly resolver: SqliteScopeResolver;
@@ -55,6 +55,9 @@ export class SqliteStore implements Storage {
    */
   private readonly indexing: boolean;
 
+  /** The FTS5 tokenizer the index was opened with, which the engine reads too. */
+  private readonly tokenizer: string;
+
   /** Set when the index has to be refilled before it can answer anything. */
   private rebuildDue: boolean;
 
@@ -64,11 +67,13 @@ export class SqliteStore implements Storage {
   private constructor(
     database: SqliteConnection,
     indexing: boolean,
+    tokenizer: string,
     rebuildDue: boolean,
     reads: SqliteReadWorker | null
   ) {
     this.database = database;
     this.indexing = indexing;
+    this.tokenizer = tokenizer;
     this.rebuildDue = rebuildDue;
     this.reads = reads;
 
@@ -124,6 +129,7 @@ export class SqliteStore implements Storage {
       return new SqliteStore(
         database,
         indexing,
+        search.tokenizer,
         SqliteStore.prepareIndex(database, search, indexing),
         readThread ? SqliteReadWorker.for(filePath) : null
       );
@@ -160,8 +166,10 @@ export class SqliteStore implements Storage {
    * the caller then uses the portable `ScanSearcher`, which is why a missing
    * FTS5 degrades rather than fails (D30).
    */
-  createSearcher(tokenizer: string): SqliteSearcher | null {
-    return this.indexing ? new SqliteSearcher(this.database, this, tokenizer, this.reads) : null;
+  createSearcher(): SqliteSearcher | null {
+    return this.indexing
+      ? new SqliteSearcher(this.database, this, this.tokenizer, this.reads)
+      : null;
   }
 
   /** Marks the index filled; called once a rebuild has run. */

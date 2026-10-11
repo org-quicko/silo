@@ -8,6 +8,7 @@ import { MimeUtils } from "../../core/media/mime-utils";
 import { MediaDisposition } from "../../core/media/media-disposition";
 import { ByteRange } from "../../core/media/byte-range";
 import { ResponseSandbox } from "../response-sandbox";
+import { MediaArchiveRoutes } from "./media-archive-routes";
 import { MediaDeleteBatch } from "./media-delete-batch";
 import { MediaInUseDetails } from "./media-in-use-details";
 
@@ -122,6 +123,8 @@ export class MediaRoutes {
     app.get("/api/media/extensions", async (c: Context) => {
       return c.json({ items: await service.media.listExtensions() });
     });
+
+    MediaArchiveRoutes.register(app, service);
 
     app.get("/api/media/:id", async (c: Context) => {
       return c.json(await service.media.get(c.req.param("id") || ""));
@@ -250,7 +253,10 @@ export class MediaRoutes {
       // lives on, so they leave with the two headers that stop a browser
       // treating them as a page here (D83): `nosniff`, a `sandbox` policy, and
       // an `attachment` disposition for anything a browser could execute.
+      // `?download=true` asks for an attachment whatever the type (D100); only
+      // the literal `true` opts in, as with `force`.
       const contentType = media.contentType || MimeUtils.lookup(media.filename || idOrKey);
+      const download = c.req.query("download") === "true";
       const headers = ResponseSandbox.apply(
         {
           "Content-Type": contentType,
@@ -259,7 +265,7 @@ export class MediaRoutes {
           // something exact to compare (D23).
           "Cache-Control": "public, max-age=3600",
           "Accept-Ranges": "bytes",
-          "Content-Disposition": MediaDisposition.header(contentType, media.filename),
+          "Content-Disposition": MediaDisposition.header(contentType, media.filename, { download }),
         },
         ResponseSandbox.MediaPolicy
       );

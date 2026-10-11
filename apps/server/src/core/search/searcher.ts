@@ -2,6 +2,7 @@ import type { SearchAccess } from "./search-access";
 import type { SearchRequest } from "./search-request";
 import type { SearchResult } from "./search-result";
 import type { SearchIntegrity } from "./search-integrity";
+import type { SearchEngine } from "./search-engine";
 import type { SearchTarget } from "./search-target";
 
 /**
@@ -26,7 +27,7 @@ export interface Searcher {
    */
   reindex(target?: SearchTarget): Promise<{ collections: number; entries: number }>;
 
-  capabilities(): { engine: "fts5" | "scan"; snippets: boolean };
+  capabilities(): { engine: SearchEngine; snippets: boolean };
 
   /**
    * Validate the index, or `null` from an engine that keeps none — which is
@@ -36,5 +37,5 @@ export interface Searcher {
    * index against its content table and stops there, so an index document
    * whose entry has vanished is invisible to it.
    */
-  check(): SearchIntegrity | null;
+  check(): Promise<SearchIntegrity | null>;
 }

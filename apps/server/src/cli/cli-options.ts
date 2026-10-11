@@ -33,6 +33,8 @@ export class CliOptions {
     dir: { type: "string" },
     out: { type: "string" },
     "with-keys": { type: "boolean" },
+    // `export` (D97): move the whole instance, audit log and plugin grants too.
+    instance: { type: "boolean" },
     // Repeatable: one `project[/env[/collection]]` rule per occurrence, so a
     // rule never has to be escaped against a separator of its own (§7.6).
     include: { type: "string", multiple: true },
@@ -47,6 +49,7 @@ export class CliOptions {
     lines: { type: "string", short: "n" },
     timeout: { type: "string" },
     check: { type: "boolean" },
+    rewrite: { type: "boolean" },
     yes: { type: "boolean", short: "y" },
     ref: { type: "string" },
     integrity: { type: "string" },
@@ -54,6 +57,9 @@ export class CliOptions {
     "timeout-ms": { type: "string" },
     "on-error": { type: "string" },
     "no-register": { type: "boolean" },
+    // `mcp` (D86): the server to bridge to, and the key to present.
+    url: { type: "string" },
+    key: { type: "string" },
     help: { type: "boolean", short: "h" },
   } as const;
 

@@ -5,6 +5,7 @@ import { ColumnItem } from '../../components/browser/ColumnItem'
 import { ColumnPlaceholder } from '../../components/browser/ColumnPlaceholder'
 import { ColumnSearch } from '../../components/browser/ColumnSearch'
 import { Checkbox } from '../../components/controls/Checkbox'
+import styles from './TransferScopePicker.module.css'
 
 /** One row of a scope column: what it is called, and the rule it stands for. */
 export interface TransferScopeItem {
@@ -12,6 +13,15 @@ export interface TransferScopeItem {
   subtitle: string
   /** The `project[/env[/collection]]` rule this row checks and unchecks. */
   rule: string
+}
+
+/** The column's own box: everything this level lists, checked or cleared at
+ *  once. Its tri-state is read from the level above rather than counted here,
+ *  so it agrees with the row that stands for the same thing. */
+export interface TransferScopeSelectAll {
+  checked: boolean
+  partial: boolean
+  onChange: (next: boolean) => void
 }
 
 /**
@@ -33,6 +43,7 @@ export function TransferScopeColumn({
   checked,
   partial,
   disabled,
+  selectAll,
   onCheck,
   onOpen,
 }: {
@@ -49,6 +60,8 @@ export function TransferScopeColumn({
   checked: (rule: string) => boolean
   partial: (rule: string) => boolean
   disabled?: boolean
+  /** Absent while the column lists nothing to select. */
+  selectAll?: TransferScopeSelectAll
   onCheck: (rule: string, next: boolean) => void
   /** Absent on the last column, whose rows lead nowhere. */
   onOpen?: (item: TransferScopeItem) => void
@@ -71,6 +84,23 @@ export function TransferScopeColumn({
             onChange={setQuery}
             disabled={disabled}
           />
+        ) : undefined
+      }
+      // The box covers the whole level, not the rows a search left on screen:
+      // a filter hides rows, and a control that quietly dropped them would
+      // clear a selection the reader cannot see.
+      headerAction={
+        selectAll && items && items.length > 0 ? (
+          <label className={styles.selectAll} title={`Select all ${title.toLowerCase()}`}>
+            <Checkbox
+              checked={selectAll.checked}
+              indeterminate={selectAll.partial}
+              disabled={disabled}
+              aria-label={`Select all ${title.toLowerCase()}`}
+              onChange={selectAll.onChange}
+            />
+            <span>All</span>
+          </label>
         ) : undefined
       }
       active={Boolean(items)}

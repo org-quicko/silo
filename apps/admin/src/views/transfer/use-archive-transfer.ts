@@ -27,8 +27,9 @@ export function useArchiveTransfer(
   const [withKeys, setWithKeys] = useState(false)
   const [exporting, setExporting] = useState(false)
 
-  // Empty is the whole instance, which is what an absent `include` means to
-  // the server too.
+  // What the picker has checked, literally — empty is an empty selection, not
+  // the whole instance (D89). `TransferInclude.wire` does that translation at
+  // the panel, which is the only place that holds the tree to judge it.
   const [exportInclude, setExportInclude] = useState<string[]>([])
   const [exportMedia, setExportMedia] = useState<MediaMode>('all')
   // Until the operator picks one, media follows the selection the way the
@@ -48,13 +49,15 @@ export function useArchiveTransfer(
   const [error, setError] = useState('')
   const fileInput = useRef<HTMLInputElement>(null)
 
-  const exportArchive = async () => {
+  /** `include` arrives in wire form: empty is the whole instance, as the route
+   *  reads an absent one. */
+  const exportArchive = async (include: string[]) => {
     setExporting(true)
     setError('')
     try {
       const blob = await api.transfer.exportArchive(serverUrl, apiKey, {
         withKeys,
-        include: exportInclude,
+        include,
         media: exportMedia,
       })
       const objectUrl = URL.createObjectURL(blob)
@@ -111,9 +114,11 @@ export function useArchiveTransfer(
     exporting,
     exportArchive,
     exportInclude,
-    setExportInclude: (next: string[]) => {
+    /** `narrowed` is the panel's reading of the new selection: it holds the
+     *  tree, so it is the only side that can tell a full one from a partial. */
+    setExportInclude: (next: string[], narrowed: boolean) => {
       setExportInclude(next)
-      if (!exportMediaChosen) setExportMedia(next.length > 0 ? 'referenced' : 'all')
+      if (!exportMediaChosen) setExportMedia(narrowed ? 'referenced' : 'all')
     },
     exportMedia,
     setExportMedia: (next: MediaMode) => {

@@ -3,6 +3,7 @@ import { api } from './api/silo-api'
 import { ToastHost } from './components/feedback/ToastHost'
 import { Routes } from './router/routes'
 import { router, useLocation, useRoute } from './router/router'
+import { useDocumentTitle } from './router/use-document-title'
 import { store } from './store/store'
 import { ScopeMemory } from './utils/scope-memory'
 import { ServerManager } from './views/servers/ServerManager'
@@ -25,6 +26,8 @@ export default function App() {
 
   const serverId = route && route.view !== 'servers' ? route.serverId : null
   const server = servers.find((s) => s.id === serverId) ?? null
+
+  useDocumentTitle(route, server?.name ?? null)
 
   // The store is emptied on the way out: the next key to hold these cache
   // entries may be a different one, and a key's claims decide what its answers
@@ -85,6 +88,12 @@ export default function App() {
       onConnect={(id, project, env) => router.navigate(Routes.collections(id, project, env))}
       onAddServer={(s) => saveServers([...servers, s])}
       onOpenStatus={(id) => router.navigate(Routes.serverSettings(id, 'connection'))}
+      onOpenProjectSettings={(id, project) =>
+        router.navigate(Routes.projectSettings(id, project, 'general'))
+      }
+      onOpenEnvSettings={(id, project, env) =>
+        router.navigate(Routes.envSettings(id, project, env, 'general'))
+      }
     />
   ) : route.view === 'server-settings' || route.view === 'project-settings' || route.view === 'env-settings' ? (
     <SettingsView

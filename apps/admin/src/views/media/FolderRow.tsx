@@ -11,10 +11,6 @@ interface Props {
   /** `undefined` while its count is still loading. */
   itemCount: number | undefined
   gridCols: string
-  /** Whether the asset rows beside this one carry a leading checkbox column
-   *  — also whether this row's own checkbox renders, so the grid lines up
-   *  either way. */
-  showCheckbox: boolean
   selected: boolean
   onToggleSelect: () => void
   canEdit: boolean
@@ -34,7 +30,6 @@ export function FolderRow({
   path,
   itemCount,
   gridCols,
-  showCheckbox,
   selected,
   onToggleSelect,
   canEdit,
@@ -86,11 +81,9 @@ export function FolderRow({
       onDragLeave={handleDragLeave}
       onDrop={handleDrop}
     >
-      {showCheckbox && (
-        <div className={`${table.cell} ${styles.checkboxCell}`}>
-          <Checkbox checked={selected} onChange={onToggleSelect} aria-label={`Select ${name}`} />
-        </div>
-      )}
+      <div className={`${table.cell} ${styles.checkboxCell}`}>
+        <Checkbox checked={selected} onChange={onToggleSelect} aria-label={`Select ${name}`} />
+      </div>
       <button
         type="button"
         className={`${table.cell} ${table.clickable} ${styles.rowName} ${styles.rowNameButton}`}

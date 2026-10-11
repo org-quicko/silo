@@ -3,6 +3,7 @@ import CodeMirror from '@uiw/react-codemirror'
 import { AlertCircle, BookOpen, Check } from 'lucide-react'
 import type { Claim } from '@silo/shared/claim'
 import { Button } from '../../components/buttons/Button'
+import { useThemeMode } from '../../utils/use-theme-mode'
 import { ClaimReference } from './ClaimReference'
 import { PatternPreview } from './PatternPreview'
 import type { ScopeCatalog } from './use-scope-catalog'
@@ -25,6 +26,7 @@ interface Props {
  */
 export function CustomTab({ text, parsed, catalog, onChange }: Props) {
   const [referenceOpen, setReferenceOpen] = useState(false)
+  const mode = useThemeMode()
   const valid = !parsed.error
 
   return (
@@ -43,7 +45,7 @@ export function CustomTab({ text, parsed, catalog, onChange }: Props) {
         <CodeMirror
           value={text}
           height="260px"
-          theme="dark"
+          theme={mode}
           basicSetup={{ lineNumbers: true, foldGutter: false, autocompletion: false }}
           onChange={onChange}
         />

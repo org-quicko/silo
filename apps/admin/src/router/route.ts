@@ -19,6 +19,8 @@ export type ServerSettingsSection =
   | 'media-storage'
   /** The rest of `silo.toml`: logging, search, schema validation, auth (D47). */
   | 'configuration'
+  /** Client-specific guidance for the current saved connection's MCP access. */
+  | 'ai-assistants'
   /** The project index: every project on the instance, and creating one. */
   | 'projects'
   /** Installed plugins, and one plugin's grant, config and activity (D40). */

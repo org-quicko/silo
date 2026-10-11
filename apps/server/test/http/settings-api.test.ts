@@ -151,6 +151,27 @@ describe("settings API (D47)", () => {
     expect(section(await (await app.request("/api/settings", { headers: auth(rootKey) })).json(), "storage").writable).toBe(false);
   });
 
+  test("a database URL is reported without its password, from the file and in force", async () => {
+    await fs.writeFile(
+      configPath,
+      `[storage]\ndriver = "sqlite"\nurl = "postgres://silo:hunter2@db.internal:5432/silo?sslpassword=also"\n`
+    );
+    app = await build({ withFile: true });
+
+    const response = await app.request("/api/settings", { headers: auth(rootKey) });
+    const text = await response.text();
+    expect(text).not.toContain("hunter2");
+    expect(text).not.toContain("also");
+
+    const storage = section(JSON.parse(text), "storage");
+    const redacted = "postgres://silo:*****@db.internal:5432/silo?sslpassword=*****";
+    expect(storage.file.url).toBe(redacted);
+    expect(storage.in_force.url).toBe(redacted);
+    expect(storage.fields.find((field: any) => field.key === "url").secret).toBe(true);
+    // The comparison ran on the real values, so a matching pair owes nothing.
+    expect(storage.restart_pending).toEqual([]);
+  });
+
   test("auth can be switched back on through the API but never off", async () => {
     expect((await put(rootKey, "auth", { disabled: true })).status).toBe(400);
     expect((await put(rootKey, "auth", { disabled: false })).status).toBe(200);

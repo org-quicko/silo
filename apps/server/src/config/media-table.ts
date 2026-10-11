@@ -1,4 +1,5 @@
-import type { MediaConfig } from "./media-config";
+import type { MediaConfig, MediaDownloadField } from "./media-config";
+import { MediaDefaults } from "./media-defaults";
 import { TomlTableEdit } from "./toml-table-edit";
 
 /**
@@ -33,7 +34,20 @@ export class MediaTable {
       ...(Array.isArray(table.extensions)
         ? { extensions: MediaTable.extensions(table.extensions) }
         : {}),
+      ...MediaTable.downloads(table),
     };
+  }
+
+  static readonly DownloadFields = Object.keys(MediaDefaults.Downloads) as MediaDownloadField[];
+
+  /** The download ceilings `source` sets validly. One out of range is left to the default. */
+  static downloads(source: Partial<Record<MediaDownloadField, unknown>>): Partial<Record<MediaDownloadField, number>> {
+    const out: Partial<Record<MediaDownloadField, number>> = {};
+    for (const field of MediaTable.DownloadFields) {
+      const value = MediaDefaults.download(field, source[field]);
+      if (value !== undefined) out[field] = value;
+    }
+    return out;
   }
 
   /**
@@ -81,6 +95,9 @@ export class MediaTable {
     if (config.extensions) {
       lines.push(`extensions = [${config.extensions.map((e) => JSON.stringify(e)).join(", ")}]`);
     }
+    for (const field of MediaTable.DownloadFields) {
+      if (config[field] !== undefined) lines.push(`${field.padEnd(20)} = ${config[field]}`);
+    }
 
     return `${lines.join("\n")}\n`;
   }
@@ -91,6 +108,7 @@ export class MediaTable {
     return {
       ...(config.base_url ? { base_url: config.base_url } : {}),
       extensions: MediaTable.extensions(config.extensions),
+      ...MediaTable.downloads(config),
     };
   }
 }

@@ -23,7 +23,13 @@
       "required": [
         {
           "claim": "observability:read",
-          "reason": "To read silo's bounded aggregate API, process, and local-storage metrics. The snapshot contains no content, request parameters, caller identities, credentials, or filesystem paths."
+          "reason": "To read silo's bounded aggregate API, process, and local-storage metrics. The snapshot contains no content, ids, query strings, caller identities, credentials, or filesystem paths."
+        }
+      ],
+      "optional": [
+        {
+          "claim": "collections:*/*/*:schema:read",
+          "reason": "To show project, environment and collection names in the endpoint table. Silo names only the collections this grant reaches, so narrow it to name fewer. Without it, endpoints show as route patterns such as :project and :name. The plugin reads no schema."
         }
       ]
     }

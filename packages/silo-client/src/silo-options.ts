@@ -1,6 +1,5 @@
+import type { CacheOptions } from "./cache/CacheOptions.js";
 import type { FetchFunction } from "./transport/fetch-function.js";
-import type { SiloCache } from "./cache/silo-cache.js";
-import type { SiloCacheOptions } from "./cache/silo-cache-options.js";
 
 /**
  * Everything `new Silo(...)` accepts. Only `url` is required: a key is
@@ -12,6 +11,6 @@ export interface SiloOptions {
   timeoutMilliseconds?: number;
   headers?: Record<string, string>;
   fetch?: FetchFunction;
-  /** Enable read caching or share an existing cache. Omit to disable. */
-  cache?: SiloCacheOptions | SiloCache;
+  /** Cache collection entry reads. Omitted or disabled options leave reads uncached. */
+  cache?: CacheOptions;
 }

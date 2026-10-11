@@ -16,8 +16,6 @@ interface Props {
   /** Swapping the bytes behind the file is its own claim (D67), so it is its
    *  own gate rather than riding on `canEdit`. */
   canReplace: boolean
-  /** Also whether the row is selectable at all — the checkbox is a bulk
-   *  delete tool, so it needs the same claim the trash icon does. */
   canDelete: boolean
   gridCols: string
   selected: boolean
@@ -60,11 +58,9 @@ export function MediaRow({
       draggable={canEdit}
       onDragStart={onDragStart}
     >
-      {canDelete && (
-        <div className={`${table.cell} ${styles.checkboxCell}`}>
-          <Checkbox checked={selected} onChange={onToggleSelect} aria-label={`Select ${asset.filename}`} />
-        </div>
-      )}
+      <div className={`${table.cell} ${styles.checkboxCell}`}>
+        <Checkbox checked={selected} onChange={onToggleSelect} aria-label={`Select ${asset.filename}`} />
+      </div>
       <button
         type="button"
         className={`${table.cell} ${table.clickable} ${styles.rowName} ${styles.rowNameButton}`}

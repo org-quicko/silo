@@ -10,6 +10,7 @@ import { ValidationError } from "@silo/shared/validation-error";
 import { ArchiveTooLargeError } from "../core/errors/archive-too-large-error";
 import { NotFoundError } from "../core/errors/not-found-error";
 import { ConflictError } from "../core/errors/conflict-error";
+import { MediaArchiveBusyError } from "../core/errors/media-archive-busy-error";
 import { MediaDeleteStalledError } from "../core/errors/media-delete-stalled-error";
 import { PluginStartError } from "../core/errors/plugin-start-error";
 import { UnauthorizedError } from "../core/errors/unauthorized-error";
@@ -22,6 +23,7 @@ import { ConfigSupervisor, MediaPolicySupervisor, MediaStorageSupervisor } from 
 import { ConfigLoader } from "../config/config-loader";
 import { UiAssets } from "./ui-assets";
 import { Observability } from "../observability";
+import { McpRoutes } from "../mcp";
 
 /** How to build the app. An options object rather than a fourth and fifth
  *  positional argument, two of which would be bare booleans. */
@@ -153,6 +155,10 @@ export class SiloServer {
 
     // Enable CORS
     app.use("/api/*", cors());
+    // Read-only and to any origin (D101): an admin on another origin reads a
+    // text asset with `fetch` for its preview. The bytes are public (D58), and
+    // `GET /api/media` already lists them to any origin.
+    app.use("/media/*", cors({ allowMethods: ["GET", "HEAD"] }));
 
     // Before auth, so an oversize body is refused from its headers alone and
     // never buffered for a handler that would not have run (§10.4).
@@ -176,6 +182,10 @@ export class SiloServer {
       this.settings,
       this.observability
     );
+
+    // MCP over HTTP (D86). After the route table, because every tool call is
+    // dispatched back through this same app and lands on a route above.
+    McpRoutes.register(app, { version: this.version });
 
     // Global Error Handler
     app.onError((err, c) => {
@@ -276,6 +286,13 @@ export class SiloServer {
           { error: { code: "busy", message: err.message } },
           503,
           { "Retry-After": "1" }
+        );
+      }
+      if (err instanceof MediaArchiveBusyError) {
+        return c.json(
+          { error: { code: "busy", message: err.message } },
+          503,
+          { "Retry-After": String(MediaArchiveBusyError.RetryAfterSeconds) }
         );
       }
       // A `Range` wholly outside the object (D80). `Content-Range` names the

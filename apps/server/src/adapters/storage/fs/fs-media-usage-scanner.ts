@@ -1,6 +1,7 @@
 import path from "path";
 import { MediaRefs } from "../../../core/media/media-refs";
 import type { MediaUsage } from "../../../core/media/media-usage";
+import { CodepointOrder } from "../../../core/query/codepoint-order";
 import { FsFiles } from "./fs-files";
 import { FsLayout } from "./fs-layout";
 
@@ -91,10 +92,10 @@ export class FsMediaUsageScanner {
   private static sorted(usages: MediaUsage[]): MediaUsage[] {
     return usages.sort(
       (left, right) =>
-        left.project.localeCompare(right.project) ||
-        left.env.localeCompare(right.env) ||
-        left.collection.localeCompare(right.collection) ||
-        left.entry_id.localeCompare(right.entry_id)
+        CodepointOrder.compare(left.project, right.project) ||
+        CodepointOrder.compare(left.env, right.env) ||
+        CodepointOrder.compare(left.collection, right.collection) ||
+        CodepointOrder.compare(left.entry_id, right.entry_id)
     );
   }
 }

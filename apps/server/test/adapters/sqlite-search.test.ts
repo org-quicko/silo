@@ -62,7 +62,7 @@ describe("SQLite FTS5 searcher", () => {
     tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "silo-fts-test-"));
     dbPath = path.join(tempDir, "silo.db");
     store = await SqliteStore.open(dbPath);
-    searcher = store.createSearcher(Unicode61)!;
+    searcher = store.createSearcher()!;
     expect(searcher).not.toBeNull();
   });
 
@@ -215,6 +215,31 @@ describe("SQLite FTS5 searcher", () => {
   });
 
   describe("rebuild and integrity", () => {
+    test("reindex never writes text read before a save over the row that save wrote", async () => {
+      const entry = await put(Scope.Default, "posts", { title: "oldword" }, schema);
+      await store.putSchema(Scope.Default, "posts", schema);
+      // White-box, deliberately: the save lands between the page read and the
+      // upsert, which no timing can arrange on demand.
+      const list = store.list.bind(store);
+      let saved = false;
+      store.list = async (...args: Parameters<SqliteStore["list"]>) => {
+        const page = await list(...args);
+        if (!saved && args[1] === "posts") {
+          saved = true;
+          await put(Scope.Default, "posts", { title: "newword" }, schema, entry.id);
+        }
+        return page;
+      };
+      try {
+        await searcher.reindex();
+      } finally {
+        store.list = list;
+      }
+      expect(saved).toBe(true);
+      expect((await titles("newword")).total).toBe(1);
+      expect((await titles("oldword")).total).toBe(0);
+    });
+
     test("reindex fills an index that was emptied underneath it", async () => {
       await put(Scope.Default, "posts", { title: "rebuildable" }, schema);
       await store.putSchema(Scope.Default, "posts", schema);
@@ -231,7 +256,7 @@ describe("SQLite FTS5 searcher", () => {
 
     test("both integrity checks pass on a healthy index", async () => {
       await put(Scope.Default, "posts", { title: "healthy" }, schema);
-      expect(searcher.check()).toEqual({
+      expect(await searcher.check()).toEqual({
         index: "ok",
         orphanDocuments: 0,
         missingDocuments: 0,
@@ -251,7 +276,7 @@ describe("SQLite FTS5 searcher", () => {
       (store as any).database.exec(`PRAGMA foreign_keys = OFF`);
       (store as any).database.exec(`DELETE FROM entries`);
       (store as any).database.exec(`PRAGMA foreign_keys = ON`);
-      const report = searcher.check();
+      const report = await searcher.check();
       expect(report.index).toBe("ok");
       expect(report.orphanDocuments).toBe(1);
     });
@@ -265,7 +290,7 @@ describe("SQLite FTS5 searcher", () => {
       store = await SqliteStore.open(dbPath, { enabled: true, tokenizer: "trigram" });
       expect(store.needsSearchRebuild()).toBe(true);
 
-      searcher = store.createSearcher("trigram")!;
+      searcher = store.createSearcher()!;
       expect((await titles("existing")).total).toBe(0);
       await searcher.reindex();
       expect((await titles("existing")).total).toBe(1);
@@ -276,7 +301,7 @@ describe("SQLite FTS5 searcher", () => {
       await store.close();
       store = await SqliteStore.open(dbPath);
       expect(store.needsSearchRebuild()).toBe(false);
-      searcher = store.createSearcher(Unicode61)!;
+      searcher = store.createSearcher()!;
       expect((await titles("stable")).total).toBe(1);
     });
   });
@@ -285,7 +310,7 @@ describe("SQLite FTS5 searcher", () => {
     await store.close();
     store = await SqliteStore.open(dbPath, { enabled: false, tokenizer: Unicode61 });
     expect(store.searchIndexed()).toBe(false);
-    expect(store.createSearcher(Unicode61)).toBeNull();
+    expect(store.createSearcher()).toBeNull();
   });
 
   test("a disabled open does not destroy an index, but does force a rebuild", async () => {
@@ -308,7 +333,7 @@ describe("SQLite FTS5 searcher", () => {
     // Re-enabling cannot trust rows nothing was maintaining, so it rebuilds.
     store = await SqliteStore.open(dbPath);
     expect(store.needsSearchRebuild()).toBe(true);
-    searcher = store.createSearcher(Unicode61)!;
+    searcher = store.createSearcher()!;
     await searcher.reindex();
     expect((await titles("survivor")).total).toBe(1);
   });
@@ -325,7 +350,7 @@ describe("trigram tokenizer", () => {
       enabled: true,
       tokenizer: "trigram",
     });
-    searcher = store.createSearcher("trigram")!;
+    searcher = store.createSearcher()!;
   });
 
   afterEach(async () => {

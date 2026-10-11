@@ -10,10 +10,16 @@ import type { StrapiList } from '../strapi/strapi-inventory'
  * surface and not on its source.
  */
 export class SiloNames {
-  /** `Scope.IdPattern`. Checked here so a plan is refused by the plugin naming
-   *  the field, rather than by the first write. */
+  /** `Scope.IdPattern`, for a project or an environment. Checked here so a
+   *  plan is refused by the plugin naming the field, rather than by the first
+   *  write. */
   static readonly Pattern = /^[a-z][a-z0-9_-]{0,63}$/
   static readonly MaxLength = 64
+
+  /** `CollectionName`: the same letters, and longer than a project or an
+   *  environment may be (D104). */
+  static readonly CollectionPattern = /^[a-z][a-z0-9_-]{0,127}$/
+  static readonly CollectionMaxLength = 128
 
   /** What a *suggestion* may not contain. Never applied to what an operator
    *  typed: that is `Pattern`'s to accept or refuse whole. */
@@ -49,7 +55,7 @@ export class SiloNames {
 
     // Capped here as well as in `fit`: `forList` is a proposal on its own, and a
     // proposal silo would refuse is not one.
-    const name = SiloNames.trim(parts.join('-').slice(0, SiloNames.MaxLength))
+    const name = SiloNames.trim(parts.join('-').slice(0, SiloNames.CollectionMaxLength))
     return name || 'imported'
   }
 
@@ -62,16 +68,28 @@ export class SiloNames {
     return candidate
   }
 
-  /** `raw` if silo would accept it as an id, or a refusal naming the field. */
+  /** `raw` if silo would accept it as a project or environment id, or a refusal naming the field. */
   static check(raw: unknown, what: string): string {
+    return SiloNames.checked(raw, what, SiloNames.Pattern, SiloNames.MaxLength)
+  }
+
+  /** `raw` if silo would accept it as a collection name, or a refusal naming the field. */
+  static checkCollection(raw: unknown, what: string): string {
+    return SiloNames.checked(raw, what, SiloNames.CollectionPattern, SiloNames.CollectionMaxLength)
+  }
+
+  private static checked(raw: unknown, what: string, pattern: RegExp, maxLength: number): string {
     if (typeof raw !== 'string' || raw.trim().length === 0) {
       throw new Error(`${what} must be a non-empty string`)
     }
     const value = raw.trim()
-    if (!SiloNames.Pattern.test(value)) {
+    if (value.length > maxLength) {
+      throw new Error(`${what} has ${value.length} characters, and silo takes at most ${maxLength}`)
+    }
+    if (!pattern.test(value)) {
       throw new Error(
-        `${what} "${value}" is not a usable name — silo wants a lowercase letter first, then ` +
-          `letters, digits, "_" or "-", up to ${SiloNames.MaxLength} characters`,
+        `${what} "${value}" is not a name silo accepts. Start with a lowercase letter, then use ` +
+          `lowercase letters, digits, "_" or "-"`,
       )
     }
     return value
@@ -87,7 +105,7 @@ export class SiloNames {
    *  operator's, and neither knows about the other. */
   private static fit(name: string, suffix: number): string {
     const tail = suffix === 0 ? '' : `_${suffix}`
-    return SiloNames.trim(name.slice(0, SiloNames.MaxLength - tail.length)) + tail
+    return SiloNames.trim(name.slice(0, SiloNames.CollectionMaxLength - tail.length)) + tail
   }
 
   /** Leading, because silo wants a letter first; trailing, because a slice can

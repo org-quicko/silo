@@ -1,9 +1,13 @@
-import type { MediaPolicyInput, MediaPolicyView } from '../../../api/types/media-settings'
+import type { MediaDownloadField, MediaPolicyInput, MediaPolicyView } from '../../../api/types/media-settings'
 
-/** The editable half of the `[media]` table. */
+/** The editable half of the `[media]` table. A download ceiling is the box's
+ *  text, and `''` means the default. */
 export interface MediaPolicyFields {
   base_url: string
   extensions: string[]
+  download_max_files: string
+  download_max_size_mb: string
+  download_max_streams: string
 }
 
 /**
@@ -22,10 +26,19 @@ export class MediaPolicyDraft {
   /** Accepts everything. The one value that turns the check off. */
   static readonly Any = '*'
 
+  static readonly DownloadFields: readonly MediaDownloadField[] = [
+    'download_max_files',
+    'download_max_size_mb',
+    'download_max_streams',
+  ]
+
   static of(view: MediaPolicyView): MediaPolicyFields {
     return {
       base_url: view.file.base_url ?? '',
       extensions: view.file.extensions ?? view.in_force.extensions,
+      download_max_files: MediaPolicyDraft.text(view.file.download_max_files),
+      download_max_size_mb: MediaPolicyDraft.text(view.file.download_max_size_mb),
+      download_max_streams: MediaPolicyDraft.text(view.file.download_max_streams),
     }
   }
 
@@ -34,12 +47,18 @@ export class MediaPolicyDraft {
     return JSON.stringify(draft) !== JSON.stringify(MediaPolicyDraft.of(view))
   }
 
-  /** The body to save. Every field goes: an omitted one reads as cleared. */
+  /** The body to save. Every field goes: an omitted one reads as cleared, and
+   *  an empty ceiling is sent as `null`, its default. */
   static payload(draft: MediaPolicyFields): MediaPolicyInput {
-    return {
+    const payload: MediaPolicyInput = {
       base_url: draft.base_url.trim(),
       extensions: draft.extensions,
     }
+    for (const field of MediaPolicyDraft.DownloadFields) {
+      const typed = draft[field].trim()
+      payload[field] = typed === '' ? null : Number(typed)
+    }
+    return payload
   }
 
   /**
@@ -66,5 +85,9 @@ export class MediaPolicyDraft {
    *  than leaving as a `*` chip somebody has to recognise. */
   static acceptsEverything(extensions: string[]): boolean {
     return extensions.includes(MediaPolicyDraft.Any)
+  }
+
+  private static text(value: number | undefined): string {
+    return value === undefined ? '' : String(value)
   }
 }

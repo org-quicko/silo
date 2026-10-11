@@ -5,6 +5,7 @@ import { SettingsRow } from '../parts/SettingsRow'
 import { SettingsSection } from '../parts/SettingsSection'
 import ledger from '../parts/SettingsLedger.module.css'
 import settings from '../SettingsView.module.css'
+import { MediaDownloadSettings } from './MediaDownloadSettings'
 import { MediaExtensionField } from './MediaExtensionField'
 import { MediaPolicyNote } from './MediaPolicyNote'
 import { useMediaPolicyForm } from './use-media-policy-form'
@@ -72,6 +73,15 @@ export function MediaLibraryCard({
           />
           <MediaPolicyNote view={view} field="extensions" />
         </SettingsRow>
+      </SettingsSection>
+
+      <SettingsSection title="Bulk downloads">
+        <MediaDownloadSettings
+          view={view}
+          draft={draft}
+          disabled={!editable}
+          onChange={(field, value) => form.set(field, value)}
+        />
 
         {form.error && (
           <div className={settings.alertError}>

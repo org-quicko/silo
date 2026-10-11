@@ -19,7 +19,13 @@ export interface MediaPolicyFacts {
   base_url?: string
   /** Lower case, no dots. `['*']` accepts anything. */
   extensions: string[]
+  /** Bulk download ceilings (D106). */
+  download_max_files?: number
+  download_max_size_mb?: number
+  download_max_streams?: number
 }
+
+export type MediaDownloadField = 'download_max_files' | 'download_max_size_mb' | 'download_max_streams'
 
 /**
  * What `GET /api/media/settings` returns.
@@ -35,6 +41,7 @@ export interface MediaPolicyView {
   overrides: SettingsOverride[]
   /** What a new instance starts with, so the page can offer it back. */
   default_extensions: string[]
+  download_defaults: Record<MediaDownloadField, { value: number; min: number; max: number }>
   config_path?: string
   writable: boolean
   /** Why a save cannot land, when one cannot. See `MediaStorageView`. */
@@ -42,8 +49,12 @@ export interface MediaPolicyView {
 }
 
 /** What `PUT /api/media/settings` accepts. An omitted field is cleared, not
- *  kept: nothing here is write-only, so the form always holds the real value. */
+ *  kept: nothing here is write-only, so the form always holds the real value.
+ *  A download ceiling sent as `null` goes back to its default. */
 export interface MediaPolicyInput {
   base_url?: string
   extensions?: string[]
+  download_max_files?: number | null
+  download_max_size_mb?: number | null
+  download_max_streams?: number | null
 }

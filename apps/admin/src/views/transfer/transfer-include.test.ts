@@ -18,9 +18,11 @@ const tree: TransferTree = {
 }
 
 describe('TransferInclude', () => {
-  test('an empty list covers everything, which is what the server means by an absent include', () => {
-    expect(TransferInclude.covered([], 'site/prod/posts')).toBe(true)
-    expect(TransferInclude.describe([])).toBe('The whole instance')
+  test('an empty list is an empty selection, not the whole instance', () => {
+    expect(TransferInclude.covered([], 'site/prod/posts')).toBe(false)
+    expect(TransferInclude.partial([], 'site')).toBe(false)
+    expect(TransferInclude.everything([], tree)).toBe(false)
+    expect(TransferInclude.describe([])).toBe('Nothing selected')
   })
 
   test('adding a broader rule drops the narrower ones it now covers', () => {
@@ -56,20 +58,43 @@ describe('TransferInclude', () => {
     expect(TransferInclude.remove(['shop'], 'shop', tree)).toEqual([])
   })
 
-  test('unchecking from the implied everything writes out what was implied first', () => {
-    // The empty list has nothing to subtract from, so the first uncheck has to
-    // materialise it before it can take anything away.
-    expect(TransferInclude.toggle([], 'shop', false, tree)).toEqual(['site'])
-    expect(TransferInclude.toggle([], 'site/prod/posts', false, tree)).toEqual([
+  test('checking a box adds only that box', () => {
+    expect(TransferInclude.toggle([], 'shop', true, tree)).toEqual(['shop'])
+    expect(TransferInclude.toggle(['shop'], 'site/prod/posts', true, tree)).toEqual([
+      'shop',
+      'site/prod/posts',
+    ])
+  })
+
+  test('checking every child rolls up into the parent that stands for them', () => {
+    // Otherwise the scope above stays drawn as partial and its column's own
+    // select-all box could never settle on checked.
+    expect(TransferInclude.toggle(['site/prod/posts'], 'site/prod/pages', true, tree)).toEqual([
+      'site/prod',
+    ])
+    expect(TransferInclude.toggle(['site/prod'], 'site/staging', true, tree)).toEqual(['site'])
+  })
+
+  test('the roll-up stops below the instance, because empty means the opposite', () => {
+    expect(TransferInclude.toggle(['site'], 'shop', true, tree)).toEqual(['shop', 'site'])
+    expect(TransferInclude.everything(['shop', 'site'], tree)).toBe(true)
+  })
+
+  test('unchecking a project leaves the others chosen', () => {
+    expect(TransferInclude.toggle(['shop', 'site'], 'shop', false, tree)).toEqual(['site'])
+    expect(TransferInclude.toggle(['shop', 'site'], 'site/prod/posts', false, tree)).toEqual([
       'shop',
       'site/prod/pages',
       'site/staging',
     ])
   })
 
-  test('checking the last missing branch collapses back to everything', () => {
-    // A list naming every project and the empty list mean the same thing, and
-    // only one of them is what the server reads as the whole instance.
-    expect(TransferInclude.toggle(['site'], 'shop', true, tree)).toEqual([])
+  test('the wire form spells the whole instance as the empty list', () => {
+    expect(TransferInclude.wire(['shop', 'site'], tree)).toEqual([])
+    expect(TransferInclude.wire(['site'], tree)).toEqual(['site'])
+  })
+
+  test('select-all names every project the tree holds', () => {
+    expect(TransferInclude.allProjects(tree)).toEqual(['shop', 'site'])
   })
 })

@@ -2,8 +2,12 @@
 
 - Read [CONTEXT.md](CONTEXT.md) first — it describes the current state and
   indexes `docs/context/`. [IMPLEMENTATION.md](IMPLEMENTATION.md) is the design
-  spec; check its decisions log (D1–…) before proposing architectural changes,
+  spec; check its decision index (D1–…) before proposing architectural changes,
+  open the full row in [docs/design/decisions.md](docs/design/decisions.md),
   and read the relevant `docs/design/` file before changing what it describes.
+- Keep CONTEXT.md and IMPLEMENTATION.md short: a new decision is one line in
+  the index plus a full row in `decisions.md`; history goes in the changelog,
+  not in CONTEXT.md.
 - Follow [docs/context/code-design.md](docs/context/code-design.md): one
   artifact per file, short files, full names, concise doc comments with the
   rationale in `docs/`.

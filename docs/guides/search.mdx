@@ -1,0 +1,170 @@
+---
+title: "Full-text search across collections and environments"
+sidebarTitle: "Search"
+description: "Silo supports full-text search at three scopes: one collection, one environment, or everything the API key can read. Results include matched snippets with before/match/after context."
+---
+
+Silo's search engine lets you find entries by the words they contain, not just by filtering on exact field values. Search works at three levels of reach, each expressed as a distinct URL path — a narrower path can never accidentally widen to a broader one because of a missing parameter.
+
+## Three search scopes
+
+<CardGroup cols={3}>
+  <Card title="Collection" icon="folder">
+    Search within a single collection.
+
+    `GET /api/projects/{project}/envs/{env}/collections/{name}/search?q=term`
+  </Card>
+  <Card title="Environment" icon="layer-group">
+    Search across all collections in one environment.
+
+    `GET /api/projects/{project}/envs/{env}/search?q=term`
+  </Card>
+  <Card title="Instance" icon="globe">
+    Search everything the API key can read.
+
+    `GET /api/search?q=term`
+  </Card>
+</CardGroup>
+
+## Making a search request
+
+<CodeGroup>
+```bash Instance-wide search
+curl "http://localhost:8090/api/search?q=pricing" \
+  -H "Authorization: Bearer $SILO_KEY"
+```
+
+```bash Collection-scoped search
+curl "http://localhost:8090/api/projects/acme/envs/prod/collections/posts/search?q=pricing" \
+  -H "Authorization: Bearer $SILO_KEY"
+```
+</CodeGroup>
+
+A response names the project, environment, and collection for every hit, and quotes the text that caused the match:
+
+```json
+{
+  "data": [
+    {
+      "project": "acme",
+      "env": "prod",
+      "collection": "posts",
+      "entry": {
+        "id": "01J8...",
+        "title": "Pricing changes"
+      },
+      "snippets": [
+        {
+          "path": "$.data.body",
+          "before": "our ",
+          "match": "pricing",
+          "after": " page"
+        }
+      ]
+    }
+  ],
+  "total": 1,
+  "limit": 50,
+  "offset": 0,
+  "truncated": false,
+  "engine": "fts5"
+}
+```
+
+Each snippet is three strings: `before + match + after` reconstructs the surrounding fragment. The `match` portion is the run to highlight — it contains no escape sequences, so text with brackets or special characters needs no extra handling.
+
+## Filtering, sorting, and pagination
+
+Search accepts the same `filter`, `sort`, `limit`, and `offset` parameters as list queries, plus `q` for the text term.
+
+```
+GET /api/search?q=pricing&filter=<url-encoded JSON>&sort=-$.updated_at&limit=20&offset=0
+```
+
+<Note>
+  Omit `sort` to rank results by relevance. Adding a `sort` overrides relevance ranking and returns results in the specified order instead.
+</Note>
+
+Anonymous callers can search, but they only reach collections that do not set `x-silo-auth: true` in their schema. Authenticated keys follow their normal claim-based access rules.
+
+## The `engine` and `truncated` fields
+
+The `engine` field in the response tells you how the query was answered:
+
+| Value | Meaning |
+|---|---|
+| `fts5` | SQLite's full-text index answered the query. Results are precise and ranked by relevance. |
+| `scan` | The portable fallback engine walked entries one by one. Used when the FTS index is unavailable or disabled. |
+
+When `engine` is `scan`, `truncated: true` means that Silo hit the scan limit before examining all entries, so `total` is an approximation of how many matched within the examined window — not the true total.
+
+## Configuring indexed fields
+
+Search only indexes the fields you explicitly list. Configure which fields are indexed by adding `x-silo-search` to your collection's schema:
+
+```json
+{
+  "type": "object",
+  "x-silo-search": ["$.data.title", "$.data.body"],
+  "properties": {
+    "title":  { "type": "string" },
+    "body":   { "type": "string" },
+    "status": { "type": "string" }
+  }
+}
+```
+
+JSONPath expressions are scoped to the internal entry document. Your own fields live under `$.data`, so `$.data.title` indexes the `title` field of your entry.
+
+<Tip>
+  `x-silo-search` is one of the schema keywords that stays **editable** even when the collection holds entries. Update it via `PUT /api/projects/{project}/envs/{env}/collections/{name}/schema`, then rebuild the index for the change to take effect.
+</Tip>
+
+## Search configuration in silo.toml
+
+Configure the search engine under the `[search]` section of `silo.toml`:
+
+```toml
+[search]
+enabled              = true
+tokenizer            = "unicode61"   # or "trigram" for substring / CJK search
+max_entry_bytes      = 65536
+scan_limit           = 10000
+scan_time_budget_ms  = 2000
+```
+
+<ResponseField name="tokenizer" type="string" default="unicode61">
+  Controls how text is split into searchable tokens.
+
+  - `unicode61` — word-based tokenization. Best for most Western-language content. Matches whole words.
+  - `trigram` — splits text into three-character windows. Required for substring search (e.g., matching "price" inside "repriced") and for CJK languages (Chinese, Japanese, Korean) where word boundaries are not spaces.
+</ResponseField>
+
+<ResponseField name="max_entry_bytes" type="integer" default="65536">
+  Maximum number of bytes extracted from each entry for indexing. Content beyond this limit is not indexed.
+</ResponseField>
+
+<ResponseField name="scan_limit" type="integer" default="10000">
+  Maximum number of entries the portable scan engine will examine before stopping and setting `truncated: true`.
+</ResponseField>
+
+<ResponseField name="scan_time_budget_ms" type="integer" default="2000">
+  Maximum wall-clock time in milliseconds the portable scan engine may spend on a single query.
+</ResponseField>
+
+## Rebuilding the search index
+
+If indexed fields change, or if the index gets out of sync for any reason, trigger a full rebuild:
+
+<CodeGroup>
+```bash REST API
+curl -X POST http://localhost:8090/api/search/reindex \
+  -H "Authorization: Bearer $SILO_KEY"
+```
+
+```bash CLI
+silo search reindex --check
+```
+</CodeGroup>
+
+The `--check` flag on the CLI reports the index status and signals whether a rebuild is needed before performing one.

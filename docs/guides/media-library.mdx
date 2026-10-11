@@ -1,0 +1,234 @@
+---
+title: "Upload and manage media assets in Silo"
+sidebarTitle: "Media Library"
+description: "Silo's media library stores files on local disk or any S3-compatible bucket. Organize assets in folders, track usage, and reference assets from entries by ID."
+---
+
+Silo ships a first-class media library. Upload images, videos, documents, and other files; organize them in folders; tag them for filtering; and reference them from your entries by ID. Because entries store an asset's `id` rather than its URL, you can rename or move a file without touching a single entry.
+
+## Uploading a file
+
+Send a `multipart/form-data` request to `POST /api/media`. The required field is `file`; the optional `folder` field places the asset in a folder path.
+
+```bash
+curl -X POST http://localhost:8090/api/media \
+  -H "Authorization: Bearer $SILO_KEY" \
+  -F "file=@/path/to/image.jpg" \
+  -F "folder=images"
+```
+
+A successful upload returns the asset's catalog record:
+
+```json
+{
+  "id": "01J9AB3ZK60T72CNPCM222E3Z",
+  "filename": "image.jpg",
+  "folder": "images",
+  "url": "http://localhost:8090/media/01J9AB3ZK60T72CNPCM222E3Z",
+  "content_type": "image/jpeg",
+  "size": 204800,
+  "tags": [],
+  "created_at": "2024-09-10T08:00:00.000Z",
+  "updated_at": "2024-09-10T08:00:00.000Z"
+}
+```
+
+Use the `url` field to serve the file to end users. Store the `silo://media/<id>` reference in entries so the URL resolves correctly even after a rename or move.
+
+<Note>
+  The file type must be in the configured allowlist. SVG is excluded from the default list for security reasons — SVG files can carry embedded script. To permit SVG uploads, add `svg` to the `[media] extensions` list in `silo.toml`.
+</Note>
+
+## Referencing a media asset from an entry
+
+Store the asset's `id` using the `silo://media/<id>` URI scheme. In your collection schema, mark the field with `"x-silo-type": "media"` so the admin UI renders a media picker:
+
+```json
+{
+  "type": "object",
+  "properties": {
+    "title":  { "type": "string" },
+    "poster": { "type": "string", "x-silo-type": "media" }
+  }
+}
+```
+
+When creating or updating an entry, set the field to the asset reference:
+
+```json
+{
+  "title": "Arrival",
+  "poster": "silo://media/01J9AB3ZK60T72CNPCM222E3Z"
+}
+```
+
+On every read, Silo resolves the reference and replaces it with the current `url` from the asset record.
+
+<Tip>
+  Store the reference URI — not the URL. A URL breaks if the asset is ever renamed or moved; the reference stays stable because Silo resolves it to the current URL on every read.
+</Tip>
+
+## Storage backends
+
+Silo supports two storage backends, configured in `silo.toml` under `[blob_storage]`.
+
+<CardGroup cols={2}>
+  <Card title="Local disk (default)" icon="hard-drive">
+    Files are stored at `<data dir>/media`. No extra configuration needed. Best for single-server deployments where the data directory is on durable storage. The driver name is `fs`.
+  </Card>
+  <Card title="S3-compatible" icon="cloud">
+    AWS S3, MinIO, Cloudflare R2, DigitalOcean Spaces, or any other S3-compatible service. Set `driver = "s3"` and supply your credentials and bucket in `[blob_storage]`.
+  </Card>
+</CardGroup>
+
+A minimal S3 configuration looks like:
+
+```toml
+[blob_storage]
+driver   = "s3"
+bucket   = "my-silo-media"
+region   = "us-east-1"
+endpoint = "https://s3.amazonaws.com"   # omit for AWS; set for MinIO / R2 / Spaces
+```
+
+## Media URLs
+
+How a media URL is formed depends on your `base_url` setting and your storage backend configuration.
+
+`base_url` sets the host used in all media URLs. Set it to your public domain so asset URLs work outside localhost.
+
+| Setup | URL shape | Who serves the file |
+|---|---|---|
+| Local disk (any `base_url`) | `<base_url>/media/<id>` | Silo streams from disk |
+| S3 bucket, `public_read = true` | Bucket's own URL | The bucket serves directly |
+| S3 bucket, `public_read = false` | `<base_url>/media/<id>` | Silo proxies from the bucket |
+
+Silo streams the file from the store on the fly — it is never buffered whole. A `Range: bytes=...` request returns `206 Partial Content`, so video and audio players can seek correctly.
+
+## Folder management
+
+Folders are plain path strings. Create them explicitly or let an upload create them implicitly via the `folder` field.
+
+<Steps>
+  <Step title="List folders">
+    ```bash
+    curl http://localhost:8090/api/media/folders \
+      -H "Authorization: Bearer $SILO_KEY"
+    ```
+  </Step>
+
+  <Step title="Create a folder">
+    ```bash
+    curl -X POST http://localhost:8090/api/media/folders \
+      -H "Authorization: Bearer $SILO_KEY" \
+      -H "Content-Type: application/json" \
+      -d '{"path": "images/2024"}'
+    ```
+  </Step>
+
+  <Step title="Rename or move a folder">
+    ```bash
+    curl -X PATCH http://localhost:8090/api/media/folders \
+      -H "Authorization: Bearer $SILO_KEY" \
+      -H "Content-Type: application/json" \
+      -d '{"from": "images", "to": "artwork"}'
+    ```
+
+    Every asset and descendant folder inside `images` is updated to reflect the new path.
+  </Step>
+
+  <Step title="Delete a folder">
+    ```bash
+    # Delete an empty folder
+    curl -X DELETE "http://localhost:8090/api/media/folders?path=artwork" \
+      -H "Authorization: Bearer $SILO_KEY"
+
+    # Delete a folder and everything inside it
+    curl -X DELETE "http://localhost:8090/api/media/folders?path=artwork&recursive=true" \
+      -H "Authorization: Bearer $SILO_KEY"
+    ```
+  </Step>
+</Steps>
+
+## Asset operations
+
+<Steps>
+  <Step title="Rename, move, or retag">
+    ```bash
+    curl -X PATCH http://localhost:8090/api/media/01J9AB3ZK60T72CNPCM222E3Z \
+      -H "Authorization: Bearer $SILO_KEY" \
+      -H "Content-Type: application/json" \
+      -d '{"filename": "hero.jpg", "folder": "images/heroes", "tags": ["hero", "homepage"]}'
+    ```
+
+    Requires the `media:create` claim. The `url` field in the asset record stays stable; only the storage path changes.
+  </Step>
+
+  <Step title="Replace file content">
+    ```bash
+    curl -X POST http://localhost:8090/api/media/01J9AB3ZK60T72CNPCM222E3Z/content \
+      -H "Authorization: Bearer $SILO_KEY" \
+      -F "file=@/path/to/new-image.jpg"
+    ```
+
+    The asset keeps its original `id`, `filename`, and `url`. Every entry that references it immediately shows the new file — nothing needs to be rewritten. The replacement file must be the same type. Requires `media:replace` and `entries:update` at each scope that references the asset.
+  </Step>
+
+  <Step title="Delete an asset">
+    ```bash
+    # Safe delete — refused if any entry still references the asset
+    curl -X DELETE http://localhost:8090/api/media/01J9AB3ZK60T72CNPCM222E3Z \
+      -H "Authorization: Bearer $SILO_KEY"
+
+    # Force delete — removes even if referenced (also needs entries:update)
+    curl -X DELETE "http://localhost:8090/api/media/01J9AB3ZK60T72CNPCM222E3Z?force=true" \
+      -H "Authorization: Bearer $SILO_KEY"
+    ```
+  </Step>
+</Steps>
+
+<Warning>
+  A delete refused because the asset is still in use returns `409 media_in_use`. The response body includes `usage_count` (total referring entries), `visible_count` (how many this key can read), `visible_capped` (whether the referrer sample was cut short), and up to 20 referrers. Use `?force=true` only when you are sure you want broken references.
+</Warning>
+
+## Bulk operations
+
+<CodeGroup>
+```bash Delete up to 100 assets
+curl -X POST http://localhost:8090/api/media/delete \
+  -H "Authorization: Bearer $SILO_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"ids": ["01J9AB...", "01J9AC..."], "force": false}'
+```
+
+```bash Purge the entire library
+curl -X POST http://localhost:8090/api/media/purge \
+  -H "Authorization: Bearer $SILO_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"confirm": "purge"}'
+```
+</CodeGroup>
+
+Both endpoints always return `200` with a `deleted` / `failed` breakdown. The purge endpoint additionally reports the number of folders removed. Purge requires both the `media:delete` and `media:purge` claims.
+
+## Usage tracking
+
+Before deleting an asset, you can check which entries reference it:
+
+```bash
+curl http://localhost:8090/api/media/01J9AB3ZK60T72CNPCM222E3Z/usages \
+  -H "Authorization: Bearer $SILO_KEY"
+```
+
+The response includes `total` (the true referrer count), `visible` (how many this key can read), `visible_capped` (whether the sample was cut short), and `referrers` — up to 20 entries that reference this asset. A key may not have read access to every referencing environment, so `visible` can be less than `total`.
+
+## Extensions endpoint
+
+To populate a file-type filter in your own UI, fetch the distinct extensions currently held in the library:
+
+```bash
+curl http://localhost:8090/api/media/extensions \
+  -H "Authorization: Bearer $SILO_KEY"
+```
+
+This returns the list of file extensions (for example `["jpg", "mp4", "pdf"]`) that the library actually holds, matching what the admin UI uses for its Type filter.

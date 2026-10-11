@@ -1,3 +1,4 @@
+import { SearchText } from "../../../core/search/search-text";
 import type { SqliteConnection } from "./sqlite-connection";
 
 /** How the index is configured, and what the stamp has to notice changing. */
@@ -25,12 +26,10 @@ export class SearchIndex {
    * the stamp; a change in any of them rebuilds everything.
    */
   static readonly EngineVersion = 2;
-  /** Bumped when `SearchText.extract` would produce different text. */
-  static readonly ExtractorVersion = 1;
   static readonly StampKey = "search_index_version";
 
   static stamp(tokenizer: string): string {
-    return `${SearchIndex.EngineVersion}:${SearchIndex.ExtractorVersion}:${tokenizer}`;
+    return `${SearchIndex.EngineVersion}:${SearchText.Version}:${tokenizer}`;
   }
 
   /**

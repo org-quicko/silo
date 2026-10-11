@@ -17,6 +17,9 @@ export function useMediaPolicyForm(url: string, apiKey: string, canConfigure: bo
   const [draft, setDraft] = useState<MediaPolicyFields>({
     base_url: '',
     extensions: [],
+    download_max_files: '',
+    download_max_size_mb: '',
+    download_max_streams: '',
   })
 
   const [loading, setLoading] = useState(true)

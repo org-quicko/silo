@@ -1,0 +1,575 @@
+# Admin UI
+
+> Part of silo's design spec. The decisions log (D1–…) that governs it
+> is [decisions.md](decisions.md), indexed in [IMPLEMENTATION.md](../../IMPLEMENTATION.md).
+
+## 9. Admin UI
+
+React + TypeScript + Vite + RJSF (`@rjsf/core` + `@rjsf/validator-ajv8` for 2020-12), built to `apps/admin/dist`, embedded into the executable through Bun's file imports (D26). The build compiles the UI first; the released binary is self-contained, and serves the UI from whatever directory it is run in.
+
+**Design principle: minimal and clean.** No heavy component library or runtime CSS-in-JS — a small global token/reset/primitives foundation, colocated CSS Modules, shared React visual primitives, and a custom minimal RJSF theme. No dashboard chrome, no charts, fast first load.
+
+**Layout:** a server manager, then a two-pane shell, with settings as a second two-pane shell of its own:
+
+**AI assistants:** **Settings > AI assistants** is a short, action-first ledger
+page. It selects a client and uses the saved connection's current key directly;
+there is no second key, scope picker or connection registry. A client-specific
+button or copyable configuration is the action, with a manual fallback where
+needed. The page says what the action does and does not establish: configuration
+may be added or downloaded, but only a client can prove it can reach Silo.
+
+Claude Desktop's `.mcpb` is built in the browser by `DesktopExtension` as a
+small stored ZIP (`StoredZip`), with no package or download service. Its Node
+entry point forwards stdio messages to the existing HTTP endpoint; Claude
+Desktop supplies Node, so the visitor does not need a Silo binary. The server
+URL and key are the extension's `user_config` settings, `server_url` and a
+`sensitive` `api_key`, which the host passes to the bridge as `SILO_URL` and
+`SILO_API_KEY`, the variables `silo mcp` reads. A setting is the one place
+Claude Desktop lets a person change a value, so pointing the extension at
+another Silo or rotating its key needs no new download; the connection used to
+sit in a bundled `connection.json` that nothing could edit. Both settings
+default to the current connection and neither is `required`: the reference
+host counts a required value as missing until someone saves it, while an
+optional one falls back to its default, so install stays one step. A default
+passes through the host's `${…}` substitution, which a Silo key (`silo_` plus
+base64url) cannot contain. The bridge source still interpolates nothing. It
+treats an empty or unexpanded setting as unset, gives a bare host `http://` as
+the server dialog does, and answers a missing URL, a refused key and a non-MCP
+reply by naming the setting to fix instead of failing to start. It rejects
+redirects, limits concurrent requests, times requests out, and reports failures
+without echoing credentials or the URL setting, which may hold a key pasted
+into the wrong field. Every client lists the connection under one name, `silo`,
+so a second setup replaces the first instead of accumulating entries; the
+Claude Code command removes a user-scope `silo` first because `claude mcp add`
+refuses a name that exists. Downloads and copied configurations contain the
+current key; the page states this next to their actions. Cursor's install link
+uses its native protocol, so no vendor web redirect receives the key. Codex's
+primary action copies a setup prompt for a local task to merge the configuration;
+the manual fragment remains available for users who prefer editing it themselves.
+
+- **Sidebar (nav):** the visible collections with an in-memory box (`⌥F` / `Alt+F`) that *filters what is already listed* — a different question from the smart search bar's, so the two are worded apart — and user-resizable width (persisted in `localStorage`); selecting one shows its entries. Pinned at the bottom when authorized: *Keys*, *Media*, and *Data transfer*. Navigation and page actions adapt to the session's claims.
+- **Top bar (slim):** the smart search bar, centred. **A page's own actions sit with the page**: the entries list keeps its under the bar, and a page with a right rail (an entry, a collection's schema) carries every action it has — Save, Discard or Cancel, Delete — as one block in that rail, under the facts the rail already states. The bar belongs to the search, which reaches every collection in the scope rather than the page on screen. Both shortcut hints name the modifier the reader's own keyboard has (`PlatformKeys`), since both shortcuts have always listened for either. **`?` opens the shortcut list** from anywhere and **`Ctrl`/`⌘` `,` goes to Settings**, and the sidebar carries both as items of its own: a shortcut nobody can find is not a shortcut. Those two belong to the shell rather than to a page, which is why they live in one hook (`views/shell/use-shell-shortcuts.ts`) beside it. `?` stands down while somebody is typing, because it is a character they meant to write; the Settings shortcut does not, for the same reason `⌘K` does not, since a modified press types nothing and an open field has no claim on it. In an editor **`Esc` discards**, exactly as its own Discard or Cancel button does, standing down for a press something else already claimed so that leaving the search bar never throws away the form behind it. **A heading lands in the same place on every page** — the collection name, `Edit entry`, `Edit collection` — because a title that moves as you navigate reads as the page jumping; the breadcrumb and the heading are one block for that reason. A rail runs the full height of the view rather than stopping where its content does. A page with no search (settings, keys, a plugin) has no bar at all unless its actions are in it. What the active key can do **in the scope on screen** (full access / read & write / read-only / none, derived by `Claims.accessLevel`) is stated in the sidebar's account row, not here, and neither is the instance name or the lock — the sidebar's scope switcher already carries those.
+- **Main pane:** whatever the nav selected.
+- **Browser tab:** named after the route — `silo - <server> - <project>/<env>`, `silo - <server> - Media Library <folder>`, `silo - <server> - Settings - <tab>` — so a row of tabs says which instance and scope each one is open on. `router/document-title.ts` is the pure mapping and sits beside `Routes`, because a title is a second rendering of the route and the two must not drift; `App` is the only caller, so a view mounting cannot leave the previous page's name in the tab. The settings tab is spelled as the nav spells it, and a page nested under a project or an environment carries its scope, since *General* is a page in both places.
+
+**Views:**
+
+1. **Server manager** — the welcome screen: pick a saved silo instance or add one (name, URL, API key), with the URL and key verified against `GET /api/session` before the server is saved. Shown on first visit and after any `401`. Projects and environments each have a compact search field above their list, scoped to the chosen parent and filtering the loaded names without a request. Matching is case-insensitive and ignores surrounding whitespace; a matching/total count and a distinct no-match message explain the result. Clear or Escape restores the list, with Escape consumed while clearing so the modal stays open. Changing a parent resets that column's search and create form; creating an item clears its search to reveal the selection. Filtering keeps the chosen workspace intact. **Every row carries a settings affordance**, hidden until the row is hovered (`ColumnSettingsButton`, shared by all three columns so one affordance is not maintained in three places): a server's opens its connection page, a project's and an environment's their own settings, without choosing the row first — the click is stopped before the row sees it. **Environments open on a click that selects what is already selected**, as well as on a double-click: it is the last column, so a second click on the chosen row has nothing else it could mean, and making the reader cross to the footer button after it is a click that answers nothing. The first click still only selects, so nothing opens by surprise. Environment rows carry the same chevron the two columns before them do, since that row now leads somewhere too.
+2. **Entries list** (default main view) — table per collection, columns derived from top-level schema properties, sort/paginate via the list API, *New entry* button. **No cell ever prints a raw value it cannot show the inside of**, the heading column included: a list of objects is its length, an object its first filled field or a key count, and the heading column prefers a property that can carry a name over whichever the schema declares first. This is what a content type imported from Strapi needs to be readable at all — one whose single property is a repeatable component is ordinary there, and `String(value)` on it is `[object Object],[object Object]`. Text runs the collection-reach `/search` (D30) rather than a `contains` on one column: results carry snippets naming the field each match came from, and the engine that answered is stated. A **filter builder** writes the Query AST (D29) over the schema's own fields, offering only the ops `@silo/shared` declares and only paths `JsonPath` can build; the AST travels in the URL as raw JSON, so a filtered view is linkable, and one it cannot draw — nesting, `not`, a hand-written filter — is shown read-only and still applied rather than quietly simplified. **The whole list works from the keyboard**: a row cursor on `↓`/`j` and `↑`/`k` with `Home`/`End`, paging on `←`/`h` and `→`/`l`, `e` or `Enter` to open the row under it, `⌫` to delete it, and `n`/`f`/`c` for New entry, filters and columns. `Esc` closes what is open and only drops the cursor when nothing was. The cursor row is the *focused element* rather than a highlight painted over one — the browser scrolls it into view and a screen reader reads it — and a roving `tabindex` keeps the table at one tab stop. The headings are buttons, which is what puts sorting on the keyboard at all. **Columns are resizable by their heading's right edge** — a hairline at the weight of the row rules, brighter under the pointer, accent while it is held — with a double-click handing one back to the table's own sizing. `Updated` is not resizable and the actions cell is fixed, so the row always fills the width it was given, and no drag can push a column past the table's edge (`ColumnWidths`). A width is one reader's ergonomics on one screen, so unlike everything else here it lives in `localStorage` per collection rather than in the URL: a shared link should open the same view, not impose the sender's column widths. Everything else on screen lives in the URL. **Opening a row and coming back lands where you left.** The list pane's scroll offset is remembered per URL (`ScrollMemory`, `use-scroll-memory.ts`), which is what makes page, sort, filter and search each keep their own place and none inherit another's — and what makes paging land at the top of the next page rather than halfway down it. Recorded continuously rather than on the way out, since a reader leaves by a row click, the breadcrumb, `Enter` on the cursor or the browser's back button and none of those is one place to hang a save; restored in a layout effect once the rows are there, so the list does not visibly jump. In memory and not in storage: this is about a navigation within one session, and dropping somebody into the middle of a list whose contents may have moved since a reload is worse than starting at the top. **An absent `sort` means nobody chose one**, which is what lets a search rank by relevance and a listing fall back to newest-first; writing the default out would pin the view to a date order no search could override.
+3. **Smart search** (`⌘K` / `Ctrl+K`, or a bare `/`) — one field in the top chrome, answering into a dropdown that extends beneath it rather than an overlay. Its default reach is the **scope on screen**: every collection of the project and environment being browsed, which is the reach the sidebar and breadcrumbs already put the reader in. An `@`-mention commits a chip that narrows it to one collection, and only a chip does — nothing about the page being a collection's page narrows it, since the reader can see that page already. Results read in three groups. **Collections** lead, matched from the session's own collection list through the same `ScopeMatcher.rank` the mention popup uses (so a collection found by one of its *field* names says which field), capped at five, and absent while a chip is set. Then **entry hits**, grouped by collection in the order the ranking gave, with the `project/env` named only for results outside the scope on screen. Then **media**, its own group and only here — the server keeps it out of the entry index on purpose (D30), so merging them is a presentation decision made in the presentation layer. A media result opens the library at the asset's folder *with the filename as the library's search*, since nothing addresses an asset on its own: the folder alone names a directory, and the reader would have to find the file in it again. The row's Preview (`Shift`-`Enter`, or the button on the row) opens the asset where it stands instead, and is deliberately not a route — it is the one thing here that is state rather than a URL. Media is skipped while a chip is set, for the same reason collections are. The text travels as `?q=` (§5.5) and the reach as the request's path; the engine that answered is stated in the bar. Per-scope state — the text, the chip and the last answer — survives navigating away and back within a scope, and resets when the scope changes.
+4. **Entry form** — RJSF-generated from the schema; per-subtree raw-JSON fallback for unrenderable constructs (D3); server validation errors mapped back onto fields. **A property that declares nothing is a field, not an omission**: `{}` accepts any JSON value, and it gets the raw-JSON editor labelled as such rather than the warning a failed subtree gets. Widget selection reads types as the *union* they are declared as and walks an array's items as well as an object's properties, so a component nested inside a component gets its controls at whatever depth it sits. An array states its length beside its name where a scalar field states its type, so a subtree is not labelled like a text box. **An item card's whole row opens it**, not the line its title sits on: the header's padding used to belong to the header while the disclosure was a button one line of text tall, so the space above and below a title looked clickable and was not — a list of thirty-seven items being where that is felt. The padding is the button's now, and the button stretches to the row. **Depth is drawn, not implied**: each level of nesting steps an item card's surface and edge one shade lighter and gives a labelled object group an indented rail, so a field two components down cannot be mistaken for a top-level one. The ladder holds after four levels rather than lightening without bound. The breadcrumb names the entry: `Collections / <collection> / <id>`, with the collection crumb going back to its list. **An id is stated whole here, and so is every fact in the rail.** The crumb prints the entire ULID rather than an elided one, the rail's SYSTEM block states absolute timestamps in the reader's own zone instead of `Sep 10` and `5d ago`, and each of its four facts carries an icon-only copy button. This is the one page where the id *is* the subject rather than a label on a row: the entries list, the search results and the delete dialog all keep `Formatters.shortId`, because there the collection and the row around it already say which entry is meant. A copied timestamp is the ISO string the API stores, not the words on screen — the form a filter or a request wants — and the row's tooltip carries that raw value so the two are never silently different. **Every rule the schema states is drawn, and every refusal reads the same way.** A `format` picks the control (`date` a date picker, `date-time` a datetime-local, `email` and `uri` their typed inputs) and a range becomes the number input's `min`/`max`/`step`; the mono hint beside a label names the type and then every constraint the schema editor can set, so the form says what it will accept rather than only refusing a value for it afterwards. HTML5 validation is off: the browser's bubble reached neither the banner nor the field and used its own wording, so a range failed differently from a length and differently again from the same rule refused by the server. Ajv answers all of them into the form's own error list, in the wording the API would have sent back. `minItems` is a rule about what may be saved and not an instruction to open the form with that many blank rows — RJSF's default seeds them, which on the chips widget drew an item with no text and would have written a `null` into the list. A list that declares no `items` is still a list: RJSF refuses one before a widget is read, so the schema is handed the `items: {}` it already means.
+5. **Schema editor** — create/edit a collection's JSON Schema in a JSON editor (CodeMirror) with live validation of the schema document itself, or in the visual builder beside it. **A builder row is one line whatever the field holds**: a seventeen-value enum states its size before its values, since the count is what survives the truncation, and the row's two lines end in an ellipsis rather than wrapping a field into a paragraph or letting one unbreakable value paint over the badges beside it. Inside the open editor a long value wraps within its own chip instead, because there it is the thing being edited. A click anywhere on a row opens that field, and its grip **reorders** the property list by drag — property order is what every generated form and table reads, so it is part of the schema and not a view preference. Since D51 an existing collection can also be **renamed** here, through the shared control described below: it is a statement about the collection's identity rather than its shape, so it is a separate request from Save and neither carries the other's changes. **A field says more than its type and whether it is required.** A string carries a format, a length and a pattern; a number a range and a step; a list, a reference list included, its item bounds and whether duplicates are allowed. The set is deliberately the keywords that do two jobs — the server asserts them and the entry form already draws them — so choosing one here is visible in the generated form rather than only in a rejection. The formats offered are the ones `ajv-formats` asserts on **both** sides; `color` and `data-url` are RJSF-only, and a control that makes the form accept what the server then stores unchecked is worse than no control. The collapsed row states the constraints after the description rather than instead of it: the two answer different questions, and the row clips at one line either way. Everything here is validating shape, so a populated collection shows all of it read-only (D70) while the description stays live.
+6. **Media** — a searchable library: a folder rail, a name/type filter bound to the `_media` query, and per-asset rename, move, and delete. Assets (never folders) are multi-selectable — a checkbox on each card or row, a header checkbox in list view that selects the current page only — and a selection bar appears once anything is checked: a count, Clear, and Delete, shown only to a key holding `media:delete`. Selection clears on folder change, page change, query change, and after a successful delete. A single-file trash click and a multi-select delete are the same path — one list, sometimes of one — through `POST /api/media/delete` (D48). The flow is at most two dialogs: a confirm dialog first, and if the server refuses because something is still referenced, that dialog is replaced by one naming what is still in use, with the existing claim-filtered referrer list per file, an opt-in checkbox, and a Force delete button — hidden, rather than merely disabled, whenever the server would refuse it anyway (`MediaContentAvailability`, D49/D67): the key cannot see every referrer, or lacks `entries:update` on one it can see. Checking it and forcing never opens a third dialog, and only the ids still refused are retried. **Folder rows and tiles gain rename/move and delete actions of their own (D49)** — a clickable name region plus a separate actions cell or overlay, not a `<button>` wrapping the whole tile, since rename and delete are buttons too and cannot nest inside one. **Renaming and moving are separate actions for both files and folders (D66)**, each with its own menu item, its own row button and its own dialog, because they are separate questions and one dialog answering both could only ask the second as a path field. Rename is one field and moves nothing: `RenameAssetDialog` takes the file name, `RenameFolderDialog` takes the folder's *name* and rebuilds the whole path from the parent it keeps. Move is **browsed, never typed** — `MoveToFolderDialog` renders the library's folder list as a tree (`MediaFolderTree`, the pure half; `FolderTreeRow`, one node and its open children), opened on the branch the items are in, with the disclosure arrow and the name as sibling buttons since expanding a folder and choosing it are different answers, and every destination the move cannot take disabled with its reason on the row, off the same `validateMove` a drop already used. A dropped item's destination is already named, so `MoveMediaDialog` stays its *confirmation* rather than becoming a second picker; `useMediaMoveFlow` tells the two apart by whether `targetFolder` is a string or `null`. Move is offered wherever delete is — tile menus, both list rows, and the selection bar, which is where a multi-item move previously existed only as a drag. Rename reuses the same shape `RenameAssetDialog` does and attempts the rename outright; only when the server refuses it as a collision (`409`) does a second dialog offer to merge the two folders instead (`MergeFolderDialog`, `useMediaRenameFolderFlow`, D49) — gated on `DangerConfirm`'s typed confirmation rather than a checkbox, because a merge is genuinely non-reversible (the two subtrees become indistinguishable, and renaming back cannot undo it), which is exactly what `DangerConfirm` is reserved for; an ordinary rename with no collision never asks for one. Delete goes through the identical two-dialog flow files use — `useMediaDeleteFlow` takes a folder path as well as an asset list, so there is one flow rather than a second pair of dialogs, and a folder's confirm dialog says it deletes everything inside rather than naming files. Without `?recursive=true` the server still refuses a non-empty folder, so a plain folder delete stays the trivial case it always was. **Replacing the file behind an asset is a per-file action of its own (D67)** — a "Replace file" item in the tile menu and a sixth hover button on the list row, which is why the row's action column is sized for six rather than five. It is gated on `media:replace`, not on `media:create`: the `write` preset carries the latter, so an affordance drawn from it would appear for keys the route refuses. `ReplaceAssetDialog` is one dialog, not the confirm-then-in-use pair a delete runs, because a replace is never refused for being referenced — being referenced is the ordinary case and the point of the feature. So `useMediaReplaceFlow` fetches the referrers **up front** rather than after a refusal, which is what lets the dialog say how far the change reaches before it is taken and lets `MediaContentAvailability` (D49's `MediaForceAvailability`, renamed now that force-delete is not its only caller) decide whether Replace may be offered at all — the same `entries:update`-at-every-referrer rule, mirroring `RouteAuth.requireMediaContentAuthority` claim for claim. An asset nothing references skips that request, since its reach is empty and the answer cannot change the outcome. The dialog holds the picked file rather than submitting straight from the input, so the reader sees what they chose before an action with no undo takes it, and it filters and labels the picker by the asset's current extension (`MediaExtension`, a local restatement of the server's rule, describing only — the refusal stays the server's). The copy leads with what survives, since that is the whole question a reader has: the id, the name and the link stay, only the file changes. **A low-emphasis "Purge library" action sits in the page head, deliberately not beside Upload** (D49): gated on `media:delete` **and `media:purge`** (D65) — both halves, exactly as the route asks for them, since `media:delete` alone is carried by the `write` and `manage` presets and so would put the action in front of every integration key that uploads its own files — through `DangerConfirm` — reserved for actions no undo exists for — with confirm word `purge` and the force opt-in inside that same dialog, since purge has no bounded subject to check force availability against up front the way the in-use dialog can. Where the library *keeps* its bytes is a separate page under Settings → Media Library (D45), because it configures the instance rather than the content; purge stays here, on the content's own page, for the same reason in reverse. **Download joins the selection bar, and every file and folder is selectable whatever the key holds (D106)**, since Download needs a key and no claim; Clear and Download always show, Move and Delete keep their own gates. One file downloads as itself through `MediaFileUrl.downloadUrl`, with no server work; anything more is prepared (`useMediaDownloadFlow`, `POST /api/media/archives`) and, when it fits one part, starts at once with a toast. A download split into parts, or holding a file over 2 GiB, opens `DownloadArchiveDialog`: one row and one button per part or file, so the reader starts each and the browser never has to allow several downloads at once. Every start is `BrowserDownload.start`, an anchor click on an `attachment` URL, so the bytes go to the browser's own download list and never through the tab (D100). A refusal (too large, busy) lands in the library's banner, since no dialog is open yet. **The page-head menu gains Library stats (D106)**, above Storage settings: `MediaStatsDialog` reads `GET /api/media/stats` each time it opens and `MediaStatsSummary` shows three tiles (files, total size, folders), the split by kind as a table with a single-hue share meter per row (the accent on its own soft step, so it reads in both themes and needs no categorical palette), and the largest file, last upload and any staged deletes. `ByteSize` now goes on to GB and TB.
+7. **Keys** — list (label, claims, prefix, created, and whether the record has been edited since it was minted), revoke, **edit**, and one form that both creates and edits (D63). Revoke is offered only for keys the current one could have minted (D37) and Edit only for those same keys plus `keys:create`, never for a plugin's managed key (D34), because the route refuses each. One form serves both verbs because they *are* one form: the only differences are where the initial claim list comes from and which request Save makes, and two forms would mean the guided controls, the delegation probes and the review were each written twice — the second copy being the one that ends up offering a claim the route refuses. Editing adds a **Changes** panel naming what the save would add and take away, because an edit is the only operation that alters what an already-distributed secret can do while telling its holder nothing, and a description of the *result* cannot say what moved. A banner says so outright when the key being edited is the one the session is connected with.
+
+   Below the label sit **three tabs, which are three modes over one claim list** rather than three forms. **Presets** is a standard role (`read` · `write` · `manage` · `root`) over one *or more* project/environment scopes — this replaces the four-option reach the single-scope form carried, which was only ever the four combinations of two independent binary choices (D19) and could not say "acme/prod and beta/prod" at all. **Advanced** is every leaf claim as a control: the nine collection permissions per scope block, optional narrowing to named collections, and the unscoped instance capabilities (media, key management, transfer, plugins, audit) kept deliberately outside the scope blocks, since showing an instance-global claim inside an `acme / prod` block would say it was confined to one. **Custom** is the claim list in a CodeMirror editor with live validation, a searchable **claim reference** sheet derived from `ClaimWords` and `HookNames` rather than hand-listed, and — for the one claim shape whose meaning is not readable from the claim — a panel saying what each **prefix pattern** (D64) reaches today beside the sentence that it also reaches whatever is created later.
+
+   What makes tabs safe rather than three ways to describe a key that disagree is that **switching reads the current list back** through `KeyPlanReader` and **refuses the switch outright when that would lose something**, naming the claims with no control, rather than approximating. An existing key opens on the widest tab that can reproduce it exactly. Hook claims and prefix patterns are the two shapes no control produces, for opposite reasons — a hook is a plugin authority a key gains nothing from, and a pattern covers scopes no picker can list, so offering `acme*` in a dropdown of real project names would make a grant over a future namespace look like a grant over something you can see. Both therefore live only in Custom, which is exactly where the user asked patterns to stay.
+
+   Choosing a transfer capability composes in the instance-wide collection permissions D21 requires alongside it, rather than naming them in help text. Options the current key cannot delegate are disabled with the reason, and in Advanced that refusal sits next to the individual permission that caused it rather than in a banner at the foot of the page. The review at the foot reads the composed list and nothing else, so whichever tab produced it, what is about to be granted is described in one place in the same words — a pattern segment spelled out (`every project starting acme`) rather than printed raw. The secret is shown once. Plugin management and the audit trail are capabilities here too (D38); an instance capability this page has no words for is still shown, flagged, rather than omitted from the summary — a claim set that renders as less than it grants is the one failure a pre-mint summary cannot afford.
+8. **Data transfer** — two pages at two blast radii. Under *Server*: claim-aware export/import panels and direct copy from another running silo (merge/replace, data-only/data-plus-keys). Since D74 all three carry a **scope picker** — projects, then environments, then collections, one pane per level, which is the same browser the server manager uses and now a shared primitive rather than a copy of one. Since D89 **nothing is checked until the operator checks it**, and each column carries a **select-all box** at the far end of its header, opposite the title, through `BrowserColumn`'s `headerAction` slot. That box is the rule of the level above it, so all environments *is* the project and the project row moves with it, and a complete set of children rolls up into its parent so the tri-states cannot disagree with each other. Beside it sits a **media mode** control whose default follows the selection the way the server's own does. The panes are a fixed height and the lists scroll: a column of forty-three collections that grew instead would make the page taller than the choice it is asking for. What the archive covers is then stated as the projects it touches with a **sheet** behind it, since a fact row ellipsises and forty-six rules on one line says nothing. The selection the screen holds is literal — an empty one is empty — and `TransferInclude.wire` is the single place it becomes the empty list the route reads as the whole instance, which is the one place the two spellings of "everything" now meet. An empty selection is therefore a real state: the button is disabled and the panel says what is missing, rather than quietly exporting everything. Import and copy read the D75 progress stream, so a long run reports what it is doing instead of appearing to hang. Under *Environment*: copy from another environment of this instance (D22), preview-then-apply, gated on the scoped claims the copy exercises.
+9. **Settings** — a nav column grouped by the scope each page configures; see below.
+
+**Settings** is divided by the scope each page configures, because a collection is
+identified by `(project, env, collection)` (D18–D20) and most of what settings
+configures therefore belongs to a particular project or environment rather than
+to the server. Three nav groups, with a context switcher heading each nested
+block:
+
+```
+SERVER
+  API Keys                                       list, revoke, and one create/edit form
+  Data Transfer                                  archive and direct server copy, whole or scoped
+  Media Library                                  where uploads are stored, where their URLs point, what may be uploaded (D45, D46)
+  Configuration                                  the rest of silo.toml: logging, search, validation, auth (D47)
+  Plugins                                        every plugin with a record; one page each (D40)
+  Connection                                     endpoint, the live instance, forget this server
+PROJECTS
+  Projects                                       every project on the instance, and creating one
+    [ project switcher ▾ · New project ]
+    General                                      name (renameable in place — D51), id and API path, environments, delete behind a typed-name confirmation
+    Environments                                 this project's environments, and creating one
+      [ environment switcher ▾ · New environment ]
+      General                                    scope, id, name (renameable — D51), collections, open workspace, delete behind a typed-name confirmation
+      Data Transfer                              copy from another environment (D22)
+APPLICATION
+  Appearance                                     theme, accent and typeface, stored in this browser (D56)
+```
+
+| Group | URL |
+|---|---|
+| Server | `/servers/:sid/settings/:section` |
+| Projects (index) | `/servers/:sid/settings/projects` |
+| One project | `/servers/:sid/projects/:project/settings/:section` |
+| One environment | `/servers/:sid/projects/:project/environments/:env/settings/:section` |
+| Application | `/servers/:sid/settings/appearance` |
+
+Groups run outside-in — the server that hosts everything, the projects it holds,
+then this browser — and scope **nests** rather than forming peer groups: one
+project's pages hang off the project index, one environment's off that project's
+environment list. Projects is always expanded — it is the one group always
+worth seeing into. The environment block starts collapsed and opens when the
+reader acts on the Environments row: its chevron expands without navigating,
+and following the row itself both opens the environments view and reveals the
+block, since that is the one navigation actually *about* the environments. A
+route change alone never opens it — that used to undo a deliberate collapse the
+moment the route re-entered the scope, and arriving from a breadcrumb or a link
+elsewhere is not a request to see the block. Projects and Environments are
+indexes: a row opens that item's own page, and deleting lives only there,
+behind a typed-name confirmation, rather than as a button in a list.
+
+**Every settings page is built from one layout language (D56)**, in
+`views/settings/parts/`: `SettingsPageHead` (title, a `ScopeChip` saying what
+the page's changes reach — server / this browser / `project` / `project/env` —
+and the page's own actions), `SettingsSection` (a hairline and a label, never a
+card), `SettingsRow` (name and, only where it is earned, one line of why on the
+left; the control flush right), `FactList` (read-only ids and paths as
+copy-on-click mono rows), `SettingsList`/`SettingsListRow` (an index whose whole
+row is the link), `SettingsAlert` (a condition that holds for the page, not for
+one field) and `DestructiveSection`/`DestructiveRow`. Breadcrumbs are rooted at
+the server's own name. A section is a hairline rather than a bordered, filled,
+rounded box because border, fill and radius each say *separate object*, and
+spending all three on every group and every field inside it makes the reader
+re-enter a container for each setting instead of running down one column.
+Destructive actions are a quiet trailing section: the loudest thing on a
+settings page should not be Delete. **Saves stay per section**, exactly as D46
+and D47 chose them — a bucket that will not open must not hold up a correction
+to a log level — so there is no page-wide Save.
+
+**Renaming (D51)** lives on those same General pages, as an inline edit of the
+page title (`RenameableTitle`) — a project, environment and collection each
+carry a stable ULID and a mutable name now, and the Identity section below the
+title carries the id. It replaced a form whose resting state was broken: the
+field came pre-filled with the current name, so its Rename button sat disabled
+until you typed. All three use one control, `settings/rename/`, so they ask the same
+question the same way, and it is a **two-step** flow rather than a text field
+with a Save. The first request is a `?dry_run=true`, and what comes back is what
+earns the second step: a rename rewrites claim strings, and some claims name the
+subject through a *wildcard ancestor* — those are not rewritten, because a claim
+whose project segment is `*` and whose env segment is the literal `dev` means
+"any project's dev" and moving it would change authority everywhere, yet its
+reach does change. So the confirm dialog prints two lists: claims that will
+follow the rename, and claims whose reach changes although nothing rewrites
+them. Nothing else in the product would ever tell an operator about the second,
+which is the whole reason the preview exists. The control is **hidden**, not
+merely disabled, for a key that cannot rename — the same rule the delete buttons
+follow, since an affordance the server will refuse is worse than no affordance —
+and the reason is printed in its place. The route additionally checks the *new*
+name and, for a collection, `schema:update` on every referrer, neither of which
+the page can know, so those refusals arrive from the server and the form prints
+them rather than pretending to have predicted them. After a successful rename the
+URL follows the new name and `ScopeMemory` is cleared, since it is keyed by name
+and would otherwise send the next unscoped page back to a scope that no longer
+exists.
+
+The scope prefix is identical to the workspace routes and to the HTTP API's
+`/api/projects/{project}/environments/{env}/…`, with `settings` as the tail, so a
+workspace URL becomes its settings URL by swapping that tail. Server-level pages
+deliberately take **no** scope prefix — a key or a connection belongs to the
+instance, and prefixing them would let one page be bookmarked at as many URLs as
+there are scopes. The nested project and environment rows still need a scope to
+point at while such a page is open: the shell resolves one from the route, else
+the last this browser was in (`ScopeMemory`, validated against what the server
+still lists), else the first the server reports. Pre-restructure URLs are rewritten to their replacement by
+`Routes.legacy`.
+
+The nav header is the way back **into the workspace** at the resolved scope,
+not out to the server gate — settings is a detour, and leaving it should not cost
+you the project and environment you were working in. The gate stays reachable
+from a smaller control beside it, and ancestor breadcrumbs link upward.
+
+Deleting a project or an environment is irreversible and takes everything under
+it, so both are gated on typing the id back (`DangerConfirm`). Forgetting a saved
+server connection is not — it destroys nothing on the instance — and takes a
+plain confirmation.
+
+`x-silo-ui` extension keys map to RJSF `uiSchema` (widget selection, field order, help text).
+
+**The collection index is not a page.** `/collections` forwards to a
+collection, and which one is the last opened in this scope rather than the
+first there is: the `Collections` breadcrumb leads here from inside a
+collection, so answering it by moving the reader to somebody else's
+collection is worse than not being a link at all.
+
+**Media Library** sits under *Server* rather than under *Application*, and the
+contrast with Appearance is the reason: Appearance is this browser's and never
+leaves it, while this page is the **instance's** — it writes `silo.toml` and
+takes effect on the running server (D45). It needs `media:configure`, which no
+preset but root carries, and a key without it is told which claim is missing
+rather than shown an empty form.
+
+The page shows **two configurations**, and that is its whole shape. The form
+holds what the *file* says; a read-only panel beside it holds what the server is
+*using*, after environment variables and flags; and a field the file does not
+decide carries a note naming the value in force and, where it can be known, the
+variable supplying it. Both halves are needed for the page to be honest. Seeding
+the form from what is in force would put the derived fs media path
+(`<data dir>/media`, which is the value *precisely while nobody has named one*)
+into a box and save it back as a literal, pinning media in place and breaking
+`--data`. Hiding the environment would let somebody type a bucket, watch it
+save, and see the instance keep using another one.
+
+The provider list comes from the server (`drivers`), so a blob driver
+contributed by a plugin is selectable without the admin holding a second copy of
+the list, and whatever the file names stays in the select even when this build
+can no longer open it — a select that dropped the current value would propose a
+driver change nobody made. Which fields a provider shows follows the driver:
+`fs` takes a directory, `s3` takes a bucket and a credential, and an unknown
+driver takes both, because every driver is handed the same `[blob_storage]`
+table and the admin cannot know which keys a plugin reads.
+
+The secret is **write-only**, and its field is shaped by that. It is never read
+back, so a stored one shows as a fixed-width mask in a box that will not take a
+keystroke, and **clearing it is what opens the box** for a new value. Both
+halves earn their place: an editable box holding a mask invites somebody to
+append to a value they cannot see, and an empty box that quietly kept the old
+secret reads as "not set" to everyone who did not write the page. An untouched
+field sends nothing, a typed one wins over the clear that opened it, and saving
+a cleared field empty is the only way to remove a credential. The endpoint's
+placeholder is a self-hosted gateway rather than an AWS URL, since an
+`s3.<region>.amazonaws.com` example above "leave empty for AWS" reads as an
+instruction to fill it in. And the page
+says plainly, beside the provider, that **existing files are not moved** —
+switching provider leaves them where they are.
+
+A **second card** below it holds the `[media]` table (D46): the base URL media
+links are rooted at, whether that name fronts silo or the bucket, and the
+extension allowlist as chips you add to and take from. It has its **own Save**,
+because it writes its own table through its own route — a bucket that will not
+open must not be able to hold up a correction to the allowlist, which is the one
+thing an operator locked out of uploading needs to change. The allowlist is a
+chip list rather than a comma-separated box because the value is a set and the
+mistakes are per item: a stray space or a leading dot in one entry would refuse
+that whole file type, and a chip makes each entry something you can see and
+remove on its own. Its seeding is the deliberate opposite of the storage card's,
+which takes every value from the file: an empty extension list is not a state
+the server accepts, so the list falls back to what is **in force** when the file
+names none. A box showing nothing while something is being enforced would be the
+same page lying in the other direction.
+
+Under the same Save, a **Bulk downloads** section (D106, `MediaDownloadSettings`)
+holds the three download ceilings as number boxes. Unlike the extension list,
+each is seeded from the **file**, blank when the file names none, with the
+default as its placeholder: a ceiling has a default the server applies by
+itself, so a blank box is a true statement, and seeding it from what is in force
+would write the default into the file on the next save. A blank box saves as
+`null`, which removes the key again.
+
+**Configuration** is the same idea as Media Library, one page further out: the
+rest of `silo.toml`, one card and one Save per table (D47). Its cards are drawn
+from a **spec the server sends** rather than from a field list written out here,
+so a setting added to `ConfigSections` appears with its label, its type and its
+restart behaviour intact. A form built from a second copy of that list goes
+stale one release after somebody adds a field to only one of them.
+
+Its difference from every other settings page is the one an operator has to
+trust: **not everything applies immediately.** A log level is read on every line
+and takes effect at once; a tokenizer rebuilds an index at boot and a log file is
+a handle opened once. So each field says which it is, and a saved value the
+process has not adopted is reported as *waiting for a restart* and kept out of
+what the page calls in force — echoing it back would be worst exactly where it
+hurts most, since `[log] file` is what somebody reads when they are already lost.
+Two cards are deliberately less than editable: `[storage]` is reported and never
+written, because changing it names a different instance rather than configuring
+this one, and `[auth] disabled` offers only the direction that turns
+authentication back on.
+
+**Appearance** is client-only state — `ThemeManager` persists it to `localStorage`, never to a server, so the choice follows the browser rather than the instance. Three things compose: a **colour mode** (light/dark/system, the last resolved live against `prefers-color-scheme`), a **theme** (an accent paired with the sidebar tint it was designed alongside — `--sidebar`/`--sidebar-hover`, distinct from the main content's `--panel`/`--panel-2` so a theme can read as more than a hue swap), and a **font**. Dark mode's per-theme sidebar hex applies as-is; light mode instead washes the sidebar from whatever accent is active, because hand-tuning a light-mode pair for every theme would double the palette for no visual gain light mode doesn't already get by deriving it. Picking a custom accent hex keeps the last theme's sidebar and labels the bundle `Custom`, matching how picking a font or a mode leaves the other two alone. The theme gallery groups **Featured** (duotone hero bundles), **Single colour**, and **Vision assistive** (colour-blind-safe accent/sidebar pairs) — the grouping is presentation only, every entry is the same `ThemePreset` shape.
+
+### Variables (D57)
+
+`Settings → <project> → <environment> → Variables` is where a name is declared
+and this environment's value is set. The concept is §5.6 and the claims §8.5;
+what the page adds is that **both reaches sit on one screen on purpose**. The
+name belongs to the project and reads the same in every environment; the value
+belongs to this one and nothing else sees it. Splitting them across two pages
+would make declaring a name and giving it a value two errands in two places,
+which is not how anyone adds a variable — so the page keeps saying which is
+which instead, in the header of each card and in the confirm dialog.
+
+Every row shows the reference as it is actually typed (`{{API_URL}}`, not the
+bare name), whether this environment has a value, and how many of the project's
+environments do. A row with no value here says so, and says what that means:
+entries return the reference unchanged. The value box is a **draft** re-seeded
+from the server's value rather than a controlled mirror of it, so typing does
+not fight a background refresh and switching environment shows the new value
+instead of stranding the last one in the box. The two `can…` gates mirror the
+route guards claim for claim, the rule `media-content-availability.ts` already
+follows: an affordance that would answer `403` is not drawn.
+
+Removing a variable goes through `DangerConfirm`, and the copy is the reason it
+does: the reach is every environment in the project, and every `{{NAME}}`
+already written stays in the content as unresolved text.
+
+**The entry form is the other half, and there the reference *is* a chip.** Every
+plain-text string field is a `VariableAffordance`, which does three things, all
+of them **inside the field**:
+
+- **`{{NAME}}` renders as a chip carrying the name and the value**, in the
+  text's own flow, where the author typed it. Accent when this environment
+  resolves it, warn when the project declares it but this environment has no
+  value, and bad when nothing declares it — the two states where the API hands
+  the reference back unchanged, which are the two ways a `{{NAME}}` reaches
+  production still looking like one.
+- **Hovering a chip opens a small popover**: the value in full, what the API
+  does with it here, and a link to the Variables page.
+- **Typing `{{` opens a completion list** of declared names with their values.
+  Opened by what the author already typed, never by a keystroke of its own.
+
+**Why the control is a `contenteditable`.** Two cheaper shapes were built first
+and both failed on the same requirement. A readout beside the field is not "in
+the field". A **mirror** — a layer above a real `<input>` whose text is
+transparent — puts the chip exactly where the author typed it and reimplements
+nothing, but its correctness rests on the chip occupying *exactly* the token's
+width, because the invisible characters underneath still advance; a chip showing
+`API_URL` **and** `https://api.example.com` is several times wider than
+`{{API_URL}}`, so every character after it falls out of step. No styling gets
+around that, because the layer beneath is a real input and its metrics are the
+browser's. A chip wider than its token has to be a real element in a real flow.
+
+What that costs is stated rather than discovered: `type`, `maxlength`, native
+validation and autofill do not apply, which is why only **plain text** string
+fields are routed here — a date, a number or an enum keeps its native control,
+and none of them could carry a reference anyway. What it does not cost is the
+part that matters: each chip is a `contenteditable="false"` element, which
+browsers treat as one atomic character, so caret movement, shift-selection,
+double-click-to-select-a-word, drag-select and Backspace-deletes-the-whole-chip
+are all native.
+
+`VariableDom` is the boundary that keeps this honest. **The string is the source
+of truth and the DOM is a rendering of it**: a chip contributes `{{NAME}}` to
+the value no matter what it displays, `<br>` and block boundaries become
+newlines so the stored string does not depend on which one the browser chose,
+and a single-line field strips newlines the way an `<input>` cannot hold one.
+The surface is **uncontrolled between renders** — React writes the DOM only when
+the incoming value differs from what the field last emitted, because
+re-rendering on every keystroke is what makes a `contenteditable` lose the
+caret — and the one case that genuinely needs a mid-typing re-render, a
+reference just finished so it becomes a chip, records the caret in the string's
+own coordinates first and restores it after. Two smaller rules earn their place:
+a click on a chip places the caret at the nearer end, since a
+`contenteditable="false"` node is not somewhere a caret can go and a field that
+looks editable while swallowing keystrokes is worse than one that is plainly
+disabled; and paste is forced to plain text, or arbitrary markup would land
+beside the chips.
+
+The value is shown and never editable there. It belongs to the environment and
+to every other entry referencing it, so an editable box inside one field would
+offer an edit whose reach is nothing like the field it sits in. The link is the
+honest affordance, and it is a `Link` rather than a button so ⌘/ctrl or a middle
+click opens it in a new tab — checking a value should not cost a half-written
+entry.
+
+`variable-hints.ts` is the pure half — which state a reference is in, what the
+caret is part-way through typing, which names match it, and what a completion
+inserts — split out for the reason `media-delete-outcome.ts` and
+`PluginGrantPlan` are: those rules are worth testing without mounting a form.
+One detail there is load-bearing and was a real bug before it was written down:
+the keys the open menu owns (`ArrowUp`/`ArrowDown`/`Enter`/`Tab`/`Escape`) are
+handled on **keydown** and deliberately not re-read on the keyup that follows,
+because re-reading the caret then undoes what the press just did.
+
+**Every entry the admin reads is read `?variables=raw`** (§8). Not a preference:
+a form seeded with a resolved value saves that value back, replacing the
+reference with a snapshot of what it meant in one environment on one day. The
+rule is applied to the whole `EntriesApi` and to search rather than to the
+form's one call, so the table, the form and a save all show the same text — a
+list showing resolved values beside a form showing templates would read as two
+different entries.
+
+The list is a store resource (§9.1) rather than page state, because its second
+reader is **every entry form**: without one cache the field previews would be a
+request per form. Its cache key is the one key not nested under the scope —
+rooted at the project with the environment as the leaf — since the answer
+carries one environment's values but declaring and undeclaring are project-wide
+and have to reach every environment's cached copy at once.
+
+## 9.1 Server state (D53)
+
+Every read used to be a `useState` and a `useEffect` inside the view that
+wanted it, and the cost was the whole of what the UI felt like: the shell
+blocked on `Connecting to <server>…` on every full load *and* on every return
+from settings, because the session and the collection list were fetched from
+scratch each time the shell mounted; the entries table re-fetched a page it had
+answered a moment earlier; and, since typing fires several searches that can
+land out of order, that table had to ticket its own responses so the last one
+*asked for* won rather than the last to arrive.
+
+**Server state now lives in one store**, and the pattern is the ordinary
+observable-store-plus-cache one: `Store` holds a `ResourceState` per cache key —
+the value, whether a request for it is in flight, the last failure, and when it
+last succeeded — and `useResource` subscribes to one key through
+`useSyncExternalStore` and dispatches a load from an effect. So **a read renders
+the cache and the request goes out behind it.** A scope opened before draws at
+once and corrects itself; a page already answered is a cache read; and the
+ticketing is gone, because each distinct query is its own key and a response can
+only write the key it was asked for.
+
+It is hand-rolled for the same reason `router/router.ts` is: this UI ships inside
+the executable, the design principle above is a fast first load, and the whole
+store is under two hundred lines. Redux Toolkit or a query library would be a
+larger dependency than the thing it replaces.
+
+Four decisions in it are load-bearing:
+
+- **A key is rooted at the saved connection's id, not the server's URL.** Two
+  saved servers can address one instance with different API keys, and a key's
+  claims decide what every answer contains, so caching by URL would let a
+  read-only key's shell be drawn from a root key's answers. The store is
+  emptied on disconnect and when a connection's key changes, for the same
+  reason. Keys are `/`-separated so `invalidatePrefix` can name a subtree —
+  every page and entry of one collection after a write to any of them — and the
+  separator is part of the match, so a collection named `city` does not
+  invalidate `cities`.
+- **Each key carries an epoch, and a request that settles behind its key's
+  epoch writes nothing.** Without it a read that started before a save would
+  put the pre-save answer back when it landed, which is the one way a cache can
+  be worse than no cache. `invalidate`, `refresh` and `set` all bump it.
+- **A failure is state, and `dispatch` never rejects.** It is called from
+  effects, where nothing would catch, and the failure belongs on screen beside
+  the value it could not replace — so a reload that fails keeps the value it
+  had. Which is also why a 401 and a failed request are now treated
+  differently: a revoked key still sends the app to the gate, but a request
+  that merely failed does so only when there is nothing cached to show. A
+  server that blinked should not cost a reader their place.
+- **`keepPrevious` is opt-in, and the entries table is where it belongs.** A
+  paged list keeps the last answer on screen while the next one loads; a form
+  must not, since the previous entry's values under a new entry's heading is
+  worse than a blank frame. It is also deliberately off when the URL's
+  `?filter=` cannot be read: an unfiltered list under a filtered URL is the one
+  wrong thing that page can show, and that refusal is the whole reason
+  `filterError` exists. Two smaller options sit beside it: `staleAfter`, which
+  the version badge uses because a running process keeps the version it started
+  on, and `watch`, which re-dispatches without changing the key — how the
+  per-collection counts refresh when a collection appears without blanking the
+  counts already drawn.
+
+**What the store caches, D54 made small enough to be worth caching.** The
+collection listing used to answer with every schema in the scope and the sidebar
+learned each count by listing that collection with `limit=1` — a whole entry
+transferred to read a number, once per collection. A scope of forty content
+types therefore cost about four megabytes and forty-odd requests to draw a
+sidebar, and no cache fixes that: it hides the cost on the second visit and
+leaves the first exactly as expensive. So the listing answers *summaries* now,
+counts included, and the schemas moved to their own route.
+
+The shell asks **one** question per scope, and a page asks for **the one
+collection it draws**. `useCollectionSchema` is a store key per collection, so
+the entries list warms it and every entry opened out of that list is a cache
+read — including the entry form, which is the part that looked like it needed
+more. It does not: the server bundles a collection's `silo://` refs into that
+collection's own `$defs`, transitively, and re-bundles on the way out, so one
+schema is a document the form can render on its own. `SiloRefs.resolveForForm`
+reads those `$defs` and takes no collection list. The schema editor is the same
+story from the other side — choosing a ref target writes a `silo://` URL, and a
+list of names is all that needs.
+
+`useCollectionSchemas` therefore survives for exactly one caller: the search
+bar, matching a collection by one of its *field* names, which is the only thing
+in the app that genuinely reads across every schema. It is gated on somebody
+having typed, and until the schemas arrive the bar matches by name — the same
+answer minus the field group.
+
+The store is **additive**, and that is a property rather than an unfinished
+migration: it sits between `api/` and the views, so a read site adopts it by
+asking a hook instead of a `useEffect`, and one that has not adopted it still
+works exactly as before with no caching. The shell's session, the instance
+version, the collection list, the per-collection counts, one entry and one page
+of a collection's entries go through it today — the reads behind every loading
+screen a reader actually waits on. The rest move over as they are touched.
+
+**A waiting state is a circular loader and a sentence naming what it is waiting
+for** (`components/feedback/LoadingState`, over `Spinner`). One primitive, so
+the ring is the theme's own — `--line-2` for the track, `--accent` for the arc,
+retinted by a custom accent or light mode without a second definition — and so
+`prefers-reduced-motion` is honoured in one place, where the arc breathes
+instead of turning. A state that *is* the screen centres in the viewport rather
+than in the 60% of it the shared `center-wrap` utility leaves, which is why the
+connecting message used to sit a third of the way down the page.
+
+## 10. Plugin panels (D41)
+
+A plugin may ship its own screen. `contributes.ui` names one inlined HTML file,
+and `PluginPanelCard` renders it on that plugin's page, below the summary of what
+the plugin is allowed to do. It used to sit below the grant, the route list and
+the config *open* on the page, on the argument that a panel is a screen for
+spending whatever the plugin was granted, so an operator who scrolls to it has
+already read what that is. The order was right and the cost was wrong; §10a is
+what replaced it.
+
+It is fetched only when opened. It is third-party markup measured in kilobytes,
+and an operator who came here to revoke a grant should not have the package's own
+screen render itself on the way — a `needs_review` plugin being exactly the case
+where that is least welcome.
+
+**The isolation is the feature, and it is three attributes.** The iframe is
+`sandbox="allow-scripts"` with **no** `allow-same-origin`, mounted through
+`srcdoc` and never `src`. That gives the panel an opaque origin, which matters
+concretely rather than theoretically: this app keeps `silo_servers` in
+`localStorage`, holding an API key for **every** instance the operator has
+configured, so a panel with same-origin access would hold more authority than any
+plugin can be granted. Identity is established by comparing `event.source` with
+the frame's own `contentWindow`, because an opaque origin posts as `"null"` and
+every sandboxed frame on the page shares that.
+
+A panel's one capability is asking this app to call **its own plugin's** routes,
+with the operator's key. `plugin-panel-protocol.ts` is that boundary and nothing
+else is — it is pure, and tested without a DOM, because a security check that
+needs a browser to exercise is one nobody exercises. `plugin-panel-preamble.ts`
+generates the other half: a `window.silo` client over `postMessage`, and the
+admin's own resolved theme tokens as CSS custom properties, so a panel follows a
+custom accent or light mode without knowing which is on. Both are generated here
+rather than left to plugin authors, which is what makes the wire format a
+contract with one client instead of a convention with many.
+
+Theme tokens are read once per mount rather than per render: rebuilding `srcdoc`
+reloads the panel, which would lose whatever the operator had typed into it. A
+theme change therefore does not retint an open panel — the right trade, since
+reloading a form under somebody's hands to correct a colour is worse than the
+colour. Height is a request the panel makes and this app clamps, because an
+unclamped one could push every other card off the screen, including the grant that
+would let an operator turn it off. A panel with more to show than the clamp allows
+takes **full screen** instead, where it gets the viewport and scrolls inside
+itself rather than growing the page under it. §13.20 in
+[plugins.md](plugins.md) has the contract.
+
+**Measuring a panel is three mistakes deep, and D44 fixed them.** The panel posts
+a height and the admin clamps it, so the measurement has to be of the *content*:
+`documentElement.scrollHeight` is at least the viewport, which is the height the
+admin just granted, so measuring it reported back whatever was last asked for and
+a panel could only ever grow — content that collapsed left a band of the frame's
+own canvas below it. It measures `document.body` now. That canvas was **white**,
+because a frame's base colour is white and a transparent document does not reveal
+what is behind the frame but that, so the panel document paints `html` with the
+admin's own `--panel`. And the `ResizeObserver` was created without being
+retained, so it was collectable and stopped reporting with no sign that it had,
+which a panel rendering after a fetch — most of them — hit every time. A zero
+measurement is retried on a timer rather than reported: a sandboxed frame reports
+zero at `DOMContentLoaded` *and* at `load`, because an opaque-origin frame has not
+been through a rendering lifecycle by then, and a timer runs where a frame
+callback does not.
+
+## 10a. One plugin's page (D44)
+
+Four sections — the grant, the routes, the config, the trail — used to be open on
+that page at once. Measured on a real package that is eight claims, eleven routes,
+a generated form and an audit trail, stacked above the panel, so an operator
+arriving to *use* a plugin scrolled past all of it. Each is now a right-hand
+`Sheet`, and what stays on the page is the button that opens it, carrying **that
+section's state**: `4 of 8 claims`, `11 routes · 2 public`, `overridden here`,
+warn-toned when something is outstanding. That is the constraint the split had to
+respect: D40's property is that this page answers *is anything waiting on me*
+without being opened, so the decision moved behind a click and the fact that there
+is one to make did not.
+
+`Sheet` is the second overlay in this app and answers a different question from
+`Modal`. A modal asks something: small, centred, two buttons, one answer. A sheet
+holds a section of the page you were already on: tall, scrolling, no single
+answer. The body is the only thing that scrolls, because a section tall enough to
+need the whole viewport is what moved these off the page to begin with.
+
+Uninstalling lives on this page and nowhere else, behind a typed-name
+`DangerConfirm`, which is the same rule projects and environments are held to:
+reserved for actions no undo exists for. It qualifies twice, since the package
+leaves the disk and the grant leaves with it. Not a row action in the list, for
+the same reason deleting a project is not.

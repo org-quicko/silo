@@ -6,9 +6,15 @@ import type { MediaStream } from "../../media/media-stream";
 import type { ByteRangeRequest } from "../../media/byte-range";
 import type { MediaQuery } from "../../media/media-query";
 import type { MediaReconcileResult } from "../../media/media-reconcile-result";
+import type { MediaRekeyResult } from "../../media/media-rekey-result";
 import type { MediaUsage } from "../../media/media-usage";
 import type { ServiceContext } from "../support/service-context";
 import type { MediaAssetPatchInput } from "./media-asset-patch";
+import type { MediaArchivePart } from "../../media/media-archive-plan";
+import type { MediaStats } from "../../media/media-stats";
+import { type MediaArchiveDownload, MediaArchiveService } from "./media-archive-service";
+import type { MediaArchiveTicket } from "./media-archive-tickets";
+import { MediaStatsCounter } from "./media-stats-counter";
 import {
   MediaAssetService,
   type MediaAssetPage,
@@ -25,6 +31,7 @@ import { MediaUsageScopes } from "./media-usage-scopes";
 import type { MediaPurgeOutcome, MediaPurgeResult } from "./media-purge-service";
 import { MediaPurgeService } from "./media-purge-service";
 import { MediaReconciler } from "./media-reconciler";
+import { MediaRekeyer } from "./media-rekeyer";
 import { MediaReferenceGuard } from "./media-reference-guard";
 import { MediaUsageCounter } from "./media-usage-counter";
 
@@ -42,9 +49,12 @@ export class MediaService {
   private readonly folderMove: MediaFolderMoveService;
   private readonly deletion: MediaDeletionService;
   private readonly reconciler: MediaReconciler;
+  private readonly rekeyer: MediaRekeyer;
   private readonly linkResolver: MediaLinkResolver;
   private readonly usageScopes: MediaUsageScopes;
   private readonly purgeService: MediaPurgeService;
+  private readonly archives: MediaArchiveService;
+  private readonly statsCounter: MediaStatsCounter;
 
   /** The entry write path checks new references through this (§8.1). */
   readonly referenceGuard: MediaReferenceGuard;
@@ -58,10 +68,13 @@ export class MediaService {
     this.folderMove = new MediaFolderMoveService(context, catalog);
     this.deletion = new MediaDeletionService(context, catalog);
     this.reconciler = new MediaReconciler(context, catalog, this.deletion);
+    this.rekeyer = new MediaRekeyer(context, catalog);
     this.referenceGuard = new MediaReferenceGuard(catalog);
     this.linkResolver = new MediaLinkResolver(context, catalog);
     this.usageScopes = new MediaUsageScopes(context, catalog);
     this.purgeService = new MediaPurgeService(context, catalog);
+    this.archives = new MediaArchiveService(context, catalog, this.delivery);
+    this.statsCounter = new MediaStatsCounter(catalog);
   }
 
   /**
@@ -89,6 +102,25 @@ export class MediaService {
    *  menu (D55). */
   listExtensions(): Promise<string[]> {
     return this.assets.listExtensions();
+  }
+
+  /** File, byte and folder totals for the whole library, with a split by kind. */
+  stats(): Promise<MediaStats> {
+    return this.statsCounter.count();
+  }
+
+  /** Plans a bulk download of `{ids, folders}` into ZIP parts behind one ticket (D106). */
+  prepareArchive(selection: unknown): Promise<MediaArchiveTicket> {
+    return this.archives.prepare(selection);
+  }
+
+  archivePart(ticketId: string, partNumber: number): MediaArchivePart {
+    return this.archives.part(ticketId, partNumber);
+  }
+
+  /** Streams one part of a prepared download, holding one of a few server-wide slots. */
+  openArchive(ticketId: string, partNumber: number): MediaArchiveDownload {
+    return this.archives.open(ticketId, partNumber);
   }
 
   usages(
@@ -175,6 +207,13 @@ export class MediaService {
 
   reconcile(): Promise<MediaReconcileResult> {
     return this.reconciler.run();
+  }
+
+  /** Moves assets stored under a pre-D88 key onto `media/<id>`, so the store
+   *  holding them can answer `/media/<id>` itself. One-off, and safe to run
+   *  again. */
+  rekey(options: { rewrite?: boolean } = {}): Promise<MediaRekeyResult> {
+    return this.rekeyer.run(options);
   }
 
   /** The true, unfiltered scopes an operation on `ids` would change the

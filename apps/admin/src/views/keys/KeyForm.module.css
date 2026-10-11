@@ -289,7 +289,12 @@ fieldset.section { min-width: 0; margin: 0; }
   gap: 7px;
 }
 
-.capability { cursor: pointer; }
+/* `position: relative` is load-bearing. The hidden input is taken out of flow,
+   so without a positioned ancestor it is laid out against the initial
+   containing block and stops scrolling with `.content`. Clicking the label
+   still focuses it, and the browser then scrolls the page back to wherever the
+   input was left behind — which reads as the form throwing you to the top. */
+.capability { position: relative; cursor: pointer; }
 .capability > input { position: absolute; opacity: 0; pointer-events: none; }
 
 .capability > span {

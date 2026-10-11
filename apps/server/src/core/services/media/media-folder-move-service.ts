@@ -66,7 +66,7 @@ export class MediaFolderMoveService {
 
       // A descendant's rewritten path is stored as a field and never passes
       // back through `normalizeFolder`, so a move under a deeper parent would
-      // otherwise store paths past `MediaPaths.MaxDepth` — refused for a fresh
+      // otherwise store paths past `MediaFolderName.MaxDepth` — refused for a fresh
       // upload but reachable this way. Checked on the deepest one, before
       // anything is written, since a refusal part-way would leave the subtree
       // half-renamed. Unaffected by `merge`: joining an existing folder does

@@ -43,3 +43,34 @@
   --sidebar-text: var(--text);
   --sidebar-dim: var(--text-2);
 }
+
+:root[data-theme='light'] {
+  color-scheme: light;
+  --board: #efebe3;
+  --bg: #f7f5f0;
+  --panel: #fcfbf8;
+  --panel-2: #f1eee7;
+  --panel-3: #e8e4dc;
+  --line: #e5dfd6;
+  --line-2: #d4cdc1;
+  --text: #1c1917;
+  --text-2: #524c44;
+  --text-3: #797267;
+  --text-4: #a8a195;
+  --accent-soft: color-mix(in srgb, var(--accent) 13%, transparent);
+  --accent-line: color-mix(in srgb, var(--accent) 30%, transparent);
+  --ok: #1a7f4b;
+  --warn: #b86a04;
+  --bad: #c93b3b;
+  --ok-soft: color-mix(in srgb, var(--ok) 11%, transparent);
+  --warn-soft: color-mix(in srgb, var(--warn) 11%, transparent);
+  --bad-soft: color-mix(in srgb, var(--bad) 11%, transparent);
+  --ink-2: #f0ece3;
+  --shadow-panel: 0 16px 36px -12px rgba(60, 50, 40, 0.08), 0 1px 3px rgba(60, 50, 40, 0.05);
+  --shadow-modal: 0 20px 48px -12px rgba(60, 50, 40, 0.16), 0 4px 12px -2px rgba(60, 50, 40, 0.08);
+
+  --sidebar: var(--panel);
+  --sidebar-hover: var(--ink-2);
+  --sidebar-text: var(--text);
+  --sidebar-dim: var(--text-2);
+}

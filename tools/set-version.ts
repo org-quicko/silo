@@ -37,7 +37,8 @@ export class SetVersion {
    * `packages/silo-client-java` is absent for the same reason, one step
    * further: its version lives in a `pom.xml` this list of JSON manifests
    * could not describe anyway, and its release tag is `silo-client-java-v*`.
-   * Its `<version>` is bumped by hand too.
+   * Its `<version>` is bumped by hand too, and so is `packages/silo-client-dart`'s
+   * `pubspec.yaml`, tagged `silo-client-dart-v*`.
    */
   private static readonly manifests = [
     "package.json",
@@ -47,15 +48,18 @@ export class SetVersion {
     "packages/create-silo-plugin/package.json",
   ];
 
-  /** Semver proper, since the release workflow rejects anything else and it is
-   *  better to hear that here than after pushing a tag. */
-  private static readonly semver = /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(-[0-9A-Za-z.-]+)?(\+[0-9A-Za-z.-]+)?$/;
+  /** A version some workflow builds: MAJOR.MINOR.PATCH for `release.yml`, or
+   *  that plus `-alpha` or `-alpha.N` for `release-docker-snapshot.yml`'s
+   *  `v*-alpha*` filter. Any other suffix (`-rc.1`, `-beta`) matches neither,
+   *  so its tag would build nothing, and it is better to hear that here than
+   *  after pushing it. */
+  private static readonly buildable = /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(-alpha(\.(0|[1-9]\d*))?)?$/;
 
   static async run(): Promise<void> {
     const version = Bun.argv[2];
-    if (!version) throw new Error("usage: bun run set-version <version>   (e.g. 0.2.0)");
-    if (!SetVersion.semver.test(version)) {
-      throw new Error(`"${version}" is not a semantic version — expected 1.2.3, or 1.2.3-rc.1 for a pre-release`);
+    if (!version) throw new Error("usage: bun run set-version <version>   (e.g. 0.2.0, or 0.2.0-alpha)");
+    if (!SetVersion.buildable.test(version)) {
+      throw new Error(`"${version}" is not a version any workflow builds — expected MAJOR.MINOR.PATCH (e.g. 1.2.3) for a release, or MAJOR.MINOR.PATCH-alpha[.N] (e.g. 1.2.3-alpha) for an alpha image; -rc, -beta and other suffixes are refused`);
     }
 
     for (const manifest of SetVersion.manifests) {
@@ -63,11 +67,19 @@ export class SetVersion {
       console.log(`${manifest.padEnd(22)} ${before} -> ${version}`);
     }
 
+    // An alpha tag reaches only the snapshot workflow: one amd64 image in
+    // GHCR, with no executables, no GitHub release and no tap (D90).
+    const lane = version.includes("-alpha")
+      ? "The tag starts release-docker-snapshot.yml: an image in GHCR only."
+      : "The tag starts release.yml: the full release.";
+
     console.log(`
 Nothing was committed or tagged. When the change looks right:
 
     git commit -am "silo ${version}"
     git tag -a v${version} -m "v${version}" && git push origin v${version}
+
+${lane}
 `);
   }
 

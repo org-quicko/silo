@@ -6,6 +6,7 @@ import type { ProjectRecord } from "../../../core/domain/project-record";
 import { Scope } from "../../../core/domain/scope";
 import { ConflictError } from "../../../core/errors/conflict-error";
 import { NotFoundError } from "../../../core/errors/not-found-error";
+import { CodepointOrder } from "../../../core/query/codepoint-order";
 import { FsFiles } from "./fs-files";
 import { FsLayout } from "./fs-layout";
 import { FsMarker } from "./fs-marker";
@@ -50,7 +51,7 @@ export class FsScopeStore {
       const record = await this.findProject(name);
       if (record) records.push(record);
     }
-    return records.sort((left, right) => left.name.localeCompare(right.name));
+    return records.sort((left, right) => CodepointOrder.compare(left.name, right.name));
   }
 
   async findProject(name: string): Promise<ProjectRecord | null> {
@@ -111,7 +112,7 @@ export class FsScopeStore {
       const record = await this.readEnvironment(parent.id, project, env);
       if (record) records.push(record);
     }
-    return records.sort((left, right) => left.name.localeCompare(right.name));
+    return records.sort((left, right) => CodepointOrder.compare(left.name, right.name));
   }
 
   async findEnvironment(project: string, env: string): Promise<EnvironmentRecord | null> {
@@ -161,7 +162,8 @@ export class FsScopeStore {
 
     scopes.sort(
       (left, right) =>
-        left.project.localeCompare(right.project) || left.env.localeCompare(right.env)
+        CodepointOrder.compare(left.project, right.project) ||
+        CodepointOrder.compare(left.env, right.env)
     );
     return scopes;
   }

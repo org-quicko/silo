@@ -20,7 +20,10 @@ import type { ParsedImport } from "./parsed-import";
  * that rides an export is gated on the claim its own routes ask for, read off
  * `ImportGrants`; and the three that never ride — audit, plugins, scope
  * renames — are refused outright, since an archive carrying them was not
- * written by silo's exporter.
+ * written by silo's exporter. The one exception is a whole-instance move
+ * (D97): an archive whose manifest says `instance` may carry the audit log and
+ * the plugin grants, and they load only for `ImportGrants.Trusted` — the CLI —
+ * since no claim may rewrite the trail or grant a plugin through an import.
  *
  * Judged on **rows**, not on schemas: every export carries the riding
  * collections' placeholder schemas even when they hold nothing, and a key that
@@ -36,6 +39,9 @@ export class ImportSystemGate {
     SystemCollections.Variables,
   ];
 
+  /** What only a whole-instance move carries, and only the CLI loads. */
+  private static readonly MoveOnly: readonly string[] = [SystemCollections.Audit, SystemCollections.Plugins];
+
   private static readonly Catalog: readonly string[] = [
     SystemCollections.Media,
     SystemCollections.MediaFolders,
@@ -49,6 +55,12 @@ export class ImportSystemGate {
 
       for (const name of new Set([...scoped.schemas.keys(), ...scoped.entries.keys()])) {
         if (ImportSystemGate.Rides.includes(name)) continue;
+        if (ImportSystemGate.MoveOnly.includes(name) && parsed.manifest.instance === true) {
+          if (grants.instance) continue;
+          throw new ForbiddenError(
+            `this archive moves a whole instance and carries "_system/${name}"; only "silo import" on the server's machine loads it`
+          );
+        }
         throw new ValidationError(
           SystemCollections.isKnown(name)
             ? `this archive carries "_system/${name}", which is instance-local and never imports`

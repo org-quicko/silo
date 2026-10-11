@@ -44,6 +44,54 @@ describe("request metrics", () => {
     expect(rolled.every((entry) => entry.requests === 0)).toBe(true);
   });
 
+  describe("named series (D99)", () => {
+    const pattern = "/api/projects/:project/environments/:env/collections/:name";
+    const named = (project: string, collection: string) => ({
+      route: `/api/projects/${project}/environments/prod/collections/${collection}`,
+      pattern,
+      scope: { project, env: "prod", collection },
+    });
+
+    test("a caller that reaches the scope sees the names, and one that does not sees the pattern with every count", () => {
+      const now = Date.parse("2026-09-01T10:30:00.000Z");
+      const metrics = new RequestMetrics(() => now);
+      metrics.record({ completedAt: now, method: "GET", ...named("acme", "posts"), status: 200, durationMs: 4, internal: false });
+      metrics.record({ completedAt: now, method: "GET", ...named("beta", "pages"), status: 200, durationMs: 90, internal: false });
+      metrics.record({ completedAt: now, method: "GET", route: pattern, status: 404, durationMs: 2, internal: false });
+
+      const acmeOnly = metrics.snapshot(now, (scope) => scope.project === "acme").endpoints;
+      expect(acmeOnly).toEqual(expect.arrayContaining([
+        expect.objectContaining({ route: "/api/projects/acme/environments/prod/collections/posts", hits: 1 }),
+        // beta's request joins the failed one under the pattern: two hits, one error, beta's latency kept.
+        expect.objectContaining({ route: pattern, hits: 2, errors: 1, max_ms: 90 }),
+      ]));
+      expect(JSON.stringify(acmeOnly)).not.toContain("beta");
+
+      // The default reveals nothing.
+      const nobody = metrics.snapshot(now).endpoints;
+      expect(nobody).toEqual([expect.objectContaining({ route: pattern, hits: 3, errors: 1 })]);
+      // Folding never changed what is stored.
+      expect(metrics.snapshot(now, () => true).endpoints).toHaveLength(3);
+    });
+
+    test("with the table full, a new named series is counted under its pattern, not <other>", () => {
+      const now = 1_700_000_000_000;
+      const metrics = new RequestMetrics(() => now);
+      // The pattern's own series, then fillers up to the cap.
+      metrics.record({ completedAt: now, method: "GET", route: pattern, status: 404, durationMs: 1, internal: false });
+      for (let index = 1; index < RequestMetrics.MaxEndpoints; index++) {
+        metrics.record({ completedAt: now, method: "GET", route: `/api/filler/${index}`, status: 200, durationMs: 1, internal: false });
+      }
+      metrics.record({ completedAt: now, method: "GET", ...named("acme", "late"), status: 200, durationMs: 1, internal: false });
+      metrics.record({ completedAt: now, method: "GET", ...named("acme", "late"), status: 200, durationMs: 1, internal: false });
+
+      const endpoints = metrics.snapshot(now, () => true).endpoints;
+      expect(JSON.stringify(endpoints)).not.toContain("late");
+      expect(JSON.stringify(endpoints)).not.toContain("<other>");
+      expect(endpoints[0]).toMatchObject({ route: pattern, hits: 3 });
+    });
+  });
+
   test("folds unexpected route cardinality into one bounded series", () => {
     let now = 1_700_000_000_000;
     const metrics = new RequestMetrics(() => now);

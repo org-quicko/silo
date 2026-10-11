@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { FolderPlus, LayoutGrid, List, MoreVertical, Plus, Settings, Trash2 } from 'lucide-react'
+import { ChartPie, FolderPlus, FolderUp, LayoutGrid, List, MoreVertical, Plus, Settings, Trash2 } from 'lucide-react'
 import { Claims } from '@silo/shared/claims'
 import type { MediaAsset } from '../../api/types/media-asset'
 import type { ScopeRef } from '../../api/types/scope-ref'
@@ -20,6 +20,7 @@ import { MediaContents } from './MediaContents'
 import { MediaSelectionBar } from './MediaSelectionBar'
 import { MediaTypeFilter } from './MediaTypeFilter'
 import { useMediaDeleteFlow, type DeleteSubject } from './use-media-delete-flow'
+import { useMediaDownloadFlow } from './use-media-download-flow'
 import { useMediaLibrary } from './use-media-library'
 import { useMediaMoveFlow } from './use-media-move-flow'
 import { useMediaPurge } from './use-media-purge'
@@ -31,12 +32,10 @@ import styles from './MediaLibrary.module.css'
 type LibraryView = 'grid' | 'list'
 
 const VIEW_KEY = 'silo_media_view'
-/** The last column holds six hover actions on a file row since Replace joined
- *  Rename and Move (D66, D67), so it is sized for them rather than for four. */
-const LIST_COLS = 'minmax(0, 1fr) 100px 100px 206px'
-/** With the leading checkbox column — list view, once `media:delete` makes
- *  a row selectable. */
-const LIST_COLS_SELECTABLE = `28px ${LIST_COLS}`
+/** A leading checkbox column, since every key may select for a download
+ *  (D106). The last column holds six hover actions on a file row since
+ *  Replace joined Rename and Move (D66, D67). */
+const LIST_COLS = '28px minmax(0, 1fr) 100px 100px 206px'
 
 function deletedMessage(subject: DeleteSubject): string {
   if (subject.kind === 'folder') return `Folder "${MediaPath.name(subject.path)}" deleted`
@@ -101,11 +100,13 @@ export function MediaLibraryView({
   const [creatingFolderBusy, setCreatingFolderBusy] = useState(false)
   const [creatingFolderError, setCreatingFolderError] = useState('')
   const [headMenuOpen, setHeadMenuOpen] = useState(false)
+  const [statsOpen, setStatsOpen] = useState(false)
   const [previewAsset, setPreviewAsset] = useState<MediaAsset | null>(null)
   const [view, setView] = useState<LibraryView>(
     () => (localStorage.getItem(VIEW_KEY) as LibraryView | null) || 'grid',
   )
   const fileInput = useRef<HTMLInputElement>(null)
+  const folderInput = useRef<HTMLInputElement>(null)
   const headMenuRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
@@ -128,9 +129,22 @@ export function MediaLibraryView({
   // the referrers, through `MediaContentAvailability`.
   const canReplace = Claims.has(claims, Claims.MediaReplace)
   const baseUrl = url ? (url.endsWith('/') ? url.slice(0, -1) : url) : ''
-  const listCols = canDelete ? LIST_COLS_SELECTABLE : LIST_COLS
+  const downloadFlow = useMediaDownloadFlow(url, apiKey, baseUrl, library.setError, (message) =>
+    ToastManager.show(message),
+  )
 
   const browse = () => fileInput.current?.click()
+  const browseFolder = () => folderInput.current?.click()
+
+  /** Hands the pick on, then clears the input: a folder is often picked a
+   *  second time after its names were fixed, and the same pick fires nothing. */
+  const takePicked = (input: HTMLInputElement) => {
+    if (input.files?.length) library.uploadFiles(input.files)
+    input.value = ''
+  }
+
+  const progress = library.uploadProgress
+  const uploadLabel = progress ? `Uploading ${progress.done} of ${progress.total}…` : 'Upload files'
 
   const changeView = (next: LibraryView) => {
     setView(next)
@@ -205,7 +219,15 @@ export function MediaLibraryView({
           type="file"
           multiple
           hidden
-          onChange={(event) => event.target.files && library.upload(event.target.files)}
+          onChange={(event) => takePicked(event.target)}
+        />
+        {/* React's types do not know `webkitdirectory`; the spread carries it to the DOM. */}
+        <input
+          ref={folderInput}
+          type="file"
+          hidden
+          {...{ webkitdirectory: '' }}
+          onChange={(event) => takePicked(event.target)}
         />
 
         <div className={`page-head ${styles.pageHeader}`}>
@@ -223,8 +245,11 @@ export function MediaLibraryView({
                 <Button variant="secondary" onClick={openNewFolder}>
                   <FolderPlus size={14} /> New folder
                 </Button>
+                <Button variant="secondary" onClick={browseFolder} disabled={library.uploading}>
+                  <FolderUp size={14} /> Upload folder
+                </Button>
                 <Button variant="primary" onClick={browse} disabled={library.uploading}>
-                  <Plus size={14} /> Upload files
+                  <Plus size={14} /> {uploadLabel}
                 </Button>
               </>
             )}
@@ -240,6 +265,16 @@ export function MediaLibraryView({
               </Button>
               {headMenuOpen && (
                 <div className={styles.headMenu}>
+                  <button
+                    type="button"
+                    className={styles.cardMenuItem}
+                    onClick={() => {
+                      setHeadMenuOpen(false)
+                      setStatsOpen(true)
+                    }}
+                  >
+                    <ChartPie size={14} /> <span>Library stats</span>
+                  </button>
                   <Link
                     to={Routes.serverSettings(serverId, 'media-storage')}
                     className={styles.cardMenuItem}
@@ -304,11 +339,14 @@ export function MediaLibraryView({
           />
         </div>
 
-        {canDelete && selectedCount > 0 && (
+        {selectedCount > 0 && (
           <MediaSelectionBar
             count={selectedCount}
             canMove={canUpload}
+            canDelete={canDelete}
+            downloading={downloadFlow.busy}
             onClear={library.clearSelection}
+            onDownload={() => downloadFlow.start(selectedAssets, selectedFolderPaths)}
             onMove={() => moveFlow.startPicker({ assets: selectedAssets, folderPaths: selectedFolderPaths })}
             onDelete={() => deleteFlow.startMixed(selectedAssets, selectedFolderPaths)}
           />
@@ -325,7 +363,7 @@ export function MediaLibraryView({
           canReplace={canReplace}
           canDelete={canDelete}
           baseUrl={baseUrl}
-          listCols={listCols}
+          listCols={LIST_COLS}
           onBrowse={browse}
           onEditAsset={openRename}
           onPreviewAsset={setPreviewAsset}
@@ -337,6 +375,11 @@ export function MediaLibraryView({
       </div>
 
       <MediaDialogs
+        url={url}
+        apiKey={apiKey}
+        statsOpen={statsOpen}
+        onCloseStats={() => setStatsOpen(false)}
+        downloadFlow={downloadFlow}
         claims={claims}
         baseUrl={baseUrl}
         assets={library.assets}

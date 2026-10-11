@@ -448,9 +448,15 @@ export class Importer {
     opts: ImportOptions,
     blobStorage?: BlobStorage | string
   ): Promise<ImportResult> {
+    const parsed = await Importer.parseImportDir(src);
+    // A move is one instance arriving whole (D97): part of it would bring grants
+    // and keys for plugins whose content was left behind.
+    if (parsed.manifest.instance === true && opts.include && !opts.include.isEverything) {
+      throw new ValidationError("this archive moves a whole instance (silo export --instance), so it imports whole; leave out --include");
+    }
     // Narrowed before the gate, so a selection that leaves `_keys` behind is
     // judged on what it actually loads (D84).
-    const pi = ImportFilter.apply(await Importer.parseImportDir(src), opts.include);
+    const pi = ImportFilter.apply(parsed, opts.include);
     await ImportSystemGate.assert(pi, opts);
     const response = await Importer.executeImport(store, pi, opts);
 

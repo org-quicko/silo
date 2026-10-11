@@ -118,4 +118,20 @@ export class ClaimSegment {
     }
     return { clause: `${column} = ?`, args: [held] };
   }
+
+  /**
+   * {@link sql} for Postgres, whose placeholders are numbered: `bind` takes a
+   * value and answers the placeholder it was bound to.
+   *
+   * A pattern uses `starts_with`, for `GLOB`'s reasons: it is case-sensitive,
+   * and it reads its prefix literally, so nothing in it needs escaping — where
+   * `LIKE` would treat an id's `_` as a wildcard. Postgres has no `GLOB`.
+   */
+  static postgres(column: string, held: string, bind: (value: string) => string): string | null {
+    if (ClaimSegment.isWildcard(held)) return null;
+    if (ClaimSegment.isPattern(held)) {
+      return `starts_with(${column}, ${bind(ClaimSegment.prefixOf(held))})`;
+    }
+    return `${column} = ${bind(held)}`;
+  }
 }

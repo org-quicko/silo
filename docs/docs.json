@@ -1,0 +1,105 @@
+{
+  "$schema": "https://mintlify.com/docs.json",
+  "name": "Silo",
+  "theme": "luma",
+  "colors": {
+    "primary": "#bf3b41",
+    "light": "#f7ecd7",
+    "dark": "#090908"
+  },
+  "favicon": "https://media.brand.dev/3c86dcae-d9b2-4fa7-8432-496158d12e8d.png",
+  "logo": {
+    "light": "https://media.brand.dev/a72bd5b8-a024-4f56-95b7-db12d663ac9a.svg",
+    "dark": "https://media.brand.dev/a72bd5b8-a024-4f56-95b7-db12d663ac9a.svg"
+  },
+  "navbar": {
+    "primary": {
+      "type": "github",
+      "href": "https://github.com/org-quicko/silo"
+    }
+  },
+  "footer": {
+    "socials": {
+      "github": "https://github.com/org-quicko/silo"
+    }
+  },
+  "navigation": {
+    "tabs": [
+      {
+        "tab": "Guides",
+        "groups": [
+          {
+            "group": "Get Started",
+            "pages": [
+              "introduction",
+              "quickstart",
+              "concepts"
+            ]
+          },
+          {
+            "group": "Core Features",
+            "pages": [
+              "guides/collections-and-entries",
+              "guides/media-library",
+              "guides/search",
+              "guides/variables"
+            ]
+          },
+          {
+            "group": "Security & Access",
+            "pages": [
+              "guides/authentication",
+              "guides/api-keys"
+            ]
+          },
+          {
+            "group": "Operations",
+            "pages": [
+              "guides/configuration",
+              "guides/deployment",
+              "guides/transfer",
+              "guides/plugins"
+            ]
+          },
+          {
+            "group": "Integrations",
+            "pages": [
+              "guides/mcp",
+              "guides/typescript-client",
+              "guides/java-client",
+              "guides/dart-client"
+            ]
+          }
+        ]
+      },
+      {
+        "tab": "Reference",
+        "groups": [
+          {
+            "group": "API Reference",
+            "pages": [
+              "reference/http-api",
+              "reference/query-language",
+              "reference/error-codes"
+            ]
+          },
+          {
+            "group": "CLI Reference",
+            "pages": [
+              "reference/cli",
+              "reference/configuration-reference"
+            ]
+          },
+          {
+            "group": "Plugin Development",
+            "pages": [
+              "reference/plugin-api",
+              "reference/plugin-hooks",
+              "reference/claims-reference"
+            ]
+          }
+        ]
+      }
+    ]
+  }
+}

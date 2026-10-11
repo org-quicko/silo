@@ -12,6 +12,6 @@ export interface SearchPage {
    * something else is worse than a slow search.
    */
   truncated: boolean
-  /** `fts5` for an indexed answer, `scan` for a walked one. */
-  engine: 'fts5' | 'scan'
+  /** `fts5` or `postgres` for an indexed answer, `scan` for a walked one. */
+  engine: 'fts5' | 'postgres' | 'scan'
 }

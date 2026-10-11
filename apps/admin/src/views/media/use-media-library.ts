@@ -9,6 +9,7 @@ import type { ModifiedRange } from './media-modified-presets'
 import { MediaPath } from './media-path'
 import { useMediaSelection } from './use-media-selection'
 import { useFolderCounts } from './use-folder-counts'
+import { useMediaUpload } from './use-media-upload'
 import { MediaLibraryError } from './media-library-error'
 
 /** How many assets one page of the grid holds by default, until the reader
@@ -60,7 +61,6 @@ export function useMediaLibrary(
   const [search, setSearch] = useState(initialQuery)
   const [query, setQuery] = useState(initialQuery)
   const [loading, setLoading] = useState(true)
-  const [uploading, setUploading] = useState(false)
   const [error, setError] = useState('')
   const [extensions, setExtensions] = useState<string[]>([])
   const [ext, setExtState] = useState('')
@@ -77,9 +77,10 @@ export function useMediaLibrary(
   // with its own page-boundary reset rule.
   const selection = useMediaSelection(JSON.stringify([folder, offset, query, ext, modified]))
 
-  const reload = useCallback(() => {
+  /** Fetches the current folder, and settles when it has. */
+  const load = useCallback(() => {
     setLoading(true)
-    Promise.all([
+    return Promise.all([
       api.media.list(url, apiKey, {
         q: query || undefined,
         folder,
@@ -113,7 +114,15 @@ export function useMediaLibrary(
     api.media.listExtensions(url, apiKey).then(setExtensions).catch(() => setExtensions([]))
   }, [url, apiKey])
 
+  // `load` for a caller that must know when the listing is current, `reload`
+  // for everything else: an effect may not return the promise.
+  const reload = useCallback(() => {
+    void load()
+  }, [load])
+
   useEffect(reload, [reload])
+
+  const uploader = useMediaUpload(url, apiKey, folder, load, setError)
 
   // The library stays mounted while the URL changes underneath it, so a second
   // arrival from the palette has to be adopted rather than ignored.
@@ -200,7 +209,8 @@ export function useMediaLibrary(
     setModified,
     query,
     loading,
-    uploading,
+    uploading: uploader.progress !== null,
+    uploadProgress: uploader.progress,
     error,
     setError,
     stalled,
@@ -215,20 +225,9 @@ export function useMediaLibrary(
     toggleFolderSelected: selection.toggleFolderSelected,
     selectAllOnPage: selection.selectAllOnPage,
 
-    upload: async (files: FileList) => {
-      if (files.length === 0) return
-      setUploading(true)
-      try {
-        for (const file of Array.from(files)) {
-          await api.media.upload(url, apiKey, file, folder || undefined)
-        }
-        reload()
-      } catch (failure: unknown) {
-        setError(MediaLibraryError.message(failure, 'Upload failed'))
-      } finally {
-        setUploading(false)
-      }
-    },
+    /** Files or whole folders, from the picker or a drop (D105). */
+    uploadFiles: uploader.uploadFiles,
+    uploadDropped: uploader.uploadDropped,
 
     /** Swaps an asset's bytes (D67). Nothing else about it moves, so there is
      *  no selection or folder side effect here — only a reload, since `size`,

@@ -27,7 +27,6 @@ node_modules/
 
 # Leaked bun bundler temp files from an interrupted build.
 *.bun-build
-*.classpath
-*.xml
-*.project
-*.prefs
+
+# A compose password file, see packaging/compose/compose.yaml.
+packaging/compose/.env

@@ -2,6 +2,7 @@ import fs from "fs/promises";
 import path from "path";
 import type { Config } from "./config";
 import { ConfigLoader } from "./config-loader";
+import { MediaDefaults } from "./media-defaults";
 
 /**
  * Writing a `silo.toml` that is not there yet — the annotated default file
@@ -84,8 +85,16 @@ max_extracted_size_mb = ${config.transfer.max_extracted_size_mb}  # what it may 
 # A file named on the command line is not held to either; raise both to copy a large instance.
 
 [storage]
-driver = ${s(config.storage.driver)}       # "sqlite" (indexed, fast) | "fs" (plain JSON files, git/rsync friendly)
-path   = ${s(config.storage.path)}  # data dir; the sqlite database lives at <path>/silo.db
+driver = ${s(config.storage.driver)}       # "sqlite" (indexed, fast) | "fs" (plain JSON files, git/rsync friendly) | "postgres"
+path   = ${s(config.storage.path)}  # data dir; the sqlite database lives at <path>/silo.db. With postgres it still holds logs, plugins and fs media.
+#
+# postgres driver:
+# url    = "postgres://silo@db.example.com:5432/silo?sslmode=verify-full&sslrootcert=/etc/silo/db-ca.pem"
+#                            # prefer SILO_STORAGE_URL: it may carry the password. TLS is off unless sslmode says so
+# schema = "silo"            # silo's tables live here; one server owns a schema at a time
+# pool_size = 10             # connections; two are kept free for writes
+# statement_timeout = 30     # seconds; a slower query answers 503. 0 = no limit
+# startup_wait = 60          # seconds a start keeps retrying an unreachable server
 
 [blob_storage]
 driver = ${s(config.blob_storage.driver)}           # "fs" (local directory) | "s3" (S3 or S3-compatible)
@@ -109,6 +118,9 @@ driver = ${s(config.blob_storage.driver)}           # "fs" (local directory) | "
 extensions = [${config.media.extensions.map((e) => s(e)).join(", ")}]
 # Uploads are refused unless the filename ends in one of these. ["*"] accepts anything.
 # svg is not in the default: it can carry script. Add it where every uploader is trusted.
+# download_max_files   = ${MediaDefaults.Downloads.download_max_files.value}  # the most files one bulk download holds
+# download_max_size_mb = ${MediaDefaults.Downloads.download_max_size_mb.value}  # and the most megabytes; it is sent as zip files of up to 2 GB
+# download_max_streams = ${MediaDefaults.Downloads.download_max_streams.value}     # zip files the server streams at once
 
 [auth]
 disabled = ${config.auth.disabled}   # dev only: true treats every request as root, ignoring API keys

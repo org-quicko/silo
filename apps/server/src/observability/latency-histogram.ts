@@ -17,6 +17,18 @@ export class LatencyHistogram {
     this.counts[index < 0 ? this.counts.length - 1 : index]++;
   }
 
+  /** A new histogram holding this one's observations and `other`'s, as if one had seen both. */
+  merged(other: LatencyHistogram): LatencyHistogram {
+    const result = new LatencyHistogram();
+    for (let index = 0; index < result.counts.length; index++) {
+      result.counts[index] = this.counts[index] + other.counts[index];
+    }
+    result.count = this.count + other.count;
+    result.sum = this.sum + other.sum;
+    result.max = Math.max(this.max, other.max);
+    return result;
+  }
+
   snapshot(): {
     avg_ms: number;
     p50_ms: number;

@@ -1,3 +1,4 @@
+import { MediaFolderName } from "@silo/shared/media-folder-name";
 import { ValidationError } from "@silo/shared/validation-error";
 
 /**
@@ -10,11 +11,6 @@ import { ValidationError } from "@silo/shared/validation-error";
  * leaves the archive's `media/` layout (§7.1) unchanged.
  */
 export class MediaPaths {
-  static readonly MaxDepth = 16;
-  static readonly MaxSegment = 64;
-  /** Close to a collection name's grammar, so folders read like the rest of silo. */
-  private static readonly SegmentPattern = /^[a-zA-Z0-9][a-zA-Z0-9 ._-]*$/;
-
   /**
    * Normalises a caller-supplied folder to "" (root) or "/a/b". Rejects
    * traversal, empty segments, and anything that would not survive a round
@@ -29,21 +25,11 @@ export class MediaPaths {
     if (!trimmed || trimmed === "/") return "";
 
     const segments = trimmed.split("/").filter((s) => s.length > 0);
-    if (segments.length > MediaPaths.MaxDepth) {
-      throw new ValidationError(`folder is deeper than ${MediaPaths.MaxDepth} levels`);
-    }
+    const tooDeep = MediaFolderName.depthProblem(segments.length);
+    if (tooDeep) throw new ValidationError(tooDeep);
     for (const segment of segments) {
-      if (segment === "." || segment === "..") {
-        throw new ValidationError(`invalid folder segment "${segment}"`);
-      }
-      if (segment.length > MediaPaths.MaxSegment) {
-        throw new ValidationError(
-          `folder segment "${segment}" is longer than ${MediaPaths.MaxSegment} characters`
-        );
-      }
-      if (!MediaPaths.SegmentPattern.test(segment)) {
-        throw new ValidationError(`invalid folder segment "${segment}"`);
-      }
+      const problem = MediaFolderName.segmentProblem(segment);
+      if (problem) throw new ValidationError(problem);
     }
     return "/" + segments.join("/");
   }
@@ -78,16 +64,47 @@ export class MediaPaths {
   }
 
   /**
-   * The blob key for a new asset. Flat and derived from the asset id, so it is
-   * 1:1 with the catalog record — no two assets ever share bytes, which keeps
-   * deletion a decision about one record rather than a second refcount over
-   * the blob store. Kept in one function so the naming policy can change
-   * without touching the record shape (`blob_key` is stored, not derived).
+   * The one segment every blob key sits under, and the same segment silo's own
+   * route serves (D88). It is what makes a key the URL path minus its leading
+   * slash, so a bucket can answer `/media/<id>` without knowing anything silo
+   * knows.
    */
-  static blobKey(assetId: string, filename: string): string {
-    const dot = filename.lastIndexOf(".");
-    if (dot <= 0) return assetId;
-    const ext = filename.slice(dot).toLowerCase().replace(/[^a-z0-9.]/g, "");
-    return ext.length > 1 && ext.length <= 12 ? `${assetId}${ext}` : assetId;
+  static readonly BlobPrefix = "media/";
+
+  /**
+   * The blob key for a new asset: `media/<assetId>` (D88).
+   *
+   * Derived from the id alone, so it is 1:1 with the catalog record — no two
+   * assets ever share bytes, which keeps deletion a decision about one record
+   * rather than a second refcount over the blob store. Kept in one function so
+   * the naming policy can change without touching the record shape (`blob_key`
+   * is stored, not derived), which is exactly what lets the `<id><ext>` keys
+   * written before D88 go on resolving beside these, unmigrated.
+   *
+   * **No extension**, where D23 appended the filename's, and **under the
+   * route's own prefix**, where D23 was flat. `/media/<id>` is what silo hands
+   * out; a key that is anything else is a second name for the asset that only
+   * the catalog can resolve, which is what stopped a bucket from ever answering
+   * that URL itself. Content type is not lost with the suffix: `save` stores it
+   * on the record and hands it to the store, which is where every reader takes
+   * it from.
+   */
+  static blobKey(assetId: string): string {
+    return `${MediaPaths.BlobPrefix}${assetId}`;
+  }
+
+  /**
+   * What an archive calls a blob key. The archive's `media/` directory stays
+   * flat, exactly as D23 fixed it, so a key's own prefix **is** that directory
+   * rather than part of the entry's name — an archive written after D88 has the
+   * same shape as one written before, and an older silo reads it unchanged.
+   *
+   * A key with no prefix is its own archive name, which is what keeps the
+   * `<id><ext>` keys and any hand-placed blob exporting as themselves.
+   */
+  static archiveName(blobKey: string): string {
+    return blobKey.startsWith(MediaPaths.BlobPrefix)
+      ? blobKey.slice(MediaPaths.BlobPrefix.length)
+      : blobKey;
   }
 }

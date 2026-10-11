@@ -5,8 +5,8 @@ You get an admin UI with generated forms, a REST API, and data you can move
 anywhere.
 
 silo is one TypeScript process on [Bun](https://bun.com), with six runtime
-dependencies. It keeps content as plain JSON documents in SQLite or in flat
-files, it serves its own React admin UI, and each moving part sits behind an
+dependencies. It keeps content as plain JSON documents in SQLite, in flat
+files or in Postgres, it serves its own React admin UI, and each moving part sits behind an
 interface you can replace. There is no proprietary field language, query
 language, or file format in it. What silo stores, your other tools can already
 read.
@@ -37,6 +37,17 @@ install. Both the packages and the repository index are signed, and the `.repo`
 file makes dnf verify each of them.
 
 ### Docker
+
+```sh
+docker run -p 8090:8090 -v silo_data:/data labsatquicko/silo
+```
+
+The image is on [Docker Hub](https://hub.docker.com/r/labsatquicko/silo) as
+`labsatquicko/silo`, and on the GitHub registry as `ghcr.io/org-quicko/silo`.
+Every release is tagged with its version, `:latest` points at the newest one,
+and each tag carries both an amd64 and an arm64 image, signed with Sigstore and
+carrying build provenance. [Deployment](docs/guide/deployment.md) has the two
+commands that check them. To build it yourself instead:
 
 ```sh
 docker build --pull -t silo .
@@ -154,7 +165,11 @@ engine handle them with no special code.
   export format, so an fs-backed instance is a live backup you can copy with
   `cp`, replicate with `rsync`, or review in git. You can also pull an export
   straight from another running silo.
-- **Replaceable parts.** Storage is SQLite, flat files, or your own driver.
+- **An MCP server.** Point Claude Code, Codex, Cursor or Claude Desktop at
+  `/api/mcp` with an API key and the model gets silo's tools: browse projects
+  and schemas, read, search, create and update entries. Every tool is one API
+  route called with that key, so the key's claims decide what the model may do.
+- **Replaceable parts.** Storage is SQLite, flat files, Postgres, or your own driver.
   Media is local disk or any S3-compatible bucket (AWS S3, MinIO, Cloudflare R2,
   DigitalOcean Spaces). The admin UI is an ordinary client of the public API, so
   you can extend it, fork it, or write your own.
@@ -231,6 +246,7 @@ its own port. Two processes over one data directory is refused, and
 | [Configuration](docs/guide/configuration.md) | `silo.toml`, the `SILO_*` variables, and running as a service |
 | [CLI](docs/guide/cli.md) | Every subcommand and every flag |
 | [HTTP API](docs/guide/http-api.md) | The routes, the query AST, search, and the error shape |
+| [MCP](docs/guide/mcp.md) | Connect an AI client to silo's tools with an API key |
 | [Authentication and claims](docs/guide/claims.md) | The claim catalog, wildcards, and delegation |
 | [Plugins](docs/guide/plugins.md) | Write one, enable one, install one, inspect one |
 | [Export, import and copy](docs/guide/transfer.md) | Archives, the on-disk layout, and migration |

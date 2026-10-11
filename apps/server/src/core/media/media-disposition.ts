@@ -21,9 +21,14 @@ export class MediaDisposition {
     return MediaDisposition.Shown.some((prefix) => type.startsWith(prefix)) ? "inline" : "attachment";
   }
 
-  /** The `Content-Disposition` value, naming the file when there is a name. */
-  static header(contentType: string, filename?: string): string {
-    const kind = MediaDisposition.of(contentType);
+  /**
+   * The `Content-Disposition` value, naming the file when there is a name.
+   * `download` asks for an `attachment` whatever the type (D100). It can turn
+   * `inline` into `attachment` and never the reverse, so it cannot reopen what
+   * `of` closed.
+   */
+  static header(contentType: string, filename?: string, options: { download?: boolean } = {}): string {
+    const kind = options.download ? "attachment" : MediaDisposition.of(contentType);
     return filename ? `${kind}; filename*=UTF-8''${encodeURIComponent(filename)}` : kind;
   }
 }

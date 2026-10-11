@@ -24,6 +24,7 @@ import { MediaStoragePage } from './pages/MediaStoragePage'
 import { ProjectEnvironmentsPage } from './pages/ProjectEnvironmentsPage'
 import { ProjectGeneralPage } from './pages/ProjectGeneralPage'
 import { ProjectsPage } from './pages/ProjectsPage'
+import { AiAssistantsPage } from '../ai-assistants/AiAssistantsPage'
 import styles from './SettingsView.module.css'
 
 interface SettingsViewProps {
@@ -202,6 +203,10 @@ export function SettingsView({ server, route, onUpdateServer, onDeleteServer, on
             onCreate={() => router.navigate(Routes.serverSettings(serverId, 'key-new'))}
             onEdit={(id) => router.navigate(Routes.key(serverId, id))}
           />
+        )}
+
+        {route.view === 'server-settings' && route.section === 'ai-assistants' && (
+          <AiAssistantsPage key={`${serverId}/${url}/${apiKey}`} server={server} />
         )}
 
         {route.view === 'server-settings' && route.section === 'key-new' && (

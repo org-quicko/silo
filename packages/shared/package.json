@@ -1,6 +1,6 @@
 {
   "name": "@silo/shared",
-  "version": "1.2.0",
+  "version": "1.5.0",
   "private": true,
   "type": "module",
   "scripts": {
@@ -15,6 +15,7 @@
     "./claim-segment": "./src/claims/claim-segment.ts",
     "./claims": "./src/claims/claims.ts",
     "./collection-claim": "./src/claims/collection-claim.ts",
+    "./collection-name": "./src/claims/collection-name.ts",
     "./collection-permission": "./src/claims/collection-permission.ts",
     "./filter": "./src/query/filter.ts",
     "./filter-ops": "./src/query/filter-ops.ts",
@@ -25,6 +26,7 @@
     "./json-path": "./src/query/path/json-path.ts",
     "./key-format": "./src/keys/key-format.ts",
     "./media-field": "./src/schema/media-field.ts",
+    "./media-folder-name": "./src/media/media-folder-name.ts",
     "./media-ref": "./src/media/media-ref.ts",
     "./merge-patch": "./src/json/merge-patch.ts",
     "./parsed-claim": "./src/claims/parsed-claim.ts",

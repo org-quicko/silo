@@ -7,6 +7,7 @@ import type { useArchiveTransfer } from './use-archive-transfer'
 import { ArchiveName } from './archive-name'
 import { MediaModeRow } from './MediaModeRow'
 import { TransferCoverageSheet } from './TransferCoverageSheet'
+import { TransferInclude } from './transfer-include'
 import { TransferScopePicker } from './TransferScopePicker'
 import { TransferTrees } from './transfer-tree'
 import { useTransferTree } from './use-transfer-tree'
@@ -35,7 +36,11 @@ export function ExportPanel({
   const tree = useTransferTree(server.url, server.apiKey, true)
   const [showingCoverage, setShowingCoverage] = useState(false)
   const rules = transfer.exportInclude
-  const whole = rules.length === 0
+  // The picker opens empty (D89), so "nothing chosen yet" and "the whole
+  // instance" are two different states here and the archive is only offered
+  // for the second and everything between them.
+  const whole = !!tree && TransferInclude.everything(rules, tree)
+  const nothing = rules.length === 0 && !whole
   const plural = (count: number, one: string, many = `${one}s`) =>
     `${count} ${count === 1 ? one : many}`
 
@@ -46,11 +51,13 @@ export function ExportPanel({
           // A count and the projects, never the whole list: the row ellipsises,
           // so forty-six rules on one line says nothing at all. The sheet
           // beside it is where they are read.
-          value: whole
-            ? `The whole instance, ${plural(TransferTrees.scopes(tree), 'environment')}`
-            : ExportPanel.coverage(rules),
+          value: nothing
+            ? 'Nothing selected'
+            : whole
+              ? `The whole instance, ${plural(TransferTrees.scopes(tree), 'environment')}`
+              : ExportPanel.coverage(rules),
           plain: true,
-          action: whole ? undefined : (
+          action: whole || nothing ? undefined : (
             <button
               type="button"
               className={ledger.factLink}
@@ -62,14 +69,16 @@ export function ExportPanel({
         },
         {
           key: 'Collections',
-          value: whole
-            ? plural(TransferTrees.collectionNames(tree).length, 'collection')
-            : plural(rules.length, 'selection'),
+          value: nothing
+            ? 'None'
+            : whole
+              ? plural(TransferTrees.collectionNames(tree).length, 'collection')
+              : plural(rules.length, 'selection'),
           plain: true,
         },
         {
           key: 'Entries',
-          value: whole ? String(TransferTrees.entries(tree)) : 'Counted on export',
+          value: nothing ? 'None' : whole ? String(TransferTrees.entries(tree)) : 'Counted on export',
           plain: true,
         },
         {
@@ -92,16 +101,20 @@ export function ExportPanel({
         <SettingsRow
           label="Scope"
           help={
-            whole
-              ? 'Everything is checked. Uncheck to move only part of the instance.'
-              : `${plural(rules.length, 'selection')}. Check everything to move the whole instance.`
+            nothing
+              ? 'Nothing is checked. Check what to move, or use All.'
+              : whole
+                ? 'The whole instance is checked. Uncheck to move only part of it.'
+                : `${plural(rules.length, 'selection')}. Check everything to move the whole instance.`
           }
           stack
         >
           <TransferScopePicker
             tree={tree}
             rules={rules}
-            onChange={transfer.setExportInclude}
+            onChange={(next) =>
+              transfer.setExportInclude(next, !tree || !TransferInclude.everything(next, tree))
+            }
             disabled={transfer.exporting}
           />
         </SettingsRow>
@@ -145,7 +158,12 @@ export function ExportPanel({
         )}
 
         <div className={ledger.sectionActions}>
-          <Button variant="primary" onClick={transfer.exportArchive} disabled={transfer.exporting}>
+          {nothing && <span className={ledger.sectionNote}>Check what to export first</span>}
+          <Button
+            variant="primary"
+            onClick={() => tree && transfer.exportArchive(TransferInclude.wire(rules, tree))}
+            disabled={transfer.exporting || !tree || nothing}
+          >
             <Download size={14} /> {transfer.exporting ? 'Preparing…' : 'Download archive'}
           </Button>
         </div>

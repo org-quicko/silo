@@ -12,4 +12,9 @@ export interface MediaPolicyInput {
    *  or on the request's origin where silo serves the bytes. */
   base_url?: string;
   extensions?: string[];
+  /** Bulk download ceilings (D106). `null` clears one back to its default;
+   *  an omitted one keeps the file's. */
+  download_max_files?: number | null;
+  download_max_size_mb?: number | null;
+  download_max_streams?: number | null;
 }

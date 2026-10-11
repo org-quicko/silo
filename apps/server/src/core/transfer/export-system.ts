@@ -15,7 +15,9 @@ import type { ExportSink } from "./sink/export-sink";
 
 /**
  * The `_system` half of an export: the media catalog, its folders, the
- * variable declarations, and — only behind `with_keys` — the key hashes.
+ * variable declarations, and — only behind `with_keys` — the key hashes. A
+ * whole-instance move (`instance`, D97) adds the plugin grants, the keys silo
+ * minted for them, and the audit log.
  *
  * It runs after `ExportWalk` because two of its filters depend on what that
  * walk found: which assets the exported entries reference, and which projects
@@ -29,6 +31,7 @@ export class ExportSystem {
   private readonly sink: ExportSink;
   private readonly media: MediaMode;
   private readonly withKeys: boolean;
+  private readonly instance: boolean;
   private readonly projectIds: ReadonlySet<string>;
   private readonly referenced: ReadonlySet<string>;
 
@@ -43,6 +46,7 @@ export class ExportSystem {
     sink: ExportSink;
     media: MediaMode;
     withKeys: boolean;
+    instance: boolean;
     projectIds: ReadonlySet<string>;
     referenced: ReadonlySet<string>;
   }) {
@@ -50,6 +54,7 @@ export class ExportSystem {
     this.sink = options.sink;
     this.media = options.media;
     this.withKeys = options.withKeys;
+    this.instance = options.instance;
     this.projectIds = options.projectIds;
     this.referenced = options.referenced;
   }
@@ -85,11 +90,16 @@ export class ExportSystem {
    * and the variables are data — an archive carrying media bytes without their
    * filenames restores a library with no organisation, and one carrying
    * `{{API_URL}}` without its declaration restores content whose references
-   * have quietly stopped resolving (D23, D57). Everything else silo keeps for
-   * itself — audit, plugins, scope renames — is instance-local and never rides.
+   * have quietly stopped resolving (D23, D57). The audit log and the plugin
+   * grants are instance-local and ride only in a move, which is the same
+   * instance arriving somewhere else. Scope renames never ride; `Exporter`
+   * refuses a move while one is pending.
    */
   private rides(collection: string): boolean {
     if (collection === KeyUtils.KeysCollection) return this.withKeys;
+    if (collection === SystemCollections.Audit || collection === SystemCollections.Plugins) {
+      return this.instance;
+    }
     return (
       collection === SystemCollections.Media ||
       collection === SystemCollections.MediaFolders ||
@@ -129,8 +139,9 @@ export class ExportSystem {
     if (collection === KeyUtils.KeysCollection) {
       // A managed key is minted, kept and rotated by silo itself, so a copy of
       // it at the destination authenticates as nothing and is revocable through
-      // no ordinary path (D34). The destination mints its own on approval.
-      return !KeyUtils.isManaged(entry.data as KeyInfo);
+      // no ordinary path (D34). The destination mints its own on approval —
+      // unless this is a move, where the grant that names it travels too.
+      return this.instance || !KeyUtils.isManaged(entry.data as KeyInfo);
     }
     if (collection === SystemCollections.Variables) {
       // Keyed by project id, so a selective export carries exactly the
