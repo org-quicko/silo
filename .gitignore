@@ -30,3 +30,7 @@ node_modules/
 
 # A compose password file, see packaging/compose/compose.yaml.
 packaging/compose/.env
+*.classpath
+*.xml
+*.project
+*.prefs
