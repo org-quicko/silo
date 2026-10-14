@@ -5,6 +5,7 @@ import { HttpPackageSource } from "../../adapters/http/http-package-source";
 import { EntryUtils } from "../../core/domain/entry-utils";
 import type { SiloService } from "../../core/services/silo-service";
 import { MediaModes } from "../../core/transfer/media-mode";
+import type { PreparedTransferPage } from "../../core/transfer/prepared/prepared-transfer-page";
 import type { PreparedTransferProgress } from "../../core/transfer/prepared/prepared-transfer-progress";
 import { PreparedTransferRequest } from "../../core/transfer/prepared/prepared-transfer-request";
 import type { PreparedTransferView } from "../../core/transfer/prepared/prepared-transfer-view";
@@ -13,9 +14,10 @@ import { RouteAuth } from "../auth/route-auth";
 import { ProgressStream } from "./progress-stream";
 
 /**
- * `…/envs/{env}/transfers` (D109): the destination half of a transfer from
- * another instance. Prepare pulls and verifies the source's package; the
- * other routes read it, one page or one entry at a time, and cancel it.
+ * `…/envs/{env}/transfers` (D109, D110): the destination half of a transfer
+ * from another instance. Prepare pulls, verifies and plans the source's
+ * package; the other routes read the plan a page at a time, read one packaged
+ * entry, and cancel.
  *
  * Prepare asks for `transfer:copy`, because the server reaches outside itself,
  * plus the env copy's write claims on each collection (D22), the replace
@@ -42,7 +44,7 @@ export class PreparedTransferRoutes {
       const source = new HttpPackageSource(request.sourceUrl, request.apiKey, request.from, request.packageBody());
       const record = await service.preparedTransfers.begin(key.id, to, request, source.url);
       const run = (report?: (progress: PreparedTransferProgress) => void) =>
-        service.preparedTransfers.fill(record, request, source, report);
+        service.preparedTransfers.fill(record, request, source, PreparedTransferRoutes.reveals(c), report);
       // The pull can take as long as the source's media does, which is what
       // a quiet-connection timeout kills (§7.8).
       if (ProgressStream.wanted(c)) return ProgressStream.respond<PreparedTransferView, PreparedTransferProgress>(c, run);
@@ -82,8 +84,22 @@ export class PreparedTransferRoutes {
     app.delete("/api/projects/:project/envs/:env/transfers/:id", cancel);
   }
 
+  /**
+   * Whether the caller may see into a destination collection: the env copy's
+   * read claims there (D22), as its preview asks before naming a row only the
+   * destination holds.
+   */
+  private static reveals(c: Context): PreparedTransferPage["reveals"] {
+    const key = RouteAuth.requireKey(c);
+    const to = RouteAuth.getScope(c);
+    return (collection) =>
+      Claims.ScopeCopyReadPermissions.every((permission) =>
+        Claims.has(key.claims, Claims.collection(to.project, to.env, collection, permission))
+      );
+  }
+
   /** `detail_offset` and `detail_limit`, as the env copy's preview names them. */
-  private static page(c: Context): { offset: number; limit: number } {
+  private static page(c: Context): PreparedTransferPage {
     const read = (name: string, fallback: number, least: number): number => {
       const value = c.req.query(name);
       if (value === undefined) return fallback;
@@ -95,6 +111,7 @@ export class PreparedTransferRoutes {
     return {
       offset: read("detail_offset", 0, 0),
       limit: read("detail_limit", PreparedTransferViews.DefaultLimit, 1),
+      reveals: PreparedTransferRoutes.reveals(c),
     };
   }
 

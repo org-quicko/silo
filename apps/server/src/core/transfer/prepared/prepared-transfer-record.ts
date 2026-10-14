@@ -1,5 +1,6 @@
 import type { MediaMode } from "../media-mode";
 import type { TransferPackageSummary } from "../package/transfer-package-summary";
+import type { TransferReview } from "../plan/transfer-review";
 import type { PreparedTransferState } from "./prepared-transfer-state";
 
 /**
@@ -29,5 +30,7 @@ export interface PreparedTransferRecord {
   expires_at: string;
   /** Set once the package is verified. */
   package?: TransferPackageSummary;
+  /** Set once the package is planned against the destination (D110). */
+  review?: TransferReview;
   last_error?: string;
 }

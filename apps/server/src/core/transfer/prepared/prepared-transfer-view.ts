@@ -1,11 +1,14 @@
 import type { MediaMode } from "../media-mode";
-import type { PackagedEntry } from "../package/packaged-entry";
 import type { TransferPackageSummary } from "../package/transfer-package-summary";
+import type { TransferPlanCollection } from "../plan/transfer-plan-collection";
+import type { TransferPlanItem } from "../plan/transfer-plan-item";
+import type { TransferReview } from "../plan/transfer-review";
 import type { PreparedTransferState } from "./prepared-transfer-state";
 
 /**
- * A prepared transfer as the API answers it (D109): its record without the key
- * it is bound to, and, while the package is held, one page of its entries.
+ * A prepared transfer as the API answers it (D109, D110): its record without
+ * the key it is bound to or the plan's baseline, and, while the package is
+ * held, one page of the plan.
  */
 export interface PreparedTransferView {
   id: string;
@@ -21,6 +24,9 @@ export interface PreparedTransferView {
   prefer?: "local" | "remote";
   media: MediaMode;
   package?: TransferPackageSummary;
-  entries?: { offset: number; limit: number; total: number; items: PackagedEntry[] };
+  review?: Omit<TransferReview, "lines" | "collections"> & {
+    collections: Omit<TransferPlanCollection, "baseline">[];
+  };
+  entries?: { offset: number; limit: number; total: number; items: TransferPlanItem[] };
   last_error?: string;
 }

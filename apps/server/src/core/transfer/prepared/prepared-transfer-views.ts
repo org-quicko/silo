@@ -1,17 +1,21 @@
+import type { TransferPlanItem } from "../plan/transfer-plan-item";
+import type { TransferPlanLine } from "../plan/transfer-plan-line";
+import type { TransferReview } from "../plan/transfer-review";
+import type { PreparedTransferPage } from "./prepared-transfer-page";
 import type { PreparedTransferRecord } from "./prepared-transfer-record";
 import type { PreparedTransferStore } from "./prepared-transfer-store";
 import type { PreparedTransferView } from "./prepared-transfer-view";
 
-/** Builds the API's answer for a prepared transfer (D109). */
+/** Builds the API's answer for a prepared transfer (D109, D110). */
 export class PreparedTransferViews {
   static readonly DefaultLimit = 25;
   static readonly MaxLimit = 100;
 
-  /** The record without its key binding, plus one page of entries while the package is held. */
+  /** The record without its key binding or baseline, plus one page of the plan while the package is held. */
   static async of(
     store: PreparedTransferStore,
     record: PreparedTransferRecord,
-    page?: { offset: number; limit: number }
+    page?: PreparedTransferPage
   ): Promise<PreparedTransferView> {
     const view: PreparedTransferView = {
       id: record.id,
@@ -27,13 +31,37 @@ export class PreparedTransferViews {
       ...(record.prefer ? { prefer: record.prefer } : {}),
       media: record.media,
       ...(record.package ? { package: record.package } : {}),
+      ...(record.review ? { review: PreparedTransferViews.review(record.review) } : {}),
       ...(record.last_error ? { last_error: record.last_error } : {}),
     };
-    if (record.state === "prepared" && record.package && page) {
-      const total = record.package.collections.reduce((sum, collection) => sum + collection.entries, 0);
+    if (record.state === "prepared" && record.review && page) {
       const limit = Math.min(page.limit, PreparedTransferViews.MaxLimit);
-      view.entries = { offset: page.offset, limit, total, items: await store.page(record.id, page.offset, limit) };
+      const lines = await store.page(record.id, page.offset, limit);
+      view.entries = {
+        offset: page.offset,
+        limit,
+        total: record.review.lines,
+        items: lines.map((line) => PreparedTransferViews.item(line, page.reveals(line.collection))),
+      };
     }
     return view;
+  }
+
+  private static review(review: TransferReview): NonNullable<PreparedTransferView["review"]> {
+    const { lines: _lines, collections, ...totals } = review;
+    return { ...totals, collections: collections.map(({ baseline: _baseline, ...collection }) => collection) };
+  }
+
+  private static item(line: TransferPlanLine, revealed: boolean): TransferPlanItem {
+    return {
+      collection: line.collection,
+      ...(line.action !== "deleted" || revealed ? { id: line.id } : {}),
+      action: line.action,
+      ...(line.rev !== undefined ? { rev: line.rev, updated_at: line.updated_at } : {}),
+      ...(revealed && line.destination
+        ? { destination: { rev: line.destination.rev, updated_at: line.destination.updated_at } }
+        : {}),
+      ...(line.reason ? { reason: line.reason } : {}),
+    };
   }
 }

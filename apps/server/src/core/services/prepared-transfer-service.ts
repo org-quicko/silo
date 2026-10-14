@@ -1,7 +1,7 @@
 import { ValidationError } from "@silo/shared/validation-error";
 import type { Entry } from "../domain/entry";
 import { EntryUtils } from "../domain/entry-utils";
-import type { Scope } from "../domain/scope";
+import { Scope } from "../domain/scope";
 import { ArchiveTooLargeError } from "../errors/archive-too-large-error";
 import { ConflictError } from "../errors/conflict-error";
 import { NotFoundError } from "../errors/not-found-error";
@@ -9,7 +9,9 @@ import type { AtomicStorage } from "../ports/atomic-storage";
 import type { TransferPackageSource } from "../ports/transfer-package-source";
 import { Importer } from "../transfer/importer";
 import { TransferPackageVerifier } from "../transfer/package/transfer-package-verifier";
+import { TransferPlanner } from "../transfer/plan/transfer-planner";
 import { PreparedTransferExpiry } from "../transfer/prepared/prepared-transfer-expiry";
+import type { PreparedTransferPage } from "../transfer/prepared/prepared-transfer-page";
 import type { PreparedTransferProgress } from "../transfer/prepared/prepared-transfer-progress";
 import type { PreparedTransferRecord } from "../transfer/prepared/prepared-transfer-record";
 import { PreparedTransferRegistry } from "../transfer/prepared/prepared-transfer-registry";
@@ -20,8 +22,10 @@ import type { ServiceContext } from "./support/service-context";
 
 /**
  * Prepared transfers on the destination (D109): pull another silo's package
- * once, verify it exactly, and keep it for review until Apply, a cancel or the
- * expiry. Nothing here writes to storage, so nothing takes the write lock.
+ * once, verify it exactly, plan it against the destination (D110), and keep
+ * both for review until Apply, a cancel or the expiry. Nothing here writes to
+ * storage, so nothing takes the write lock: the plan's baseline is what makes
+ * a change made since the review visible to Apply.
  *
  * Every lookup is bound to the key that prepared the transfer and to the
  * destination scope; any other caller is told it does not exist.
@@ -57,11 +61,12 @@ export class PreparedTransferService {
     });
   }
 
-  /** Pulls and verifies the package `begin` made room for. A failure removes the transfer. */
+  /** Pulls, verifies and plans the package `begin` made room for. A failure removes the transfer. */
   async fill(
     record: PreparedTransferRecord,
     request: PreparedTransferRequest,
     source: TransferPackageSource,
+    reveals: PreparedTransferPage["reveals"],
     report?: (progress: PreparedTransferProgress) => void
   ): Promise<PreparedTransferView> {
     const signal = this.registry.signal(record.id);
@@ -79,7 +84,19 @@ export class PreparedTransferService {
 
       report?.({ phase: "verify", transfer });
       const { summary, entries } = await TransferPackageVerifier.verify(store.packageDirectory(record.id), request.selection);
-      await store.writeIndex(record.id, entries);
+      signal.throwIfAborted();
+
+      report?.({ phase: "plan", transfer });
+      const planner = new TransferPlanner(this.context.store, {
+        to: Scope.of(record.to.project, record.to.env),
+        mode: record.mode,
+        prefer: record.prefer,
+        instanceId: summary.instance_id,
+        collections: record.selection.map((item) => item.collection).sort(),
+        entries,
+        content: store.content(record),
+      });
+      await store.writePlan(record.id, planner.lines());
       return await this.registry.locked(async () => {
         signal.throwIfAborted();
         const now = new Date();
@@ -87,11 +104,12 @@ export class PreparedTransferService {
           ...record,
           state: "prepared",
           package: summary,
+          review: planner.review(),
           updated_at: now.toISOString(),
           expires_at: PreparedTransferExpiry.expiresAt(now),
         };
         await store.write(prepared);
-        return PreparedTransferViews.of(store, prepared, { offset: 0, limit: PreparedTransferViews.DefaultLimit });
+        return PreparedTransferViews.of(store, prepared, { offset: 0, limit: PreparedTransferViews.DefaultLimit, reveals });
       });
     } catch (caught) {
       if (!signal.aborted) {
@@ -105,7 +123,7 @@ export class PreparedTransferService {
     }
   }
 
-  async read(keyId: string, to: Scope, id: string, page: { offset: number; limit: number }): Promise<PreparedTransferView> {
+  async read(keyId: string, to: Scope, id: string, page: PreparedTransferPage): Promise<PreparedTransferView> {
     return this.registry.locked(async (store) =>
       PreparedTransferViews.of(store, await this.registry.owned(store, keyId, to, id), page)
     );
