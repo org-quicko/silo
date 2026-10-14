@@ -17,10 +17,14 @@
   first caller and counts nine system collections, not seven. The README gains
   a *Promotion between instances* feature. `resources/release-notes/1.6.0.md`
   is new: what to check before upgrading (which keys hold `transfer:copy`, and
-  egress rules), the new feature, the fixes since 1.5.0, and the rest. The
-  release workflow posts install text and GitHub's generated list, and does
-  not read the folder, so the note goes at the top of the release by hand. The
-  version bump is left to the maintainer.
+  egress rules), the new feature, the fixes since 1.5.0, and the rest.
+  `release.yml`'s publish step now reads `resources/release-notes/<version>.md`
+  from the tagged commit through the contents API (the job checks nothing
+  out) and puts it above the install text and GitHub's generated list. A
+  version with no file gets a warning and the old text; any other API failure
+  stops the publish, so a written note is never silently dropped. Dry-run
+  against a stubbed `gh` in all three cases. The version bump is left to the
+  maintainer.
 - **Copy key checks and source trees answer only for their own inputs
   (2026-10-14).** Three faults on the two copy pages. In each, a check or a read
   outlived the URL or key it was made for. (1) The server-wide *Copy from silo*
