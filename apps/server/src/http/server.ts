@@ -17,6 +17,7 @@ import { UnauthorizedError } from "../core/errors/unauthorized-error";
 import { ForbiddenError } from "../core/errors/forbidden-error";
 import { RangeNotSatisfiableError } from "../core/errors/range-not-satisfiable-error";
 import { StorageBusyError } from "../core/errors/storage-busy-error";
+import { TooManyTransfersError } from "../core/errors/too-many-transfers-error";
 import type { Logger } from "../logging/logger";
 import { PluginRegistry, PluginSupervisor, ProviderRegistry } from "../plugins";
 import { ConfigSupervisor, MediaPolicySupervisor, MediaStorageSupervisor } from "../settings";
@@ -255,7 +256,7 @@ export class SiloServer {
       }
       if (err instanceof ConflictError) {
         return c.json(
-          { error: { code: "conflict", message: err.message } },
+          { error: { code: err.code, message: err.message } },
           409
         );
       }
@@ -277,6 +278,14 @@ export class SiloServer {
         return c.json(
           { error: { code: "archive_too_large", message: err.message } },
           413
+        );
+      }
+      // Every prepared-transfer slot is taken (D109). No `Retry-After`: a slot
+      // frees when someone applies or cancels, not after a known time.
+      if (err instanceof TooManyTransfersError) {
+        return c.json(
+          { error: { code: "too_many_transfers", message: err.message } },
+          429
         );
       }
       // Too many reads already waiting on storage (D81): shed the request with

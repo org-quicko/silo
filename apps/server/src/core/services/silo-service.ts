@@ -15,6 +15,7 @@ import { EntryService } from "./entry-service";
 import { KeyService } from "./key-service";
 import { MediaService } from "./media/media-service";
 import { PluginGrantService } from "./plugin-grant-service";
+import { PreparedTransferService } from "./prepared-transfer-service";
 import { RenameService } from "./rename-service";
 import { ScopeService } from "./scope-service";
 import { SearchService } from "./search-service";
@@ -72,6 +73,9 @@ export class SiloService {
   readonly plugins: PluginGrantService;
   readonly media: MediaService;
   readonly transfer: TransferService;
+  /** Transfers from another instance, pulled and reviewed before they are
+   *  applied (D109). */
+  readonly preparedTransfers: PreparedTransferService;
   /** Renaming any of the three record kinds, and the claim cascade that
    *  follows (D51). */
   readonly renames: RenameService;
@@ -119,6 +123,7 @@ export class SiloService {
     this.keys = new KeyService(this.context, this.audit);
     this.plugins = new PluginGrantService(this.context, this.keys, this.audit);
     this.transfer = new TransferService(this.context);
+    this.preparedTransfers = new PreparedTransferService(this.context);
     this.renames = new RenameService(
       this.context,
       this.scopes,

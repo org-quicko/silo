@@ -3,12 +3,14 @@ import { ValidationError } from "@silo/shared/validation-error";
 import { ArchiveTooLargeError } from "../../core/errors/archive-too-large-error";
 import { ConflictError } from "../../core/errors/conflict-error";
 import { ForbiddenError } from "../../core/errors/forbidden-error";
+import { NotFoundError } from "../../core/errors/not-found-error";
+import { TooManyTransfersError } from "../../core/errors/too-many-transfers-error";
 import { UnauthorizedError } from "../../core/errors/unauthorized-error";
 import type { ImportProgress } from "../../core/transfer/import-progress";
-import type { ImportResult } from "../../core/transfer/import-result";
 
 /**
- * An import or copy answered as a line-delimited progress stream.
+ * An import, a copy or a transfer's preparation answered as a line-delimited
+ * progress stream.
  *
  * Both operations spend their whole run saying nothing — the request body is in
  * long before the destination has finished writing — so on any connection that
@@ -39,11 +41,13 @@ export class ProgressStream {
    * `error` line.
    *
    * `work` is started before the first heartbeat so nothing is delayed by the
-   * reporting, and the heartbeat interval is cleared on every exit path.
+   * reporting, and the heartbeat interval is cleared on every exit path. A
+   * report's fields go out beside `type`, so an import's line is
+   * `{type, phase, result}` and a preparation's names its transfer.
    */
-  static respond(
+  static respond<Result, Progress extends { phase: string } = ImportProgress>(
     c: Context,
-    work: (report: (progress: ImportProgress) => void) => Promise<ImportResult>
+    work: (report: (progress: Progress) => void) => Promise<Result>
   ): Response {
     const { readable, writable } = new TransformStream<Uint8Array, Uint8Array>();
     const writer = writable.getWriter();
@@ -65,9 +69,7 @@ export class ProgressStream {
 
     void (async () => {
       try {
-        const result = await work((progress) =>
-          line({ type: "progress", phase: progress.phase, result: progress.result })
-        );
+        const result = await work((progress) => line({ type: "progress", ...progress }));
         line({ type: "result", result });
       } catch (caught) {
         line(ProgressStream.failure(caught));
@@ -101,7 +103,9 @@ export class ProgressStream {
       error: { code, message: (caught as Error).message },
     });
     if (ValidationError.is(caught)) return at(400, "validation_failed");
-    if (caught instanceof ConflictError) return at(409, "conflict");
+    if (caught instanceof NotFoundError) return at(404, "not_found");
+    if (caught instanceof ConflictError) return at(409, caught.code);
+    if (caught instanceof TooManyTransfersError) return at(429, "too_many_transfers");
     if (caught instanceof ForbiddenError) return at(403, "forbidden");
     if (caught instanceof UnauthorizedError) return at(401, "unauthorized");
     if (caught instanceof ArchiveTooLargeError) return at(413, "archive_too_large");

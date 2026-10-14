@@ -14,6 +14,7 @@ import { SettingsRoutes } from "./settings-routes";
 import { MediaStorageRoutes } from "./media-storage-routes";
 import { CopyRoutes } from "./copy-routes";
 import { TransferPackageRoutes } from "./transfer-package-routes";
+import { PreparedTransferRoutes } from "./prepared-transfer-routes";
 import { SessionRoutes } from "./session-routes";
 import { SearchRoutes } from "./search-routes";
 import { PluginRoutes } from "./plugin-routes";
@@ -56,6 +57,7 @@ export class RouteManager {
     TransferRoutes.register(app, service);
     CopyRoutes.register(app, service);
     TransferPackageRoutes.register(app, service);
+    PreparedTransferRoutes.register(app, service);
     // Before MediaRoutes, so "storage", "settings" and "folders" are never
     // read as asset ids.
     MediaStorageRoutes.register(app, mediaStorage);
