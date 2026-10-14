@@ -165,6 +165,11 @@ engine handle them with no special code.
   export format, so an fs-backed instance is a live backup you can copy with
   `cp`, replicate with `rsync`, or review in git. You can also pull an export
   straight from another running silo.
+- **Promotion between instances.** Copy the collections and entries you pick
+  from an environment on one silo into an environment on another, such as
+  `acme/dev` on the dev server into `acme/uat` on uat, with the media files
+  they use. You review the plan first, and Apply writes exactly that plan as
+  one change, or nothing.
 - **An MCP server.** Point Claude Code, Codex, Cursor or Claude Desktop at
   `/api/mcp` with an API key and the model gets silo's tools: browse projects
   and schemas, read, search, create and update entries. Every tool is one API

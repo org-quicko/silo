@@ -22,7 +22,7 @@ silo/
 │     └─ test/                    one file per subject, with support/ holding the synthetic export
 ├─ tools/                     build, packaging, seeding and version tooling
 ├─ packaging/                 Homebrew formula template, RPM inputs, and compose/ (silo with Postgres)
-├─ resources/                 context/ (what is), design/ (why), guide/ (how to use it), help/
+├─ resources/                 context/ (what is), design/ (why), guide/ (how to use it), help/, release-notes/
 │  └─ openapi.json            the HTTP API as OpenAPI 3.1, hand-written and kept in step by hand
 └─ docs/                      the public Mintlify site: docs.json, guides/, reference/
 ```
@@ -182,6 +182,7 @@ The root `docs/` is a different thing: the public Mintlify site (`docs.json`,
 | `design/` | *Why* it is shaped this way, one file per spec section, governed by the D1–… decisions log in `design/decisions.md`. Indexed by `IMPLEMENTATION.md` |
 | `guide/` | *How to use* silo, for an operator: `configuration.md`, `cli.md`, `http-api.md`, `mcp.md`, `claims.md`, `plugins.md`, `transfer.md`, `deployment.md`, with a `README.md` indexing them |
 | `help/` | Long-form, informal walkthroughs. `silo-plugins.md` is the narrative counterpart to `guide/plugins.md` |
+| `release-notes/` | One `<version>.md` per release that needs more than GitHub's generated list: what to check before upgrading, then what is new. The release workflow does not read it; its text goes at the top of the GitHub release by hand. `1.6.0.md` is the first |
 | `openapi.json` | The HTTP API as OpenAPI 3.1 — every route, its parameters, its bodies and its responses, for Swagger UI, Redoc and code generators. It sits beside the three directories rather than inside one because it is not prose and has no single audience: an operator points a viewer at it, a client author generates from it, and `resources/guide/http-api.md` links to it. **Hand-written**, because Hono registers routes as code and there is nothing to read them off, so it is a promise the repo makes rather than a derivation — which is why `CLAUDE.md` names it as a mandatory part of any route change and why the file carries its own `x-maintenance` note saying so |
 
 `guide/` exists because the root `README.md` was carrying all of it and had

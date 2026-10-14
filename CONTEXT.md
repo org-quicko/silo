@@ -22,7 +22,8 @@ and every decision (D1–D112) are indexed in [IMPLEMENTATION.md](IMPLEMENTATION
 API, core, adapters), `apps/admin` (React, embedded in the executable),
 `packages/shared`, three published clients, and first-party plugins in
 `plugins/`. The internal docs are in `resources/` (`context/`, `design/`,
-`guide/`, `openapi.json`); `docs/` is the public Mintlify site.
+`guide/`, `openapi.json`, and `release-notes/` for a release that needs
+one); `docs/` is the public Mintlify site.
 [repo-map.md](resources/context/repo-map.md) says where everything lives.
 [architecture.md](resources/context/architecture.md) says how it fits together.
 
@@ -72,7 +73,10 @@ API, core, adapters), `apps/admin` (React, embedded in the executable),
   commit with a `_transfers` ledger row, or nothing; new media files go first
   and are taken back if the commit does not land, and an existing asset is
   never changed (D111). The env Data Transfer page can take another saved
-  server as its source, with a key pasted for that copy (D112).
+  server as its source, with a key pasted for that copy (D112). The user
+  guide and the public transfer page describe it, and
+  [resources/release-notes/1.6.0.md](resources/release-notes/1.6.0.md) is
+  its release note.
 - **Plugins.** A plugin is a granted principal whose `ctx.fetch` goes through
   the real API (D34–D39). Plugins install and uninstall from the API or with
   `silo add` (D32, D42, D43), expose routes under `/api/ext/{name}/*`, and can

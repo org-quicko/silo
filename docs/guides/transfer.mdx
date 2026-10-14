@@ -1,7 +1,7 @@
 ---
 title: "Export, import, and copy data between Silo instances"
 sidebarTitle: "Transfer"
-description: "Export to a tar.gz archive or directory. Import to another instance. Copy between environments. Every transfer streams with no staging pass on disk."
+description: "Export to a tar.gz archive or directory. Import to another instance. Copy between environments, on one instance or from another, with a preview that Apply writes exactly."
 ---
 
 Silo's transfer system moves content between instances, environments, and storage drivers. Every export is streaming — the first bytes leave immediately and no copy of your data is staged on disk first. Archives are reproducible tar.gz files ordered by collection and entry id, byte-for-byte identical from identical data. API key hashes are excluded by default so a content export you share with others ships no credentials.
@@ -205,6 +205,70 @@ A key scoped to one project can move data between that project's environments an
 
 The admin exposes this at **Settings > Environment > Data Transfer** with a preview-then-apply flow.
 
+## Copy an environment from another instance
+
+Promote content from one instance to the next, such as `acme/dev` on your dev server into `acme/uat` on your uat server, or refresh a lower stage from prod. The two environments can have different names. Only the collections and entries you pick leave the source, with the media files they use.
+
+A copy between instances runs in three steps on the destination:
+
+<Steps>
+  <Step title="Prepare">
+    The destination pulls a package from the source that holds exactly your selection, checks it, and plans it against its own content. Nothing is written.
+  </Step>
+  <Step title="Review">
+    Page through the plan: every entry and media file the copy adds, updates, skips or deletes, and the packaged copy of any entry.
+  </Step>
+  <Step title="Apply">
+    The destination writes the plan as one change. If anything the plan read has changed since, it writes nothing and answers `409 stale_preview`. Prepare again.
+  </Step>
+</Steps>
+
+The review and Apply use the saved package and never read the source again, so edits on the source after Prepare do not shift what you reviewed. The source must run Silo 1.6.0 or later. The destination must use the SQLite or Postgres driver; the `fs` driver answers `409 atomic_commit_unsupported`.
+
+### In the admin
+
+On the destination, open **Settings > Environment > Data Transfer** and pick the source in **Source server** (any other server saved in the admin). Paste a source key: it is used for this copy only and never saved. Pick the environment and what to copy, then **Preview copy** and **Apply copy**. A preview is cancelled when you change an input or leave the page.
+
+The browser reads the source to list its projects and collections, so use a source URL that both the browser and the destination server can reach.
+
+### Over HTTP
+
+```bash
+curl -X POST https://uat.example.com/api/projects/acme/envs/uat/transfers \
+  -H "Authorization: Bearer $UAT_SILO_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "source": {"url": "https://dev.example.com", "api_key": "silo_..."},
+    "from": {"project": "acme", "env": "dev"},
+    "selection": [{"collection": "posts"}, {"collection": "pages", "entry_ids": ["01J8XQ4Z8K9M2P3R5T7V9X1B3D"]}],
+    "mode": "merge",
+    "media": "referenced"
+  }'
+```
+
+The answer is `201` with the transfer: its `review` totals and the first page of the plan. Then, with the same key:
+
+| Request | Does |
+|---|---|
+| `GET …/transfers/{id}?detail_offset=25` | The next page of the plan |
+| `GET …/transfers/{id}/entries/{collection}/{entry}` | The copy of one entry that Apply writes |
+| `POST …/transfers/{id}/apply` | Writes the plan as one change, or nothing |
+| `DELETE …/transfers/{id}` | Cancels the transfer |
+
+Prepare and Apply both stream progress with `Accept: application/x-ndjson`. The first line names the transfer, so you can cancel while the destination is still pulling.
+
+### What to know
+
+- **Keys.** The source key needs `transfer:export` and `schema:read` plus `entries:read` on the source environment. Give it nothing else. The destination key needs `transfer:copy` and the same write claims as a copy between environments, plus the replace claims in `replace` mode and `media:create` unless `media` is `none`.
+- **Media.** `referenced` (the default) brings the files the selected entries use; `none` brings no files and no media records. An asset the destination lacks is added. An asset it already has is never changed or deleted, even in `replace` mode: if the bytes or details differ, the plan shows it as skipped with the reason. References that will not resolve on the destination are listed in the plan.
+- **What stays behind.** Variables and API keys never move. Each instance keeps its own.
+- **Limits.** A prepared transfer expires after 60 minutes. A server holds at most 4 open transfers; the next is `429 too_many_transfers`.
+- **Retries.** Apply on an applied transfer answers it again with `200` and writes nothing. Only the key that prepared a transfer can read, apply or cancel it. If the server stops mid-Apply, it settles that Apply when it starts again.
+
+<Warning>
+  **Treat `transfer:copy` as a powerful claim.** The destination sends a request to whatever `source.url` names, and Silo does not limit which addresses it may reach, including ones on your private network. Give `transfer:copy` only to the people who release content, and restrict the server's outbound traffic with firewall rules.
+</Warning>
+
 ## HTTP API reference
 
 | Action | Endpoint |
@@ -213,6 +277,9 @@ The admin exposes this at **Settings > Environment > Data Transfer** with a prev
 | Import | `POST /api/import` |
 | Copy from another instance | `POST /api/copy` |
 | Copy between environments | `POST /api/projects/{p}/envs/{e}/copy` |
+| Send a transfer package (the source half) | `POST /api/projects/{p}/envs/{e}/package` |
+| Prepare a transfer from another instance | `POST /api/projects/{p}/envs/{e}/transfers` |
+| Read, apply, or cancel it | `GET`, `POST …/apply`, `DELETE` on `/api/projects/{p}/envs/{e}/transfers/{id}` |
 
 ## Required claims
 
@@ -221,6 +288,8 @@ The admin exposes this at **Settings > Environment > Data Transfer** with a prev
 | `transfer:export` | Also needs `collections:*/*/*:schema:read` and `collections:*/*/*:entries:read` (or narrowed equivalents) |
 | `transfer:import` | Also needs `entries:create`, `entries:update`, `entries:delete` on the destination scope |
 | `transfer:copy` | Requires both `transfer:export` authority on the source and `transfer:import` authority on the destination |
+| Transfer package (source) | `transfer:export`, plus `schema:read` and `entries:read` on each packaged collection |
+| Prepare and apply a transfer (destination) | `transfer:copy`, plus the environment copy's write claims on each collection, its replace claims in `replace` mode, and `media:create` unless `media` is `none` |
 
 ## Archive format and on-disk layout
 
@@ -265,7 +334,8 @@ An archive can carry Silo's own records under `_system`. A selection cannot name
 | `_keys` | `keys:import` |
 | `_media`, `_media_folders`, `_media_folder_moves` | `media:create` (even with `media=none`); `media:delete` too when `replace` would empty them |
 | `_variables` for a project | `create` and `entries:update` on `<project>/*/*` |
-| `_audit`, `_plugins`, `_scope_renames`, any other `_` name | Never imported — the request is a `400` |
+| `_audit`, `_plugins`, `_transfers` | Only by `silo import` on the host, from an archive made with `silo export --instance`. Over HTTP the request is a `403` |
+| `_scope_renames`, any other `_` name | Never imported. The request is a `400` |
 
 A missing claim is a `403` that names the records and the claim. The check reads rows, not empty collections, so exporting an empty library loads with content permissions alone. The `silo import` CLI on the host is trusted and loads all of it.
 

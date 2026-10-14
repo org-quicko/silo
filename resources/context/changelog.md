@@ -4,6 +4,23 @@
 > The *current* state is [CONTEXT.md](../../CONTEXT.md); this is how it got
 > there.
 
+- **Docs and the release note for copying between instances (2026-10-14).**
+  The seventh step, for 1.6.0. `resources/guide/transfer.md` gains *Copying an
+  environment from another instance*: the three steps, the two keys, the admin
+  steps, the HTTP routes with the progress lines, the rules, the error codes,
+  and what `transfer:copy` opens (H7). `docs/guides/transfer.mdx` gains the
+  same in the public site's voice, rows for the package and transfer routes and
+  their claims, and a corrected system records table: `_audit` and `_plugins`
+  were listed as never imported, which D97 changed, and `_transfers` joins them.
+  Its description no longer says every transfer streams with nothing staged on
+  disk, which a prepared transfer does. `storage.md` names Apply as the commit's
+  first caller and counts nine system collections, not seven. The README gains
+  a *Promotion between instances* feature. `resources/release-notes/1.6.0.md`
+  is new: what to check before upgrading (which keys hold `transfer:copy`, and
+  egress rules), the new feature, the fixes since 1.5.0, and the rest. The
+  release workflow posts install text and GitHub's generated list, and does
+  not read the folder, so the note goes at the top of the release by hand. The
+  version bump is left to the maintainer.
 - **Copy key checks and source trees answer only for their own inputs
   (2026-10-14).** Three faults on the two copy pages. In each, a check or a read
   outlived the URL or key it was made for. (1) The server-wide *Copy from silo*
