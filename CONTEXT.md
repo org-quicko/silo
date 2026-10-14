@@ -90,7 +90,9 @@ API, core, adapters), `apps/admin` (React, embedded in the executable),
 - **Admin UI.** A server manager, then collections, entries, media, transfer and
   settings. Server state lives in one stale-while-revalidate store (D53). A
   saved server whose key is refused opens prefilled in the server dialog, so
-  the key is replaced there.
+  the key is replaced there. A source key pasted for a copy is checked against
+  the source's `/api/session` before any read, so a refused one is a message
+  under the field, not a logout.
 - **Distribution.** Compiled executables, signed checksums, a Homebrew tap, a
   dnf repository, and a multi-arch image on Docker Hub and GHCR (D26–D28, D90).
   Only `vX.Y.Z` tags release. `packaging/compose/` runs silo beside Postgres.
@@ -105,7 +107,9 @@ API, core, adapters), `apps/admin` (React, embedded in the executable),
   are in [milestones.md](resources/design/milestones.md) §12.
   [IDEAS.md](IDEAS.md) holds loose ideas.
 
-**Most recent changes:** the first six steps of moving selected content
+**Most recent changes:** the server-wide *Copy from silo* tab checks its
+pasted source key before it reads the source tree, so a wrong key no longer
+logs the admin out; the first six steps of moving selected content
 between instances: an optional atomic commit on the storage port (D107), a
 transfer package route that sends only what was picked (D108), prepared
 transfers on the destination that pull, verify and hold a package for review

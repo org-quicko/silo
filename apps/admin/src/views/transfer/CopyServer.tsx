@@ -16,6 +16,7 @@ import { MediaModeRow } from './MediaModeRow'
 import { TransferInclude } from './transfer-include'
 import { TransferScopePicker } from './TransferScopePicker'
 import { useTransferTree } from './use-transfer-tree'
+import { useSourceKey, type SourceKeyStatus } from './use-source-key'
 import { SettingsAlert } from '../settings/parts/SettingsAlert'
 import { SettingsRow } from '../settings/parts/SettingsRow'
 import { SettingsSection } from '../settings/parts/SettingsSection'
@@ -23,6 +24,11 @@ import ledger from '../settings/parts/SettingsLedger.module.css'
 
 type Mode = 'merge' | 'replace'
 type Prefer = '' | 'local' | 'remote'
+
+const KeyProblem: Partial<Record<SourceKeyStatus, string>> = {
+  refused: 'The source refused this key.',
+  unreachable: 'Could not reach the source.',
+}
 
 /**
  * Pull another running silo's data straight in, no archive in the middle.
@@ -64,11 +70,8 @@ export function CopyServerPanel({
   const [progress, setProgress] = useState<TransferProgress | null>(null)
   const [error, setError] = useState('')
 
-  const sourceTree = useTransferTree(
-    sourceUrl.trim(),
-    sourceApiKey.trim(),
-    browsing && !!sourceUrl.trim() && !!sourceApiKey.trim(),
-  )
+  const sourceKey = useSourceKey(sourceUrl.trim(), sourceApiKey.trim(), browsing)
+  const sourceTree = useTransferTree(sourceUrl.trim(), sourceApiKey.trim(), sourceKey === 'ready')
 
   const invalidatePreview = () => {
     setPreview(null)
@@ -177,6 +180,9 @@ export function CopyServerPanel({
               {showKey ? <EyeOff size={16} /> : <Eye size={16} />}
             </button>
           </div>
+          {KeyProblem[sourceKey] && (
+            <span className={`${ledger.controlNote} ${ledger.noteBad}`}>{KeyProblem[sourceKey]}</span>
+          )}
         </SettingsRow>
       </SettingsSection>
 

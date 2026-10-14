@@ -4,6 +4,22 @@
 > The *current* state is [CONTEXT.md](../../CONTEXT.md); this is how it got
 > there.
 
+- **The server-wide copy tab checks its pasted key first (2026-10-14).** On the
+  server Data Transfer page, *Copy from silo* read the source's tree once
+  *Choose* was picked, with the pasted URL and key, through
+  `HttpTransport.silo()`, whose `401` fires the app-wide handler. A wrong or
+  revoked source key therefore disconnected the admin from the destination and
+  sent it to `/servers`. `views/transfer/use-source-key.ts` now asks the
+  source's `/api/session` first (`api.session.verify`, which reads a `401` as
+  an answer), the same check as D112's `use-copy-source.ts`, and
+  `use-transfer-tree.ts` runs only once the key is accepted. A refusal shows
+  *The source refused this key.* under the key field; a source that does not
+  answer shows *Could not reach the source.* Preview and Apply were never
+  affected: they go through the destination, which turns the source's `401`
+  into a `400`. Checked in the browser with two scratch SQLite servers: before
+  the fix a wrong key went to `/servers` after one `GET /api/projects` (401);
+  after it the page stays and only `/api/session` is called, a good key then
+  loads the tree, and a closed port shows the second line.
 - **The env Data Transfer page can copy from another server (2026-10-14, D112).**
   The sixth step of copying selected content between instances. A *Source
   server* select offers this server and every other saved one. For another
