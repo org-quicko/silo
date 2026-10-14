@@ -1,6 +1,6 @@
 # Authentication and claims
 
-> The claim catalog and the rules that govern it. The design rationale is in [docs/design/core-concepts.md](../design/core-concepts.md).
+> The claim catalog and the rules that govern it. The design rationale is in [resources/design/core-concepts.md](../design/core-concepts.md).
 
 silo has no users and no browser sessions. A presented key authenticates the
 request, and the claims on that key authorize each individual operation. Claims

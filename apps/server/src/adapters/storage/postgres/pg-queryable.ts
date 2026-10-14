@@ -7,7 +7,7 @@
  * Parameters are strings, numbers, booleans or null — never an object or an
  * array. JSON goes in as text and is cast in SQL (`$1::text::jsonb`), and a
  * list goes in as a JSON array read back with `jsonb_array_elements_text`, so
- * no value depends on how the driver serialises a composite (docs/design/
+ * no value depends on how the driver serialises a composite (resources/design/
  * storage.md §6.6).
  */
 export interface PgQueryable {

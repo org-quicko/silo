@@ -19,7 +19,7 @@ interface PgColumn {
  * together.
  *
  * A selected user field is a `jsonb` expression that is SQL NULL when the path
- * selects nothing. The rules that shape every method (docs/design/storage.md
+ * selects nothing. The rules that shape every method (resources/design/storage.md
  * §6.6):
  *
  * - Names and indexes are separate steps: `-> 'name'`, and a strict jsonpath

@@ -289,7 +289,7 @@ two `FilterNode` and `ValidationDetail` shapes stay structurally assignable.
 Its being a devDependency is also why it reaches no consumer.
 
 `RouteInventory` lists every route the client covers and is checked against the
-server's own registrations, not against `docs/guide/http-api.md`. The guide was
+server's own registrations, not against `resources/guide/http-api.md`. The guide was
 missing `GET` and `POST /api/media/folders`, `GET /api/media/{id}/usages` and
 the `media_in_use` code when this package was written — it is corrected now,
 but a drift guard reading a document that can be incomplete is false

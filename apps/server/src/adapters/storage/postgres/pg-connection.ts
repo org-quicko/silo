@@ -38,7 +38,7 @@ export interface PgConnectionStats {
  * The pool, and the only file that imports the driver.
  *
  * The rules from the P0 and P3 measurements live here so no store has to
- * remember them (docs/design/storage.md §6.6):
+ * remember them (resources/design/storage.md §6.6):
  *
  * - `prepare: false`. The driver otherwise keeps every distinct statement text
  *   prepared on its session, and a compiled filter has a new text nearly every

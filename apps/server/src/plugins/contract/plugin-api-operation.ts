@@ -12,7 +12,7 @@ export interface PluginApiOperation {
 
   /**
    * The route's path with `{placeholder}` segments, exactly as
-   * `docs/design/http-api.md` writes it.
+   * `resources/design/http-api.md` writes it.
    *
    * The `/environments/` spelling and not `/envs/`: both are registered and the
    * long one is canonical, so the generated client uses the form the

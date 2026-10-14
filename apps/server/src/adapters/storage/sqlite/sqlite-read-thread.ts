@@ -26,7 +26,7 @@ interface Waiter {
  * keep a finished CLI command alive, and a pending read must keep the process
  * alive. Permanently unref'd, the first threaded read of `silo keys list` or
  * `serve` was the only thing on the loop, the loop drained, and the process
- * exited 0 before the answer arrived (see docs/design/storage.md, D81).
+ * exited 0 before the answer arrived (see resources/design/storage.md, D81).
  */
 export class SqliteReadThread {
   private static readonly ReleaseGraceMs = 2000;

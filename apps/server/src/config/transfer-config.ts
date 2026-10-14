@@ -1,7 +1,7 @@
 /**
  * How large an archive arriving over the network may be, and how much it may
  * expand to (D85). See §10.5 in
- * [docs/design/configuration.md](../../../../docs/design/configuration.md).
+ * [resources/design/configuration.md](../../../../resources/design/configuration.md).
  *
  * Both bound `POST /api/import` and the export `POST /api/copy` pulls. A
  * tarball or directory named on the host's own command line is the operator's

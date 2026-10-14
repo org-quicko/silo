@@ -22,7 +22,7 @@ import type { ExportSink } from "./sink/export-sink";
  * It runs after `ExportWalk` because two of its filters depend on what that
  * walk found: which assets the exported entries reference, and which projects
  * were written at all. See §7.7 in
- * [docs/design/transfer.md](../../../../../docs/design/transfer.md).
+ * [resources/design/transfer.md](../../../../../resources/design/transfer.md).
  */
 export class ExportSystem {
   private static readonly PageSize = 100;

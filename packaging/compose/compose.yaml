@@ -13,7 +13,7 @@
 #
 # silo starts after Postgres is healthy. The two containers talk over this
 # project's own network, so the URL needs no TLS. For a database somewhere else,
-# see "With TLS" in docs/guide/configuration.md.
+# see "With TLS" in resources/guide/configuration.md.
 #
 # SILO_IMAGE picks another image. Pin a version tag in production, for example
 # SILO_IMAGE=labsatquicko/silo:1.5.0 in the same .env file. The postgres driver

@@ -3,8 +3,8 @@
 > The entry point for anyone, human or AI, working in this repo. It says what
 > exists **now**, in short. Keep it short: the detail belongs in the files it
 > links to, and the history belongs in
-> [docs/context/changelog.md](docs/context/changelog.md). Update it in the same
-> change set as any change to behaviour, architecture or layout.
+> [resources/context/changelog.md](resources/context/changelog.md). Update it
+> in the same change set as any change to behaviour, architecture or layout.
 
 ## What is silo
 
@@ -16,13 +16,15 @@ and every decision (D1–D106) are indexed in [IMPLEMENTATION.md](IMPLEMENTATION
 
 ## Where things stand
 
-*Last updated: 2026-09-30. Version 1.4.0 (root `package.json`, D28).*
+*Last updated: 2026-10-13. Version 1.5.0 (root `package.json`, D28).*
 
 **Stack.** Bun + TypeScript in one workspace: `apps/server` (CLI, Hono HTTP
 API, core, adapters), `apps/admin` (React, embedded in the executable),
 `packages/shared`, three published clients, and first-party plugins in
-`plugins/`. [repo-map.md](docs/context/repo-map.md) says where everything lives.
-[architecture.md](docs/context/architecture.md) says how it fits together.
+`plugins/`. The internal docs are in `resources/` (`context/`, `design/`,
+`guide/`, `openapi.json`); `docs/` is the public Mintlify site.
+[repo-map.md](resources/context/repo-map.md) says where everything lives.
+[architecture.md](resources/context/architecture.md) says how it fits together.
 
 **What is built:**
 
@@ -41,7 +43,8 @@ API, core, adapters), `apps/admin` (React, embedded in the executable),
   Search is FTS5, `PgSearcher`, or `ScanSearcher` for any other store.
 - **Auth.** API keys with claims (`collections:<p>/<e>/<name>:<perm>`, prefix
   segments like `acme-*`, D64). A root key is printed at first boot. Keys are
-  editable (D63). [docs/guide/claims.md](docs/guide/claims.md) has the grammar.
+  editable (D63). [resources/guide/claims.md](resources/guide/claims.md) has
+  the grammar.
 - **Media.** A catalog (`_media`) over fs or S3 blob storage (D23, D45).
   References are `silo://media/<id>`. Blob keys are `media/<id>` (D88). Media
   is streamed with `Range` support (D80) and sandboxed on serve (D83).
@@ -65,14 +68,17 @@ API, core, adapters), `apps/admin` (React, embedded in the executable),
   and observability (D52, D98, D99).
 - **Configuration.** `silo.toml`, `SILO_*` variables and flags. Most tables are
   editable from the admin, which says when a restart is owed (D45–D47, D50).
-  [docs/guide/configuration.md](docs/guide/configuration.md) lists every
-  setting.
-- **API surface.** REST under `/api` ([docs/openapi.json](docs/openapi.json) is
-  hand-written and must be kept in step), MCP at `POST /api/mcp` plus the
-  `silo mcp` stdio bridge (D86), and clients for TypeScript (D61, D71), Java
-  (D69, D87) and Dart (D91).
+  [resources/guide/configuration.md](resources/guide/configuration.md) lists
+  every setting.
+- **API surface.** REST under `/api`
+  ([resources/openapi.json](resources/openapi.json) is hand-written and must be
+  kept in step), MCP at `POST /api/mcp` plus the `silo mcp` stdio bridge
+  (D86), and clients for TypeScript (D61, D71), Java (D69, D87) and Dart
+  (D91).
 - **Admin UI.** A server manager, then collections, entries, media, transfer and
-  settings. Server state lives in one stale-while-revalidate store (D53).
+  settings. Server state lives in one stale-while-revalidate store (D53). A
+  saved server whose key is refused opens prefilled in the server dialog, so
+  the key is replaced there.
 - **Distribution.** Compiled executables, signed checksums, a Homebrew tap, a
   dnf repository, and a multi-arch image on Docker Hub and GHCR (D26–D28, D90).
   Only `vX.Y.Z` tags release. `packaging/compose/` runs silo beside Postgres.
@@ -84,25 +90,28 @@ API, core, adapters), `apps/admin` (React, embedded in the executable),
 - Changing a schema over existing entries is deferred until a migration plan
   exists (D70).
 - Roadmap items (sync, drafts/publish, durable webhooks, enforced relations)
-  are in [milestones.md](docs/design/milestones.md) §12. [IDEAS.md](IDEAS.md)
-  holds loose ideas.
+  are in [milestones.md](resources/design/milestones.md) §12.
+  [IDEAS.md](IDEAS.md) holds loose ideas.
 
-**Most recent changes:** bulk download and library stats in the media
-library (D106); folder upload in the media library (D105); collection names
-of up to 128 characters (D104). Read the top of the
-[changelog](docs/context/changelog.md) for more.
+**Most recent changes:** a server whose saved key is refused opens in an edit
+dialog from the server picker, instead of a banner that needed `localStorage`
+cleared; the internal docs moved from `docs/` to `resources/`, and every link
+to them now points there; an import stores each media blob with the type and
+disposition its `_media` row names, so a bucket serves imported media as silo
+would (D88). Read the top of the
+[changelog](resources/context/changelog.md) for more.
 
 ## Reading order
 
 | Document | What it answers |
 |----------|-----------------|
-| [docs/context/architecture.md](docs/context/architecture.md) | How the pieces fit together |
-| [docs/context/repo-map.md](docs/context/repo-map.md) | Where everything lives |
-| [docs/context/code-design.md](docs/context/code-design.md) | How code here is shaped, and test-suite pitfalls |
-| [docs/context/changelog.md](docs/context/changelog.md) | Every notable change, newest first |
-| [IMPLEMENTATION.md](IMPLEMENTATION.md) | Vision, the decision index, and the index into `docs/design/` |
-| [docs/design/decisions.md](docs/design/decisions.md) | Each decision in full: choice and rationale |
-| [docs/guide/](docs/guide/README.md) | How to run, configure and extend silo |
+| [resources/context/architecture.md](resources/context/architecture.md) | How the pieces fit together |
+| [resources/context/repo-map.md](resources/context/repo-map.md) | Where everything lives |
+| [resources/context/code-design.md](resources/context/code-design.md) | How code here is shaped, and test-suite pitfalls |
+| [resources/context/changelog.md](resources/context/changelog.md) | Every notable change, newest first |
+| [IMPLEMENTATION.md](IMPLEMENTATION.md) | Vision, the decision index, and the index into `resources/design/` |
+| [resources/design/decisions.md](resources/design/decisions.md) | Each decision in full: choice and rationale |
+| [resources/guide/](resources/guide/README.md) | How to run, configure and extend silo |
 
 ## Working in this repo
 
@@ -117,9 +126,9 @@ bun run build                              # the single-file executable
 ```
 
 - Postgres tests run only when `SILO_TEST_PG_URL` is set. See
-  [code-design.md](docs/context/code-design.md) (Tests).
+  [code-design.md](resources/context/code-design.md) (Tests).
 - A change to a route, parameter, body, response or claim updates
-  `docs/openapi.json`, `docs/guide/http-api.md` and `docs/design/http-api.md`
-  together.
+  `resources/openapi.json`, `resources/guide/http-api.md` and
+  `resources/design/http-api.md` together.
 - Never `git add`, `git commit` or `git push` here. The author stages and
   commits. Leave the working tree dirty.

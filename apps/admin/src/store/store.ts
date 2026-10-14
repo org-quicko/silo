@@ -12,7 +12,7 @@ export type ResourceLoader<T> = () => Promise<T>
  * while the new answer is in flight. Two dispatches for one key share one
  * request, which is what makes a refresh on every mount cheap.
  *
- * Keys are built by `StoreKeys`; `docs/design/admin-ui.md` §9.1 says why the
+ * Keys are built by `StoreKeys`; `resources/design/admin-ui.md` §9.1 says why the
  * cache is a store rather than state hanging off each view.
  */
 export class Store {

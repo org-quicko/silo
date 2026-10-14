@@ -1,6 +1,6 @@
 # HTTP API
 
-> Every route, the query grammar, search, and the error shape. The design rationale is in [docs/design/http-api.md](../design/http-api.md).
+> Every route, the query grammar, search, and the error shape. The design rationale is in [resources/design/http-api.md](../design/http-api.md).
 
 JSON everywhere, and clean routes under `/api`. There is no URL versioning: a
 breaking change is a release-note event, and the data format carries its own
@@ -8,7 +8,7 @@ version. CORS is enabled for `/api/*`. It is also enabled for `GET` and
 `HEAD` on `/media/*`, so a page on a different origin can read a media file
 with `fetch`.
 
-[docs/openapi.json](../openapi.json) is the same API as an OpenAPI 3.1
+[resources/openapi.json](../openapi.json) is the same API as an OpenAPI 3.1
 description. Open it in Swagger UI or Redoc, or give it to a code generator to
 make a client. This page is the short version that you read.
 

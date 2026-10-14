@@ -39,9 +39,9 @@
   lines. A longer note earns its place only where behaviour is genuinely
   surprising, and then it says what is surprising and why.
 
-- **Rationale lives in `docs/`, not in the source.** Why an interface has the
+- **Rationale lives in `resources/`, not in the source.** Why an interface has the
   shape it has, why an approach was rejected, what a decision cost — that is
-  what `docs/design/` is for, and a comment should link to it rather than
+  what `resources/design/` is for, and a comment should link to it rather than
   restate it.
 
 - **Inline comments explain the non-obvious line**, not the obvious one. If the

@@ -1,6 +1,6 @@
 # Plugins
 
-> How to write, enable, install and inspect a plugin. The design rationale is in [docs/design/plugins.md](../design/plugins.md).
+> How to write, enable, install and inspect a plugin. The design rationale is in [resources/design/plugins.md](../design/plugins.md).
 
 A plugin is a directory under `<data dir>/plugins/` that silo loads because
 `silo.toml` names it. `silo add` will put one there and list it for you, but it

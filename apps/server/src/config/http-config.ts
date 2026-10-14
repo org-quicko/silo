@@ -4,7 +4,7 @@
  *
  * Each one is a value the runtime decided for us and got wrong for silo's shape
  * — see §10.3 and §10.4 in
- * [docs/design/configuration.md](../../../../docs/design/configuration.md).
+ * [resources/design/configuration.md](../../../../resources/design/configuration.md).
  */
 export interface HttpConfig {
   /**

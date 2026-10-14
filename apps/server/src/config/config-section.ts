@@ -5,7 +5,7 @@ export interface ConfigSection {
   /** The TOML table name, which is also the path segment: `/api/settings/log`. */
   table: string;
   title: string;
-  /** One line, for the card header. The reasoning belongs in `docs/`. */
+  /** One line, for the card header. The reasoning belongs in `resources/`. */
   summary: string;
   fields: readonly ConfigField[];
   /**

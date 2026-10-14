@@ -17,7 +17,7 @@ import java.util.regex.Pattern;
  * Holds this client's route inventory to the TypeScript client's, which is in
  * turn checked against the server's own route registrations.
  *
- * <p>Reading the sibling package rather than {@code docs/guide/http-api.md} is
+ * <p>Reading the sibling package rather than {@code resources/guide/http-api.md} is
  * deliberate: a drift guard reading a document that can be incomplete, and has
  * been, is false confidence. The test skips when the tree above is absent, so
  * the package still builds when it is consumed on its own.

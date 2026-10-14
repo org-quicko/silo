@@ -4,7 +4,7 @@
  * The point is that the two lists together must account for the whole API: a
  * route in neither is a gap, and `test/contract/route-inventory.test.ts`
  * checks them against the server's own registrations rather than against
- * `docs/guide/http-api.md`, which can be, and has been, incomplete.
+ * `resources/guide/http-api.md`, which can be, and has been, incomplete.
  *
  * Paths use the server's own `:param` spelling and the `/envs/` spelling of
  * the two it accepts.

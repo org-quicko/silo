@@ -64,8 +64,9 @@ src/
 ```
 
 Where each file sits and what it holds is in
-[docs/context/repo-map.md](../../docs/context/repo-map.md). The reasons behind
-the shapes are in [docs/design/admin-ui.md](../../docs/design/admin-ui.md).
+[resources/context/repo-map.md](../../resources/context/repo-map.md). The
+reasons behind the shapes are in
+[resources/design/admin-ui.md](../../resources/design/admin-ui.md).
 
 ## How it works
 

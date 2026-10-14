@@ -981,4 +981,4 @@ pool keeps the test process alive after the last test; and Bun 1.4.2's
 `expect(...).rejects` crashed the runner (a segfault, or a spin at full CPU)
 when it awaited a refused `PgStore.open` after the conformance run, so the
 Postgres-only tests take a rejection with a plain `try`/`catch`
-(docs/context/code-design.md, Tests).
+(resources/context/code-design.md, Tests).

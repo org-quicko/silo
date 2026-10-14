@@ -74,12 +74,16 @@ export default function App() {
     localStorage.setItem(SERVERS_KEY, JSON.stringify(list))
   }
 
-  const patchServer = (patch: Partial<Server>) => {
-    if (!server) return
+  const updateServer = (next: Server) => {
+    const previous = servers.find((item) => item.id === next.id)
     // A new API key sees a different instance: its claims decide what every
     // answer contains, so nothing cached under the old one may outlive it.
-    if (patch.apiKey && patch.apiKey !== server.apiKey) store.clear()
-    saveServers(servers.map((item) => (item.id === server.id ? { ...item, ...patch } : item)))
+    if (previous && previous.apiKey !== next.apiKey) store.clear()
+    saveServers(servers.map((item) => (item.id === next.id ? next : item)))
+  }
+
+  const patchServer = (patch: Partial<Server>) => {
+    if (server) updateServer({ ...server, ...patch })
   }
 
   const content = !route || route.view === 'servers' || !server ? (
@@ -87,6 +91,7 @@ export default function App() {
       servers={servers}
       onConnect={(id, project, env) => router.navigate(Routes.collections(id, project, env))}
       onAddServer={(s) => saveServers([...servers, s])}
+      onUpdateServer={updateServer}
       onOpenStatus={(id) => router.navigate(Routes.serverSettings(id, 'connection'))}
       onOpenProjectSettings={(id, project) =>
         router.navigate(Routes.projectSettings(id, project, 'general'))
@@ -117,6 +122,7 @@ export default function App() {
       onDisconnect={disconnect}
       onApiKeyChange={(apiKey) => patchServer({ apiKey })}
       onAddServer={(s) => saveServers([...servers, s])}
+      onUpdateServer={updateServer}
     />
   )
 

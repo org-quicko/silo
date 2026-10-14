@@ -6,7 +6,7 @@ import { RouteInventory } from "../../src/transport/route-inventory";
 /**
  * `RouteInventory` against the server's own route registrations.
  *
- * Deliberately not against `docs/guide/http-api.md`: that document was missing
+ * Deliberately not against `resources/guide/http-api.md`: that document was missing
  * three media routes and an error code when this package was written, and a
  * drift guard reading something that can be incomplete is false confidence.
  *

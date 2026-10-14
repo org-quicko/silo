@@ -4,6 +4,53 @@
 > The *current* state is [CONTEXT.md](../../CONTEXT.md); this is how it got
 > there.
 
+- **A refused key opens its server in an edit dialog (2026-10-14).** Picking a
+  saved server whose key the server no longer accepts showed a banner, and
+  nothing in the admin could change the key: the server's settings gear loads
+  with the same key, so its `401` sent the reader back to the gate. Only
+  clearing `localStorage` got them in. `useScopeBrowser` now checks the key
+  with `GET /api/session` before it lists projects. A refused key sets
+  `refusedServer`, and `ServerManager` opens `AddServerDialog` in a new edit
+  mode, with the server's name, URL and key filled in, the error shown and the
+  old key selected. Saving verifies, keeps the server's id and checks it
+  again (`onUpdateServer`, through `App.updateServer`, which clears the store
+  when the key changes, as `patchServer` already did); Cancel deselects the
+  server so a second click asks again. Checking first also keeps the
+  app-wide 401 handler out of the picker, which used to close a workspace
+  open behind it when another server's key was refused. Checked in the
+  browser against a scratch SQLite server: add, revoke, the dialog, a wrong
+  key, Cancel, a good key, opening the workspace, and the same from the
+  browser opened over a workspace. Admin only, no route change.
+
+- **The internal docs live in `resources/`, and every link now says so
+  (2026-10-13).** `6ef46ca` moved `context/`, `design/`, `guide/`, `help/`
+  and `openapi.json` from `docs/` to `resources/`, and `3254ddb` put the
+  Mintlify site at `docs/`. About 160 references still named the old paths:
+  `CLAUDE.md`, `CONTEXT.md`, `IMPLEMENTATION.md`, the READMEs, the guide's
+  headers, the `x-maintenance` note and the MCP route description in
+  `openapi.json`, the issue form's Documentation link, a `test.yml` comment,
+  and doc comments in the server, `shared` and both clients. Each now names
+  the file under `resources/`, and every relative link was checked to
+  resolve. `repo-map.md`, the README's layout table and `CLAUDE.md` list
+  `resources/` and name `docs/` as the Mintlify site. `ui-assets.ts` cited a
+  `build-and-release.md` that never existed; it now cites D26. Older entries
+  below use the new paths too, except the three that record a move into
+  `docs/` (the decisions table, the README's reference, the docs split),
+  which keep the paths of their day. No script or workflow reads these paths.
+
+- **An import stores media with its type and disposition (2026-10-13, D88).**
+  `ImportMedia.load` wrote each blob with `put(key, bytes)` and no options, so
+  every import, `POST /api/import` and server-to-server copy left objects with
+  no `Content-Disposition`, and on S3 a `media/<id>` key, which has no
+  extension, was stored as `application/octet-stream`. A bucket in front of
+  silo then served SVGs that did not draw. Found after a copy from prod into a
+  Postgres instance on S3. The archive's `_media` row now gives each blob its
+  `content_type` and `MediaDisposition.header(content_type, filename)`, as an
+  upload stores them; a blob no row claims is written bare, as before.
+  `silo media rekey --rewrite` repairs a library imported before this.
+  `import-media-keys.test.ts` records the put options for a `media/<id>` key, a
+  pre-D88 key and an unclaimed blob. The D88 row and `transfer.md` §7.1 say so.
+
 - **A saved server URL that is not http(s) never leads a media link
   (2026-09-30).** CodeQL (`js/xss-through-dom`) traced the server form's
   input, by way of localStorage, into the Download `href`s and
@@ -36,7 +83,7 @@
   `GET /api/media/stats` (no claim) totals files, bytes and folders with a
   split by kind, the largest file and the last upload, and `MediaStatsDialog`
   shows them as tiles and a share table. `ByteSize` now reaches GB and TB.
-  `docs/openapi.json` and both HTTP docs carry the three routes, and the TS
+  `resources/openapi.json` and both HTTP docs carry the three routes, and the TS
   client's `RouteInventory` lists them as out of its scope. New tests:
   `media-archives.test.ts` (reads every ZIP through its central directory
   with an independent CRC, in `test/http/support/zip-entries.ts`, and checks
@@ -79,7 +126,7 @@
   128"); the claim grammar's collection segment is built from it; the create
   and rename routes check the name before the claim and before a dry run. The
   admin shows the reason as you type, in the new-collection field and the
-  rename form. MCP, the Strapi importer and `docs/openapi.json` (a
+  rename form. MCP, the Strapi importer and `resources/openapi.json` (a
   `CollectionName` schema) follow; projects and environments stay at 64. New
   tests `collection-name.test.ts` (shared) and `collection-names.test.ts`
   (HTTP).
@@ -464,7 +511,7 @@
   Arguments are AJV-checked against the tool's schema before dispatch
   (`-32602`); a route's `4xx` is a result with `isError`. Stateless (no
   session id, `GET`/`DELETE` are `405`), a key is required even where a read
-  would be public, no SDK. New: `docs/guide/mcp.md`, `/api/mcp` in
+  would be public, no SDK. New: `resources/guide/mcp.md`, `/api/mcp` in
   `openapi.json`, the `--url`/`--key` flags and `SILO_URL`/`SILO_API_KEY`.
 
 - **A streamed import is bounded, locks only its load, and never empties a
@@ -813,7 +860,7 @@
   sorts into the order they were taken. The tab strip stopped clipping a label
   longer than its fixed 120px. The stale `?validate=` parameter D70 removed, and
   the `rejected`/`rejections` fields it added, are finally correct in
-  `docs/openapi.json`.
+  `resources/openapi.json`.
 
 - **silo-client 1.1.1 can cache reads (2026-09-16).** `SiloCache`
   caches successful GET JSON responses only when a caller supplies a finite
@@ -980,10 +1027,10 @@
   yet, so the first publish to Maven Central is by hand.
 
 - **The HTTP API had no machine-readable description (2026-09-16).** Every route
-  was documented three times in prose — `docs/guide/http-api.md` for the shape,
-  `docs/design/http-api.md` for the reason, the handler's own doc comment for the
+  was documented three times in prose — `resources/guide/http-api.md` for the shape,
+  `resources/design/http-api.md` for the reason, the handler's own doc comment for the
   detail — and none of the three could be handed to Swagger UI, Redoc or a client
-  generator. `docs/openapi.json` is OpenAPI 3.1 over all 83 operations: the
+  generator. `resources/openapi.json` is OpenAPI 3.1 over all 83 operations: the
   `/api` surface, the public `/media/{id}` stream outside it, and the one handler
   `/api/ext/{name}/*` dispatches every plugin route through. What it adds over the
   existing table is per-operation *structure* — parameters with their types and
@@ -1003,7 +1050,7 @@
   canonical form is described and `info.description` says the other exists.
   **JSON rather than YAML:** it is the form every viewer and generator takes
   without a parser choice, and there is no comment syntax to tempt anyone into
-  putting the maintenance rule somewhere a tool would drop it. `docs/openapi.json`
+  putting the maintenance rule somewhere a tool would drop it. `resources/openapi.json`
   sits beside `context/`, `design/` and `guide/` rather than inside one, because
   it is not prose and has no single audience.
 
@@ -1464,7 +1511,7 @@
   would send a question or a documentation typo nowhere. Its contact links
   cover the exception that must never be a public issue, a vulnerability, which
   goes to private advisories (already enabled on the repo), and the general
-  case, which goes to `docs/guide/`. The labels applied on submit, `bug` and
+  case, which goes to `resources/guide/`. The labels applied on submit, `bug` and
   `enhancement`, are ones the repo already carries: GitHub silently drops a
   label that does not exist, so a form is a bad place to name a new one.
 
@@ -1606,7 +1653,7 @@
   `updated_at` before answering and no client can reconstruct them.
 
   **Three documentation gaps closed on the way through.**
-  `docs/guide/http-api.md` was missing `GET /api/media/folders`,
+  `resources/guide/http-api.md` was missing `GET /api/media/folders`,
   `POST /api/media/folders` and `GET /api/media/{id}/usages` from its route
   table, and `media_in_use` from its error list. That is why `RouteInventory`
   is checked against the server's own route registrations rather than against
@@ -1811,8 +1858,8 @@
   stamp moves from `"1"` to `"999"`, since `"1"` is now the current one, and the
   fresh-dir test asserts `FormatVersion` instead of a literal. Alongside it the
   docs stopped saying pre-1.0. `IMPLEMENTATION.md` D14 and
-  `docs/context/architecture.md` both named `"2"` as the current stamp;
-  `docs/design/storage.md` and `docs/design/transfer.md` both rested a live
+  `resources/context/architecture.md` both named `"2"` as the current stamp;
+  `resources/design/storage.md` and `resources/design/transfer.md` both rested a live
   policy on breaking changes being cheap before 1.0. Those now say what is true
   from 1.0: a bump is a major release, and the stamp exists so an older layout
   is refused rather than misread. Two source comments that named the old
@@ -2764,7 +2811,7 @@
   renders from. The `Palette*` names in `views/search/palette-results.ts`
   stay — that file is the bar's result builder and always was; only the second
   consumer it once had is gone. The sidebar's `⌘K` trigger is struck from
-  `docs/design/admin-ui.md` too: that button became the `⌥F` collection filter
+  `resources/design/admin-ui.md` too: that button became the `⌥F` collection filter
   earlier and the doc had not caught up.
 
 - **The top-bar search reaches the whole scope again, and lists the collections
@@ -3286,7 +3333,7 @@
   The order is D42's reversed, on the same rule: un-list first and fail hard (a block naming a
   package that is gone fails the *process*, not the plugin), stop the worker, forget the record so
   a re-install comes back approved for nothing, delete the files last and forgive it. The audit
-  entry outlives the record. §13.22 in `docs/design/plugins.md`.
+  entry outlives the record. §13.22 in `resources/design/plugins.md`.
 
 - **A plugin's page is a summary plus four sheets, and its panel gets the page (D44, 2026-08-27).**
   The grant, routes, config and trail sections moved into a new right-hand `Sheet`
@@ -3297,7 +3344,7 @@
   at least the viewport, so a panel could only grow; the frame's canvas was white behind a
   transparent document; and the `ResizeObserver` was never retained, so it was collected and
   stopped reporting. `PluginPanelFrame` gains a `fill` mode for full screen. §10/§10a in
-  `docs/design/admin-ui.md`.
+  `resources/design/admin-ui.md`.
 
 - **Plugins install from the API and the admin, and the block they get carries no claims (D42, 2026-08-27).**
   `POST /api/plugins/install` acquires a package — npm spec, git URL, HTTPS tarball, local path, or
@@ -3334,7 +3381,7 @@
   `on_error` are validated and no longer dropped when there is no config file; the route's two body
   shapes share one field reader; `installArchive` throws the same `ApiError` as every other admin
   call, so a 401 still routes the session back to the gate; and the modal's Cancel button was a bare
-  `<button>` inside a `<form>`, so cancelling installed. See §13.21 in `docs/design/plugins.md`.
+  `<button>` inside a `<form>`, so cancelling installed. See §13.21 in `resources/design/plugins.md`.
 
 - **Media thumbnails in the entries grid resolve against the active server's base URL (2026-08-27).**
   In `apps/admin`, `CellValue.tsx` rendered media thumbnails using `src={asset.url}`. Because

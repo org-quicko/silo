@@ -16,7 +16,7 @@ import type { ImportResult } from "../../core/transfer/import-result";
  * A heartbeat is what makes the operation's own length harmless, and the
  * progress it carries is what makes the wait legible instead of merely
  * survivable. See §7.8 in
- * [docs/design/transfer.md](../../../../../docs/design/transfer.md).
+ * [resources/design/transfer.md](../../../../../resources/design/transfer.md).
  *
  * **The status is 200 before the work begins**, because that is what sending
  * the first byte early costs. A failure is the `error` line instead, and a

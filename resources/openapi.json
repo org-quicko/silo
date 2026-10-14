@@ -1,6 +1,6 @@
 {
     "openapi": "3.1.0",
-    "x-maintenance": "Hand-written and checked in, not generated: Hono registers routes as code and there is no decorator to read them off. That makes this file a promise rather than a derivation, so it has to be updated in the same change set as any route it describes - see CLAUDE.md. The rationale for every route is in docs/design/http-api.md; the operator's version is docs/guide/http-api.md. Where the three disagree, the design doc is the spec and this is the bug.",
+    "x-maintenance": "Hand-written and checked in, not generated: Hono registers routes as code and there is no decorator to read them off. That makes this file a promise rather than a derivation, so it has to be updated in the same change set as any route it describes - see CLAUDE.md. The rationale for every route is in resources/design/http-api.md; the operator's version is resources/guide/http-api.md. Where the three disagree, the design doc is the spec and this is the bug.",
     "info": {
         "title": "silo HTTP API",
         "version": "1.1.0",
@@ -192,7 +192,7 @@
                     "MCP"
                 ],
                 "summary": "MCP over Streamable HTTP",
-                "description": "The Model Context Protocol endpoint (D86). One JSON-RPC 2.0 message, or a batch of them, in; the reply out as `application/json`. silo answers `initialize`, `ping`, `tools/list` and `tools/call`; a body holding only notifications answers `202` with no body; an unknown method is `-32601`.\n\nEvery `tools/call` is dispatched through this same API with the presented key, so a tool asks for exactly the claim its route asks for, and a route's refusal comes back as a result with `isError: true` rather than as a protocol error. The endpoint is stateless: no `Mcp-Session-Id` is issued and `GET` and `DELETE` are `405`. A key is required even where the equivalent `GET` would be public. The tool catalog and the client configurations are in docs/guide/mcp.md.\n",
+                "description": "The Model Context Protocol endpoint (D86). One JSON-RPC 2.0 message, or a batch of them, in; the reply out as `application/json`. silo answers `initialize`, `ping`, `tools/list` and `tools/call`; a body holding only notifications answers `202` with no body; an unknown method is `-32601`.\n\nEvery `tools/call` is dispatched through this same API with the presented key, so a tool asks for exactly the claim its route asks for, and a route's refusal comes back as a result with `isError: true` rather than as a protocol error. The endpoint is stateless: no `Mcp-Session-Id` is issued and `GET` and `DELETE` are `405`. A key is required even where the equivalent `GET` would be public. The tool catalog and the client configurations are in resources/guide/mcp.md.\n",
                 "operationId": "postMcp",
                 "requestBody": {
                     "required": true,

@@ -11,7 +11,7 @@ import { PgTables } from "./pg-tables";
  * the reserved records.
  *
  * The tables are SQLite's (`SqliteMigrations` explains the composite keys and
- * the cascades), with three Postgres choices (docs/design/storage.md §6.6):
+ * the cascades), with three Postgres choices (resources/design/storage.md §6.6):
  *
  * - Every text column is `COLLATE "C"`, so names, ids and timestamps compare
  *   and sort by codepoint whatever the database's locale (D92), and the

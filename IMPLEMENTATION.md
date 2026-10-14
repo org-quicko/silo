@@ -25,8 +25,9 @@ and are superseded by it.
 ## 2. Decisions
 
 The full rows (choice and rationale) are in
-[docs/design/decisions.md](docs/design/decisions.md). Read the row before you
-change what it decides. A new decision gets a full row there and one line here.
+[resources/design/decisions.md](resources/design/decisions.md). Read the row
+before you change what it decides. A new decision gets a full row there and
+one line here.
 
 | # | Decision |
 |---|----------|
@@ -142,7 +143,7 @@ the admin UI, export/import, SQLite and fs storage, key auth with claims,
 single-binary releases, plugins. Everything since (media, search, Postgres,
 clients, MCP) is listed above.
 
-**Not built (roadmap, [milestones.md](docs/design/milestones.md) §12):** sync
+**Not built (roadmap, [milestones.md](resources/design/milestones.md) §12):** sync
 engine, cache adapters, drafts/publish, durable webhooks, enforced relations,
 auth providers, GraphQL, editing a schema over existing entries.
 
@@ -152,15 +153,15 @@ Section numbers are stable, so a comment citing §13.5 still resolves.
 
 | Section | Document |
 |---------|----------|
-| Decisions, in full | [docs/design/decisions.md](docs/design/decisions.md) |
-| §4 Architecture | [docs/design/architecture.md](docs/design/architecture.md) |
-| §5 Core concepts: entries, schemas, the query AST, search | [docs/design/core-concepts.md](docs/design/core-concepts.md) |
-| §6 Storage adapters: the port, SQLite, fs, Postgres | [docs/design/storage.md](docs/design/storage.md) |
-| §7 Export, import and copy | [docs/design/transfer.md](docs/design/transfer.md) |
-| §8 HTTP API, including media and MCP | [docs/design/http-api.md](docs/design/http-api.md) |
-| §9 Admin UI | [docs/design/admin-ui.md](docs/design/admin-ui.md) |
-| §10 Configuration and the CLI | [docs/design/configuration.md](docs/design/configuration.md) |
-| §11–12 Milestones and roadmap | [docs/design/milestones.md](docs/design/milestones.md) |
-| §13 Plugins | [docs/design/plugins.md](docs/design/plugins.md) |
-| §14 The TypeScript client | [docs/design/api-client.md](docs/design/api-client.md) |
-| §15 The Java client | [docs/design/java-client.md](docs/design/java-client.md) |
+| Decisions, in full | [resources/design/decisions.md](resources/design/decisions.md) |
+| §4 Architecture | [resources/design/architecture.md](resources/design/architecture.md) |
+| §5 Core concepts: entries, schemas, the query AST, search | [resources/design/core-concepts.md](resources/design/core-concepts.md) |
+| §6 Storage adapters: the port, SQLite, fs, Postgres | [resources/design/storage.md](resources/design/storage.md) |
+| §7 Export, import and copy | [resources/design/transfer.md](resources/design/transfer.md) |
+| §8 HTTP API, including media and MCP | [resources/design/http-api.md](resources/design/http-api.md) |
+| §9 Admin UI | [resources/design/admin-ui.md](resources/design/admin-ui.md) |
+| §10 Configuration and the CLI | [resources/design/configuration.md](resources/design/configuration.md) |
+| §11–12 Milestones and roadmap | [resources/design/milestones.md](resources/design/milestones.md) |
+| §13 Plugins | [resources/design/plugins.md](resources/design/plugins.md) |
+| §14 The TypeScript client | [resources/design/api-client.md](resources/design/api-client.md) |
+| §15 The Java client | [resources/design/java-client.md](resources/design/java-client.md) |

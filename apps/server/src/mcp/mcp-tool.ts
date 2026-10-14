@@ -16,7 +16,8 @@ export interface McpToolAnnotations {
 
 /**
  * One tool: what a client is told about it, and the route it stands for.
- * Authorization is the route's, not the tool's — see docs/design/http-api.md §8.6.
+ * Authorization is the route's, not the tool's — see
+ * resources/design/http-api.md §8.6.
  */
 export interface McpTool {
   name: string;

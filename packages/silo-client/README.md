@@ -427,8 +427,8 @@ bun run test:packaged   # packs the tarball and consumes it from Node, Bun and a
 ```
 
 The design and the reasoning behind it are in
-[docs/design/api-client.md](../../docs/design/api-client.md). The routes are in
-[docs/guide/http-api.md](../../docs/guide/http-api.md).
+[resources/design/api-client.md](../../resources/design/api-client.md). The
+routes are in [resources/guide/http-api.md](../../resources/guide/http-api.md).
 
 ## License
 

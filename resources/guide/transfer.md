@@ -1,6 +1,6 @@
 # Export, import and copy
 
-> The archive format, the on-disk layout, and every way data moves. The design rationale is in [docs/design/transfer.md](../design/transfer.md).
+> The archive format, the on-disk layout, and every way data moves. The design rationale is in [resources/design/transfer.md](../design/transfer.md).
 
 ```sh
 silo export --dir ./backup                        # an on-disk tree

@@ -74,7 +74,7 @@ export class ClaimVocabulary {
   /** Reading and changing how the media library is set up: where it keeps its
    *  bytes (D45), where its URLs point, and what it accepts (D46). A
    *  configuration claim, not a per-asset one — see `PluginForbiddenClaims`
-   *  and §6.4 / §6.5 in `docs/design/storage.md`. */
+   *  and §6.4 / §6.5 in `resources/design/storage.md`. */
   static readonly MediaConfigure = "media:configure";
 
   /**

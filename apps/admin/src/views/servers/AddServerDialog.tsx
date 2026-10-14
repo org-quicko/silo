@@ -1,5 +1,5 @@
 import { Eye, EyeOff } from 'lucide-react'
-import { useState, type FormEvent } from 'react'
+import { useEffect, useRef, useState, type FormEvent } from 'react'
 import { api } from '../../api/silo-api'
 import { Button } from '../../components/buttons/Button'
 import passwordStyles from '../../components/controls/PasswordInput.module.css'
@@ -7,18 +7,35 @@ import type { Server } from './server'
 import styles from './ServerManager.module.css'
 
 interface Props {
-  onAdd: (server: Server) => void
+  /** A saved server to edit in place, keeping its id. Absent when adding one. */
+  server?: Server
+  /** Shown from the first paint, for an edit opened because the server failed. */
+  initialError?: string
+  onSave: (server: Server) => void
   onClose: () => void
 }
 
-/** Connection details for a running silo, verified before it is remembered. */
-export function AddServerDialog({ onAdd, onClose }: Props) {
-  const [name, setName] = useState('')
-  const [url, setUrl] = useState('')
-  const [apiKey, setApiKey] = useState('')
+/**
+ * Connection details for a running silo, verified before they are remembered.
+ *
+ * Given a `server`, the same form edits it: the picker opens it this way when
+ * the saved key is refused, so the key can be replaced where it failed.
+ */
+export function AddServerDialog({ server, initialError = '', onSave, onClose }: Props) {
+  const editing = server !== undefined
+  const [name, setName] = useState(server?.name ?? '')
+  const [url, setUrl] = useState(server?.url ?? '')
+  const [apiKey, setApiKey] = useState(server?.apiKey ?? '')
   const [showKey, setShowKey] = useState(false)
-  const [error, setError] = useState('')
+  const [error, setError] = useState(initialError)
   const [connecting, setConnecting] = useState(false)
+  const keyInput = useRef<HTMLInputElement>(null)
+
+  // An edit is almost always a new key, so the old one is selected and the
+  // first keystroke replaces it.
+  useEffect(() => {
+    if (editing) keyInput.current?.select()
+  }, [editing])
 
   const submit = async (event: FormEvent) => {
     event.preventDefault()
@@ -44,8 +61,8 @@ export function AddServerDialog({ onAdd, onClose }: Props) {
         setError('Verification failed: Invalid API key.')
         return
       }
-      onAdd({
-        id: Array.from(crypto.getRandomValues(new Uint8Array(8)), (byte) => byte.toString(16).padStart(2, '0')).join(''),
+      onSave({
+        id: server?.id ?? Array.from(crypto.getRandomValues(new Uint8Array(8)), (byte) => byte.toString(16).padStart(2, '0')).join(''),
         name: trimmedName,
         url: trimmedUrl,
         apiKey: trimmedKey,
@@ -65,13 +82,15 @@ export function AddServerDialog({ onAdd, onClose }: Props) {
     >
       <div className={styles.modal} onClick={(event) => event.stopPropagation()}>
         <div className={styles.modalHeader}>
-          <h2>Add Silo Server</h2>
+          <h2>{editing ? 'Edit Silo Server' : 'Add Silo Server'}</h2>
           <button type="button" className={styles.modalClose} onClick={onClose}>
             ×
           </button>
         </div>
         <p className={styles.modalSubtitle}>
-          Enter connection details for your running Silo server.
+          {editing
+            ? 'Update the connection details for this server.'
+            : 'Enter connection details for your running Silo server.'}
         </p>
 
         <form onSubmit={submit} className={styles.modalForm}>
@@ -87,7 +106,7 @@ export function AddServerDialog({ onAdd, onClose }: Props) {
               onChange={(event) => setName(event.target.value)}
               disabled={connecting}
               required
-              autoFocus
+              autoFocus={!editing}
             />
           </div>
 
@@ -112,6 +131,7 @@ export function AddServerDialog({ onAdd, onClose }: Props) {
             </label>
             <div className={passwordStyles.wrapper}>
               <input
+                ref={keyInput}
                 id="server-key"
                 type={showKey ? 'text' : 'password'}
                 placeholder="silo_..."
@@ -119,6 +139,7 @@ export function AddServerDialog({ onAdd, onClose }: Props) {
                 onChange={(event) => setApiKey(event.target.value)}
                 disabled={connecting}
                 required
+                autoFocus={editing}
               />
               <button
                 type="button"
@@ -142,7 +163,7 @@ export function AddServerDialog({ onAdd, onClose }: Props) {
               Cancel
             </Button>
             <Button type="submit" variant="primary" disabled={connecting}>
-              {connecting ? 'Connecting...' : 'Add Server'}
+              {connecting ? 'Connecting...' : editing ? 'Save' : 'Add Server'}
             </Button>
           </div>
         </form>

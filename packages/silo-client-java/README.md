@@ -16,7 +16,7 @@ Java 25 or newer. Every call blocks, so run it on virtual threads.
 ```
 
 The rationale for every decision here is in
-[docs/design/java-client.md](../../docs/design/java-client.md). The
+[resources/design/java-client.md](../../resources/design/java-client.md). The
 TypeScript client is [`packages/silo-client`](../silo-client), and the two are
 held to the same route inventory by a test.
 

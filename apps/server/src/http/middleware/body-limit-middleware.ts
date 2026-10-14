@@ -5,7 +5,7 @@ import { HttpDefaults } from "../../config/http-defaults";
 
 /**
  * Refuses a request body before any handler sees it, at the ceiling its route
- * class earns (§10.4 in docs/design/configuration.md).
+ * class earns (§10.4 in resources/design/configuration.md).
  *
  * Three classes. The upload routes take bytes, stream or spool them, and are
  * bounded by the listener's own `maxRequestBodySize`, so they pass through.

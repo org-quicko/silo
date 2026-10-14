@@ -12,7 +12,7 @@ import type { ExportSink } from "./sink/export-sink";
  * written now has the shape D23 fixed and an older silo reads it unchanged.
  * What the mode changes is how many of those keys are written at all — see §7.7
  * in
- * [docs/design/transfer.md](../../../../../docs/design/transfer.md).
+ * [resources/design/transfer.md](../../../../../resources/design/transfer.md).
  */
 export class ExportMedia {
   /**

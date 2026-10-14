@@ -1,7 +1,7 @@
 # Architecture in one minute
 
 > How the pieces fit together today. The design *rationale* is in
-> [docs/design/architecture.md](../design/architecture.md).
+> [resources/design/architecture.md](../design/architecture.md).
 
 - **Ports and adapters.** `apps/server/src/core/` defines domain types and the `Storage`/`BlobStorage` interfaces (under `apps/server/src/core/ports/`), importing no adapters; adapters live under `apps/server/src/adapters/`; `apps/server/src/cli/` (`Cli` parses argv, `CommandRouter` routes, `SiloRuntime` wires) wires everything explicitly from config.
 - **One process per data directory (D25).** Storage adapters have no cross-process lock and are not meant to: the fs adapter holds `last_seq` in memory and the `ServiceContext` write lock is process-local, which is exactly what lets adapters stay CAS-free. The guard therefore lives at the process boundary — a running server records itself in `<data dir>/silo.run.json` and `serve` refuses to start over a live one. Since D82 "live" is decided by identity, not by the pid alone: a record naming this very process (a crashed Docker server is pid 1 every time), one written in another boot (`BootId`), one whose pid is gone, or one no server has refreshed for `RunFile.StaleAfterMs` (a live server refreshes it every `HeartbeatMs`) is stale, and `stop` never signals a pid a stale record points at. `serve` also catches an uncaught error or an unhandled rejection, removes the record, closes the store and exits 1, so a crash does not leave a record a restart trips over. Several instances are fine and expected; each gets its own `--data` and `--listen`.

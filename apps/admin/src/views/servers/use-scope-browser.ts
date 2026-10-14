@@ -27,10 +27,15 @@ export function useScopeBrowser(servers: Server[], initial: ScopeSelection) {
   const [loadingProjects, setLoadingProjects] = useState(false)
   const [loadingEnvironments, setLoadingEnvironments] = useState(false)
   const [error, setError] = useState('')
+  /** The selected server, when it refused its saved key. */
+  const [refusedServer, setRefusedServer] = useState<Server | null>(null)
+  /** Bumped to check a server again when nothing about it changed. */
+  const [attempt, setAttempt] = useState(0)
 
   const server = servers.find((candidate) => candidate.id === serverId) || null
 
   useEffect(() => {
+    setRefusedServer(null)
     if (!server) {
       setProjects([])
       setProject(null)
@@ -43,9 +48,24 @@ export function useScopeBrowser(servers: Server[], initial: ScopeSelection) {
     setLoadingProjects(true)
     setError('')
 
-    api.projects
-      .list(server.url, server.apiKey)
-      .then((items) => !cancelled && setProjects(items.map((record) => record.name)))
+    // The key is checked before anything is listed. A refused key is a state
+    // here, answered by the server's own dialog; a list call would answer it
+    // through the app-wide 401 handler instead, which leaves the picker and
+    // closes any workspace open behind it.
+    api.session
+      .verify(server.url, server.apiKey)
+      .then(async (verified) => {
+        if (cancelled) return
+        if (!verified.ok) {
+          setProjects([])
+          setProject(null)
+          setEnv(null)
+          setRefusedServer(server)
+          return
+        }
+        const items = await api.projects.list(server.url, server.apiKey)
+        if (!cancelled) setProjects(items.map((record) => record.name))
+      })
       .catch((failure: any) => {
         if (cancelled) return
         setProjects([])
@@ -56,7 +76,7 @@ export function useScopeBrowser(servers: Server[], initial: ScopeSelection) {
     return () => {
       cancelled = true
     }
-  }, [serverId, server?.url, server?.apiKey])
+  }, [serverId, server?.url, server?.apiKey, attempt])
 
   useEffect(() => {
     if (!server || !project) {
@@ -90,6 +110,18 @@ export function useScopeBrowser(servers: Server[], initial: ScopeSelection) {
     setProject(null)
     setEnv(null)
     setError('')
+  }
+
+  /** The refused server's details were saved: check it again. Its key has
+   *  usually changed, which re-runs the check anyway, but a save that kept the
+   *  key would not. */
+  const recheckServer = () => setAttempt((current) => current + 1)
+
+  /** The refused server's dialog was dismissed: deselect it, so a click on it
+   *  checks it again and reopens the dialog. */
+  const dismissRefusedServer = () => {
+    setRefusedServer(null)
+    setServerId(null)
   }
 
   const selectProject = (name: string) => {
@@ -149,6 +181,9 @@ export function useScopeBrowser(servers: Server[], initial: ScopeSelection) {
     loadingEnvironments,
     error,
     setError,
+    refusedServer,
+    recheckServer,
+    dismissRefusedServer,
     setServerId,
     selectServer,
     selectProject,

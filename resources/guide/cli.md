@@ -1,6 +1,6 @@
 # CLI
 
-> Every subcommand, and every flag. The design rationale is in [docs/design/configuration.md](../design/configuration.md).
+> Every subcommand, and every flag. The design rationale is in [resources/design/configuration.md](../design/configuration.md).
 
 Every subcommand works directly on the data directory. No server has to be
 running. This is also the way back from a lockout.

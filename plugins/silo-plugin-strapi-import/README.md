@@ -234,7 +234,7 @@ and nothing below reaches back up. The panel stays one file because
 server inside the API.
 
 The traps this plugin exists to avoid, and the reasoning behind each mapping
-choice, are in [docs/design/plugins.md](../../docs/design/plugins.md).
+choice, are in [resources/design/plugins.md](../../resources/design/plugins.md).
 
 ## Licence
 

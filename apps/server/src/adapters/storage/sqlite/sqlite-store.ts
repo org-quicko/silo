@@ -98,7 +98,7 @@ export class SqliteStore implements IndexedStorage {
    * `test`, and on everywhere else. Off under the runner because its
    * `expect(...).rejects` wait does not deliver a `Worker`'s replies once the
    * worker has answered twice before — see the Tests section of
-   * docs/context/code-design.md — and the one thread the process shares has
+   * resources/context/code-design.md — and the one thread the process shares has
    * always answered twice by the second test. The thread's own test turns it
    * on; the server never runs under the runner.
    */

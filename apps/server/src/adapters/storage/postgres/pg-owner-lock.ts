@@ -45,7 +45,7 @@ interface PgBackend {
  * session lock belongs to the connection that took it: a pooled connection
  * would carry the lock back into the pool and hand it to whichever statement
  * ran there next. Losing that connection loses the lock, so a heartbeat checks
- * it (docs/design/storage.md §6.6):
+ * it (resources/design/storage.md §6.6):
  *
  * - while the check answers within `deadlineMs`, nothing changes;
  * - when it fails or does not answer — a partition answers nothing at all —

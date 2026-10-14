@@ -22,7 +22,7 @@ import type {
  * would store a value the schema never judged (§5.1).
  *
  * **The transfer paths deliberately do not dispatch** — see
- * `docs/design/plugins.md` for why an import must reproduce an archive
+ * `resources/design/plugins.md` for why an import must reproduce an archive
  * faithfully, and what an opt-in would need.
  */
 export interface Hooks {

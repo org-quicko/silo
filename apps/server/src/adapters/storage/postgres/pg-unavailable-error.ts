@@ -3,7 +3,7 @@ import { StorageBusyError } from "../../../core/errors/storage-busy-error";
 /**
  * Postgres could not answer now: a `503` with `Retry-After`, like any
  * `StorageBusyError`, that also says why — which is what decides whether the
- * adapter may try again itself (docs/design/storage.md §6.6).
+ * adapter may try again itself (resources/design/storage.md §6.6).
  *
  * - `connection`: the connection broke. Safe to retry when nothing can have
  *   committed.

@@ -31,7 +31,7 @@ import type { PgTables } from "./pg-tables";
  *
  * Its ranks are not FTS5's scores. What the engines share is what a result
  * set contains and that a label match ranks above a body match; the order
- * within that is each engine's own (docs/design/storage.md §6.6).
+ * within that is each engine's own (resources/design/storage.md §6.6).
  */
 export class PgSearcher implements Searcher {
   private static readonly ReindexPage = 200;

@@ -22,7 +22,7 @@ import type { CollectionPermission } from "./collection-permission";
  *
  * What a rename **cascades** into — rewriting claim strings that name the old
  * name — is a separate ask, checked only when there is something to rewrite.
- * See `docs/design/http-api.md`.
+ * See `resources/design/http-api.md`.
  */
 export class RenamePermissions {
   static readonly All: readonly CollectionPermission[] = [

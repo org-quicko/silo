@@ -10,7 +10,7 @@ import java.util.TreeMap;
  * meet at one key without being one request.
  *
  * <p>Why the request identifies the response rather than a method's arguments:
- * {@code docs/design/java-client.md} §15.8.
+ * {@code resources/design/java-client.md} §15.8.
  */
 public record CacheKey(String method, String key) {
 

@@ -1,6 +1,6 @@
 # Configuration
 
-> Operator reference for `silo.toml`, the `SILO_*` variables, and running silo as a service. The design rationale is in [docs/design/configuration.md](../design/configuration.md).
+> Operator reference for `silo.toml`, the `SILO_*` variables, and running silo as a service. The design rationale is in [resources/design/configuration.md](../design/configuration.md).
 
 Configuration layers, highest priority first: **flags**, then `SILO_*`
 environment variables, then the TOML file, then the defaults. Every key is

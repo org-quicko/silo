@@ -10,7 +10,7 @@ import type { Database, Statement } from "bun:sqlite";
  * Either way an unfinalized statement keeps the file open, which is why this
  * cache is owned and unbounded: `close()` finalizes every statement it ever
  * prepared, so it *releases* the file rather than merely stopping using it.
- * See docs/design/storage.md.
+ * See resources/design/storage.md.
  */
 export class SqliteConnection {
   private readonly database: Database;

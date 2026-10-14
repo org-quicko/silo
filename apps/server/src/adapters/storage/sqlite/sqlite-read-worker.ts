@@ -18,7 +18,7 @@ import { SqliteReadThread } from "./sqlite-read-thread";
  * One caution for tests, not for the server: under `bun test`, a promise that
  * waits on this worker must be awaited or settled *before* it is handed to
  * `expect(...).rejects` or `.resolves` — see the Tests section of
- * docs/context/code-design.md.
+ * resources/context/code-design.md.
  */
 export class SqliteReadWorker {
   /** Reads waiting on the thread before the next one is refused. */

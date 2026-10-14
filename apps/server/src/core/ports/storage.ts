@@ -13,10 +13,10 @@ import type { DerivedIndex } from "./derived-index";
  *
  * Three adapters implement this — SQLite, the filesystem and Postgres — and
  * the conformance suite is the contract: each must answer every question the
- * same way. See `docs/design/storage.md` for the rules behind the shape, including
- * record existence (D51, superseding D20), the path-segment contract, why
- * `derived` is required rather than optional, and the query semantics and
- * portable data every adapter shares (D92).
+ * same way. See `resources/design/storage.md` for the rules behind the shape,
+ * including record existence (D51, superseding D20), the path-segment
+ * contract, why `derived` is required rather than optional, and the query
+ * semantics and portable data every adapter shares (D92).
  */
 export interface Storage {
   // ---- Projects, environments and collections (D51) ----
