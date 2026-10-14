@@ -4,7 +4,7 @@ import type { ImportResult } from '../types/import-result'
 import type { MediaMode } from '../types/media-mode'
 import type { ScopeRef } from '../types/scope-ref'
 import { HttpTransport } from '../transport/http-transport'
-import { ProgressReader, type TransferProgress } from '../transport/progress-reader'
+import type { TransferProgress } from '../transport/progress-reader'
 import { QueryParams } from '../transport/query-params'
 import { ScopePaths } from './scope-paths'
 
@@ -72,7 +72,7 @@ export class TransferApi {
     if (!options.onProgress) {
       return this.transport.request<ImportResult>(url, key, `/api/import${params}`, init)
     }
-    return this.streamed(url, key, `/api/import${params}`, init, options.onProgress)
+    return this.transport.streamed<ImportResult, TransferProgress>(url, key, `/api/import${params}`, init, options.onProgress)
   }
 
   copyFromServer(
@@ -97,7 +97,7 @@ export class TransferApi {
     if (!options.onProgress) {
       return this.transport.request<ImportResult>(url, key, '/api/copy', init)
     }
-    return this.streamed(url, key, '/api/copy', init, options.onProgress)
+    return this.transport.streamed<ImportResult, TransferProgress>(url, key, '/api/copy', init, options.onProgress)
   }
 
   /**
@@ -127,27 +127,6 @@ export class TransferApi {
         detail_limit: options.detailLimit,
       }),
     })
-  }
-
-  /** The same request, answered as a progress stream rather than one body. */
-  private async streamed(
-    url: string,
-    key: string,
-    path: string,
-    init: RequestInit,
-    onProgress: (progress: TransferProgress) => void,
-  ): Promise<ImportResult> {
-    const response = await this.transport.fetchRaw(url, path, {
-      ...init,
-      headers: HttpTransport.authHeaders(key, {
-        ...(init.headers as Record<string, string>),
-        Accept: ProgressReader.ContentType,
-      }),
-    })
-    // A refusal that happens before the work begins is still an ordinary
-    // response, so it is read as one.
-    if (!response.ok) throw await this.transport.fail(response)
-    return ProgressReader.read(response, onProgress)
   }
 
   private static params(options: ArchiveScope): QueryParams {

@@ -103,6 +103,7 @@ export default function App() {
   ) : route.view === 'server-settings' || route.view === 'project-settings' || route.view === 'env-settings' ? (
     <SettingsView
       server={server}
+      servers={servers}
       route={route}
       onUpdateServer={patchServer}
       onDeleteServer={() => {

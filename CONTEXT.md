@@ -12,7 +12,7 @@ A minimal, self-hostable headless CMS. You define collections with JSON Schema
 and get generated admin forms and a CRUD API. You can move all the data
 anywhere with export/import. What sets it apart is **portability**: standard
 schemas, pluggable storage, and one command to clone an instance. The vision
-and every decision (D1–D111) are indexed in [IMPLEMENTATION.md](IMPLEMENTATION.md).
+and every decision (D1–D112) are indexed in [IMPLEMENTATION.md](IMPLEMENTATION.md).
 
 ## Where things stand
 
@@ -71,7 +71,8 @@ API, core, adapters), `apps/admin` (React, embedded in the executable),
   60 minutes, bound to the key that prepared it. Apply writes the plan as one
   commit with a `_transfers` ledger row, or nothing; new media files go first
   and are taken back if the commit does not land, and an existing asset is
-  never changed (D111). The admin page for it is not built yet.
+  never changed (D111). The env Data Transfer page can take another saved
+  server as its source, with a key pasted for that copy (D112).
 - **Plugins.** A plugin is a granted principal whose `ctx.fetch` goes through
   the real API (D34–D39). Plugins install and uninstall from the API or with
   `silo add` (D32, D42, D43), expose routes under `/api/ext/{name}/*`, and can
@@ -104,13 +105,14 @@ API, core, adapters), `apps/admin` (React, embedded in the executable),
   are in [milestones.md](resources/design/milestones.md) §12.
   [IDEAS.md](IDEAS.md) holds loose ideas.
 
-**Most recent changes:** the first five steps of moving selected content
+**Most recent changes:** the first six steps of moving selected content
 between instances: an optional atomic commit on the storage port (D107), a
 transfer package route that sends only what was picked (D108), prepared
 transfers on the destination that pull, verify and hold a package for review
 (D109), a plan of each one, made by the importer's own rules and checked
 against the schemas it leaves in place (D110), and Apply, which writes that
-plan as one commit or nothing, with media rules and crash recovery (D111); a server
+plan as one commit or nothing, with media rules and crash recovery (D111), and
+the env Data Transfer page's other-server source that drives all of it (D112); a server
 whose saved key is refused opens in an edit dialog from the server picker,
 instead of a banner that needed `localStorage` cleared; the internal docs moved
 from `docs/` to `resources/`, and every link to them now points there. Read the

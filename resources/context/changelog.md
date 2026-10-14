@@ -4,6 +4,27 @@
 > The *current* state is [CONTEXT.md](../../CONTEXT.md); this is how it got
 > there.
 
+- **The env Data Transfer page can copy from another server (2026-10-14, D112).**
+  The sixth step of copying selected content between instances. A *Source
+  server* select offers this server and every other saved one. For another
+  server the page asks for a key for this copy only, checks it against that
+  server's `/api/session` (a wrong key says so under the field instead of
+  logging the admin out), and reads the source's projects, environments,
+  collections and search with it. Preview prepares a transfer here and shows
+  the saved plan: totals, a media line, plan pages, and the packaged copy of an
+  entry. Apply writes exactly that plan or nothing; a stale or expired preview
+  shows *Preview again*, and a lost Apply answer is followed by a read of the
+  transfer. A preparation is cancelled when an input changes, when the page
+  goes, when the tab closes, and when it was started for a form that moved on.
+  The page also names `transfer:copy`, `media:create` and the source's
+  `transfer:export` when they are missing. `HttpTransport.streamed` replaces
+  `TransferApi`'s private copy, and `ProgressReader` now passes each progress
+  line on whole; `progress-reader.test.ts` (2) covers that and the error code.
+  Checked in the browser against two scratch servers: wrong key, preview,
+  inspect, stale after a schema change, preview again, apply (entries, the
+  image and its bytes landed), cancel on an input change and on leaving the
+  page, a source key without `transfer:export`, and the local copy and the
+  server copy unchanged.
 - **A prepared transfer can be applied (2026-10-14, D111).** The fifth step of
   copying selected content into another instance.
   `POST /api/projects/{project}/envs/{env}/transfers/{id}/apply` asks again for

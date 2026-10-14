@@ -1,17 +1,21 @@
-import { AlertTriangle, ArrowRight, Check, Copy, RefreshCw } from 'lucide-react'
+import { AlertTriangle, ArrowRight, Copy } from 'lucide-react'
 import { Claims } from '@silo/shared/claims'
-import { Button } from '../../../components/buttons/Button'
 import { Breadcrumb } from '../../../components/navigation/Breadcrumb'
 import { Routes } from '../../../router/routes'
 import type { ScopeRef } from '../../../api/types/scope-ref'
 import { useScopeCopy } from './use-scope-copy'
+import { useCopySource } from './use-copy-source'
+import { useRemoteCopy } from './use-remote-copy'
 import { TopBar } from '../../shell/TopBar'
 import type { Server } from '../../servers/server'
 import { SettingsPageHead } from '../parts/SettingsPageHead'
 import settings from '../SettingsView.module.css'
 import styles from './EnvTransferPage.module.css'
 import { ScopeCopyPicker } from './ScopeCopyPicker'
-import { ScopeCopyPreview } from './ScopeCopyPreview'
+import { ScopeCopyActions } from './ScopeCopyActions'
+import { CopySourceFields } from './CopySourceFields'
+import { RemoteTransferActions } from './RemoteTransferActions'
+import { RemoteTransferPreview } from './RemoteTransferPreview'
 
 type Mode = 'merge' | 'replace'
 type Prefer = '' | 'local' | 'remote'
@@ -23,21 +27,36 @@ type Prefer = '' | 'local' | 'remote'
  * another inside the same instance and needs only the scoped claims a
  * read-then-write loop would (D22). The whole-instance archive lives under the
  * server, where its blast radius is stated.
+ *
+ * The source can also be another saved server (D112). Then the picker
+ * reads that server with a key pasted for this copy, and Preview asks this
+ * server to prepare a transfer: a saved plan that Apply writes exactly, or
+ * not at all.
  */
 export function EnvTransferPage({
   server,
+  servers,
   scope,
   projects,
   claims,
 }: {
   server: Server
+  /** Every saved server; the others can be the source. */
+  servers: Server[]
   /** The destination — the environment whose settings these are. */
   scope: ScopeRef
   projects: string[]
   claims: string[]
 }) {
-  const copy = useScopeCopy(server, scope, claims)
-
+  const source = useCopySource(server, servers, projects)
+  const copy = useScopeCopy(server, scope, claims, {
+    endpoint: source.endpoint,
+    remote: !!source.remote,
+    claims: source.claims ?? claims,
+    projects: source.projects,
+  })
+  const remote = useRemoteCopy(server, scope, claims, source, copy)
+  const busy = copy.busy || remote.busy
 
   return (
     <>
@@ -58,10 +77,10 @@ export function EnvTransferPage({
           sub="Preview first — nothing is written until you apply."
         />
 
-        {copy.error && (
+        {(copy.error || remote.error) && (
           <div className={settings.alertError}>
             <AlertTriangle size={15} />
-            <span>{copy.error}</span>
+            <span>{source.remote ? remote.error || copy.error : copy.error}</span>
           </div>
         )}
 
@@ -71,14 +90,20 @@ export function EnvTransferPage({
               <span className={styles.heading}>
                 <Copy size={15} /> Copy from another environment
               </span>
-              <p>
-                Runs entirely on the server — no archive is downloaded. Media is stored per instance rather
-                than per environment, so files in the media library are shared already and none are copied.
-              </p>
+              {source.remote ? (
+                <p>Fetches the selection from {source.remote.name} and writes it here as one change.</p>
+              ) : (
+                <p>
+                  Runs entirely on the server — no archive is downloaded. Media is stored per instance rather
+                  than per environment, so files in the media library are shared already and none are copied.
+                </p>
+              )}
             </div>
 
             <div className={styles.body}>
               <div className={styles.sourceGrid}>
+                <CopySourceFields source={source} busy={busy} />
+
                 <div className="field">
                   <label className="field-label" htmlFor="src-project">
                     Source project
@@ -88,9 +113,9 @@ export function EnvTransferPage({
                     className="input"
                     value={copy.sourceProject}
                     onChange={(event) => copy.setSourceProject(event.target.value)}
-                    disabled={copy.busy}
+                    disabled={busy || source.projects.length === 0}
                   >
-                    {projects.map((p) => (
+                    {source.projects.map((p) => (
                       <option key={p} value={p}>
                         {p}
                       </option>
@@ -107,9 +132,11 @@ export function EnvTransferPage({
                     className="input"
                     value={copy.sourceEnv}
                     onChange={(event) => copy.setSourceEnv(event.target.value)}
-                    disabled={copy.busy || copy.sourceEnvironments.length === 0}
+                    disabled={busy || copy.sourceEnvironments.length === 0}
                   >
-                    {copy.sourceEnvironments.length === 0 && <option value="">No other environment</option>}
+                    {copy.sourceEnvironments.length === 0 && (
+                      <option value="">{source.remote ? 'No environment' : 'No other environment'}</option>
+                    )}
                     {copy.sourceEnvironments.map((env) => (
                       <option key={env} value={env}>
                         {env}
@@ -129,7 +156,7 @@ export function EnvTransferPage({
                     onChange={(e) => {
                       copy.setMode(e.target.value as Mode)
                     }}
-                    disabled={copy.busy}
+                    disabled={busy}
                   >
                     <option value="merge">Merge</option>
                     <option value="replace" disabled={copy.customize && copy.selection.some((item) => item.entryIds !== undefined)}>Replace source collections</option>
@@ -148,7 +175,7 @@ export function EnvTransferPage({
                       onChange={(e) => {
                         copy.setPrefer(e.target.value as Prefer)
                       }}
-                      disabled={copy.busy}
+                      disabled={busy}
                     >
                       <option value="">Newest wins</option>
                       <option value="local">Keep this environment</option>
@@ -161,6 +188,7 @@ export function EnvTransferPage({
               <div className={styles.direction}>
                 <span className={styles.directionLabel}>Source</span>
                 <span className={styles.scopeFrom}>
+                  {source.remote && `${source.remote.name} · `}
                   {copy.from ? `${copy.from.project}/${copy.from.env}` : '—'}
                 </span>
                 <ArrowRight size={15} className={styles.arrow} />
@@ -176,14 +204,14 @@ export function EnvTransferPage({
                     type="checkbox"
                     checked={copy.customize}
                     onChange={(event) => copy.setCustomize(event.target.checked)}
-                    disabled={copy.busy}
+                    disabled={busy}
                   />
                   Choose what to copy
                 </label>
                 <span>By default every collection and entry is copied. Selected collection schemas are copied too.</span>
               </div>
 
-              {copy.customize && <ScopeCopyPicker copy={copy} />}
+              {copy.customize && <ScopeCopyPicker copy={{ ...copy, busy }} />}
 
               {copy.mode === 'replace' && (
                 <div className="banner banner-warn">
@@ -203,7 +231,7 @@ export function EnvTransferPage({
                 <div className="banner banner-bad">
                   <AlertTriangle size={15} />
                   <span>
-                    This key cannot read all of {copy.from.project}/{copy.from.env} — it is missing{' '}
+                    {source.remote ? 'The source key' : 'This key'} cannot read all of {copy.from.project}/{copy.from.env} — it is missing{' '}
                     <code>{Claims.collection(copy.from.project, copy.from.env, '*', Claims.CollectionEntriesRead)}</code>.
                   </span>
                 </div>
@@ -219,6 +247,15 @@ export function EnvTransferPage({
                 </div>
               )}
 
+              {remote.missing.map((item) => (
+                <div key={item.claim} className="banner banner-bad">
+                  <AlertTriangle size={15} />
+                  <span>
+                    {item.holder} is missing <code>{item.claim}</code>.
+                  </span>
+                </div>
+              ))}
+
               {!copy.customize && copy.mode === 'replace' && copy.canWrite && !copy.canReplace && (
                 <div className="banner banner-bad">
                   <AlertTriangle size={15} />
@@ -229,39 +266,14 @@ export function EnvTransferPage({
                 </div>
               )}
 
-              {copy.busy && (
-                <div className={styles.progress}>
-                  <RefreshCw size={14} className="spin" />
-                  {copy.preview ? 'Copying…' : 'Comparing the two environments…'}
-                </div>
+              {source.remote ? (
+                <>
+                  <RemoteTransferPreview remote={remote} />
+                  <RemoteTransferActions remote={remote} ready={remote.ready} source={source.remote.name} env={scope.env} />
+                </>
+              ) : (
+                <ScopeCopyActions copy={copy} destination={scope} />
               )}
-
-              <ScopeCopyPreview copy={copy} destination={scope} />
-
-              <div className={styles.actions}>
-                <span className={styles.actionNote}>
-                  {copy.sourceEnvironments.length === 0
-                    ? `${copy.sourceProject} has no other environment to copy from.`
-                    : copy.preview
-                      ? 'The source is read again on apply, so live edits may shift these numbers slightly.'
-                      : 'Preview reads both environments and writes nothing.'}
-                </span>
-                <div className={styles.actionButtons}>
-                  {copy.preview && (
-                    <Button variant="secondary" onClick={() => copy.setMode(copy.mode)} disabled={copy.busy}>
-                      Cancel
-                    </Button>
-                  )}
-                  <Button
-                    variant="primary"
-                    onClick={() => copy.run(copy.preview === null)}
-                    disabled={copy.busy || !copy.from || !copy.allowed || !copy.selectionValid || copy.applied !== null}
-                  >
-                    {copy.busy ? <RefreshCw size={14} className="spin" /> : copy.preview ? <Check size={14} /> : <Copy size={14} />}
-                    {copy.busy ? 'Working…' : copy.preview ? 'Apply copy' : copy.applied ? 'Copy complete' : 'Preview copy'}
-                  </Button>
-                </div>
-              </div>
             </div>
           </section>
         </div>

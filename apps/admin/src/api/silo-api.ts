@@ -5,6 +5,7 @@ import { EntriesApi } from './clients/entries-api'
 import { KeysApi } from './clients/keys-api'
 import { MediaApi } from './clients/media-api'
 import { PluginsApi } from './clients/plugins-api'
+import { PreparedTransferApi } from './clients/prepared-transfer-api'
 import { ProjectsApi } from './clients/projects-api'
 import { SearchApi } from './clients/search-api'
 import { SessionApi } from './clients/session-api'
@@ -32,6 +33,7 @@ export class SiloApi {
   readonly keys = new KeysApi(this.transport)
   readonly media = new MediaApi(this.transport)
   readonly transfer = new TransferApi(this.transport)
+  readonly preparedTransfers = new PreparedTransferApi(this.transport)
   readonly plugins = new PluginsApi(this.transport)
   readonly audit = new AuditApi(this.transport)
   readonly settings = new SettingsApi(this.transport)

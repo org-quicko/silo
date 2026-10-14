@@ -1,5 +1,6 @@
 import { Silo } from '@org-quicko/silo-client'
 import { ApiError } from '../api-error'
+import { ProgressReader } from './progress-reader'
 import type { ValidationDetail } from '@silo/shared/validation-detail'
 
 /**
@@ -58,6 +59,29 @@ export class HttpTransport {
     const contentType = response.headers.get('content-type') || ''
     if (contentType.includes('application/json')) return (await response.json()) as T
     return (await response.text()) as unknown as T
+  }
+
+  /**
+   * The same request, answered as a progress stream rather than one body
+   * (§7.8). A refusal that happens before the work begins is still an ordinary
+   * response, so it is read as one.
+   */
+  async streamed<Result, Progress extends { phase: string }>(
+    url: string,
+    key: string,
+    path: string,
+    init: RequestInit,
+    onProgress: (progress: Progress) => void,
+  ): Promise<Result> {
+    const response = await this.fetchRaw(url, path, {
+      ...init,
+      headers: HttpTransport.authHeaders(key, {
+        ...(init.headers as Record<string, string>),
+        Accept: ProgressReader.ContentType,
+      }),
+    })
+    if (!response.ok) throw await this.fail(response)
+    return ProgressReader.read<Result, Progress>(response, onProgress)
   }
 
   /** The raw `Response`, for the calls that want a blob or their own status
