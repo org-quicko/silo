@@ -4,6 +4,26 @@
 > The *current* state is [CONTEXT.md](../../CONTEXT.md); this is how it got
 > there.
 
+- **Copy key checks and source trees answer only for their own inputs
+  (2026-10-14).** Three faults on the two copy pages. In each, a check or a read
+  outlived the URL or key it was made for. (1) The server-wide *Copy from silo*
+  tab sent a narrowed copy as the whole source when its tree was missing. With
+  only `posts` checked, a failed project listing set the tree to null, the
+  request dropped `include`, and the dry run counted every collection (+4, not
+  +1). While *Choose* is on, Preview copy now waits for the tree (*Waiting for
+  the source scope*). `use-transfer-tree.ts` returns a tree only for the URL and
+  key it was read with, so a new source never draws, or narrows a copy with,
+  the last one's. The Export tab already waited for its tree. (2) The
+  `use-source-key.ts` from the entry below, and (3) D112's `use-copy-source.ts`,
+  set *checking* in an effect. So the render that took an edit to an accepted
+  key still read *ready*, and one read went out with the new key; its `401`
+  logged the admin out. Both now keep the URL and key beside the answer and
+  work the status out during render, so an edited key is unchecked at once.
+  Checked in the browser against two scratch SQLite servers, each fault
+  reproduced first: an edited key on either page now sends only
+  `/api/session`; with the project listing made to fail in the tab, Preview
+  copy is disabled and sends nothing; once the listing works again the request
+  carries `include: ["default/prod/posts"]` and the preview counts +1.
 - **The server-wide copy tab checks its pasted key first (2026-10-14).** On the
   server Data Transfer page, *Copy from silo* read the source's tree once
   *Choose* was picked, with the pasted URL and key, through

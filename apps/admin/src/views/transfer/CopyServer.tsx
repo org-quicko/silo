@@ -83,12 +83,20 @@ export function CopyServerPanel({
   // nothing is a real state and has to block the copy rather than quietly
   // meaning the whole source.
   const nothingChosen = browsing && include.length === 0
+  // A narrowed copy is sent only with the tree it was chosen on. Without one,
+  // `wire` cannot run, and the empty list would reach the route as the whole
+  // source rather than what was checked.
+  const waitingForTree = browsing && !sourceTree
 
   const copy = async (dryRun: boolean) => {
     const cleanUrl = sourceUrl.trim()
     const cleanKey = sourceApiKey.trim()
     if (!cleanUrl || !cleanKey) {
       setError('Enter the source server URL and a key that permits export.')
+      return
+    }
+    if (waitingForTree) {
+      setError('Wait for the source scope to load.')
       return
     }
     if (nothingChosen) {
@@ -350,14 +358,18 @@ export function CopyServerPanel({
           ) : (
             <>
               <span className={ledger.sectionNote}>
-                {nothingChosen
-                  ? 'Check what to copy first'
-                  : 'Runs a dry run first — nothing is written'}
+                {waitingForTree
+                  ? 'Waiting for the source scope'
+                  : nothingChosen
+                    ? 'Check what to copy first'
+                    : 'Runs a dry run first — nothing is written'}
               </span>
               <Button
                 variant="primary"
                 onClick={() => copy(true)}
-                disabled={busy || !sourceUrl.trim() || !sourceApiKey.trim() || nothingChosen}
+                disabled={
+                  busy || !sourceUrl.trim() || !sourceApiKey.trim() || nothingChosen || waitingForTree
+                }
               >
                 {busy ? <RefreshCw size={14} className="spin" /> : <Copy size={14} />} Preview copy
               </Button>

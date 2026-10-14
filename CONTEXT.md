@@ -109,7 +109,9 @@ API, core, adapters), `apps/admin` (React, embedded in the executable),
 
 **Most recent changes:** the server-wide *Copy from silo* tab checks its
 pasted source key before it reads the source tree, so a wrong key no longer
-logs the admin out; the first six steps of moving selected content
+logs the admin out, an edited key is checked again on both copy pages, and a
+narrowed copy waits for its tree instead of going out as the whole source; the
+first six steps of moving selected content
 between instances: an optional atomic commit on the storage port (D107), a
 transfer package route that sends only what was picked (D108), prepared
 transfers on the destination that pull, verify and hold a package for review
