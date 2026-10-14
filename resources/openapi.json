@@ -802,7 +802,7 @@
                     "Transfer"
                 ],
                 "summary": "Prepare a transfer from another instance into this environment",
-                "description": "The destination half of a transfer between instances (D109). This\nserver asks the source for a package (`POST …/package`, D108) of\nexactly the selection, unpacks it under the `[transfer]` size limits\n(D85), and verifies it exactly: every requested collection and entry\nand nothing else, media rows that are exactly what the packaged\nentries reference, a file for each row and nothing more, each file\nwith its row's size and sha256, and only plain files and folders. A\npackage that fails any check is deleted and the answer is a 400.\n\nThen it plans the package against this environment (D110), reading\nonly. Each entry is decided as an import decides it: in `merge`, the\nlater `updated_at` wins, then the higher `rev`, then the higher\ninstance id, unless `prefer` says which side wins; in `replace`, every\npackaged entry is written and every other row of the collection is\nremoved. Each entry to be written is checked against the schema the\ntransfer leaves in place: the package's where it writes the schema,\nthis environment's where it does not. An entry that fails is\n`rejected` and will not be written. A schema change that the\ncollection's entries freeze (D70) fails the preparation with a 409.\nThe plan records what it read, so Apply can refuse if any of it has\nchanged since.\n\nThe verified package is kept for review for 60 minutes. At most 4\ntransfers may be preparing, prepared or applying at once; a fifth is\na 429. The source key is used for the pull and never stored.\n\nEverything that can be refused is refused before the source is\ncontacted: the claims, a missing environment, a storage adapter that\ncannot commit many writes as one (fs: 409 `atomic_commit_unsupported`),\nand a full server. With `Accept: application/x-ndjson` the answer is a\nprogress stream whose first line names the transfer, so it can be\ncancelled while the pull runs.\n\nThis server fetches from the URL in the body. Any key holding\n`transfer:copy` can make it reach any address it can route to.\n\nClaims: `transfer:copy`; `collections:{project}/{env}/{name}:create`,\n`:schema:update`, `:entries:create` and `:entries:update` for each\nselected collection; `:delete` and `:entries:delete` as well in\n`replace` mode; and `media:create` unless `media` is `none`.\n",
+                "description": "The destination half of a transfer between instances (D109). This\nserver asks the source for a package (`POST …/package`, D108) of\nexactly the selection, unpacks it under the `[transfer]` size limits\n(D85), and verifies it exactly: every requested collection and entry\nand nothing else, media rows that are exactly what the packaged\nentries reference, a file for each row and nothing more, each file\nwith its row's size and sha256, and only plain files and folders. A\npackage that fails any check is deleted and the answer is a 400.\n\nThen it plans the package against this environment (D110), reading\nonly. Each entry is decided as an import decides it: in `merge`, the\nlater `updated_at` wins, then the higher `rev`, then the higher\ninstance id, unless `prefer` says which side wins; in `replace`, every\npackaged entry is written and every other row of the collection is\nremoved. Each entry to be written is checked against the schema the\ntransfer leaves in place: the package's where it writes the schema,\nthis environment's where it does not. An entry that fails is\n`rejected` and will not be written. A schema change that the\ncollection's entries freeze (D70) fails the preparation with a 409.\nThe plan records what it read, so Apply can refuse if any of it has\nchanged since.\nMedia is planned with it (D111): an asset this server lacks is added,\none it already holds under the same id is never changed (`unchanged`\nwhen it is the same file and details, `skipped` with the reason when\nnot), folders are matched by path, and every reference a written entry\nholds that will not resolve here is listed.\n\nThe verified package is kept for review for 60 minutes. At most 4\ntransfers may be preparing, prepared or applying at once; a fifth is\na 429. The source key is used for the pull and never stored.\n\nEverything that can be refused is refused before the source is\ncontacted: the claims, a missing environment, a storage adapter that\ncannot commit many writes as one (fs: 409 `atomic_commit_unsupported`),\nand a full server. With `Accept: application/x-ndjson` the answer is a\nprogress stream whose first line names the transfer, so it can be\ncancelled while the pull runs.\n\nThis server fetches from the URL in the body. Any key holding\n`transfer:copy` can make it reach any address it can route to.\n\nClaims: `transfer:copy`; `collections:{project}/{env}/{name}:create`,\n`:schema:update`, `:entries:create` and `:entries:update` for each\nselected collection; `:delete` and `:entries:delete` as well in\n`replace` mode; and `media:create` unless `media` is `none`.\n",
                 "operationId": "prepareTransfer",
                 "requestBody": {
                     "required": true,
@@ -895,7 +895,7 @@
                     "Transfer"
                 ],
                 "summary": "Read a prepared transfer and one page of its plan",
-                "description": "The state, the expiry, the package summary, the review and, while the\npackage is held, one page of the plan in a stable order: each\ncollection's packaged entries by id, then, in `replace`, the rows it\nremoves. An expired or cancelled transfer keeps its record for 24\nhours, without its package or plan.\n\nWhat only this environment holds, the id of a row that `replace`\nremoves and the `rev` and time of a row already here, is shown only to\na key holding `collections:{project}/{env}/{name}:schema:read` and\n`:entries:read` on that collection, as the env copy's preview does.\n\nAnswers only the key that prepared the transfer, and only under the\nenvironment it was prepared for; any other caller gets a 404.\n\nClaims: `transfer:copy`.\n",
+                "description": "The state, the expiry, the package summary, the review and, while the\npackage is held, one page of the plan in a stable order: each\ncollection's packaged entries by id, then, in `replace`, the rows it\nremoves, then the packaged media assets and folders (D111). An expired,\ncancelled, stale or applied transfer keeps its record for 24 hours,\nwithout its package or plan.\n\nWhat only this environment holds, the id of a row that `replace`\nremoves and the `rev` and time of a row already here, is shown only to\na key holding `collections:{project}/{env}/{name}:schema:read` and\n`:entries:read` on that collection, as the env copy's preview does.\n\nAnswers only the key that prepared the transfer, and only under the\nenvironment it was prepared for; any other caller gets a 404.\n\nClaims: `transfer:copy`.\n",
                 "operationId": "getTransfer",
                 "parameters": [
                     {
@@ -967,6 +967,76 @@
                     },
                     "409": {
                         "description": "`transfer_in_progress` while it is applying, `transfer_applied` once it has.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/Error"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/projects/{project}/environments/{env}/transfers/{id}/apply": {
+            "parameters": [
+                {
+                    "$ref": "#/components/parameters/Project"
+                },
+                {
+                    "$ref": "#/components/parameters/Env"
+                },
+                {
+                    "name": "id",
+                    "in": "path",
+                    "required": true,
+                    "schema": {
+                        "type": "string"
+                    },
+                    "description": "The transfer's id, as prepare answered it."
+                }
+            ],
+            "post": {
+                "tags": [
+                    "Transfer"
+                ],
+                "summary": "Apply a prepared transfer",
+                "description": "Writes the reviewed plan as one change, or nothing (D111). There is no\nbody: everything was fixed when the transfer was prepared.\n\nEvery row the plan read is checked again inside the same commit, with\na `_transfers` ledger row that must not exist yet. If anything has\nchanged, nothing is written, the answer is `409 stale_preview`, and\nthe transfer becomes `stale`: prepare it again. New media files are\nwritten first, under keys no file holds, and removed again if the\ncommit does not land. A server that stopped during an apply settles\nit when it starts again.\n\nApplying an applied transfer answers it again, with `200`. With\n`Accept: application/x-ndjson` the answer is a progress stream\n(`media`, then `commit`).\n\nAnswers only the key that prepared the transfer, and only under the\nenvironment it was prepared for; any other caller gets a 404.\n\nClaims, as the key holds them now: `transfer:copy`;\n`collections:{project}/{env}/{name}:create`, `:schema:update`,\n`:entries:create` and `:entries:update` for each selected collection;\n`:delete` and `:entries:delete` as well in `replace` mode; and\n`media:create` unless `media` is `none`.\n",
+                "operationId": "applyTransfer",
+                "responses": {
+                    "200": {
+                        "description": "The applied transfer, or, when `Accept: application/x-ndjson` asked for one, a progress stream whose last line carries it.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/PreparedTransfer"
+                                }
+                            },
+                            "application/x-ndjson": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/PreparedTransferProgressLine"
+                                }
+                            }
+                        }
+                    },
+                    "403": {
+                        "$ref": "#/components/responses/Forbidden"
+                    },
+                    "404": {
+                        "$ref": "#/components/responses/NotFound"
+                    },
+                    "409": {
+                        "description": "`stale_preview` when this server changed since the plan was made; `transfer_in_progress` while it is being prepared or applied; `transfer_cancelled`; `transfer_expired`.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/Error"
+                                }
+                            }
+                        }
+                    },
+                    "500": {
+                        "description": "The commit or a media file failed. Nothing was written, and the transfer is `prepared` again with `last_error`.",
                         "content": {
                             "application/json": {
                                 "schema": {
@@ -6056,6 +6126,11 @@
                     "review": {
                         "$ref": "#/components/schemas/TransferReview"
                     },
+                    "applied_at": {
+                        "type": "string",
+                        "format": "date-time",
+                        "description": "When the commit landed."
+                    },
                     "entries": {
                         "type": "object",
                         "description": "One page of the plan. Only while the package is held.",
@@ -6104,9 +6179,11 @@
                             "fetch",
                             "verify",
                             "plan",
+                            "media",
+                            "commit",
                             "working"
                         ],
-                        "description": "`progress` lines only."
+                        "description": "`progress` lines only. Preparing: `fetch`, `verify`, `plan`. Applying: `media`, `commit`."
                     },
                     "transfer": {
                         "type": "object",
@@ -6241,12 +6318,36 @@
                                 }
                             }
                         }
+                    },
+                    "media": {
+                        "type": "object",
+                        "properties": {
+                            "added": {
+                                "type": "integer"
+                            },
+                            "unchanged": {
+                                "type": "integer"
+                            },
+                            "skipped": {
+                                "type": "integer"
+                            },
+                            "folders_added": {
+                                "type": "integer"
+                            },
+                            "unresolved": {
+                                "type": "array",
+                                "items": {
+                                    "type": "string"
+                                },
+                                "description": "Media references the written entries hold that will not resolve here once the transfer lands."
+                            }
+                        }
                     }
                 }
             },
             "TransferPlanItem": {
                 "type": "object",
-                "description": "One line of the plan: a packaged entry, or a row here that `replace` removes.",
+                "description": "One line of the plan: a packaged entry, a row here that `replace` removes, or a packaged media asset (`_media`) or folder (`_media_folders`).",
                 "required": [
                     "collection",
                     "action"
@@ -6264,11 +6365,16 @@
                         "enum": [
                             "added",
                             "updated",
+                            "unchanged",
                             "skipped",
                             "rejected",
                             "deleted"
                         ],
-                        "description": "`rejected`: the schema the transfer leaves in place refuses the entry, so it is not written. `deleted`: `replace` removes a row the package does not carry."
+                        "description": "`rejected`: the schema the transfer leaves in place refuses the entry, so it is not written. `deleted`: `replace` removes a row the package does not carry. `unchanged`: this server already holds the same media asset or folder. A `skipped` media asset keeps this server's own, and `reason` says why."
+                    },
+                    "name": {
+                        "type": "string",
+                        "description": "A media line's filename, or its folder's path."
                     },
                     "rev": {
                         "type": "integer",
@@ -6294,7 +6400,14 @@
                     },
                     "reason": {
                         "type": "string",
-                        "description": "Why a `rejected` entry was refused."
+                        "description": "Why a `rejected` entry was refused, or why a media asset was `skipped`."
+                    },
+                    "unresolved": {
+                        "type": "array",
+                        "items": {
+                            "type": "string"
+                        },
+                        "description": "The media references this entry holds that will not resolve here."
                     }
                 }
             },
@@ -7973,6 +8086,8 @@
                                     "transfer_cancelled",
                                     "transfer_in_progress",
                                     "transfer_applied",
+                                    "stale_preview",
+                                    "transfer_expired",
                                     "too_many_transfers"
                                 ]
                             },

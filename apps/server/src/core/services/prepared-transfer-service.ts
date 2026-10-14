@@ -18,14 +18,16 @@ import { PreparedTransferRegistry } from "../transfer/prepared/prepared-transfer
 import type { PreparedTransferRequest } from "../transfer/prepared/prepared-transfer-request";
 import type { PreparedTransferView } from "../transfer/prepared/prepared-transfer-view";
 import { PreparedTransferViews } from "../transfer/prepared/prepared-transfer-views";
+import { PreparedTransferApplication } from "./prepared-transfer-application";
 import type { ServiceContext } from "./support/service-context";
 
 /**
  * Prepared transfers on the destination (D109): pull another silo's package
  * once, verify it exactly, plan it against the destination (D110), and keep
- * both for review until Apply, a cancel or the expiry. Nothing here writes to
- * storage, so nothing takes the write lock: the plan's baseline is what makes
- * a change made since the review visible to Apply.
+ * both for review until Apply, a cancel or the expiry. Preparing writes
+ * nothing to storage, so it takes no write lock: the plan's baseline is what
+ * makes a change made since the review visible to Apply, which
+ * `PreparedTransferApplication` runs (D111).
  *
  * Every lookup is bound to the key that prepared the transfer and to the
  * destination scope; any other caller is told it does not exist.
@@ -33,10 +35,12 @@ import type { ServiceContext } from "./support/service-context";
 export class PreparedTransferService {
   private readonly context: ServiceContext;
   private readonly registry: PreparedTransferRegistry;
+  private readonly application: PreparedTransferApplication;
 
   constructor(context: ServiceContext) {
     this.context = context;
     this.registry = new PreparedTransferRegistry(() => context.stagingDirectory);
+    this.application = new PreparedTransferApplication(context, this.registry);
   }
 
   /** Everything that can be refused without the source, then a slot. */
@@ -91,10 +95,12 @@ export class PreparedTransferService {
         to: Scope.of(record.to.project, record.to.env),
         mode: record.mode,
         prefer: record.prefer,
+        media: record.media,
         instanceId: summary.instance_id,
         collections: record.selection.map((item) => item.collection).sort(),
         entries,
-        content: store.content(record),
+        content: store.package(record),
+        blobs: this.context.blobStorage,
       });
       await store.writePlan(record.id, planner.lines());
       return await this.registry.locked(async () => {
@@ -123,7 +129,7 @@ export class PreparedTransferService {
     }
   }
 
-  async read(keyId: string, to: Scope, id: string, page: PreparedTransferPage): Promise<PreparedTransferView> {
+  async read(keyId: string, to: Scope, id: string, page?: PreparedTransferPage): Promise<PreparedTransferView> {
     return this.registry.locked(async (store) =>
       PreparedTransferViews.of(store, await this.registry.owned(store, keyId, to, id), page)
     );
@@ -136,9 +142,25 @@ export class PreparedTransferService {
     if (record.state !== "prepared") throw new NotFoundError(`transfer "${id}" holds no package: it is ${record.state}`);
     EntryUtils.assertSafeSegment(entryId, "entry id");
     const selected = record.selection.some((item) => item.collection === collection);
-    const packaged = selected && !entryId.startsWith(".") ? await store.entry(record, collection, entryId) : null;
+    const packaged = selected && !entryId.startsWith(".") ? await store.package(record).entry(collection, entryId) : null;
     if (!packaged) throw new NotFoundError(`entry "${collection}/${entryId}" is not in this transfer`);
     return { ...packaged, project: to.project, env: to.env, collection };
+  }
+
+  /** Writes the plan as one commit; applying an applied transfer answers it as it is (D111). */
+  async apply(
+    keyId: string,
+    to: Scope,
+    id: string,
+    report?: (progress: PreparedTransferProgress) => void
+  ): Promise<PreparedTransferView> {
+    const record = await this.application.apply(keyId, to, id, report);
+    return PreparedTransferViews.of(await this.registry.store(), record);
+  }
+
+  /** Settles every apply a stopped process left. Run at start, before requests. */
+  resumeInterrupted(): Promise<{ applied: number; restored: number; pending: number }> {
+    return this.application.resumeInterrupted();
   }
 
   /** Stops a pull or drops a prepared package. An ended transfer is answered as it is. */

@@ -139,6 +139,7 @@ one line here.
 | D108 | `POST …/envs/{env}/package` streams a transfer package: exactly the named collections and entries, the media they use, `package.json` so ordinary imports refuse it |
 | D109 | Prepared transfers: `POST …/envs/{env}/transfers` pulls a source's package once, verifies it exactly, keeps it 60 minutes for review (4 open at most, bound to the key); pages, one entry, cancel |
 | D110 | Transfer plan: `ImportRules` shared by `Importer` and `TransferPlanner`; entries checked against the effective schema; `plan.ndjson` lines with the baseline Apply will check; destination details only for readers |
+| D111 | Apply: `POST …/transfers/{id}/apply` writes the plan as one commit with a `_transfers` ledger row, or nothing (`409 stale_preview`); files first under saved free keys, taken back on failure; startup settles interrupted applies; existing assets never changed |
 
 ## 3. Scope
 

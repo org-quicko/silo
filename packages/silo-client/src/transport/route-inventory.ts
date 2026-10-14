@@ -85,6 +85,7 @@ export class RouteInventory {
     "POST /api/projects/:project/envs/:env/transfers": "a transfer from another silo is prepared by the admin",
     "GET /api/projects/:project/envs/:env/transfers/:id": "a transfer from another silo is reviewed in the admin",
     "GET /api/projects/:project/envs/:env/transfers/:id/entries/:collection/:entry": "a transfer from another silo is reviewed in the admin",
+    "POST /api/projects/:project/envs/:env/transfers/:id/apply": "a transfer from another silo is applied by the admin",
     "DELETE /api/projects/:project/envs/:env/transfers/:id": "a transfer from another silo is cancelled by the admin",
     "POST /api/search/reindex": "rebuilding the index is an operator action",
     "POST /api/media/purge": "emptying the library is an operator action",

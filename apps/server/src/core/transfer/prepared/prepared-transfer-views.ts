@@ -32,6 +32,7 @@ export class PreparedTransferViews {
       media: record.media,
       ...(record.package ? { package: record.package } : {}),
       ...(record.review ? { review: PreparedTransferViews.review(record.review) } : {}),
+      ...(record.applied_at ? { applied_at: record.applied_at } : {}),
       ...(record.last_error ? { last_error: record.last_error } : {}),
     };
     if (record.state === "prepared" && record.review && page) {
@@ -48,8 +49,13 @@ export class PreparedTransferViews {
   }
 
   private static review(review: TransferReview): NonNullable<PreparedTransferView["review"]> {
-    const { lines: _lines, collections, ...totals } = review;
-    return { ...totals, collections: collections.map(({ baseline: _baseline, ...collection }) => collection) };
+    const { lines: _lines, collections, media, ...totals } = review;
+    const { resolved: _resolved, ...shown } = media;
+    return {
+      ...totals,
+      collections: collections.map(({ baseline: _baseline, ...collection }) => collection),
+      media: shown,
+    };
   }
 
   private static item(line: TransferPlanLine, revealed: boolean): TransferPlanItem {
@@ -57,11 +63,13 @@ export class PreparedTransferViews {
       collection: line.collection,
       ...(line.action !== "deleted" || revealed ? { id: line.id } : {}),
       action: line.action,
+      ...(line.name !== undefined ? { name: line.name } : {}),
       ...(line.rev !== undefined ? { rev: line.rev, updated_at: line.updated_at } : {}),
       ...(revealed && line.destination
         ? { destination: { rev: line.destination.rev, updated_at: line.destination.updated_at } }
         : {}),
       ...(line.reason ? { reason: line.reason } : {}),
+      ...(line.unresolved ? { unresolved: line.unresolved } : {}),
     };
   }
 }

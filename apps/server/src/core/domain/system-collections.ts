@@ -22,6 +22,7 @@ export type SystemCollection =
   | "_plugins"
   | "_audit"
   | "_scope_renames"
+  | "_transfers"
   | "_variables";
 
 export class SystemCollections {
@@ -32,6 +33,9 @@ export class SystemCollections {
   static readonly Plugins = "_plugins" as const;
   static readonly Audit = "_audit" as const;
   static readonly ScopeRenames = "_scope_renames" as const;
+  /** One row per transfer from another instance this one applied, written in
+   *  the same commit as its content (D111). */
+  static readonly Transfers = "_transfers" as const;
   /** Variable declarations and their per-environment values (D57). */
   static readonly Variables = "_variables" as const;
 
@@ -47,6 +51,7 @@ export class SystemCollections {
     SystemCollections.MediaFolders,
     SystemCollections.Plugins,
     SystemCollections.ScopeRenames,
+    SystemCollections.Transfers,
     SystemCollections.Variables,
   ];
 
@@ -64,11 +69,12 @@ export class SystemCollections {
     _media_folders: true,
     _plugins: true,
     _scope_renames: true,
+    _transfers: true,
     _variables: true,
   };
 
   /**
-   * Whether this is one of silo's own eight.
+   * Whether this is one of silo's own nine.
    *
    * Deliberately **not** the same question as
    * `EntryUtils.isSystemCollection`, which asks whether a name is

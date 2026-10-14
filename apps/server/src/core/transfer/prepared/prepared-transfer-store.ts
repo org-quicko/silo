@@ -1,11 +1,9 @@
 import fs from "fs/promises";
 import path from "path";
 import { FsFiles } from "../../../adapters/storage/fs/fs-files";
-import { FsLayout } from "../../../adapters/storage/fs/fs-layout";
-import type { Entry } from "../../domain/entry";
 import { Importer } from "../importer";
-import type { TransferPlanInput } from "../plan/transfer-plan-input";
 import type { TransferPlanLine } from "../plan/transfer-plan-line";
+import { PreparedTransferPackage } from "./prepared-transfer-package";
 import type { PreparedTransferRecord } from "./prepared-transfer-record";
 
 /**
@@ -100,52 +98,34 @@ export class PreparedTransferStore {
 
   /** One page of the plan, read a line at a time so a large plan costs one page. */
   async page(id: string, offset: number, limit: number): Promise<TransferPlanLine[]> {
-    const file = Bun.file(path.join(this.directory(id), PreparedTransferStore.PlanName));
-    if (!(await file.exists())) return [];
     const items: TransferPlanLine[] = [];
-    const decoder = new TextDecoder();
-    let rest = "";
     let index = 0;
-    for await (const chunk of file.stream()) {
-      rest += decoder.decode(chunk, { stream: true });
-      for (let newline = rest.indexOf("\n"); newline >= 0; newline = rest.indexOf("\n")) {
-        if (index >= offset) items.push(JSON.parse(rest.slice(0, newline)) as TransferPlanLine);
-        rest = rest.slice(newline + 1);
-        index++;
-        if (items.length >= limit) return items;
-      }
+    for await (const line of this.lines(id)) {
+      if (index++ < offset) continue;
+      items.push(line);
+      if (items.length >= limit) break;
     }
     return items;
   }
 
-  /** The verified package of `record`, as the planner reads it. */
-  content(record: PreparedTransferRecord): TransferPlanInput["content"] {
-    return {
-      schema: (collection) => this.schema(record, collection),
-      entry: (collection, id) => this.entry(record, collection, id),
-    };
-  }
-
-  /** One collection's schema in the verified package. */
-  async schema(record: PreparedTransferRecord, collection: string): Promise<unknown> {
-    const file = path.join(this.scopeDirectory(record), "schemas", `${collection}${FsLayout.SchemaSuffix}`);
-    return JSON.parse(await fs.readFile(file, "utf8"));
-  }
-
-  /** One entry of the verified package, by the source's address, or null. */
-  async entry(record: PreparedTransferRecord, collection: string, id: string): Promise<Entry | null> {
-    const file = path.join(this.scopeDirectory(record), "content", collection, `${id}.json`);
-    try {
-      return JSON.parse(await fs.readFile(file, "utf8")) as Entry;
-    } catch (caught: any) {
-      if (caught?.code === "ENOENT") return null;
-      throw caught;
+  /** Every line of the plan, in order; none when there is no plan. */
+  async *lines(id: string): AsyncGenerator<TransferPlanLine> {
+    const file = Bun.file(path.join(this.directory(id), PreparedTransferStore.PlanName));
+    if (!(await file.exists())) return;
+    const decoder = new TextDecoder();
+    let rest = "";
+    for await (const chunk of file.stream()) {
+      rest += decoder.decode(chunk, { stream: true });
+      for (let newline = rest.indexOf("\n"); newline >= 0; newline = rest.indexOf("\n")) {
+        yield JSON.parse(rest.slice(0, newline)) as TransferPlanLine;
+        rest = rest.slice(newline + 1);
+      }
     }
   }
 
-  /** The source scope's folder in the package, which its paths name. */
-  private scopeDirectory(record: PreparedTransferRecord): string {
-    return path.join(this.packageDirectory(record.id), "projects", record.from.project, record.from.env);
+  /** The verified package of `record`. */
+  package(record: PreparedTransferRecord): PreparedTransferPackage {
+    return new PreparedTransferPackage(this.packageDirectory(record.id), record.from);
   }
 
   /** Removes everything but the record: the package, its plan, any half staged pull. */

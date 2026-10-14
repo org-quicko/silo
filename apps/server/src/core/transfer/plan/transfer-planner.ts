@@ -8,6 +8,8 @@ import { SchemaChangeGuard } from "../../schema/schema-change-guard";
 import { SchemaValidator } from "../../schema/schema-validator";
 import { ImportRules } from "../import-rules";
 import type { PackagedEntry } from "../package/packaged-entry";
+import { TransferMediaPlanner } from "./transfer-media-planner";
+import { TransferPlanBaseline } from "./transfer-plan-baseline";
 import type { TransferPlanCollection } from "./transfer-plan-collection";
 import type { TransferPlanInput } from "./transfer-plan-input";
 import type { TransferPlanLine } from "./transfer-plan-line";
@@ -21,7 +23,8 @@ import type { TransferReview } from "./transfer-review";
  * Entries are checked against the **effective** schema, the package's where
  * the plan writes it and the destination's where it does not, because one
  * commit cannot write the schemas first and ask the store, as `Importer` does.
- * A schema change the guard refuses (D70) fails the plan.
+ * A schema change the guard refuses (D70) fails the plan. Media is planned by
+ * `TransferMediaPlanner` (D111), and its lines follow the entries'.
  */
 export class TransferPlanner {
   /** Destination rows read per page when replace lists what it removes. */
@@ -31,6 +34,7 @@ export class TransferPlanner {
   private readonly input: TransferPlanInput;
   private readonly validator: SchemaValidator;
   private readonly collections = new Map<string, TransferPlanCollection>();
+  private readonly media: TransferMediaPlanner;
   private plannedAt = "";
   private lineCount = 0;
 
@@ -38,6 +42,7 @@ export class TransferPlanner {
     this.store = store;
     this.input = input;
     this.validator = new SchemaValidator(store);
+    this.media = new TransferMediaPlanner(store, input);
   }
 
   /** The plan, one line at a time: each collection's package entries, then what replace removes. */
@@ -46,6 +51,8 @@ export class TransferPlanner {
     const localInstance = (await this.store.meta()).instance_id;
     const schemas = CollectionSchemas.map(await this.store.listCollections(this.input.to));
     for (const collection of this.input.collections) await this.planSchema(collection, schemas);
+    // Media first: an entry line names the references that will not resolve.
+    await this.media.plan();
 
     const packaged = new Map<string, PackagedEntry[]>();
     for (const entry of this.input.entries) {
@@ -62,6 +69,7 @@ export class TransferPlanner {
         for await (const line of this.removed(collection, carried)) yield this.count(line);
       }
     }
+    for (const line of this.media.lines()) yield this.count(line);
   }
 
   /** The totals, once `lines` has been read to the end. */
@@ -78,6 +86,7 @@ export class TransferPlanner {
       rejected: sum("rejected"),
       lines: this.lineCount,
       collections,
+      media: this.media.review(),
     };
   }
 
@@ -121,7 +130,7 @@ export class TransferPlanner {
       action,
       rev: incoming.rev,
       updated_at: incoming.updated_at.toISOString(),
-      ...(local ? { destination: TransferPlanner.row(local) } : {}),
+      ...(local ? { destination: TransferPlanBaseline.of(local) } : {}),
     };
     if (action === "skipped") return line;
     try {
@@ -132,7 +141,8 @@ export class TransferPlanner {
       }
       return { ...line, action: "rejected", reason: caught.message };
     }
-    return line;
+    const unresolved = await this.media.unresolvedIn(raw.data);
+    return unresolved.length > 0 ? { ...line, unresolved } : line;
   }
 
   /** Every destination row replace overwrites or removes, counted; a line for each one the package does not carry. */
@@ -147,14 +157,15 @@ export class TransferPlanner {
         if (seen.has(entry.id)) continue;
         seen.add(entry.id);
         summary.deleted++;
-        if (!carried.has(entry.id)) yield { collection, id: entry.id, action: "deleted", destination: TransferPlanner.row(entry) };
+        if (!carried.has(entry.id)) yield { collection, id: entry.id, action: "deleted", destination: TransferPlanBaseline.of(entry) };
       }
     }
   }
 
   private count(line: TransferPlanLine): TransferPlanLine {
     this.lineCount++;
-    if (line.action !== "deleted") this.collections.get(line.collection)![line.action]++;
+    const summary = this.collections.get(line.collection);
+    if (summary && line.action !== "deleted" && line.action !== "unchanged") summary[line.action]++;
     return line;
   }
 
@@ -170,9 +181,5 @@ export class TransferPlanner {
   private static absent(caught: unknown): undefined {
     if (caught instanceof NotFoundError) return undefined;
     throw caught;
-  }
-
-  private static row(entry: Entry): NonNullable<TransferPlanLine["destination"]> {
-    return { seq: entry.seq, rev: entry.rev, updated_at: entry.updated_at.toISOString() };
   }
 }

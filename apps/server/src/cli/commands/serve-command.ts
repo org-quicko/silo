@@ -88,6 +88,19 @@ export class ServeCommand {
       );
     }
 
+    // A transfer whose apply the process died in is settled before any request
+    // can meet it: its ledger row says whether the commit landed, and the files
+    // written for one that did not are taken back (D111).
+    const transfers = await service.preparedTransfers.resumeInterrupted();
+    if (transfers.applied + transfers.restored > 0) {
+      logger.info("settled transfers a stop interrupted", { applied: transfers.applied, restored: transfers.restored });
+    }
+    if (transfers.pending > 0) {
+      logger.warn("transfers interrupted while applying could not be settled; the next start, or applying them again, retries", {
+        count: transfers.pending,
+      });
+    }
+
     const meta = await service.meta();
     const app = new SiloServer(service, {
       version,

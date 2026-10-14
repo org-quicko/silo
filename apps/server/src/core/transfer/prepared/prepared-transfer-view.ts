@@ -1,5 +1,6 @@
 import type { MediaMode } from "../media-mode";
 import type { TransferPackageSummary } from "../package/transfer-package-summary";
+import type { TransferMediaReview } from "../plan/transfer-media-review";
 import type { TransferPlanCollection } from "../plan/transfer-plan-collection";
 import type { TransferPlanItem } from "../plan/transfer-plan-item";
 import type { TransferReview } from "../plan/transfer-review";
@@ -24,9 +25,11 @@ export interface PreparedTransferView {
   prefer?: "local" | "remote";
   media: MediaMode;
   package?: TransferPackageSummary;
-  review?: Omit<TransferReview, "lines" | "collections"> & {
+  review?: Omit<TransferReview, "lines" | "collections" | "media"> & {
     collections: Omit<TransferPlanCollection, "baseline">[];
+    media: Omit<TransferMediaReview, "resolved">;
   };
+  applied_at?: string;
   entries?: { offset: number; limit: number; total: number; items: TransferPlanItem[] };
   last_error?: string;
 }

@@ -32,5 +32,13 @@ export interface PreparedTransferRecord {
   package?: TransferPackageSummary;
   /** Set once the package is planned against the destination (D110). */
   review?: TransferReview;
+  /** When the commit landed (D111). */
+  applied_at?: string;
+  /**
+   * The blob keys an apply is about to write, saved before the first one is
+   * (D111), so a failure or a restart knows which files to take back if the
+   * commit did not land. Never shown.
+   */
+  blob_intents?: string[];
   last_error?: string;
 }

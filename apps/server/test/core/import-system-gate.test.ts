@@ -106,10 +106,11 @@ describe("import gates the _system half of an archive", () => {
     await fs.rm(tempDir, { recursive: true, force: true });
   });
 
-  test("_audit, _plugins and _scope_renames never import, whoever asks", async () => {
+  test("_audit, _plugins, _transfers and _scope_renames never import, whoever asks", async () => {
     for (const collection of [
       SystemCollections.Audit,
       SystemCollections.Plugins,
+      SystemCollections.Transfers,
       SystemCollections.ScopeRenames,
     ]) {
       const source = await archive(`never-${collection}`, {

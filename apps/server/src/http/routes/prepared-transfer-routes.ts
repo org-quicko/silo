@@ -4,7 +4,8 @@ import { ValidationError } from "@silo/shared/validation-error";
 import { HttpPackageSource } from "../../adapters/http/http-package-source";
 import { EntryUtils } from "../../core/domain/entry-utils";
 import type { SiloService } from "../../core/services/silo-service";
-import { MediaModes } from "../../core/transfer/media-mode";
+import { MediaCatalog } from "../../core/media/media-catalog";
+import { type MediaMode, MediaModes } from "../../core/transfer/media-mode";
 import type { PreparedTransferPage } from "../../core/transfer/prepared/prepared-transfer-page";
 import type { PreparedTransferProgress } from "../../core/transfer/prepared/prepared-transfer-progress";
 import { PreparedTransferRequest } from "../../core/transfer/prepared/prepared-transfer-request";
@@ -17,7 +18,7 @@ import { ProgressStream } from "./progress-stream";
  * `…/envs/{env}/transfers` (D109, D110): the destination half of a transfer
  * from another instance. Prepare pulls, verifies and plans the source's
  * package; the other routes read the plan a page at a time, read one packaged
- * entry, and cancel.
+ * entry, apply the plan as one commit (D111), and cancel.
  *
  * Prepare asks for `transfer:copy`, because the server reaches outside itself,
  * plus the env copy's write claims on each collection (D22), the replace
@@ -32,14 +33,12 @@ export class PreparedTransferRoutes {
       const key = RouteAuth.requireClaim(c, Claims.TransferCopy);
       const to = RouteAuth.getScope(c);
       const request = PreparedTransferRequest.parse(await PreparedTransferRoutes.readBody(c));
-      for (const { name } of request.selection.collections) {
-        const permissions = [
-          ...Claims.ScopeCopyWritePermissions,
-          ...(request.mode === "replace" ? Claims.ScopeCopyReplacePermissions : []),
-        ];
-        for (const permission of permissions) RouteAuth.requireCollectionClaim(c, to.project, to.env, name, permission);
-      }
-      if (request.selection.media === MediaModes.Referenced) RouteAuth.requireClaim(c, Claims.MediaCreate);
+      PreparedTransferRoutes.requireWrites(
+        c,
+        request.selection.collections.map(({ name }) => name),
+        request.mode,
+        request.selection.media
+      );
 
       const source = new HttpPackageSource(request.sourceUrl, request.apiKey, request.from, request.packageBody());
       const record = await service.preparedTransfers.begin(key.id, to, request, source.url);
@@ -69,6 +68,21 @@ export class PreparedTransferRoutes {
       return c.json(EntryUtils.toApiResponse(packaged));
     };
 
+    // The claims are asked again, as the key holds them now: it may have lost
+    // one since it prepared the transfer.
+    const apply = async (c: Context) => {
+      const key = RouteAuth.requireClaim(c, Claims.TransferCopy);
+      const to = RouteAuth.getScope(c);
+      const id = c.req.param("id")!;
+      const transfer = await service.preparedTransfers.read(key.id, to, id);
+      PreparedTransferRoutes.requireWrites(c, transfer.selection.map((item) => item.collection), transfer.mode, transfer.media);
+      const run = (report?: (progress: PreparedTransferProgress) => void) =>
+        service.preparedTransfers.apply(key.id, to, id, report);
+      // Writing the files can take as long as the media does (§7.8).
+      if (ProgressStream.wanted(c)) return ProgressStream.respond<PreparedTransferView, PreparedTransferProgress>(c, run);
+      return c.json(await run());
+    };
+
     const cancel = async (c: Context) => {
       const key = RouteAuth.requireClaim(c, Claims.TransferCopy);
       return c.json(await service.preparedTransfers.cancel(key.id, RouteAuth.getScope(c), c.req.param("id")!));
@@ -80,19 +94,37 @@ export class PreparedTransferRoutes {
     app.get("/api/projects/:project/envs/:env/transfers/:id", read);
     app.get("/api/projects/:project/environments/:env/transfers/:id/entries/:collection/:entry", entry);
     app.get("/api/projects/:project/envs/:env/transfers/:id/entries/:collection/:entry", entry);
+    app.post("/api/projects/:project/environments/:env/transfers/:id/apply", apply);
+    app.post("/api/projects/:project/envs/:env/transfers/:id/apply", apply);
     app.delete("/api/projects/:project/environments/:env/transfers/:id", cancel);
     app.delete("/api/projects/:project/envs/:env/transfers/:id", cancel);
   }
 
   /**
+   * What a transfer writes here, asked of the caller: the env copy's write
+   * claims on each collection (D22), its replace claims in `replace`, and
+   * `media:create` when media rides. Prepare and Apply both ask.
+   */
+  private static requireWrites(c: Context, collections: readonly string[], mode: "merge" | "replace", media: MediaMode): void {
+    const to = RouteAuth.getScope(c);
+    const permissions = [...Claims.ScopeCopyWritePermissions, ...(mode === "replace" ? Claims.ScopeCopyReplacePermissions : [])];
+    for (const name of collections) {
+      for (const permission of permissions) RouteAuth.requireCollectionClaim(c, to.project, to.env, name, permission);
+    }
+    if (media === MediaModes.Referenced) RouteAuth.requireClaim(c, Claims.MediaCreate);
+  }
+
+  /**
    * Whether the caller may see into a destination collection: the env copy's
    * read claims there (D22), as its preview asks before naming a row only the
-   * destination holds.
+   * destination holds. The media library is readable by every key.
    */
   private static reveals(c: Context): PreparedTransferPage["reveals"] {
     const key = RouteAuth.requireKey(c);
     const to = RouteAuth.getScope(c);
     return (collection) =>
+      collection === MediaCatalog.Collection ||
+      collection === MediaCatalog.FoldersCollection ||
       Claims.ScopeCopyReadPermissions.every((permission) =>
         Claims.has(key.claims, Claims.collection(to.project, to.env, collection, permission))
       );

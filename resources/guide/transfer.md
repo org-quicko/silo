@@ -217,7 +217,7 @@ same claims their own routes ask for:
 | `_keys` | `keys:import` |
 | `_media`, `_media_folders`, `_media_folder_moves` | `media:create`, even with `media=none`; `media:delete` too when `replace` would empty them |
 | `_variables` for a project | `create` and `entries:update` on `<project>/*/*` |
-| `_audit`, `_plugins` | only by `silo import`, from an archive made with `silo export --instance`. Over HTTP the request is a `403`, for every key |
+| `_audit`, `_plugins`, `_transfers` | only by `silo import`, from an archive made with `silo export --instance`. Over HTTP the request is a `403`, for every key |
 | `_scope_renames`, any other `_` name | never imported. The request is a `400` |
 
 A missing claim is a `403` that names the records and the claim. The check

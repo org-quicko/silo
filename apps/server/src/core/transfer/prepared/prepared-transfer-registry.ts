@@ -68,9 +68,13 @@ export class PreparedTransferRegistry {
     return record;
   }
 
-  /** Marks a pull as running in this process. */
+  /** Marks a pull, or an apply (D111), as running in this process. */
   start(id: string): void {
     this.running.set(id, new AbortController());
+  }
+
+  isRunning(id: string): boolean {
+    return this.running.has(id);
   }
 
   /** What a running pull watches to learn it was cancelled. */
@@ -90,6 +94,6 @@ export class PreparedTransferRegistry {
   }
 
   private refresh(store: PreparedTransferStore, record: PreparedTransferRecord | null): Promise<PreparedTransferRecord | null> {
-    return PreparedTransferExpiry.refresh(store, record, (id) => this.running.has(id));
+    return PreparedTransferExpiry.refresh(store, record, (id) => this.isRunning(id));
   }
 }

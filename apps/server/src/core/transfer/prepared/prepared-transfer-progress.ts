@@ -5,6 +5,7 @@ import type { PreparedTransferState } from "./prepared-transfer-state";
  * transfer, so a client that wants to stop the pull can cancel it by id.
  */
 export interface PreparedTransferProgress {
-  phase: "fetch" | "verify" | "plan";
+  /** Preparing: `fetch`, `verify`, `plan`. Applying (D111): `media`, then `commit`. */
+  phase: "fetch" | "verify" | "plan" | "media" | "commit";
   transfer: { id: string; state: PreparedTransferState; expires_at: string };
 }

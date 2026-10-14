@@ -37,6 +37,7 @@ describe("moving a whole instance", () => {
 
     await source.putSchema(Scope.Default, "posts", { type: "object" });
     await source.put(entry(Scope.Default, "posts", "hello", { title: "hello" }), { usages: [], search: null });
+    await source.put(entry(Scope.System, SystemCollections.Transfers, "applied", { added: 1 }), { usages: [], search: null });
     await service.keys.create("mine", ["media:create"], { actor: AuditUtils.cli() });
     await service.plugins.reconcile("acme", ["media:create"], []);
     await service.plugins.grant("acme", ["media:create"], { actor: AuditUtils.cli() });
@@ -60,6 +61,7 @@ describe("moving a whole instance", () => {
   /** Everything a driver switch has to keep, compared source to destination. */
   async function expectSameInstance(moved: SiloService): Promise<void> {
     expect((await moved.store.get(Scope.Default, "posts", "hello")).data).toEqual({ title: "hello" });
+    expect((await moved.store.get(Scope.System, SystemCollections.Transfers, "applied")).data).toEqual({ added: 1 });
 
     const grant = await moved.plugins.find("acme");
     const original = await service.plugins.find("acme");
@@ -100,7 +102,7 @@ describe("moving a whole instance", () => {
     }
   });
 
-  test("an ordinary export still leaves the audit log, the grants and plugin keys behind", async () => {
+  test("an ordinary export still leaves the audit log, the grants, plugin keys and the transfer ledger behind", async () => {
     const archive = path.join(tempDir, "plain");
     const manifest = await Exporter.exportDir(source, archive, { withKeys: true });
     expect(manifest.instance).toBeUndefined();
@@ -108,6 +110,7 @@ describe("moving a whole instance", () => {
     const collections = await fs.readdir(content);
     expect(collections).not.toContain(SystemCollections.Audit);
     expect(collections).not.toContain(SystemCollections.Plugins);
+    expect(collections).not.toContain(SystemCollections.Transfers);
   });
 
   test("a move loads only through the CLI: no key reaches it over HTTP, not even root", async () => {

@@ -98,11 +98,16 @@ describe("prepared transfer", () => {
       },
     });
     const { home, picked } = pair.seeded;
-    expect(view.entries.total).toBe(2);
-    expect(view.entries.items.map((item: any) => `${item.collection}/${item.id}`)).toEqual([`pages/${home}`, `posts/${picked}`]);
+    expect(view.entries.total).toBe(4);
+    expect(view.entries.items.map((item: any) => `${item.collection}/${item.name ?? item.id}`)).toEqual([
+      `pages/${home}`,
+      `posts/${picked}`,
+      "_media/used.png",
+      "_media_folders//a",
+    ]);
 
     const second = await read(pair.call("GET", route(view.id, "?detail_offset=1&detail_limit=1")));
-    expect(second.entries).toMatchObject({ offset: 1, limit: 1, total: 2 });
+    expect(second.entries).toMatchObject({ offset: 1, limit: 1, total: 4 });
     expect(second.entries.items.map((item: any) => item.id)).toEqual([picked]);
   });
 

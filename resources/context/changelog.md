@@ -4,6 +4,28 @@
 > The *current* state is [CONTEXT.md](../../CONTEXT.md); this is how it got
 > there.
 
+- **A prepared transfer can be applied (2026-10-14, D111).** The fifth step of
+  copying selected content into another instance.
+  `POST /api/projects/{project}/envs/{env}/transfers/{id}/apply` asks again for
+  prepare's write claims and writes the plan as one `AtomicStorage.commit`:
+  every baseline is a precondition, every writing line a write, and last a
+  `_system/_transfers/<id>` ledger row that must not exist yet. Anything moved
+  is `409 stale_preview` and the transfer becomes `stale`; an applied one is
+  answered again with `200`; a second apply while one runs is
+  `409 transfer_in_progress`. The new assets' files go first, under free keys
+  saved in `record.json` before the first one, and are taken back when the
+  commit does not land; a failure is settled by the ledger row, and
+  `silo serve` settles any apply a stop interrupted. Media is planned under
+  D111's rules: an asset this server lacks is added under its own key; one it
+  holds under the same id is never changed (`unchanged` or `skipped` with the
+  reason); folders match by path; nothing is deleted; references that will not
+  resolve are listed. `_transfers` is a ninth system collection, instance-local
+  like `_audit`. `prepared-transfer-apply.test.ts` (11) covers the write, the
+  idempotent second apply, five ways a plan goes stale, the media rules,
+  replace, `media: none`, the claims, a concurrent apply, an S3 store failing
+  its second put, and a trigger failing the commit on SQLite and Postgres;
+  `prepared-transfer-recovery.test.ts` (2) kills a real process after the files
+  and after the commit. The admin page is next.
 - **A prepared transfer is planned by the importer's own rules (2026-10-14, D110).**
   The fourth step of copying selected content into another instance. The
   importer's decisions moved to `ImportRules` (which schema it writes and

@@ -1,6 +1,5 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { Claims } from "@silo/shared/claims";
-import type { Entry } from "../../src/core/domain/entry";
 import { Scope } from "../../src/core/domain/scope";
 import { TransferPair } from "./support/transfer-pair";
 
@@ -27,12 +26,7 @@ describe("prepared transfer plan", () => {
     await pair.close();
   });
 
-  /** A destination row with the id and time a test needs, put as an import would. */
-  const plant = async (env: string, collection: string, id: string, updatedAt: string, rev = 1) => {
-    const at = new Date(updatedAt);
-    const entry: Entry = { id, project: "acme", env, collection, rev, seq: 0, created_at: at, updated_at: at, data: {} };
-    await pair.destinationService.store.put(entry, { usages: [], search: null });
-  };
+  const plant = (...args: Parameters<TransferPair["plant"]>) => pair.plant(...args);
 
   /** Each line as "id action destination-rev", sorted, so a test reads what it expects. */
   const lines = (items: any[]) =>
@@ -53,7 +47,9 @@ describe("prepared transfer plan", () => {
       ["local", "skipped", "skipped"],
     ];
     for (const [prefer, pickedAction, otherAction] of cases) {
-      const view = await read(pair.prepare(pair.body({ selection: [{ collection: "posts" }, { collection: "pages" }], prefer })));
+      const view = await read(
+        pair.prepare(pair.body({ selection: [{ collection: "posts" }, { collection: "pages" }], prefer, media: "none" }))
+      );
       expect([prefer, lines(view.entries.items)]).toEqual([
         prefer,
         [`${home} added -`, `${other} ${otherAction} 1`, `${picked} ${pickedAction} 1`].sort(),
