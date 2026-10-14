@@ -247,3 +247,53 @@ A job model with polling would survive a page reload and support cancellation,
 which this does not. It is the right next step and is deliberately not this one:
 it needs durable job state, a listing, a GC policy and claims of its own, none of
 which the failure this fixes requires.
+
+### 7.9 Transfer packages (D108)
+
+Copying selected content from an environment of one instance into an
+environment of another starts at the source, and the rule there is that what
+was not picked never leaves. `POST /api/copy` cannot keep it: its archive goes
+three depths deep and no further (§7.6), so picking three posts out of a
+thousand would ship the thousand and the media they all use, and a refresh from
+prod would hand a lower stage prod entries nobody chose. A transfer package is
+the answer: `POST /api/projects/{project}/envs/{env}/package` with
+`{collections: [{name, entry_ids?}], media}`.
+
+- **Exactly what was named.** The tree is §6.3's, cut to one scope: the project
+  and environment markers, each named collection's schema and marker, and its
+  entries — all of them for an item with no `entry_ids`, exactly those for an
+  item with them. Variables, keys, folder moves and every other `_system` row
+  stay behind; the destination's own settings are not the source's to send.
+- **Media is the closure of the entries, or nothing.** With `referenced` (the
+  default) the package carries each asset the entries point at that is
+  `active` and whose bytes the store holds, the bytes themselves, and the folder
+  records of every folder above those assets. "Point at" is `MediaRefs.extract`,
+  legacy blob tokens included, so it means what §7.7 means. Every reference the
+  package could not satisfy — no row, a row being deleted, or bytes gone — is
+  listed in `missing_media`, so the destination can say so before anything is
+  applied. With `none` the package carries no catalog row and no byte, which is
+  stricter than an archive's `none`: the destination finds its own unresolved
+  references. `all` is refused, since a package is never the library.
+- **Refused before the first byte, never widened.** Every name and id is checked
+  first: malformed, reserved or repeated is a `400`, absent from the scope a
+  `404` naming what is missing, and only then does the body start. A source too
+  old to know the route answers `404` for the route itself, so there is no older
+  behaviour to fall back to. An entry deleted while the package streams
+  truncates it, and a truncated package fails its gzip check at the far end.
+- **`package.json`, not `manifest.json`.** It records `package_version` (`1`),
+  the source's `silo_version` and `instance_id`, the scope, the echoed selection
+  with a count per collection, the media mode, what media rode and
+  `missing_media`, and it is written last so the counts are what was written.
+  The name is the safety: `Importer` refuses a tree holding `package.json` with
+  a `400` saying it is a transfer package, and every older silo refuses it for
+  having no `manifest.json`. Without that, an operator who saved a package and
+  loaded it with `POST /api/import?mode=replace` would empty every collection
+  of all but the picked entries — the hazard §7.6 kept entry subsets off the
+  archive routes to avoid.
+- **Claims are a narrowed export's** (§7.6): `transfer:export`, plus
+  `schema:read` and `entries:read` on each named collection. No media claim, for
+  the reason D58 gives.
+
+The route only produces. The destination's half — fetching a package, checking
+it against what was asked for, planning it against its own state, and applying
+it through `AtomicStorage.commit` — is the prepared transfer, which comes next.

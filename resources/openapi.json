@@ -730,6 +730,64 @@
                 }
             }
         },
+        "/api/projects/{project}/environments/{env}/package": {
+            "parameters": [
+                {
+                    "$ref": "#/components/parameters/Project"
+                },
+                {
+                    "$ref": "#/components/parameters/Env"
+                }
+            ],
+            "post": {
+                "tags": [
+                    "Transfer"
+                ],
+                "summary": "Stream a transfer package of the named collections and entries",
+                "description": "The source half of a transfer between instances (D108). The package is\nthe export tree cut to exactly what the body names: the selected\nentries, their collections' schemas, and with `media: referenced` the\nactive assets those entries use, their bytes and the folder records\nabove them. Variables, keys, folder moves and everything else stay\nbehind. Its manifest is `package.json`, so `POST /api/import` refuses\na package.\n\nEvery name and id is checked before the response begins: a malformed\none is a 400, one this environment lacks is a 404. An entry deleted\nwhile the package streams truncates it.\n\nClaims: `transfer:export`, plus `collections:{project}/{env}/{name}:schema:read`\nand `:entries:read` for each named collection.\n",
+                "operationId": "transferPackage",
+                "requestBody": {
+                    "required": true,
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/TransferPackageRequest"
+                            }
+                        }
+                    }
+                },
+                "responses": {
+                    "200": {
+                        "description": "The package.",
+                        "headers": {
+                            "Content-Disposition": {
+                                "schema": {
+                                    "type": "string"
+                                },
+                                "description": "attachment; filename=\"silo-package.tar.gz\""
+                            }
+                        },
+                        "content": {
+                            "application/gzip": {
+                                "schema": {
+                                    "type": "string",
+                                    "format": "binary"
+                                }
+                            }
+                        }
+                    },
+                    "400": {
+                        "$ref": "#/components/responses/ValidationFailed"
+                    },
+                    "403": {
+                        "$ref": "#/components/responses/Forbidden"
+                    },
+                    "404": {
+                        "$ref": "#/components/responses/NotFound"
+                    }
+                }
+            }
+        },
         "/api/projects/{project}/variables": {
             "parameters": [
                 {
@@ -5478,6 +5536,47 @@
                                 }
                             }
                         }
+                    }
+                }
+            },
+            "TransferPackageRequest": {
+                "type": "object",
+                "required": [
+                    "collections"
+                ],
+                "properties": {
+                    "collections": {
+                        "type": "array",
+                        "minItems": 1,
+                        "description": "Each collection once. An item without `entry_ids` carries its whole\ncollection; one with them carries exactly those entries. System\ncollections cannot be named.\n",
+                        "items": {
+                            "type": "object",
+                            "required": [
+                                "name"
+                            ],
+                            "properties": {
+                                "name": {
+                                    "$ref": "#/components/schemas/CollectionName"
+                                },
+                                "entry_ids": {
+                                    "type": "array",
+                                    "minItems": 1,
+                                    "uniqueItems": true,
+                                    "items": {
+                                        "type": "string"
+                                    }
+                                }
+                            }
+                        }
+                    },
+                    "media": {
+                        "type": "string",
+                        "enum": [
+                            "referenced",
+                            "none"
+                        ],
+                        "default": "referenced",
+                        "description": "`referenced` carries the assets the entries use, their bytes and their\nancestor folders. `none` carries no catalog row and no byte, which is\nstricter than an archive's `none`.\n"
                     }
                 }
             },

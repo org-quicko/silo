@@ -91,6 +91,7 @@ public final class RouteInventory {
     reasons.put("POST /api/import", "transfer is an operator surface");
     reasons.put("POST /api/copy", "transfer is an operator surface");
     reasons.put("POST /api/projects/:project/envs/:env/copy", "scope-to-scope copy is transfer");
+    reasons.put("POST /api/projects/:project/envs/:env/package", "a transfer package is read by another silo");
     reasons.put("POST /api/search/reindex", "rebuilding the index is an operator action");
     reasons.put("POST /api/media/purge", "emptying the library is an operator action");
     reasons.put("POST /api/media/reconcile", "an operator action");

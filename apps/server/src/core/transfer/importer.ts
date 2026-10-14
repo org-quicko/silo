@@ -29,6 +29,7 @@ import type { ParsedImport } from "./parsed-import";
 import type { ImportOptions } from "./import-options";
 import type { ImportResult } from "./import-result";
 import { ScopeCopyPreviewBuilder } from "./scope-copy-preview-builder";
+import { TransferPackageFormat } from "./package/transfer-package-format";
 
 export class Importer {
   /**
@@ -65,6 +66,13 @@ export class Importer {
 
   private static async parseImportDir(src: string): Promise<ParsedImport> {
     const manifestPath = path.join(src, "manifest.json");
+    // A transfer package may hold part of a collection, which a replace here
+    // would read as the whole of it (D108). It is never an archive.
+    if (await Bun.file(path.join(src, TransferPackageFormat.Manifest)).exists()) {
+      throw new ValidationError(
+        "this is a transfer package, not an export archive; it can only be loaded by a transfer into an environment"
+      );
+    }
     const mdata = await fs.readFile(manifestPath, "utf8");
     const manifest = JSON.parse(mdata) as ExportManifest;
 

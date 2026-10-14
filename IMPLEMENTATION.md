@@ -136,6 +136,7 @@ one line here.
 | D105 | The admin uploads a folder from a picker or a drop and recreates its subfolders from the paths; names are checked up front by a shared `MediaFolderName`, a refused file is skipped |
 | D106 | Bulk media download: one file direct, more as streamed STORE ZIP parts of ≤ 2 GiB behind a ticket; `[media] download_max_files` / `download_max_size_mb` / `download_max_streams` (5000, 5 GB, 3); `GET /api/media/stats` |
 | D107 | Optional `AtomicStorage.commit`: preconditions and writes in one transaction on SQLite and Postgres; the fs adapter does not offer it; fs blob writes are durable on return |
+| D108 | `POST …/envs/{env}/package` streams a transfer package: exactly the named collections and entries, the media they use, `package.json` so ordinary imports refuse it |
 
 ## 3. Scope
 

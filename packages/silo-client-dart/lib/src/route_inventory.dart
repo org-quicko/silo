@@ -61,6 +61,7 @@ abstract final class RouteInventory {
     'POST /api/import': 'transfer is an operator surface',
     'POST /api/copy': 'transfer is an operator surface',
     'POST /api/projects/:project/envs/:env/copy': 'scope-to-scope copy is transfer',
+    'POST /api/projects/:project/envs/:env/package': 'a transfer package is read by another silo',
     'POST /api/search/reindex': 'rebuilding the index is an operator action',
     'POST /api/media/purge': 'emptying the library is an operator action',
     'POST /api/media/reconcile': 'an operator action',

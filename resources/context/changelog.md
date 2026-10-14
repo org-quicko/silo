@@ -4,6 +4,32 @@
 > The *current* state is [CONTEXT.md](../../CONTEXT.md); this is how it got
 > there.
 
+- **A transfer package sends only what was picked (2026-10-14, D108).** The
+  second step of copying selected content into another instance.
+  `POST /api/projects/{project}/envs/{env}/package` takes
+  `{collections: [{name, entry_ids?}], media: referenced|none}` and streams
+  the §6.3 tree cut to exactly that: the scope's markers, each named
+  collection's schema, and its whole content or exactly the named entries.
+  With `referenced` it adds each active asset those entries use whose bytes
+  exist, the bytes, and the folder records above them, and `package.json`
+  lists every reference it could not satisfy as `missing_media`; `none` sends
+  no catalog row or byte, and `all` is refused. Variables, keys and folder
+  moves never ride. Every name and id is checked before the first byte (`400`,
+  `404`). Claims are a narrowed export's. The code is
+  `core/transfer/package/`, `TransferService.package` and
+  `TransferPackageRoutes`. `Importer` now refuses a tree holding
+  `package.json` with a `400` naming it a transfer package, so a package can
+  never be loaded by `/api/import` as if it held whole collections. The three
+  clients list the route as out of scope. `transfer-package.test.ts` pins the
+  exact file list, `media: none`, six refusals, the claims and the import
+  refusal; the file-list and import tests were checked to fail when the
+  package ignored `entry_ids` and when the importer skipped the check.
+  `resources/openapi.json`, both `http-api.md` files and `transfer.md` §7.9
+  describe it. Nothing calls it yet; the destination's prepared transfer is
+  next. The Dart and Java route inventories were already missing
+  `GET /api/media/stats` from D106, which fails the Dart drift test; that is
+  left for its own change.
+
 - **The storage port can commit many writes as one (2026-10-14, D107).** The
   first step of copying selected content from one instance into another
   environment of another: applying a reviewed plan has to land all of it or

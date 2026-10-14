@@ -26,6 +26,7 @@ Present a key as `Authorization: Bearer <key>` or `X-Api-Key: <key>`.
 | `PATCH` | `/api/projects/{project}/envs/{env}` | rename an environment (`?dry_run=true`) |
 | `DELETE` | `/api/projects/{project}/envs/{env}` | delete an environment and its collections (`?force=true`) |
 | `POST` | `/api/projects/{project}/envs/{env}/copy` | copy another environment of this instance into it |
+| `POST` | `/api/projects/{project}/envs/{env}/package` | stream a transfer package: only the named collections and entries, and the media they use. Another silo reads it |
 | `POST` | `/api/projects/{project}/variables` | declare a variable, and value it in one environment with `?env=` |
 | `PATCH` / `DELETE` | `/api/projects/{project}/variables/{name}` | rename or re-describe a declaration / undeclare it everywhere |
 | `GET` | `/api/projects/{project}/envs/{env}/variables` | the declarations, with this environment's values |
