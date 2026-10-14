@@ -351,8 +351,8 @@ shift its numbers. The route names the destination, the body the source, as
   record included, so a source that sends too much does not keep a slot.
 - **Kept on local disk**, under `<data>/transfer/prepared/<id>/`: `record.json`
   (written through a synced temporary file and a rename), the verified
-  `package/`, and `entries.ndjson`, the packaged entries sorted by collection
-  and id, which the review pages a line at a time. Local disk is right because
+  `package/`, and, once planned, `plan.ndjson` (§7.11), which the review pages
+  a line at a time. Local disk is right because
   one process owns a data directory (D25, D94). The same fact makes the
   process's own list of running pulls authoritative: a `preparing` record that
   no pull in this process owns was left by one that stopped, and is removed the
@@ -379,7 +379,8 @@ shift its numbers. The route names the destination, the body the source, as
   first line names the transfer, so a client can cancel by id while the pull
   runs. Without the header the answer is `201` with the transfer.
 - **The review.** `GET …/transfers/{id}?detail_offset=&detail_limit=` answers
-  the record, the package summary and one page of the index (at most 100).
+  the record, the package summary, the review and one page of the plan (at
+  most 100; §7.11).
   `GET …/transfers/{id}/entries/{collection}/{entry}` answers one packaged entry
   raw, as the editor reads entries (no media URLs, no variables), addressed to
   the destination. Neither reads the source again, so neither moves when the
@@ -396,5 +397,69 @@ the `error.message` of a JSON error body. Give `transfer:copy` only to the
 people who release content, and keep egress rules on the host. An allowlist
 (`[transfer] copy_sources`) was designed and left out of 1.6.0 by choice.
 
-The planner, Apply through `AtomicStorage.commit` with its ledger row, and the
-recovery of an interrupted apply come next.
+The plan (§7.11) is what the review shows and what Apply will write.
+
+### 7.11 The plan (D110)
+
+A prepared transfer is planned as soon as its package is verified, against the
+environment it was prepared for. Planning reads the destination and writes
+nothing, so it takes no write lock; the baseline it records is what lets Apply
+see a change made since.
+
+- **One set of rules.** `ImportRules` holds the decisions an import makes.
+  `schema()`: create a collection that is absent, update in `replace`, and in
+  `merge` update only a schema that differs, unless `prefer: "local"` keeps the
+  destination's; only that last update is guarded (D70). `incomingWins()`:
+  `prefer` when given, else the later `updated_at`, then the higher `rev`, then
+  the higher instance id. `Importer` and `TransferPlanner` both call them, so an
+  archive import, an env copy and a transfer decide the same input the same
+  way. The importer's flow is otherwise as it was, and so are its tests.
+- **Re-addressed.** The package's paths name the source scope. The planner
+  reads them there and plans, as Apply will write, into the route's
+  environment. The package's project, environment and collection markers are
+  ignored: a transfer fills an environment that exists, and a collection it
+  creates takes a fresh id, as in the env copy (D22), because the source's id
+  can belong to a collection here under another name.
+- **Checked against the effective schema.** An import writes the schemas and
+  then validates entries against the stored ones. A plan that becomes one
+  commit cannot do that, so each entry to be written is checked against the
+  scope's schemas as they will stand: the package's where the plan writes the
+  schema, this environment's where it does not (unchanged, or kept by
+  `prefer: "local"`). `SchemaValidator.validateEntryAgainst` compiles from that
+  map, with the same protocol checks (D62, D92). A skipped entry is not judged,
+  as the importer does not judge it. A refused entry is a `rejected` line
+  carrying the validator's message, and Apply will not write it. A schema that
+  does not compile is a `400`. A merge that would change what validates a
+  collection holding entries fails the preparation with the guard's `409`, and
+  the transfer is removed.
+- **Lines and counts.** `plan.ndjson` replaces D109's entry index: one line per
+  packaged entry, by collection and then id, followed in `replace` by one
+  `deleted` line per destination row the package does not carry. A line names
+  its action (`added`, `updated`, `skipped`, `rejected`, `deleted`), the
+  packaged `rev` and time, and the destination row it was planned against
+  (`seq`, `rev`, `updated_at`), if there was one. The record's `review` holds
+  the totals per collection, counted as the importer counts them, so a transfer
+  and an env copy of the same content read the same: `replace` counts every
+  destination row as `deleted`, overwritten or removed, and the lines say
+  which.
+- **The baseline**, which Apply turns into D107's preconditions: each line's
+  destination `seq`, or that there was no row; each collection's record id and
+  `updated_at`, which a schema write and a rename both move, or that there was
+  no collection; in `replace`, the exact set of rows (`rows: "listed"`); and,
+  for a merge whose schema change the guard let through only because the
+  collection was empty, that it is still empty (`rows: "none"`). A skipped or
+  rejected line is part of it too, so anything the review described that has
+  moved makes the transfer stale. Planning reads row by row rather than from
+  one snapshot, and that is enough: Apply checks every observation in one
+  transaction, so it commits only when all of them hold at once.
+- **What a reader sees.** A page answers each line without its `seq`. What
+  only the destination holds, the id on a `deleted` line and any line's
+  destination `rev` and time, is shown only to a key holding the env copy's
+  read claims (`:schema:read`, `:entries:read`) on that collection here, judged
+  at each read, as the env copy's preview hides destination ids (§7.4.1). The
+  collection baselines are never shown.
+- **Progress** gains a `plan` phase after `verify`.
+
+Media rows are planned with Apply, where their rules are decided. Apply through
+`AtomicStorage.commit` with its ledger row, and the recovery of an interrupted
+apply, come next (D111).

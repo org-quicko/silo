@@ -27,8 +27,8 @@ Present a key as `Authorization: Bearer <key>` or `X-Api-Key: <key>`.
 | `DELETE` | `/api/projects/{project}/envs/{env}` | delete an environment and its collections (`?force=true`) |
 | `POST` | `/api/projects/{project}/envs/{env}/copy` | copy another environment of this instance into it |
 | `POST` | `/api/projects/{project}/envs/{env}/package` | stream a transfer package: only the named collections and entries, and the media they use. Another silo reads it |
-| `POST` | `/api/projects/{project}/envs/{env}/transfers` | prepare a transfer from another silo into this environment: get its package, check it, and keep it for review for 60 minutes |
-| `GET` / `DELETE` | `/api/projects/{project}/envs/{env}/transfers/{id}` | read a prepared transfer and one page of its entries (`?detail_offset=&detail_limit=`) / cancel it |
+| `POST` | `/api/projects/{project}/envs/{env}/transfers` | prepare a transfer from another silo into this environment: get its package, check it, plan it against this environment, and keep it for review for 60 minutes |
+| `GET` / `DELETE` | `/api/projects/{project}/envs/{env}/transfers/{id}` | read a prepared transfer, its totals and one page of its plan (`?detail_offset=&detail_limit=`) / cancel it |
 | `GET` | `/api/projects/{project}/envs/{env}/transfers/{id}/entries/{collection}/{entry}` | read one entry as the prepared transfer holds it |
 | `POST` | `/api/projects/{project}/variables` | declare a variable, and value it in one environment with `?env=` |
 | `PATCH` / `DELETE` | `/api/projects/{project}/variables/{name}` | rename or re-describe a declaration / undeclare it everywhere |

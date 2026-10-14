@@ -4,6 +4,30 @@
 > The *current* state is [CONTEXT.md](../../CONTEXT.md); this is how it got
 > there.
 
+- **A prepared transfer is planned by the importer's own rules (2026-10-14, D110).**
+  The fourth step of copying selected content into another instance. The
+  importer's decisions moved to `ImportRules` (which schema it writes and
+  whether the D70 guard applies; which side of an entry wins in merge), and
+  `Importer` now calls them; its flow and its tests are otherwise unchanged.
+  Once a package is verified, `TransferPlanner` plans it against the
+  destination environment with the same rules, reading only, and checks each
+  entry it would write against the schema the transfer leaves in place
+  (`SchemaValidator.validateEntryAgainst`), since one commit cannot write the
+  schemas first. A refused entry is a `rejected` line; a merge that changes a
+  populated collection's schema fails the preparation with the guard's `409`.
+  `plan.ndjson` replaces the entry index: a line per packaged entry, then per
+  row `replace` removes, each with the destination row it was read from. The
+  record's `review` holds the totals, counted as the importer counts them, and
+  the baseline Apply will check: each row's `seq`, each collection's record
+  stamp, the exact rows in `replace`, and emptiness where the guard allowed a
+  change only for an empty collection. `GET …/transfers/{id}` now pages the
+  plan, and shows a removed row's id and a destination `rev` only to a key with
+  the env copy's read claims on that collection. Progress gains a `plan`
+  phase. `prepared-transfer-plan.test.ts` (3) covers the decisions and the
+  re-addressing, the effective schema and the guard, and what a reader sees;
+  `import-rules.test.ts` (1) pins the instance tie-break, which no test held.
+  Sixteen deliberate breaks were each caught. Media planning and Apply are next
+  (D111).
 - **Prepared transfers hold a verified package for review (2026-10-14, D109).**
   The third step of copying selected content into another instance, on the
   destination. `POST /api/projects/{project}/envs/{env}/transfers` takes

@@ -802,7 +802,7 @@
                     "Transfer"
                 ],
                 "summary": "Prepare a transfer from another instance into this environment",
-                "description": "The destination half of a transfer between instances (D109). This\nserver asks the source for a package (`POST …/package`, D108) of\nexactly the selection, unpacks it under the `[transfer]` size limits\n(D85), and verifies it exactly: every requested collection and entry\nand nothing else, media rows that are exactly what the packaged\nentries reference, a file for each row and nothing more, each file\nwith its row's size and sha256, and only plain files and folders. A\npackage that fails any check is deleted and the answer is a 400.\n\nThe verified package is kept for review for 60 minutes. At most 4\ntransfers may be preparing, prepared or applying at once; a fifth is\na 429. The source key is used for the pull and never stored.\n\nEverything that can be refused is refused before the source is\ncontacted: the claims, a missing environment, a storage adapter that\ncannot commit many writes as one (fs: 409 `atomic_commit_unsupported`),\nand a full server. With `Accept: application/x-ndjson` the answer is a\nprogress stream whose first line names the transfer, so it can be\ncancelled while the pull runs.\n\nThis server fetches from the URL in the body. Any key holding\n`transfer:copy` can make it reach any address it can route to.\n\nClaims: `transfer:copy`; `collections:{project}/{env}/{name}:create`,\n`:schema:update`, `:entries:create` and `:entries:update` for each\nselected collection; `:delete` and `:entries:delete` as well in\n`replace` mode; and `media:create` unless `media` is `none`.\n",
+                "description": "The destination half of a transfer between instances (D109). This\nserver asks the source for a package (`POST …/package`, D108) of\nexactly the selection, unpacks it under the `[transfer]` size limits\n(D85), and verifies it exactly: every requested collection and entry\nand nothing else, media rows that are exactly what the packaged\nentries reference, a file for each row and nothing more, each file\nwith its row's size and sha256, and only plain files and folders. A\npackage that fails any check is deleted and the answer is a 400.\n\nThen it plans the package against this environment (D110), reading\nonly. Each entry is decided as an import decides it: in `merge`, the\nlater `updated_at` wins, then the higher `rev`, then the higher\ninstance id, unless `prefer` says which side wins; in `replace`, every\npackaged entry is written and every other row of the collection is\nremoved. Each entry to be written is checked against the schema the\ntransfer leaves in place: the package's where it writes the schema,\nthis environment's where it does not. An entry that fails is\n`rejected` and will not be written. A schema change that the\ncollection's entries freeze (D70) fails the preparation with a 409.\nThe plan records what it read, so Apply can refuse if any of it has\nchanged since.\n\nThe verified package is kept for review for 60 minutes. At most 4\ntransfers may be preparing, prepared or applying at once; a fifth is\na 429. The source key is used for the pull and never stored.\n\nEverything that can be refused is refused before the source is\ncontacted: the claims, a missing environment, a storage adapter that\ncannot commit many writes as one (fs: 409 `atomic_commit_unsupported`),\nand a full server. With `Accept: application/x-ndjson` the answer is a\nprogress stream whose first line names the transfer, so it can be\ncancelled while the pull runs.\n\nThis server fetches from the URL in the body. Any key holding\n`transfer:copy` can make it reach any address it can route to.\n\nClaims: `transfer:copy`; `collections:{project}/{env}/{name}:create`,\n`:schema:update`, `:entries:create` and `:entries:update` for each\nselected collection; `:delete` and `:entries:delete` as well in\n`replace` mode; and `media:create` unless `media` is `none`.\n",
                 "operationId": "prepareTransfer",
                 "requestBody": {
                     "required": true,
@@ -816,7 +816,7 @@
                 },
                 "responses": {
                     "201": {
-                        "description": "The prepared transfer, with its first page of entries, or, when `Accept: application/x-ndjson` asked for one, a progress stream whose last line carries it (status 200).",
+                        "description": "The prepared transfer, with its review and the first page of its plan, or, when `Accept: application/x-ndjson` asked for one, a progress stream whose last line carries it (status 200).",
                         "content": {
                             "application/json": {
                                 "schema": {
@@ -831,7 +831,7 @@
                         }
                     },
                     "400": {
-                        "description": "The body is malformed, or the source refused, could not be reached, is not silo 1.6.0 or later, or sent a package that failed verification. The message says which.",
+                        "description": "The body is malformed, or the source refused, could not be reached, is not silo 1.6.0 or later, or sent a package that failed verification or whose entries cannot be checked against the schemas here. The message says which.",
                         "content": {
                             "application/json": {
                                 "schema": {
@@ -847,7 +847,7 @@
                         "$ref": "#/components/responses/NotFound"
                     },
                     "409": {
-                        "description": "`atomic_commit_unsupported` on the fs storage adapter, or `transfer_cancelled` when a cancel stopped the pull.",
+                        "description": "`atomic_commit_unsupported` on the fs storage adapter; `transfer_cancelled` when a cancel stopped the pull; `conflict` when a merged collection holds entries and the package would change what validates them (D70).",
                         "content": {
                             "application/json": {
                                 "schema": {
@@ -894,8 +894,8 @@
                 "tags": [
                     "Transfer"
                 ],
-                "summary": "Read a prepared transfer and one page of its entries",
-                "description": "The state, the expiry, the package summary and, while the package is\nheld, one page of the packaged entries in a stable order. An expired\nor cancelled transfer keeps its record for 24 hours, without its\npackage.\n\nAnswers only the key that prepared the transfer, and only under the\nenvironment it was prepared for; any other caller gets a 404.\n\nClaims: `transfer:copy`.\n",
+                "summary": "Read a prepared transfer and one page of its plan",
+                "description": "The state, the expiry, the package summary, the review and, while the\npackage is held, one page of the plan in a stable order: each\ncollection's packaged entries by id, then, in `replace`, the rows it\nremoves. An expired or cancelled transfer keeps its record for 24\nhours, without its package or plan.\n\nWhat only this environment holds, the id of a row that `replace`\nremoves and the `rev` and time of a row already here, is shown only to\na key holding `collections:{project}/{env}/{name}:schema:read` and\n`:entries:read` on that collection, as the env copy's preview does.\n\nAnswers only the key that prepared the transfer, and only under the\nenvironment it was prepared for; any other caller gets a 404.\n\nClaims: `transfer:copy`.\n",
                 "operationId": "getTransfer",
                 "parameters": [
                     {
@@ -6053,9 +6053,12 @@
                     "package": {
                         "$ref": "#/components/schemas/TransferPackageSummary"
                     },
+                    "review": {
+                        "$ref": "#/components/schemas/TransferReview"
+                    },
                     "entries": {
                         "type": "object",
-                        "description": "Only while the package is held.",
+                        "description": "One page of the plan. Only while the package is held.",
                         "properties": {
                             "offset": {
                                 "type": "integer"
@@ -6064,12 +6067,13 @@
                                 "type": "integer"
                             },
                             "total": {
-                                "type": "integer"
+                                "type": "integer",
+                                "description": "How many lines the plan holds."
                             },
                             "items": {
                                 "type": "array",
                                 "items": {
-                                    "$ref": "#/components/schemas/PackagedEntry"
+                                    "$ref": "#/components/schemas/TransferPlanItem"
                                 }
                             }
                         }
@@ -6099,6 +6103,7 @@
                         "enum": [
                             "fetch",
                             "verify",
+                            "plan",
                             "working"
                         ],
                         "description": "`progress` lines only."
@@ -6180,21 +6185,116 @@
                     }
                 }
             },
-            "PackagedEntry": {
+            "TransferReview": {
                 "type": "object",
+                "description": "What Apply will do, counted as an import counts it: `replace` counts every row of a collection here as `deleted`, whether the package overwrites it or it is removed.",
+                "properties": {
+                    "planned_at": {
+                        "type": "string",
+                        "format": "date-time"
+                    },
+                    "added": {
+                        "type": "integer"
+                    },
+                    "updated": {
+                        "type": "integer"
+                    },
+                    "deleted": {
+                        "type": "integer"
+                    },
+                    "skipped": {
+                        "type": "integer"
+                    },
+                    "rejected": {
+                        "type": "integer"
+                    },
+                    "collections": {
+                        "type": "array",
+                        "items": {
+                            "type": "object",
+                            "properties": {
+                                "collection": {
+                                    "$ref": "#/components/schemas/CollectionName"
+                                },
+                                "schema": {
+                                    "type": "string",
+                                    "enum": [
+                                        "create",
+                                        "update",
+                                        "unchanged"
+                                    ]
+                                },
+                                "added": {
+                                    "type": "integer"
+                                },
+                                "updated": {
+                                    "type": "integer"
+                                },
+                                "deleted": {
+                                    "type": "integer"
+                                },
+                                "skipped": {
+                                    "type": "integer"
+                                },
+                                "rejected": {
+                                    "type": "integer"
+                                }
+                            }
+                        }
+                    }
+                }
+            },
+            "TransferPlanItem": {
+                "type": "object",
+                "description": "One line of the plan: a packaged entry, or a row here that `replace` removes.",
+                "required": [
+                    "collection",
+                    "action"
+                ],
                 "properties": {
                     "collection": {
                         "$ref": "#/components/schemas/CollectionName"
                     },
                     "id": {
-                        "type": "string"
+                        "type": "string",
+                        "description": "Absent on a `deleted` line unless the key may read the collection here."
+                    },
+                    "action": {
+                        "type": "string",
+                        "enum": [
+                            "added",
+                            "updated",
+                            "skipped",
+                            "rejected",
+                            "deleted"
+                        ],
+                        "description": "`rejected`: the schema the transfer leaves in place refuses the entry, so it is not written. `deleted`: `replace` removes a row the package does not carry."
                     },
                     "rev": {
-                        "type": "integer"
+                        "type": "integer",
+                        "description": "The packaged entry's."
                     },
                     "updated_at": {
                         "type": "string",
-                        "format": "date-time"
+                        "format": "date-time",
+                        "description": "The packaged entry's."
+                    },
+                    "destination": {
+                        "type": "object",
+                        "description": "The row already here, as the plan read it. Only for a key that may read the collection here.",
+                        "properties": {
+                            "rev": {
+                                "type": "integer"
+                            },
+                            "updated_at": {
+                                "type": "string",
+                                "format": "date-time"
+                            }
+                        }
+                    },
+                    "reason": {
+                        "type": "string",
+                        "description": "Why a `rejected` entry was refused."
                     }
                 }
             },
