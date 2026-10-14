@@ -12,7 +12,7 @@ A minimal, self-hostable headless CMS. You define collections with JSON Schema
 and get generated admin forms and a CRUD API. You can move all the data
 anywhere with export/import. What sets it apart is **portability**: standard
 schemas, pluggable storage, and one command to clone an instance. The vision
-and every decision (D1–D108) are indexed in [IMPLEMENTATION.md](IMPLEMENTATION.md).
+and every decision (D1–D109) are indexed in [IMPLEMENTATION.md](IMPLEMENTATION.md).
 
 ## Where things stand
 
@@ -65,7 +65,9 @@ API, core, adapters), `apps/admin` (React, embedded in the executable),
   moves a whole instance across storage drivers (D97). A transfer package
   (`POST …/envs/{env}/package`, D108) carries exactly the picked entries and
   the media they use, for a transfer into another instance; ordinary imports
-  refuse it.
+  refuse it. The destination prepares a transfer (`POST …/envs/{env}/transfers`,
+  D109): it pulls the package once, verifies it exactly, and keeps it for review
+  for 60 minutes, bound to the key that prepared it. Apply is not built yet.
 - **Plugins.** A plugin is a granted principal whose `ctx.fetch` goes through
   the real API (D34–D39). Plugins install and uninstall from the API or with
   `silo add` (D32, D42, D43), expose routes under `/api/ext/{name}/*`, and can
@@ -98,9 +100,11 @@ API, core, adapters), `apps/admin` (React, embedded in the executable),
   are in [milestones.md](resources/design/milestones.md) §12.
   [IDEAS.md](IDEAS.md) holds loose ideas.
 
-**Most recent changes:** the first two steps of moving selected content
-between instances: an optional atomic commit on the storage port (D107), and
-a transfer package route that sends only what was picked (D108); a server
+**Most recent changes:** the first three steps of moving selected content
+between instances: an optional atomic commit on the storage port (D107), a
+transfer package route that sends only what was picked (D108), and prepared
+transfers on the destination that pull, verify and hold a package for review
+(D109); a server
 whose saved key is refused opens in an edit dialog from the server picker,
 instead of a banner that needed `localStorage` cleared; the internal docs moved
 from `docs/` to `resources/`, and every link to them now points there. Read the

@@ -788,6 +788,260 @@
                 }
             }
         },
+        "/api/projects/{project}/environments/{env}/transfers": {
+            "parameters": [
+                {
+                    "$ref": "#/components/parameters/Project"
+                },
+                {
+                    "$ref": "#/components/parameters/Env"
+                }
+            ],
+            "post": {
+                "tags": [
+                    "Transfer"
+                ],
+                "summary": "Prepare a transfer from another instance into this environment",
+                "description": "The destination half of a transfer between instances (D109). This\nserver asks the source for a package (`POST …/package`, D108) of\nexactly the selection, unpacks it under the `[transfer]` size limits\n(D85), and verifies it exactly: every requested collection and entry\nand nothing else, media rows that are exactly what the packaged\nentries reference, a file for each row and nothing more, each file\nwith its row's size and sha256, and only plain files and folders. A\npackage that fails any check is deleted and the answer is a 400.\n\nThe verified package is kept for review for 60 minutes. At most 4\ntransfers may be preparing, prepared or applying at once; a fifth is\na 429. The source key is used for the pull and never stored.\n\nEverything that can be refused is refused before the source is\ncontacted: the claims, a missing environment, a storage adapter that\ncannot commit many writes as one (fs: 409 `atomic_commit_unsupported`),\nand a full server. With `Accept: application/x-ndjson` the answer is a\nprogress stream whose first line names the transfer, so it can be\ncancelled while the pull runs.\n\nThis server fetches from the URL in the body. Any key holding\n`transfer:copy` can make it reach any address it can route to.\n\nClaims: `transfer:copy`; `collections:{project}/{env}/{name}:create`,\n`:schema:update`, `:entries:create` and `:entries:update` for each\nselected collection; `:delete` and `:entries:delete` as well in\n`replace` mode; and `media:create` unless `media` is `none`.\n",
+                "operationId": "prepareTransfer",
+                "requestBody": {
+                    "required": true,
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/PreparedTransferRequest"
+                            }
+                        }
+                    }
+                },
+                "responses": {
+                    "201": {
+                        "description": "The prepared transfer, with its first page of entries, or, when `Accept: application/x-ndjson` asked for one, a progress stream whose last line carries it (status 200).",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/PreparedTransfer"
+                                }
+                            },
+                            "application/x-ndjson": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/PreparedTransferProgressLine"
+                                }
+                            }
+                        }
+                    },
+                    "400": {
+                        "description": "The body is malformed, or the source refused, could not be reached, is not silo 1.6.0 or later, or sent a package that failed verification. The message says which.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/Error"
+                                }
+                            }
+                        }
+                    },
+                    "403": {
+                        "$ref": "#/components/responses/Forbidden"
+                    },
+                    "404": {
+                        "$ref": "#/components/responses/NotFound"
+                    },
+                    "409": {
+                        "description": "`atomic_commit_unsupported` on the fs storage adapter, or `transfer_cancelled` when a cancel stopped the pull.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/Error"
+                                }
+                            }
+                        }
+                    },
+                    "413": {
+                        "$ref": "#/components/responses/PayloadTooLarge"
+                    },
+                    "429": {
+                        "description": "`too_many_transfers`: 4 transfers are already preparing, prepared or applying. Apply or cancel one, or wait for one to expire.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/Error"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/projects/{project}/environments/{env}/transfers/{id}": {
+            "parameters": [
+                {
+                    "$ref": "#/components/parameters/Project"
+                },
+                {
+                    "$ref": "#/components/parameters/Env"
+                },
+                {
+                    "name": "id",
+                    "in": "path",
+                    "required": true,
+                    "schema": {
+                        "type": "string"
+                    },
+                    "description": "The transfer's id, as prepare answered it."
+                }
+            ],
+            "get": {
+                "tags": [
+                    "Transfer"
+                ],
+                "summary": "Read a prepared transfer and one page of its entries",
+                "description": "The state, the expiry, the package summary and, while the package is\nheld, one page of the packaged entries in a stable order. An expired\nor cancelled transfer keeps its record for 24 hours, without its\npackage.\n\nAnswers only the key that prepared the transfer, and only under the\nenvironment it was prepared for; any other caller gets a 404.\n\nClaims: `transfer:copy`.\n",
+                "operationId": "getTransfer",
+                "parameters": [
+                    {
+                        "name": "detail_offset",
+                        "in": "query",
+                        "schema": {
+                            "type": "integer",
+                            "minimum": 0,
+                            "default": 0
+                        }
+                    },
+                    {
+                        "name": "detail_limit",
+                        "in": "query",
+                        "schema": {
+                            "type": "integer",
+                            "minimum": 1,
+                            "maximum": 100,
+                            "default": 25
+                        },
+                        "description": "At most 100."
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "The transfer.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/PreparedTransfer"
+                                }
+                            }
+                        }
+                    },
+                    "400": {
+                        "$ref": "#/components/responses/ValidationFailed"
+                    },
+                    "403": {
+                        "$ref": "#/components/responses/Forbidden"
+                    },
+                    "404": {
+                        "$ref": "#/components/responses/NotFound"
+                    }
+                }
+            },
+            "delete": {
+                "tags": [
+                    "Transfer"
+                ],
+                "summary": "Cancel a prepared transfer",
+                "description": "Stops a pull that is still running, or drops a prepared package. The\nrecord stays as `cancelled`. A transfer that has already ended is\nanswered as it is.\n\nAnswers only the key that prepared the transfer, and only under the\nenvironment it was prepared for; any other caller gets a 404.\n\nClaims: `transfer:copy`.\n",
+                "operationId": "cancelTransfer",
+                "responses": {
+                    "200": {
+                        "description": "The transfer, cancelled.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/PreparedTransfer"
+                                }
+                            }
+                        }
+                    },
+                    "403": {
+                        "$ref": "#/components/responses/Forbidden"
+                    },
+                    "404": {
+                        "$ref": "#/components/responses/NotFound"
+                    },
+                    "409": {
+                        "description": "`transfer_in_progress` while it is applying, `transfer_applied` once it has.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/Error"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/projects/{project}/environments/{env}/transfers/{id}/entries/{collection}/{entry}": {
+            "parameters": [
+                {
+                    "$ref": "#/components/parameters/Project"
+                },
+                {
+                    "$ref": "#/components/parameters/Env"
+                },
+                {
+                    "name": "id",
+                    "in": "path",
+                    "required": true,
+                    "schema": {
+                        "type": "string"
+                    },
+                    "description": "The transfer's id, as prepare answered it."
+                },
+                {
+                    "name": "collection",
+                    "in": "path",
+                    "required": true,
+                    "schema": {
+                        "$ref": "#/components/schemas/CollectionName"
+                    }
+                },
+                {
+                    "name": "entry",
+                    "in": "path",
+                    "required": true,
+                    "schema": {
+                        "type": "string"
+                    }
+                }
+            ],
+            "get": {
+                "tags": [
+                    "Transfer"
+                ],
+                "summary": "Read one packaged entry of a prepared transfer",
+                "description": "The entry as the package holds it, which is what Apply will write,\nwhatever the source has done since. It is shown raw, as the entry\neditor reads it: no media URLs and no variable substitution.\n\nAnswers only the key that prepared the transfer, and only under the\nenvironment it was prepared for; any other caller gets a 404.\n\nClaims: `transfer:copy`.\n",
+                "operationId": "getTransferEntry",
+                "responses": {
+                    "200": {
+                        "description": "The packaged entry.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/Entry"
+                                }
+                            }
+                        }
+                    },
+                    "400": {
+                        "$ref": "#/components/responses/ValidationFailed"
+                    },
+                    "403": {
+                        "$ref": "#/components/responses/Forbidden"
+                    },
+                    "404": {
+                        "$ref": "#/components/responses/NotFound"
+                    }
+                }
+            }
+        },
         "/api/projects/{project}/variables": {
             "parameters": [
                 {
@@ -5580,6 +5834,370 @@
                     }
                 }
             },
+            "PreparedTransferRequest": {
+                "type": "object",
+                "required": [
+                    "source",
+                    "from",
+                    "selection"
+                ],
+                "properties": {
+                    "source": {
+                        "type": "object",
+                        "required": [
+                            "url",
+                            "api_key"
+                        ],
+                        "properties": {
+                            "url": {
+                                "type": "string",
+                                "format": "uri",
+                                "description": "The source server's base URL: http or https, with no credentials, query or fragment. Redirects are refused."
+                            },
+                            "api_key": {
+                                "type": "string",
+                                "description": "A source key with `transfer:export` and read on each selected collection. Used for this pull and never stored."
+                            }
+                        }
+                    },
+                    "from": {
+                        "type": "object",
+                        "required": [
+                            "project",
+                            "env"
+                        ],
+                        "properties": {
+                            "project": {
+                                "$ref": "#/components/schemas/ScopeName"
+                            },
+                            "env": {
+                                "$ref": "#/components/schemas/ScopeName"
+                            }
+                        }
+                    },
+                    "selection": {
+                        "type": "array",
+                        "minItems": 1,
+                        "description": "Each collection once. An item without `entry_ids` takes its whole\ncollection. An entry subset cannot be used with `replace`.\n",
+                        "items": {
+                            "type": "object",
+                            "required": [
+                                "collection"
+                            ],
+                            "properties": {
+                                "collection": {
+                                    "$ref": "#/components/schemas/CollectionName"
+                                },
+                                "entry_ids": {
+                                    "type": "array",
+                                    "minItems": 1,
+                                    "items": {
+                                        "type": "string"
+                                    }
+                                }
+                            }
+                        }
+                    },
+                    "mode": {
+                        "type": "string",
+                        "enum": [
+                            "merge",
+                            "replace"
+                        ],
+                        "default": "merge"
+                    },
+                    "prefer": {
+                        "type": "string",
+                        "enum": [
+                            "local",
+                            "remote"
+                        ]
+                    },
+                    "media": {
+                        "type": "string",
+                        "enum": [
+                            "referenced",
+                            "none"
+                        ],
+                        "default": "referenced",
+                        "description": "`referenced` brings the assets the entries use. `none` brings no catalog row and no byte."
+                    }
+                }
+            },
+            "PreparedTransfer": {
+                "type": "object",
+                "required": [
+                    "id",
+                    "state",
+                    "created_at",
+                    "updated_at",
+                    "expires_at",
+                    "source",
+                    "from",
+                    "to",
+                    "selection",
+                    "mode",
+                    "media"
+                ],
+                "properties": {
+                    "id": {
+                        "type": "string"
+                    },
+                    "state": {
+                        "type": "string",
+                        "enum": [
+                            "preparing",
+                            "prepared",
+                            "applying",
+                            "applied",
+                            "stale",
+                            "cancelled",
+                            "expired"
+                        ]
+                    },
+                    "created_at": {
+                        "type": "string",
+                        "format": "date-time"
+                    },
+                    "updated_at": {
+                        "type": "string",
+                        "format": "date-time"
+                    },
+                    "expires_at": {
+                        "type": "string",
+                        "format": "date-time",
+                        "description": "When a `prepared` transfer becomes `expired`: 60 minutes after it was prepared."
+                    },
+                    "source": {
+                        "type": "object",
+                        "properties": {
+                            "url": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "from": {
+                        "type": "object",
+                        "required": [
+                            "project",
+                            "env"
+                        ],
+                        "properties": {
+                            "project": {
+                                "$ref": "#/components/schemas/ScopeName"
+                            },
+                            "env": {
+                                "$ref": "#/components/schemas/ScopeName"
+                            }
+                        }
+                    },
+                    "to": {
+                        "type": "object",
+                        "required": [
+                            "project",
+                            "env"
+                        ],
+                        "properties": {
+                            "project": {
+                                "$ref": "#/components/schemas/ScopeName"
+                            },
+                            "env": {
+                                "$ref": "#/components/schemas/ScopeName"
+                            }
+                        }
+                    },
+                    "selection": {
+                        "type": "array",
+                        "minItems": 1,
+                        "description": "Each collection once. An item without `entry_ids` takes its whole\ncollection. An entry subset cannot be used with `replace`.\n",
+                        "items": {
+                            "type": "object",
+                            "required": [
+                                "collection"
+                            ],
+                            "properties": {
+                                "collection": {
+                                    "$ref": "#/components/schemas/CollectionName"
+                                },
+                                "entry_ids": {
+                                    "type": "array",
+                                    "minItems": 1,
+                                    "items": {
+                                        "type": "string"
+                                    }
+                                }
+                            }
+                        }
+                    },
+                    "mode": {
+                        "type": "string",
+                        "enum": [
+                            "merge",
+                            "replace"
+                        ]
+                    },
+                    "prefer": {
+                        "type": "string",
+                        "enum": [
+                            "local",
+                            "remote"
+                        ]
+                    },
+                    "media": {
+                        "type": "string",
+                        "enum": [
+                            "referenced",
+                            "none"
+                        ]
+                    },
+                    "package": {
+                        "$ref": "#/components/schemas/TransferPackageSummary"
+                    },
+                    "entries": {
+                        "type": "object",
+                        "description": "Only while the package is held.",
+                        "properties": {
+                            "offset": {
+                                "type": "integer"
+                            },
+                            "limit": {
+                                "type": "integer"
+                            },
+                            "total": {
+                                "type": "integer"
+                            },
+                            "items": {
+                                "type": "array",
+                                "items": {
+                                    "$ref": "#/components/schemas/PackagedEntry"
+                                }
+                            }
+                        }
+                    },
+                    "last_error": {
+                        "type": "string"
+                    }
+                }
+            },
+            "PreparedTransferProgressLine": {
+                "type": "object",
+                "description": "One line of a preparation's progress stream. The first line names the transfer. The outcome is the last line: `result` on success, `error` otherwise.",
+                "required": [
+                    "type"
+                ],
+                "properties": {
+                    "type": {
+                        "type": "string",
+                        "enum": [
+                            "progress",
+                            "result",
+                            "error"
+                        ]
+                    },
+                    "phase": {
+                        "type": "string",
+                        "enum": [
+                            "fetch",
+                            "verify",
+                            "working"
+                        ],
+                        "description": "`progress` lines only."
+                    },
+                    "transfer": {
+                        "type": "object",
+                        "properties": {
+                            "id": {
+                                "type": "string"
+                            },
+                            "state": {
+                                "type": "string"
+                            },
+                            "expires_at": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "result": {
+                        "$ref": "#/components/schemas/PreparedTransfer"
+                    },
+                    "status": {
+                        "type": "integer",
+                        "description": "`error` lines only: the status this would have been."
+                    },
+                    "error": {
+                        "type": "object",
+                        "properties": {
+                            "code": {
+                                "type": "string"
+                            },
+                            "message": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
+            },
+            "TransferPackageSummary": {
+                "type": "object",
+                "description": "What the verified package holds. Every number was counted from its files.",
+                "properties": {
+                    "created_at": {
+                        "type": "string",
+                        "format": "date-time"
+                    },
+                    "silo_version": {
+                        "type": "string"
+                    },
+                    "instance_id": {
+                        "type": "string"
+                    },
+                    "collections": {
+                        "type": "array",
+                        "items": {
+                            "type": "object",
+                            "properties": {
+                                "name": {
+                                    "$ref": "#/components/schemas/CollectionName"
+                                },
+                                "entries": {
+                                    "type": "integer"
+                                }
+                            }
+                        }
+                    },
+                    "media_assets": {
+                        "type": "integer"
+                    },
+                    "media_folders": {
+                        "type": "integer"
+                    },
+                    "missing_media": {
+                        "type": "array",
+                        "items": {
+                            "type": "string"
+                        },
+                        "description": "References the packaged entries hold that the source had no asset for."
+                    }
+                }
+            },
+            "PackagedEntry": {
+                "type": "object",
+                "properties": {
+                    "collection": {
+                        "$ref": "#/components/schemas/CollectionName"
+                    },
+                    "id": {
+                        "type": "string"
+                    },
+                    "rev": {
+                        "type": "integer"
+                    },
+                    "updated_at": {
+                        "type": "string",
+                        "format": "date-time"
+                    }
+                }
+            },
             "CopyRequest": {
                 "type": "object",
                 "required": [
@@ -7250,7 +7868,12 @@
                                     "internal",
                                     "payload_too_large",
                                     "archive_too_large",
-                                    "busy"
+                                    "busy",
+                                    "atomic_commit_unsupported",
+                                    "transfer_cancelled",
+                                    "transfer_in_progress",
+                                    "transfer_applied",
+                                    "too_many_transfers"
                                 ]
                             },
                             "message": {

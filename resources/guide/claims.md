@@ -119,6 +119,16 @@ manifest lists, because they all mount under the plugin's own name and it cannot
 escape that prefix. What an operator weighs is the route list itself. See
 [Serving routes](plugins.md#serving-routes).
 
+**`transfer:copy` makes this server connect to an address that you give.**
+`POST /api/copy` and a prepared transfer
+(`POST /api/projects/{project}/envs/{env}/transfers`) both get data from
+another silo. The server connects to the URL in the request. silo does not
+limit which addresses are permitted. Thus a key with `transfer:copy` can make
+the server send requests to any address that the server can reach, which
+includes addresses on your private network. Give `transfer:copy` only to the
+people who release content. Use firewall rules on the host to limit where the
+server can connect.
+
 ## The rules
 
 **Wildcards.** Each of `project`, `env` and `name` independently accepts `*`.

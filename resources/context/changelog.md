@@ -4,6 +4,36 @@
 > The *current* state is [CONTEXT.md](../../CONTEXT.md); this is how it got
 > there.
 
+- **Prepared transfers hold a verified package for review (2026-10-14, D109).**
+  The third step of copying selected content into another instance, on the
+  destination. `POST /api/projects/{project}/envs/{env}/transfers` takes
+  `{source: {url, api_key}, from, selection, mode, prefer, media}`, refuses
+  what it can without the source (claims: `transfer:copy`, the env copy's
+  write claims per collection, the replace claims in `replace`, `media:create`
+  unless `media: none`; a missing environment; a store with no
+  `AtomicStorage.commit`, `409 atomic_commit_unsupported`; no free slot,
+  `429 too_many_transfers`), then pulls the source's package once through
+  `Importer.stage` under `[transfer]`'s ceilings and verifies it exactly:
+  only plain files and folders, nothing beyond the selection and its media
+  closure, sizes and sha256s that are the rows', and a `package.json` that
+  agrees with what was counted. A refused package is deleted with its record.
+  The transfer lives in `<data>/transfer/prepared/<id>/`, answers only the key
+  that prepared it under its own environment (`404` for anyone else), expires
+  60 minutes after it was prepared, is one of at most 4 open, and keeps its
+  record 24 hours once ended. `GET …/transfers/{id}` pages the packaged
+  entries, `GET …/transfers/{id}/entries/{collection}/{entry}` shows one raw,
+  and `DELETE` cancels, aborting a pull still running. The source key is never
+  written down. With `Accept: application/x-ndjson` the first line names the
+  transfer. `ConflictError` gained a `code`, so a `409` can say which conflict
+  it is, and `ProgressStream` is generic over what it reports. There is no
+  source allowlist, so `transfer:copy` now reaches any routable address
+  through two routes (audit H7); `transfer.md` §7.10 and `claims.md` say so.
+  `prepared-transfer.test.ts` (10) and `prepared-transfer-verification.test.ts`
+  (12) cover the review, the binding, the slots, the expiry, a cancel mid-pull,
+  a restart's leftovers, the claims, the fs refusal, nine tampered packages,
+  servers without the route and the size limits; thirteen deliberate breaks of
+  the code were each caught by the test meant to catch them. Apply is next.
+
 - **A transfer package sends only what was picked (2026-10-14, D108).** The
   second step of copying selected content into another instance.
   `POST /api/projects/{project}/envs/{env}/package` takes

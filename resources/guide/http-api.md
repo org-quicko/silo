@@ -27,6 +27,9 @@ Present a key as `Authorization: Bearer <key>` or `X-Api-Key: <key>`.
 | `DELETE` | `/api/projects/{project}/envs/{env}` | delete an environment and its collections (`?force=true`) |
 | `POST` | `/api/projects/{project}/envs/{env}/copy` | copy another environment of this instance into it |
 | `POST` | `/api/projects/{project}/envs/{env}/package` | stream a transfer package: only the named collections and entries, and the media they use. Another silo reads it |
+| `POST` | `/api/projects/{project}/envs/{env}/transfers` | prepare a transfer from another silo into this environment: get its package, check it, and keep it for review for 60 minutes |
+| `GET` / `DELETE` | `/api/projects/{project}/envs/{env}/transfers/{id}` | read a prepared transfer and one page of its entries (`?detail_offset=&detail_limit=`) / cancel it |
+| `GET` | `/api/projects/{project}/envs/{env}/transfers/{id}/entries/{collection}/{entry}` | read one entry as the prepared transfer holds it |
 | `POST` | `/api/projects/{project}/variables` | declare a variable, and value it in one environment with `?env=` |
 | `PATCH` / `DELETE` | `/api/projects/{project}/variables/{name}` | rename or re-describe a declaration / undeclare it everywhere |
 | `GET` | `/api/projects/{project}/envs/{env}/variables` | the declarations, with this environment's values |
@@ -228,8 +231,19 @@ admin tabs from overwriting each other in silence.
 The codes are `validation_failed` (400), `unauthorized` (401), `forbidden`
 (403), `not_found` (404), `method_not_allowed` (405, only from `/api/mcp`),
 `conflict` (409), `payload_too_large` (413), `archive_too_large` (413),
-`internal` (500) and `busy` (503). Validation details carry JSON Pointer paths
-from the validator.
+`too_many_transfers` (429), `internal` (500) and `busy` (503). Validation
+details carry JSON Pointer paths from the validator.
+
+A prepared transfer has its own `409` codes:
+
+- `atomic_commit_unsupported`: this server uses the `fs` storage driver. That
+  driver cannot write a transfer as one change. Use SQLite or Postgres.
+- `transfer_cancelled`: a cancel stopped the transfer while it got its package.
+- `transfer_in_progress` and `transfer_applied`: you tried to cancel a transfer
+  that silo is applying, or that silo applied.
+
+A `429 too_many_transfers` means that 4 transfers are open on this server.
+Apply or cancel one, or wait until one expires.
 
 A `503 busy` comes from an entry list or a search. A filter or a sort over
 entry data scans the collection. Those scans run on a separate storage thread
@@ -249,7 +263,8 @@ media upload, media replace, import and plugin install routes accept up to
 `[http] max_body_size_mb` (default 128 MB). See
 [configuration.md](configuration.md).
 
-A `413` with the code `archive_too_large` comes from an import or a copy. The
+A `413` with the code `archive_too_large` comes from an import, a copy or a
+prepared transfer. The
 archive is larger than `[transfer] max_archive_size_mb`, or it would unpack to
 more than `[transfer] max_extracted_size_mb`. The message names the setting.
 

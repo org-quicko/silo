@@ -296,4 +296,105 @@ the answer: `POST /api/projects/{project}/envs/{env}/package` with
 
 The route only produces. The destination's half — fetching a package, checking
 it against what was asked for, planning it against its own state, and applying
-it through `AtomicStorage.commit` — is the prepared transfer, which comes next.
+it through `AtomicStorage.commit` — is the prepared transfer (§7.10).
+
+### 7.10 Prepared transfers (D109)
+
+The destination's half starts with a saved package. `POST
+/api/projects/{project}/envs/{env}/transfers` with `{source: {url, api_key},
+from: {project, env}, selection: [{collection, entry_ids?}], mode, prefer,
+media}` pulls the source's package (§7.9) once, verifies it, and keeps it. The
+review reads that package and nothing else, and Apply will write that package
+and nothing else, which is Terraform's `plan -out` / `apply planfile` and the
+opposite of the env copy's preview, whose own copy warns that live edits may
+shift its numbers. The route names the destination, the body the source, as
+`/api/copy` and the env copy do, and `from` and the route's env may differ:
+`acme/dev` lands in `acme/uat`.
+
+- **Everything refusable is refused before the source is contacted.** The
+  claims first: `transfer:copy`, because this server reaches outside itself,
+  which the env copy (D22) never does; the env copy's write claims on each
+  selected collection at the destination; its replace claims in `replace`
+  mode; `media:create` unless `media` is `none`. Then the body, by the source
+  route's own rules (`TransferPackageSelection.parse`), plus the env copy's rule
+  that an entry subset is merge-only. Then the destination environment, which
+  must exist: a transfer fills an environment, it does not create one, and the
+  package's own markers name the source's records. Then the store, which must
+  offer `AtomicStorage.commit` (D107): the fs adapter answers `409
+  atomic_commit_unsupported`, since a promise of one change is not one it can
+  keep (§6.1 of storage.md). Then a slot. Only then is the source asked.
+- **Pulled as an upload is.** `Importer.stage` spools and unpacks under
+  `[transfer]`'s two ceilings (D85), which matter more here than for `/api/copy`
+  because the source can be any server. Redirects are refused. A body that is
+  not `application/gzip` is refused unread. A `404` with no silo error in it, or
+  silo's own route-miss `not found`, is a server without the route, so the
+  answer says the source needs silo 1.6.0; any other refusal is the source's
+  own message. A connection that breaks mid-pull, and a body that will not
+  unpack, are `400`s about the source, not `500`s about this server.
+- **Verified exactly, or deleted** (`TransferPackageVerifier`,
+  `TransferPackageMediaCheck`). Only plain files and folders, judged by the
+  listing's own file types: a symbolic link in a package could name any file on
+  this host, and following it would hand that file to the review or to Apply as
+  content. At the top only `package.json`, `projects/` and, with `referenced`,
+  `media/`; under `projects/` only the `from` project and, with `referenced`,
+  `_system`. The schemas are exactly the selection's; content folders are a
+  subset of it; each entry file is named by its id, holds that id and a valid
+  envelope, and an item with `entry_ids` holds exactly those. `package.json`
+  must name version `1`, the `from` scope, the media mode and the selection,
+  and its counts must be the counted ones. Under `_system` only `_media` and
+  `_media_folders`: each asset row answers for a reference some packaged entry
+  holds (`MediaRefs.extract`, the source's rule) and is `active`; each row has
+  its file in `media/` and `media/` holds nothing else; each file has its row's
+  size and sha256; a blob key is one plain name, never a path; each folder row
+  is normalised, unique and above a carried asset; and `missing_media` is
+  exactly what the rows leave unresolved. Any difference deletes the transfer,
+  record included, so a source that sends too much does not keep a slot.
+- **Kept on local disk**, under `<data>/transfer/prepared/<id>/`: `record.json`
+  (written through a synced temporary file and a rename), the verified
+  `package/`, and `entries.ndjson`, the packaged entries sorted by collection
+  and id, which the review pages a line at a time. Local disk is right because
+  one process owns a data directory (D25, D94). The same fact makes the
+  process's own list of running pulls authoritative: a `preparing` record that
+  no pull in this process owns was left by one that stopped, and is removed the
+  next time anything reads the transfers.
+- **Bound to its key and scope.** Every read and the cancel answer only the key
+  that prepared the transfer, under the environment it was prepared for, and
+  still ask for `transfer:copy`. Anyone else gets a `404`, not a `403`, so a
+  transfer id is not something another key can confirm.
+- **Bounded in number and time**, by constants rather than settings for now.
+  A prepared transfer expires 60 minutes after it was prepared and loses its
+  package. At most 4 may be preparing, prepared or applying; the fifth is `429
+  too_many_transfers`, with no `Retry-After` because a slot frees when someone
+  acts. An ended record (cancelled, expired, and later applied or stale) stays
+  24 hours, so a client that lost a response can read the outcome, and is then
+  removed. All of it is applied when transfers are read, so no timer runs.
+- **States**: `preparing`, `prepared`, `applying`, `applied`, `stale`,
+  `cancelled`, `expired`. A cancel of a running pull aborts its fetch, the
+  staged files go, and the prepare answers `409 transfer_cancelled`; a cancel of
+  a prepared one drops the package and keeps the record. A cancel of one that is
+  applying or applied is a `409`.
+- **The source key is never written down.** It lives in the `HttpPackageSource`
+  that makes the one pull; the record holds the source's normalised URL.
+- **Progress** is the D75 stream on `Accept: application/x-ndjson`, and its
+  first line names the transfer, so a client can cancel by id while the pull
+  runs. Without the header the answer is `201` with the transfer.
+- **The review.** `GET …/transfers/{id}?detail_offset=&detail_limit=` answers
+  the record, the package summary and one page of the index (at most 100).
+  `GET …/transfers/{id}/entries/{collection}/{entry}` answers one packaged entry
+  raw, as the editor reads entries (no media URLs, no variables), addressed to
+  the destination. Neither reads the source again, so neither moves when the
+  source does.
+
+**What it opens.** There is no source allowlist: any silo may be a source. A
+key holding `transfer:copy` can therefore make this server send a `POST` to any
+address it can route to, which is the server-side request forgery `/api/copy`
+already carries (audit finding H7), now through a second route that also sends
+a JSON body. What limits it is what limits `/api/copy`: credentials, a query or
+a fragment in the URL are refused, redirects are refused, and a body that is
+not `application/gzip` is refused unread, though a refusal's message can carry
+the `error.message` of a JSON error body. Give `transfer:copy` only to the
+people who release content, and keep egress rules on the host. An allowlist
+(`[transfer] copy_sources`) was designed and left out of 1.6.0 by choice.
+
+The planner, Apply through `AtomicStorage.commit` with its ledger row, and the
+recovery of an interrupted apply come next.

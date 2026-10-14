@@ -137,6 +137,7 @@ one line here.
 | D106 | Bulk media download: one file direct, more as streamed STORE ZIP parts of ≤ 2 GiB behind a ticket; `[media] download_max_files` / `download_max_size_mb` / `download_max_streams` (5000, 5 GB, 3); `GET /api/media/stats` |
 | D107 | Optional `AtomicStorage.commit`: preconditions and writes in one transaction on SQLite and Postgres; the fs adapter does not offer it; fs blob writes are durable on return |
 | D108 | `POST …/envs/{env}/package` streams a transfer package: exactly the named collections and entries, the media they use, `package.json` so ordinary imports refuse it |
+| D109 | Prepared transfers: `POST …/envs/{env}/transfers` pulls a source's package once, verifies it exactly, keeps it 60 minutes for review (4 open at most, bound to the key); pages, one entry, cancel |
 
 ## 3. Scope
 
