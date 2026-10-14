@@ -122,6 +122,17 @@ Rules for all adapters: single-writer semantics per entry, atomic writes (no tor
 
 **Native search is a capability the store offers, not a class the runtime knows (D92).** `IndexedStorage` — `createSearcher()`, `needsSearchRebuild()`, `searchRebuilt()` — is what a store implements when it keeps a search index inside its own writes (D30), and the runtime finds it by asking the store rather than with `instanceof SqliteStore`. It is not on `Storage` itself because the provider scaffold stubs every port method as an `async` function that throws, and these three are called at startup; left off the port, a scaffolded provider is searched by `ScanSearcher` until it chooses otherwise. `Searcher.check()` is async, since an index in another process can only be checked with a query.
 
+**Many writes as one is a capability too (D107).** Every port write is its own transaction, which is right for the API and wrong for an operation that applies a reviewed plan: a promotion into prod that stopped half way leaves readers with half a release, and the importer's row-by-row writes (§7.2) can do exactly that. `AtomicStorage.commit(changes)` takes a `ChangeSet` of preconditions and writes, checks every precondition, then makes every write, in one transaction.
+
+- **A precondition is what the plan saw.** An entry's `seq`, or its absence; a collection record's id and `updated_at`, or its absence; the exact `{id, seq}` set of a collection, for a plan that replaces it. `seq` is the version stamp because every write assigns a new one from the instance counter, so two writes never share one. A precondition that fails is a `CommitConflictError` (a `409`) naming each one, thrown before the first write. Checking inside the same transaction as the writes is what removes the window between "still as reviewed" and "written" — the shape of DynamoDB's conditional transactions and etcd's compare-and-swap.
+- **A write means what its port method means.** `schema` is `putSchema` (and creates the project and environment it needs), `put` is `put` with its `derived` rows, `delete` is `delete`. They run in order, so a collection can be created and filled in one commit.
+- **At most once.** A precondition that a row is absent, on a row the same commit writes, makes a second attempt fail as a conflict. That is how a caller survives a lost answer: it reads the row back rather than guessing.
+- **SQLite** runs the commit as one synchronous `db.transaction`: bun:sqlite turns the stores' own transactions into savepoints inside it, and nothing else can run on the thread until it ends. The read worker's connection (D81) is a second WAL connection, so a scan sees the state before the commit or after it. The scope resolver is cleared on both sides, since a rolled-back write may have cached an id that no longer exists.
+- **Postgres** runs it as one transaction on one connection. Lookups inside it go through a `PgScopeResolver` of its own, built on the transaction, so a collection the commit created is found and nothing the commit looked up reaches the shared cache. `PgConnection.transaction` retries a transaction that broke before it finished — safe, since nothing committed — and never one that broke while committing, which is a `503` whose outcome is unknown; the at-most-once row is how a caller resolves it.
+- **The fs adapter does not offer it**, and an operation that needs it is refused there rather than run as separate writes. Atomicity for readers would need a journal and a read lock on every read path, and git or rsync reading the files — the reason the adapter exists (D5) — would still see half a commit.
+
+Optional rather than on `Storage`, for the reason `IndexedStorage` gives. D85's write-then-prune order stays in the importer, which still writes row by row; the commit is for operations that cannot accept that. Blob bytes cannot be inside a database transaction, so what a commit relies on is that a file is on disk before a row points at it: `FsBlobStorage.put` flushes the file before its rename and the directory after it (§6.4), and a successful S3 `PUT` is already durable.
+
 ### 6.2 SQLite adapter
 
 ```sql
@@ -366,6 +377,13 @@ deliberately not derived from the key, so a leftover from a hard crash is
 reported as an orphan rather than adopted as an asset by the pre-D23
 `<sha256>_<name>` rule. The port is still six methods; nothing about this is
 visible through it.
+
+Since D107 the write is also **durable** when `put` returns: the temp file is
+flushed before the rename, and the directory after it, so a key that exists
+after a power cut holds every byte. An atomic commit (§6.1) can then point a
+catalog row at a key it wrote a moment earlier. Windows cannot open a
+directory to flush it, and some filesystems refuse to; both keep the rename
+the OS already made.
 
 Which one an instance uses was, until D45, a `silo.toml` question and only that:
 `[blob_storage]`, the `SILO_BLOB_*` variables, or `--blob-path`. That is fine on

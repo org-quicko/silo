@@ -12,11 +12,11 @@ A minimal, self-hostable headless CMS. You define collections with JSON Schema
 and get generated admin forms and a CRUD API. You can move all the data
 anywhere with export/import. What sets it apart is **portability**: standard
 schemas, pluggable storage, and one command to clone an instance. The vision
-and every decision (D1–D106) are indexed in [IMPLEMENTATION.md](IMPLEMENTATION.md).
+and every decision (D1–D107) are indexed in [IMPLEMENTATION.md](IMPLEMENTATION.md).
 
 ## Where things stand
 
-*Last updated: 2026-10-13. Version 1.5.0 (root `package.json`, D28).*
+*Last updated: 2026-10-14. Version 1.5.0 (root `package.json`, D28).*
 
 **Stack.** Bun + TypeScript in one workspace: `apps/server` (CLI, Hono HTTP
 API, core, adapters), `apps/admin` (React, embedded in the executable),
@@ -41,6 +41,8 @@ API, core, adapters), `apps/admin` (React, embedded in the executable),
   D102–D103: a pool Bun broke is replaced, only the owner shapes the index).
   All three pass one conformance suite with a strict query contract (D92).
   Search is FTS5, `PgSearcher`, or `ScanSearcher` for any other store.
+  SQLite and Postgres can also commit many writes as one, behind
+  preconditions (`AtomicStorage`, D107); the fs adapter cannot.
 - **Auth.** API keys with claims (`collections:<p>/<e>/<name>:<perm>`, prefix
   segments like `acme-*`, D64). A root key is printed at first boot. Keys are
   editable (D63). [resources/guide/claims.md](resources/guide/claims.md) has
@@ -93,13 +95,12 @@ API, core, adapters), `apps/admin` (React, embedded in the executable),
   are in [milestones.md](resources/design/milestones.md) §12.
   [IDEAS.md](IDEAS.md) holds loose ideas.
 
-**Most recent changes:** a server whose saved key is refused opens in an edit
-dialog from the server picker, instead of a banner that needed `localStorage`
-cleared; the internal docs moved from `docs/` to `resources/`, and every link
-to them now points there; an import stores each media blob with the type and
-disposition its `_media` row names, so a bucket serves imported media as silo
-would (D88). Read the top of the
-[changelog](resources/context/changelog.md) for more.
+**Most recent changes:** the storage port gained an optional atomic commit
+(D107), the first step of moving selected content between instances; a server
+whose saved key is refused opens in an edit dialog from the server picker,
+instead of a banner that needed `localStorage` cleared; the internal docs moved
+from `docs/` to `resources/`, and every link to them now points there. Read the
+top of the [changelog](resources/context/changelog.md) for more.
 
 ## Reading order
 

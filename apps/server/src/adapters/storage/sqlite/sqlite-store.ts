@@ -9,11 +9,14 @@ import type { Meta } from "../../../core/domain/meta";
 import type { ProjectRecord } from "../../../core/domain/project-record";
 import type { Scope } from "../../../core/domain/scope";
 import type { MediaUsage } from "../../../core/media/media-usage";
+import type { AtomicStorage } from "../../../core/ports/atomic-storage";
+import type { ChangeSet } from "../../../core/ports/change-set";
 import type { DerivedIndex } from "../../../core/ports/derived-index";
 import type { IndexedStorage } from "../../../core/ports/indexed-storage";
 import type { Query } from "../../../core/query/query";
 import { SearchIndex, type SearchIndexOptions } from "./search-index";
 import { SqliteCollectionStore } from "./sqlite-collection-store";
+import { SqliteCommit } from "./sqlite-commit";
 import { SqliteEntryStore } from "./sqlite-entry-store";
 import { SqliteMediaReferenceStore } from "./sqlite-media-reference-store";
 import { SqliteMetaStore } from "./sqlite-meta-store";
@@ -39,7 +42,7 @@ export interface SqliteStoreOptions {
  * sees the handle, which is why `createSearcher` is here rather than in the
  * wiring.
  */
-export class SqliteStore implements IndexedStorage {
+export class SqliteStore implements IndexedStorage, AtomicStorage {
   private readonly database: SqliteConnection;
   private readonly meta_: SqliteMetaStore;
   private readonly resolver: SqliteScopeResolver;
@@ -47,6 +50,7 @@ export class SqliteStore implements IndexedStorage {
   private readonly collections: SqliteCollectionStore;
   private readonly entries: SqliteEntryStore;
   private readonly mediaReferences: SqliteMediaReferenceStore;
+  private readonly commits: SqliteCommit;
 
   /**
    * False when search is switched off *or* this SQLite build has no FTS5. The
@@ -90,6 +94,7 @@ export class SqliteStore implements IndexedStorage {
     );
     this.scopes = new SqliteScopeStore(database, this.entries, this.resolver);
     this.collections = new SqliteCollectionStore(database, this.resolver, this.scopes);
+    this.commits = new SqliteCommit(database, this.resolver, this.collections, this.entries);
   }
 
   /**
@@ -272,6 +277,10 @@ export class SqliteStore implements IndexedStorage {
     query: Query
   ): Promise<{ items: Entry[]; total: number }> {
     return this.entries.list(scope, collection, query);
+  }
+
+  async commit(changes: ChangeSet): Promise<void> {
+    this.commits.apply(changes);
   }
 
   async listEntryCollections(scope: Scope): Promise<string[]> {

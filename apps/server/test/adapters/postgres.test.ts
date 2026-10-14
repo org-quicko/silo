@@ -36,7 +36,8 @@ if (!url) {
   runStorageTestSuite(
     "Postgres Store",
     async () => openFresh(),
-    async (store) => dispose(store as PgStore)
+    async (store) => dispose(store as PgStore),
+    { atomic: true }
   );
 
   describe("PgStore format guard", () => {

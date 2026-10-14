@@ -5,6 +5,7 @@ import type { Scope } from "../../../core/domain/scope";
 import { NotFoundError } from "../../../core/errors/not-found-error";
 import type { DerivedIndex } from "../../../core/ports/derived-index";
 import type { Query } from "../../../core/query/query";
+import type { PgCollectionAddress } from "./pg-collection-address";
 import { PgCompiler } from "./pg-compiler";
 import type { PgConnection } from "./pg-connection";
 import type { PgMediaReferenceStore } from "./pg-media-reference-store";
@@ -61,46 +62,89 @@ export class PgEntryStore {
    * transaction commits, as the other adapters do.
    */
   async put(entry: Entry, derived: DerivedIndex): Promise<void> {
-    EntryUtils.assertSafeSegment(entry.project, "project");
-    EntryUtils.assertSafeSegment(entry.env, "env");
-    EntryUtils.assertSafeSegment(entry.collection, "collection");
-    EntryUtils.assertSafeSegment(entry.id, "id");
-    PortableData.assert(entry.data);
-
+    PgEntryStore.assertWritable(entry);
     const address = await this.resolver.requireCollectionIn(
       entry.project,
       entry.env,
       entry.collection
     );
-    const document = JSON.stringify(entry.data);
+    entry.seq = await this.connection.transaction((transaction) =>
+      this.write(transaction, address, entry, derived)
+    );
+  }
 
-    entry.seq = await this.connection.transaction(async (transaction) => {
-      const seq = await this.meta.nextSeq(transaction);
-      await transaction.query(
-        `INSERT INTO ${this.tables.entries}
-           (id, project_id, env_id, collection_id, rev, seq, created_at, updated_at, data)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9::text::jsonb)
-         ON CONFLICT (collection_id, id) DO UPDATE SET
-           rev = excluded.rev,
-           seq = excluded.seq,
-           updated_at = excluded.updated_at,
-           data = excluded.data`,
-        [
-          entry.id,
-          address.projectId,
-          address.envId,
-          address.collectionId,
-          entry.rev,
-          seq,
-          PgRowMapper.isoDate(entry.created_at),
-          PgRowMapper.isoDate(entry.updated_at),
-          document,
-        ]
-      );
-      await this.mediaReferences.replaceForEntry(transaction, address, entry.id, derived.usages);
-      await this.searchDocuments.write(transaction, address, entry.id, derived.search);
-      return seq;
-    });
+  /**
+   * `put` on a transaction the caller holds. `resolver` must read through that
+   * transaction too, so a collection it created is found. Answers the new `seq`.
+   */
+  async putIn(
+    transaction: PgQueryable,
+    resolver: PgScopeResolver,
+    entry: Entry,
+    derived: DerivedIndex
+  ): Promise<number> {
+    PgEntryStore.assertWritable(entry);
+    const address = await resolver.requireCollectionIn(entry.project, entry.env, entry.collection);
+    return this.write(transaction, address, entry, derived);
+  }
+
+  /** The current `seq` of one row, or null when it is absent, read on `database`. */
+  async seqIn(database: PgQueryable, collectionId: string, id: string): Promise<number | null> {
+    const [row] = await database.query<{ seq: string }>(
+      `SELECT seq FROM ${this.tables.entries} WHERE collection_id = $1 AND id = $2`,
+      [collectionId, id]
+    );
+    return row ? Number(row.seq) : null;
+  }
+
+  /** Every row of one collection as `{id, seq}`, read on `database`. */
+  async rowsIn(database: PgQueryable, collectionId: string): Promise<{ id: string; seq: number }[]> {
+    const rows = await database.query<{ id: string; seq: string }>(
+      `SELECT id, seq FROM ${this.tables.entries} WHERE collection_id = $1`,
+      [collectionId]
+    );
+    return rows.map((row) => ({ id: row.id, seq: Number(row.seq) }));
+  }
+
+  private async write(
+    transaction: PgQueryable,
+    address: PgCollectionAddress,
+    entry: Entry,
+    derived: DerivedIndex
+  ): Promise<number> {
+    const seq = await this.meta.nextSeq(transaction);
+    await transaction.query(
+      `INSERT INTO ${this.tables.entries}
+         (id, project_id, env_id, collection_id, rev, seq, created_at, updated_at, data)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9::text::jsonb)
+       ON CONFLICT (collection_id, id) DO UPDATE SET
+         rev = excluded.rev,
+         seq = excluded.seq,
+         updated_at = excluded.updated_at,
+         data = excluded.data`,
+      [
+        entry.id,
+        address.projectId,
+        address.envId,
+        address.collectionId,
+        entry.rev,
+        seq,
+        PgRowMapper.isoDate(entry.created_at),
+        PgRowMapper.isoDate(entry.updated_at),
+        JSON.stringify(entry.data),
+      ]
+    );
+    await this.mediaReferences.replaceForEntry(transaction, address, entry.id, derived.usages);
+    await this.searchDocuments.write(transaction, address, entry.id, derived.search);
+    return seq;
+  }
+
+  private static assertWritable(entry: Entry): void {
+    EntryUtils.assertSafeSegment(entry.project, "project");
+    EntryUtils.assertSafeSegment(entry.env, "env");
+    EntryUtils.assertSafeSegment(entry.collection, "collection");
+    EntryUtils.assertSafeSegment(entry.id, "id");
+    PortableData.assert(entry.data);
   }
 
   async get(scope: Scope, collection: string, id: string): Promise<Entry> {
@@ -129,11 +173,36 @@ export class PgEntryStore {
 
     // In a transaction, one statement though it is, so a connection that broke
     // before the delete ran is retried rather than answered as a 503.
-    const removed = await this.connection.transaction((transaction) =>
-      transaction.query(
-        `DELETE FROM ${this.tables.entries} WHERE collection_id = $1 AND id = $2 RETURNING id`,
-        [collectionId, id]
-      )
+    await this.connection.transaction((transaction) =>
+      this.remove(transaction, collectionId, scope, collection, id)
+    );
+  }
+
+  /** `delete` on a transaction the caller holds, resolving through `resolver`. */
+  async deleteIn(
+    transaction: PgQueryable,
+    resolver: PgScopeResolver,
+    scope: Scope,
+    collection: string,
+    id: string
+  ): Promise<void> {
+    EntryUtils.assertSafeSegment(collection, "collection");
+    EntryUtils.assertSafeSegment(id, "id");
+    const collectionId = await resolver.collectionId(scope, collection);
+    if (collectionId === null) throw PgEntryStore.notFound(scope, collection, id);
+    await this.remove(transaction, collectionId, scope, collection, id);
+  }
+
+  private async remove(
+    transaction: PgQueryable,
+    collectionId: string,
+    scope: Scope,
+    collection: string,
+    id: string
+  ): Promise<void> {
+    const removed = await transaction.query(
+      `DELETE FROM ${this.tables.entries} WHERE collection_id = $1 AND id = $2 RETURNING id`,
+      [collectionId, id]
     );
     if (removed.length === 0) throw PgEntryStore.notFound(scope, collection, id);
   }

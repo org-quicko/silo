@@ -4,6 +4,29 @@
 > The *current* state is [CONTEXT.md](../../CONTEXT.md); this is how it got
 > there.
 
+- **The storage port can commit many writes as one (2026-10-14, D107).** The
+  first step of copying selected content from one instance into another
+  environment of another: applying a reviewed plan has to land all of it or
+  none of it, and every port write was its own transaction. `AtomicStorage`
+  is a new optional capability, like `IndexedStorage`: `commit(changes)` takes
+  a `ChangeSet` of `CommitPrecondition`s and ordered `CommitWrite`s, checks the
+  preconditions and makes the writes in one transaction, and throws a
+  `CommitConflictError` (`409`) naming each precondition that no longer holds
+  before writing anything. `SqliteStore` implements it in `sqlite-commit.ts`
+  as one synchronous transaction; `PgStore` in `pg-commit.ts` as one
+  transaction with its own resolver. That needed `PgCollectionStore.putIn` and
+  `findIn`, and `PgEntryStore.putIn`, `deleteIn`, `seqIn` and `rowsIn`, which
+  run on a transaction the caller holds; `put` and `delete` now call the same
+  statements. The fs adapter does not offer it. `FsBlobStorage.put` now
+  flushes the temp file before its rename and the directory after it, so a
+  key that exists after a power cut is whole. The conformance runner takes
+  `{ atomic: true }` from the SQLite and Postgres test files and runs
+  `CommitSuite` for them: a commit that lands every write with its derived
+  rows, five preconditions that each refuse it with nothing written, and a
+  write that fails part way leaving nothing behind. Each was checked to fail
+  against a commit without its transaction, or with the shared resolver on
+  Postgres. No route uses it yet.
+
 - **A refused key opens its server in an edit dialog (2026-10-14).** Picking a
   saved server whose key the server no longer accepts showed a banner, and
   nothing in the admin could change the key: the server's settings gear loads

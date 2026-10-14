@@ -21,7 +21,8 @@ runStorageTestSuite(
     if (tempDbDir) {
       await fs.rm(tempDbDir, { recursive: true, force: true });
     }
-  }
+  },
+  { atomic: true }
 );
 
 describe("SqliteStore data-dir format guard", () => {
