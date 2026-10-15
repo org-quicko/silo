@@ -1238,7 +1238,14 @@ entries disappear from every API response.
 `TrashRestoreAuthority` requires `entries:create` at the scope an entry lands
 in, and `collection:create` on top for a container — at the names the
 destination has today, and at `rename` in place of the subject's own name when
-one is sent, since that is where the content lands. A `trash:restore` claim
+one is sent, since that is where the content lands. `chain` replays the
+blocking ancestors too, so every receipt it replays is checked the same way,
+visibility included, before the first is written (`TrashService.restore`
+takes the check as a callback, like `MediaService.purge` takes its force
+check); checking only the receipt asked for let a key with `entries:create`
+on one collection bring back the whole trashed project above it. An ancestor
+the key cannot read is a `403`, not a `404`: the blocked receipt's
+`blocked_by` already named it. A `trash:restore` claim
 would let a key place content into a scope it cannot otherwise write to, which
 is precisely the escalation D37 measured for `keys:import`. Deriving the answer
 from the existing vocabulary is both tighter and one less string to hold.

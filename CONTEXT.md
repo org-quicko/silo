@@ -67,7 +67,8 @@ one); `docs/` is the public Mintlify site.
   missing container or a taken name; receipts expire after
   `[trash] retention_days` (30). Reading the trash follows the origin's read
   claim, restoring needs write claims at the destination, both at the names
-  the origin has today, and only purging has a claim of its own
+  the origin has today and for every container a `chain` restore brings back,
+  and only purging has a claim of its own
   (`trash:purge`, root only). `DELETE` on an entry, an asset or a media folder
   answers `X-Silo-Trash-Id`; the admin's undo toast uses it after an entry
   delete. Imports, transfer applies and a whole-instance move do not touch the
@@ -132,8 +133,9 @@ alerts are false positives, with the reasons in the changelog);
 trash, with `/api/trash`, a Trash page and undo toast in the admin, and
 `silo.trash` on the TypeScript, Dart and Java clients (D113; built on 1.4.0
 as D91 and renumbered here, since D91 is the Dart client), and since then a
-media folder delete is one trash receipt and the trash checks claims at
-today's names, not the ones saved at delete time, and the Trash page uses the
+media folder delete is one trash receipt, the trash checks claims at
+today's names, not the ones saved at delete time, a `chain` restore checks
+every container it brings back, and the Trash page uses the
 admin's own page frame, Type chip and search box, with a row menu that is no
 longer cut off on the last row and a confirm before a permanent delete; the server-wide *Copy from silo* tab checks its
 pasted source key before it reads the source tree, so a wrong key no longer

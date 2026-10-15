@@ -65,8 +65,14 @@ export class TrashRoutes {
       const view = await TrashRoutes.visible(c, service);
       const body = await c.req.json().catch(() => null);
       const rename = typeof body?.rename === "string" ? body.rename : undefined;
+      // Checked here too, so a key without the claims hears 403 before a
+      // blocked receipt's 409.
       TrashRestoreAuthority.require(c, view, rename);
-      const result = await service.trash.restore(view.id, { rename, chain: body?.chain === true });
+      const result = await service.trash.restore(view.id, {
+        rename,
+        chain: body?.chain === true,
+        authorize: TrashRestoreAuthority.requireEach(c),
+      });
       return c.json(result);
     });
 

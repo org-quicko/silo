@@ -117,7 +117,7 @@ Two things can stop a restore. Both answer `409 conflict`.
     "blocked_by": { "kind": "collection", "name": "posts", "trash_id": "01JBY..." }
     ```
 
-    If the container is in the trash too, `trash_id` names its item. Send `{"chain": true}` to restore the container first and then the content. If `trash_id` is `null`, the container was purged and the content cannot go back.
+    If the container is in the trash too, `trash_id` names its item. Send `{"chain": true}` to restore the container first and then the content. Your key needs the claims to see and restore the container too. Silo checks them before it writes anything, and answers `403` if one is missing. If `trash_id` is `null`, the container was purged and the content cannot go back.
   </Step>
 
   <Step title="The name or the id is taken">

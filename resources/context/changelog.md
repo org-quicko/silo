@@ -4,6 +4,19 @@
 > The *current* state is [CONTEXT.md](../../CONTEXT.md); this is how it got
 > there.
 
+- **A chain restore checks every item it brings back (2026-10-15, D113).**
+  `POST /api/trash/{id}/restore` with `{"chain": true}` replays the trashed
+  containers that block the item first, but the claim check ran only on the
+  item asked for. A key with `entries:read` and `entries:create` on one
+  collection could restore a trashed entry with `chain` and bring back the
+  trashed collection above it, or a whole trashed project. `TrashService.
+  restore` now takes an `authorize` callback and runs it on every receipt in
+  the chain before the first is written; the route passes
+  `TrashRestoreAuthority.requireEach`, which asks for the read claim and the
+  write claims of each one. An ancestor the key cannot read is a 403, not a
+  404, because the blocked item's `blocked_by` already names it. The route
+  still checks the asked-for item first, so a key without its claims hears 403
+  before a blocked item's 409.
 - **Code scanning: two real findings fixed, four left as false positives
   (2026-10-15).** CodeQL's six open alerts on `main` were checked one by one.
   The Strapi import panel's `text()` helper only turned a value into a string

@@ -132,11 +132,16 @@ export class TrashService {
    *
    * `chain` restores the blocking ancestors first, which is the admin's
    * "Restore both". `rename` applies to the subject only, for the collision a
-   * freed name lets someone else take.
+   * freed name lets someone else take. `authorize` sees every receipt the
+   * restore will replay, ancestors included, before the first is written.
    */
   async restore(
     id: string,
-    options: { rename?: string; chain?: boolean } = {}
+    options: {
+      rename?: string;
+      chain?: boolean;
+      authorize?: (view: TrashView, rename: string | undefined) => void;
+    } = {}
   ): Promise<TrashRestoreResult> {
     const result: TrashRestoreResult = {
       restored: [],
@@ -148,9 +153,12 @@ export class TrashService {
       broken_media_refs: [],
     };
 
-    for (const each of await this.chainFor(id, options.chain === true)) {
-      await this.replay(each, each === id ? options.rename : undefined, result);
-      result.restored.push(each);
+    const chain = await this.chainFor(id, options.chain === true);
+    const renameOf = (view: TrashView) => (view.id === id ? options.rename : undefined);
+    for (const view of chain) options.authorize?.(view, renameOf(view));
+    for (const view of chain) {
+      await this.replay(view.id, renameOf(view), result);
+      result.restored.push(view.id);
     }
     return result;
   }
@@ -210,16 +218,16 @@ export class TrashService {
     });
   }
 
-  /** The receipt ids to replay, ancestors first. One id unless `chain`. */
-  private async chainFor(id: string, chain: boolean): Promise<string[]> {
-    const order: string[] = [];
+  /** The receipts to replay, ancestors first. One unless `chain`. */
+  private async chainFor(id: string, chain: boolean): Promise<TrashView[]> {
+    const order: TrashView[] = [];
     let current: string | null = id;
     const seen = new Set<string>();
 
     while (current && !seen.has(current)) {
       seen.add(current);
-      order.unshift(current);
       const view: TrashView = await this.get(current);
+      order.unshift(view);
       if (!view.blocked_by) break;
       if (!chain || !view.blocked_by.trash_id) {
         throw new ConflictError(

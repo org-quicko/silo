@@ -4,6 +4,7 @@ import { ForbiddenError } from "../../core/errors/forbidden-error";
 import type { CollectionPermission } from "@silo/shared/collection-permission";
 import type { TrashView } from "../../core/trash/trash-view";
 import { RouteAuth } from "./route-auth";
+import { TrashVisibility } from "./trash-visibility";
 
 /**
  * What a restore asks for (D113): the **write** claims at the destination, not
@@ -15,6 +16,22 @@ import { RouteAuth } from "./route-auth";
  * from the vocabulary that already governs the destination.
  */
 export class TrashRestoreAuthority {
+  /**
+   * Every receipt a restore replays: the one asked for, which the route has
+   * already shown this key, and each ancestor `chain` adds. An ancestor the key
+   * cannot read is a 403, not a 404: the blocked receipt already named it.
+   */
+  static requireEach(c: Context): (view: TrashView, rename: string | undefined) => void {
+    return (view, rename) => {
+      if (!TrashVisibility.canSee(c, view)) {
+        throw new ForbiddenError(
+          `restoring this also restores ${view.kind} "${view.subject_name}", which this key cannot read`
+        );
+      }
+      TrashRestoreAuthority.require(c, view, rename);
+    };
+  }
+
   /** The permissions restoring this receipt exercises, at the reach it lands
    *  in: the origin's names as they are today (`TrashService` resolves them),
    *  and `rename` in place of the subject's own. A collection brings its

@@ -300,7 +300,9 @@ Two things can stop a restore:
 - **The container is gone.** You cannot restore an entry into a collection that
   no longer exists. The item says so in `blocked_by`, and `restorable` is
   `false`. If the container is in the trash too, send `{"chain": true}` to
-  restore the container first and then the content.
+  restore the container first and then the content. Your key needs the
+  claims to read and restore the container too. The server checks them
+  before it writes anything.
 - **The name or the id is taken.** A trashed collection frees its name at once,
   so someone can create a new `posts` while the old one is in the trash. The
   restore then answers `409` instead of writing over the new one. Send

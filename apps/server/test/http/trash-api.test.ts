@@ -189,6 +189,36 @@ describe("trash API (D113)", () => {
     expect((await restore()).status).toBe(200);
   });
 
+  test("a chain restore asks for the claims of every item it brings back", async () => {
+    await seed();
+    await trashAnEntry();
+    await service.collections.delete(Scope.Default, "posts", true);
+    const id = (await service.trash.list({ kind: "entry" })).items[0].id;
+    const restore = (key: string) =>
+      app.request(`/api/trash/${id}/restore`, {
+        method: "POST",
+        headers: { ...auth(key), "Content-Type": "application/json" },
+        body: JSON.stringify({ chain: true }),
+      });
+
+    // Enough for the entry, not for the collection the chain would recreate.
+    const entryWriter = await mint([
+      Claims.collection("default", "prod", "posts", Claims.CollectionEntriesRead),
+      Claims.collection("default", "prod", "posts", Claims.CollectionEntriesCreate),
+    ]);
+    expect((await restore(entryWriter)).status).toBe(403);
+    expect((await service.trash.list()).total).toBe(2);
+
+    const collectionWriter = await mint([
+      Claims.collection("default", "prod", "posts", Claims.CollectionEntriesRead),
+      Claims.collection("default", "prod", "posts", Claims.CollectionEntriesCreate),
+      Claims.collection("default", "prod", "posts", Claims.CollectionSchemaRead),
+      Claims.collection("default", "prod", "posts", Claims.CollectionCreate),
+    ]);
+    expect((await restore(collectionWriter)).status).toBe(200);
+    expect((await service.trash.list()).total).toBe(0);
+  });
+
   test("purging needs trash:purge, and emptying needs the typed confirmation", async () => {
     await seed();
     await trashAnEntry();

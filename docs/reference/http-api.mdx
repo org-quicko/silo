@@ -194,7 +194,7 @@ A delete moves its subject to the trash instead of destroying it. See [Trash](/g
 | `GET` | `/api/trash` | List the deleted items this key can see, newest first (`?kind=&project=&env=&collection=&q=&deleted_after=&deleted_before=&limit=&offset=`) |
 | `GET` | `/api/trash/{id}` | One trash item. An item this key cannot see answers `404` |
 | `GET` | `/api/trash/{id}/items` | The records one item holds. Read-only |
-| `POST` | `/api/trash/{id}/restore` | Put an item back (`{rename?, chain?}`). Requires the write claims at the destination |
+| `POST` | `/api/trash/{id}/restore` | Put an item back (`{rename?, chain?}`). Requires the write claims at the destination, for every container `chain` brings back too |
 | `DELETE` | `/api/trash/{id}` | Destroy one item for good. Requires `trash:purge` |
 | `POST` | `/api/trash/purge` | Empty the trash (`{confirm: "empty"}`). Answers `{purged}`. Requires `trash:purge` |
 
