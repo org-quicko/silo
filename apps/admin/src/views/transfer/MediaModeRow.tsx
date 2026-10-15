@@ -9,7 +9,7 @@ const HELP: Record<MediaMode, string> = {
 }
 
 /** What a transfer does about media files. One line each; the reasoning is in
- *  docs/guide/transfer.md. */
+ *  resources/guide/transfer.md. */
 export function MediaModeRow({
   value,
   onChange,

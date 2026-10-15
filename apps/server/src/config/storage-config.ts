@@ -5,7 +5,7 @@
  * moves into the database, but the directory still holds the run file, logs,
  * plugins, transfer staging and fs media — local state, not content. The rest
  * are read by the `postgres` driver alone; durations are in seconds, and `0`
- * turns a timeout off (docs/design/storage.md §6.6).
+ * turns a timeout off (resources/design/storage.md §6.6).
  */
 export interface StorageConfig {
   driver: string;

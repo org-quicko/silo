@@ -5,7 +5,7 @@ export type PgTlsMode = "disable" | "require" | "verify-ca" | "verify-full";
 
 /**
  * The TLS half of `[storage] url`, read the way libpq reads it, because a
- * hosting provider hands out a libpq URL (docs/design/storage.md §6.6).
+ * hosting provider hands out a libpq URL (resources/design/storage.md §6.6).
  *
  * Bun reads `sslmode` but not the files libpq names beside it, and it sends a
  * query parameter it does not know to the server, which refuses the

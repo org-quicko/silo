@@ -28,7 +28,8 @@ final class StubHttp {
   void text(String body, {int status = 200, String contentType = 'text/html'}) =>
       _answers.add(() async => http.Response(body, status, headers: {'content-type': contentType}));
 
-  void empty() => _answers.add(() async => http.Response('', 204));
+  void empty({Map<String, String> headers = const {}}) =>
+      _answers.add(() async => http.Response('', 204, headers: headers));
 
   void hang() => _answers.add(() => Completer<http.Response>().future);
 
@@ -51,6 +52,21 @@ Map<String, Object?> page(List<Map<String, Object?>> rows, {int? total, int limi
   'total': total ?? rows.length,
   'limit': limit,
   'offset': offset,
+};
+
+Map<String, Object?> asset({String filename = 'logo.png', String hash = 'h1'}) => {
+  'id': '01M',
+  'filename': filename,
+  'folder': 'brand',
+  'blob_key': 'media/01M',
+  'size': 3,
+  'content_type': 'image/png',
+  'hash': hash,
+  'state': 'active',
+  'tags': ['brand'],
+  'url': '/media/01M',
+  'created_at': '2026-09-01T10:00:00Z',
+  'updated_at': '2026-09-01T10:00:00Z',
 };
 
 final class Post {

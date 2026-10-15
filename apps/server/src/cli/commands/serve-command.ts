@@ -2,6 +2,7 @@ import type { Config } from "../../config/config";
 import { HttpDefaults } from "../../config/http-defaults";
 import { SiloServer } from "../../http/server";
 import { SiloRuntime } from "../runtime/silo-runtime";
+import { TrashSweepTimer } from "../runtime/trash-sweep-timer";
 import { BootId } from "../../runtime/boot-id";
 import { ListenAddress } from "../../runtime/listen-address";
 import { ProcessTitle } from "../../runtime/process-title";
@@ -86,6 +87,30 @@ export class ServeCommand {
         'media deletions could not be completed — the blob store rejected the delete. Run "silo media reconcile" to retry, or to return the asset to active if the delete keeps failing.',
         { count: resumed.pending }
       );
+    }
+
+    // The trash's own resume, for the same reason the two above have one: a
+    // capture, a restore or a purge spans more records than any adapter can
+    // write atomically, so it is staged and finished here (D113).
+    const trash = await service.resumePendingTrash();
+    if (trash.finished > 0 || trash.failed > 0) {
+      logger.info("finished pending trash operations", {
+        finished: trash.finished,
+        failed: trash.failed,
+      });
+    }
+
+    // A transfer whose apply the process died in is settled before any request
+    // can meet it: its ledger row says whether the commit landed, and the files
+    // written for one that did not are taken back (D111).
+    const transfers = await service.preparedTransfers.resumeInterrupted();
+    if (transfers.applied + transfers.restored > 0) {
+      logger.info("settled transfers a stop interrupted", { applied: transfers.applied, restored: transfers.restored });
+    }
+    if (transfers.pending > 0) {
+      logger.warn("transfers interrupted while applying could not be settled; the next start, or applying them again, retries", {
+        count: transfers.pending,
+      });
     }
 
     const meta = await service.meta();
@@ -174,6 +199,11 @@ export class ServeCommand {
     }, RunFile.HeartbeatMs);
     heartbeat.unref?.();
 
+    // Retention, on a timer rather than on each request: a receipt expires by
+    // wall clock, not by traffic, and an instance nobody is using is exactly
+    // the one whose trash should still empty (D113).
+    const sweep = TrashSweepTimer.start(service.trash, logger);
+
     logger.info("listening", {
       version,
       listen: config.listen,
@@ -193,6 +223,7 @@ export class ServeCommand {
       // must not turn a crash into a server that is neither up nor gone.
       setTimeout(() => process.exit(code), ServeCommand.ShutdownGraceMs).unref?.();
       clearInterval(heartbeat);
+      clearInterval(sweep);
       try {
         logger.info("shutting down");
         server.stop();

@@ -1,9 +1,9 @@
 {
     "openapi": "3.1.0",
-    "x-maintenance": "Hand-written and checked in, not generated: Hono registers routes as code and there is no decorator to read them off. That makes this file a promise rather than a derivation, so it has to be updated in the same change set as any route it describes - see CLAUDE.md. The rationale for every route is in docs/design/http-api.md; the operator's version is docs/guide/http-api.md. Where the three disagree, the design doc is the spec and this is the bug.",
+    "x-maintenance": "Hand-written and checked in, not generated: Hono registers routes as code and there is no decorator to read them off. That makes this file a promise rather than a derivation, so it has to be updated in the same change set as any route it describes - see CLAUDE.md. The rationale for every route is in resources/design/http-api.md; the operator's version is resources/guide/http-api.md. Where the three disagree, the design doc is the spec and this is the bug.",
     "info": {
         "title": "silo HTTP API",
-        "version": "1.1.0",
+        "version": "1.6.0",
         "summary": "The CRUD, media, transfer, plugin and administration API of a silo instance.",
         "description": "JSON everywhere, under `/api`. There is no URL versioning (D13): a breaking\nchange is a release-note event tied to a binary upgrade, and the archive\nformat carries its own `format_version`. CORS is enabled for `/api/*`, and\nfor `GET` and `HEAD` on `/media/*` (D101).\n\n**Environment paths have two spellings.** Every path below written\n`/environments` is also served at `/envs` — one handler registered twice, so\nauthorization cannot land on one spelling and miss the other. Only the\ncanonical `/environments` form is listed here; `/envs` behaves identically.\n\n**Authentication** is a claims-based API key, presented as\n`Authorization: Bearer <key>` or `X-Api-Key: <key>`. There are no users,\nsessions or cookies. Claims are deny-by-default. A collection whose schema\ndoes not set `\"x-silo-auth\": true` is readable anonymously; once a key is\npresented its claims become the visibility boundary, and even a public\ncollection then needs the matching read claim. The claim each operation asks\nfor is named in its description.\n\n**Optimistic concurrency.** `PUT` and `DELETE` on an entry, and every plugin\nmutation that writes a record, require the expected revision as\n`If-Match: \"3\"` or `?rev=3`. A mismatch is `409`.\n\n**Variables.** Every route that answers an entry substitutes `{{NAME}}` from\nthe environment's variables by default. `?variables=raw` answers the stored\ntext instead, for editors. Any other value is `400`.\n",
         "license": {
@@ -98,6 +98,10 @@
             "description": "The routes a plugin declares (D36)."
         },
         {
+            "name": "Trash",
+            "description": "What a delete left behind, and the two ways out of it (D113).\n\nOne receipt per **explicitly** deleted thing: a collection deleted with 300\nentries under it is one item saying \"300 entries\", not 301 items. Listing\ntakes no claim of its own — each receipt is filtered by the read claim its\norigin already required, so two keys see two different trashes. Restoring\nasks for the write claims at the destination. Only purging has a claim, and\nno preset but `root` carries it.\n"
+        },
+        {
             "name": "Administration",
             "description": "The audit trail, operating metrics and server settings."
         }
@@ -130,7 +134,7 @@
                                         "version": {
                                             "type": "string",
                                             "examples": [
-                                                "1.1.0"
+                                                "1.6.0"
                                             ]
                                         }
                                     }
@@ -159,7 +163,8 @@
                                     "required": [
                                         "label",
                                         "prefix",
-                                        "claims"
+                                        "claims",
+                                        "trash"
                                     ],
                                     "properties": {
                                         "label": {
@@ -173,6 +178,23 @@
                                             "type": "array",
                                             "items": {
                                                 "type": "string"
+                                            }
+                                        },
+                                        "trash": {
+                                            "type": "object",
+                                            "description": "How this instance treats deletes (D113), so a delete dialog can say whether the delete can be undone.",
+                                            "required": [
+                                                "enabled",
+                                                "retention_days"
+                                            ],
+                                            "properties": {
+                                                "enabled": {
+                                                    "type": "boolean"
+                                                },
+                                                "retention_days": {
+                                                    "type": "integer",
+                                                    "description": "`0` keeps trash items until they are purged."
+                                                }
                                             }
                                         }
                                     }
@@ -192,7 +214,7 @@
                     "MCP"
                 ],
                 "summary": "MCP over Streamable HTTP",
-                "description": "The Model Context Protocol endpoint (D86). One JSON-RPC 2.0 message, or a batch of them, in; the reply out as `application/json`. silo answers `initialize`, `ping`, `tools/list` and `tools/call`; a body holding only notifications answers `202` with no body; an unknown method is `-32601`.\n\nEvery `tools/call` is dispatched through this same API with the presented key, so a tool asks for exactly the claim its route asks for, and a route's refusal comes back as a result with `isError: true` rather than as a protocol error. The endpoint is stateless: no `Mcp-Session-Id` is issued and `GET` and `DELETE` are `405`. A key is required even where the equivalent `GET` would be public. The tool catalog and the client configurations are in docs/guide/mcp.md.\n",
+                "description": "The Model Context Protocol endpoint (D86). One JSON-RPC 2.0 message, or a batch of them, in; the reply out as `application/json`. silo answers `initialize`, `ping`, `tools/list` and `tools/call`; a body holding only notifications answers `202` with no body; an unknown method is `-32601`.\n\nEvery `tools/call` is dispatched through this same API with the presented key, so a tool asks for exactly the claim its route asks for, and a route's refusal comes back as a result with `isError: true` rather than as a protocol error. The endpoint is stateless: no `Mcp-Session-Id` is issued and `GET` and `DELETE` are `405`. A key is required even where the equivalent `GET` would be public. The tool catalog and the client configurations are in resources/guide/mcp.md.\n",
                 "operationId": "postMcp",
                 "requestBody": {
                     "required": true,
@@ -466,11 +488,14 @@
                     "Projects"
                 ],
                 "summary": "Delete a project",
-                "description": "Refuses while content exists. `?force=true` erases every entry\nunderneath and additionally requires `entries:delete` at `{project}/*/*`\n(D37).\n",
+                "description": "Refuses while content exists. `?force=true` erases every entry\nunderneath and additionally requires `entries:delete` at `{project}/*/*`\n(D37).\n\n**Deletes are recoverable (D113).** Unless `?permanent=true`, this moves the\ncontent to the trash, where `GET /api/trash` lists it and\n`POST /api/trash/{id}/restore` puts it back. `?permanent=true` destroys it now\nand asks for `trash:purge`. An instance with `[trash] enabled = false` deletes\npermanently either way.\n",
                 "operationId": "deleteProject",
                 "parameters": [
                     {
                         "$ref": "#/components/parameters/Force"
+                    },
+                    {
+                        "$ref": "#/components/parameters/Permanent"
                     }
                 ],
                 "responses": {
@@ -655,11 +680,14 @@
                     "Projects"
                 ],
                 "summary": "Delete an environment",
-                "description": "Refuses while content exists. `?force=true` additionally requires\n`entries:delete` at `{project}/{env}/*`.\n",
+                "description": "Refuses while content exists. `?force=true` additionally requires\n`entries:delete` at `{project}/{env}/*`.\n\n**Deletes are recoverable (D113).** Unless `?permanent=true`, this moves the\ncontent to the trash, where `GET /api/trash` lists it and\n`POST /api/trash/{id}/restore` puts it back. `?permanent=true` destroys it now\nand asks for `trash:purge`. An instance with `[trash] enabled = false` deletes\npermanently either way.\n",
                 "operationId": "deleteEnvironment",
                 "parameters": [
                     {
                         "$ref": "#/components/parameters/Force"
+                    },
+                    {
+                        "$ref": "#/components/parameters/Permanent"
                     }
                 ],
                 "responses": {
@@ -726,6 +754,388 @@
                     },
                     "413": {
                         "$ref": "#/components/responses/PayloadTooLarge"
+                    }
+                }
+            }
+        },
+        "/api/projects/{project}/environments/{env}/package": {
+            "parameters": [
+                {
+                    "$ref": "#/components/parameters/Project"
+                },
+                {
+                    "$ref": "#/components/parameters/Env"
+                }
+            ],
+            "post": {
+                "tags": [
+                    "Transfer"
+                ],
+                "summary": "Stream a transfer package of the named collections and entries",
+                "description": "The source half of a transfer between instances (D108). The package is\nthe export tree cut to exactly what the body names: the selected\nentries, their collections' schemas, and with `media: referenced` the\nactive assets those entries use, their bytes and the folder records\nabove them. Variables, keys, folder moves and everything else stay\nbehind. Its manifest is `package.json`, so `POST /api/import` refuses\na package.\n\nEvery name and id is checked before the response begins: a malformed\none is a 400, one this environment lacks is a 404. An entry deleted\nwhile the package streams truncates it.\n\nClaims: `transfer:export`, plus `collections:{project}/{env}/{name}:schema:read`\nand `:entries:read` for each named collection.\n",
+                "operationId": "transferPackage",
+                "requestBody": {
+                    "required": true,
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/TransferPackageRequest"
+                            }
+                        }
+                    }
+                },
+                "responses": {
+                    "200": {
+                        "description": "The package.",
+                        "headers": {
+                            "Content-Disposition": {
+                                "schema": {
+                                    "type": "string"
+                                },
+                                "description": "attachment; filename=\"silo-package.tar.gz\""
+                            }
+                        },
+                        "content": {
+                            "application/gzip": {
+                                "schema": {
+                                    "type": "string",
+                                    "format": "binary"
+                                }
+                            }
+                        }
+                    },
+                    "400": {
+                        "$ref": "#/components/responses/ValidationFailed"
+                    },
+                    "403": {
+                        "$ref": "#/components/responses/Forbidden"
+                    },
+                    "404": {
+                        "$ref": "#/components/responses/NotFound"
+                    }
+                }
+            }
+        },
+        "/api/projects/{project}/environments/{env}/transfers": {
+            "parameters": [
+                {
+                    "$ref": "#/components/parameters/Project"
+                },
+                {
+                    "$ref": "#/components/parameters/Env"
+                }
+            ],
+            "post": {
+                "tags": [
+                    "Transfer"
+                ],
+                "summary": "Prepare a transfer from another instance into this environment",
+                "description": "The destination half of a transfer between instances (D109). This\nserver asks the source for a package (`POST …/package`, D108) of\nexactly the selection, unpacks it under the `[transfer]` size limits\n(D85), and verifies it exactly: every requested collection and entry\nand nothing else, media rows that are exactly what the packaged\nentries reference, a file for each row and nothing more, each file\nwith its row's size and sha256, and only plain files and folders. A\npackage that fails any check is deleted and the answer is a 400.\n\nThen it plans the package against this environment (D110), reading\nonly. Each entry is decided as an import decides it: in `merge`, the\nlater `updated_at` wins, then the higher `rev`, then the higher\ninstance id, unless `prefer` says which side wins; in `replace`, every\npackaged entry is written and every other row of the collection is\nremoved. Each entry to be written is checked against the schema the\ntransfer leaves in place: the package's where it writes the schema,\nthis environment's where it does not. An entry that fails is\n`rejected` and will not be written. A schema change that the\ncollection's entries freeze (D70) fails the preparation with a 409.\nThe plan records what it read, so Apply can refuse if any of it has\nchanged since.\nMedia is planned with it (D111): an asset this server lacks is added,\none it already holds under the same id is never changed (`unchanged`\nwhen it is the same file and details, `skipped` with the reason when\nnot), folders are matched by path, and every reference a written entry\nholds that will not resolve here is listed.\n\nThe verified package is kept for review for 60 minutes. At most 4\ntransfers may be preparing, prepared or applying at once; a fifth is\na 429. The source key is used for the pull and never stored.\n\nEverything that can be refused is refused before the source is\ncontacted: the claims, a missing environment, a storage adapter that\ncannot commit many writes as one (fs: 409 `atomic_commit_unsupported`),\nand a full server. With `Accept: application/x-ndjson` the answer is a\nprogress stream whose first line names the transfer, so it can be\ncancelled while the pull runs.\n\nThis server fetches from the URL in the body. Any key holding\n`transfer:copy` can make it reach any address it can route to.\n\nClaims: `transfer:copy`; `collections:{project}/{env}/{name}:create`,\n`:schema:update`, `:entries:create` and `:entries:update` for each\nselected collection; `:delete` and `:entries:delete` as well in\n`replace` mode; and `media:create` unless `media` is `none`.\n",
+                "operationId": "prepareTransfer",
+                "requestBody": {
+                    "required": true,
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/PreparedTransferRequest"
+                            }
+                        }
+                    }
+                },
+                "responses": {
+                    "201": {
+                        "description": "The prepared transfer, with its review and the first page of its plan, or, when `Accept: application/x-ndjson` asked for one, a progress stream whose last line carries it (status 200).",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/PreparedTransfer"
+                                }
+                            },
+                            "application/x-ndjson": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/PreparedTransferProgressLine"
+                                }
+                            }
+                        }
+                    },
+                    "400": {
+                        "description": "The body is malformed, or the source refused, could not be reached, is not silo 1.6.0 or later, or sent a package that failed verification or whose entries cannot be checked against the schemas here. The message says which.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/Error"
+                                }
+                            }
+                        }
+                    },
+                    "403": {
+                        "$ref": "#/components/responses/Forbidden"
+                    },
+                    "404": {
+                        "$ref": "#/components/responses/NotFound"
+                    },
+                    "409": {
+                        "description": "`atomic_commit_unsupported` on the fs storage adapter; `transfer_cancelled` when a cancel stopped the pull; `conflict` when a merged collection holds entries and the package would change what validates them (D70).",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/Error"
+                                }
+                            }
+                        }
+                    },
+                    "413": {
+                        "$ref": "#/components/responses/PayloadTooLarge"
+                    },
+                    "429": {
+                        "description": "`too_many_transfers`: 4 transfers are already preparing, prepared or applying. Apply or cancel one, or wait for one to expire.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/Error"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/projects/{project}/environments/{env}/transfers/{id}": {
+            "parameters": [
+                {
+                    "$ref": "#/components/parameters/Project"
+                },
+                {
+                    "$ref": "#/components/parameters/Env"
+                },
+                {
+                    "name": "id",
+                    "in": "path",
+                    "required": true,
+                    "schema": {
+                        "type": "string"
+                    },
+                    "description": "The transfer's id, as prepare answered it."
+                }
+            ],
+            "get": {
+                "tags": [
+                    "Transfer"
+                ],
+                "summary": "Read a prepared transfer and one page of its plan",
+                "description": "The state, the expiry, the package summary, the review and, while the\npackage is held, one page of the plan in a stable order: each\ncollection's packaged entries by id, then, in `replace`, the rows it\nremoves, then the packaged media assets and folders (D111). An expired,\ncancelled, stale or applied transfer keeps its record for 24 hours,\nwithout its package or plan.\n\nWhat only this environment holds, the id of a row that `replace`\nremoves and the `rev` and time of a row already here, is shown only to\na key holding `collections:{project}/{env}/{name}:schema:read` and\n`:entries:read` on that collection, as the env copy's preview does.\n\nAnswers only the key that prepared the transfer, and only under the\nenvironment it was prepared for; any other caller gets a 404.\n\nClaims: `transfer:copy`.\n",
+                "operationId": "getTransfer",
+                "parameters": [
+                    {
+                        "name": "detail_offset",
+                        "in": "query",
+                        "schema": {
+                            "type": "integer",
+                            "minimum": 0,
+                            "default": 0
+                        }
+                    },
+                    {
+                        "name": "detail_limit",
+                        "in": "query",
+                        "schema": {
+                            "type": "integer",
+                            "minimum": 1,
+                            "maximum": 100,
+                            "default": 25
+                        },
+                        "description": "At most 100."
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "The transfer.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/PreparedTransfer"
+                                }
+                            }
+                        }
+                    },
+                    "400": {
+                        "$ref": "#/components/responses/ValidationFailed"
+                    },
+                    "403": {
+                        "$ref": "#/components/responses/Forbidden"
+                    },
+                    "404": {
+                        "$ref": "#/components/responses/NotFound"
+                    }
+                }
+            },
+            "delete": {
+                "tags": [
+                    "Transfer"
+                ],
+                "summary": "Cancel a prepared transfer",
+                "description": "Stops a pull that is still running, or drops a prepared package. The\nrecord stays as `cancelled`. A transfer that has already ended is\nanswered as it is.\n\nAnswers only the key that prepared the transfer, and only under the\nenvironment it was prepared for; any other caller gets a 404.\n\nClaims: `transfer:copy`.\n",
+                "operationId": "cancelTransfer",
+                "responses": {
+                    "200": {
+                        "description": "The transfer, cancelled.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/PreparedTransfer"
+                                }
+                            }
+                        }
+                    },
+                    "403": {
+                        "$ref": "#/components/responses/Forbidden"
+                    },
+                    "404": {
+                        "$ref": "#/components/responses/NotFound"
+                    },
+                    "409": {
+                        "description": "`transfer_in_progress` while it is applying, `transfer_applied` once it has.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/Error"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/projects/{project}/environments/{env}/transfers/{id}/apply": {
+            "parameters": [
+                {
+                    "$ref": "#/components/parameters/Project"
+                },
+                {
+                    "$ref": "#/components/parameters/Env"
+                },
+                {
+                    "name": "id",
+                    "in": "path",
+                    "required": true,
+                    "schema": {
+                        "type": "string"
+                    },
+                    "description": "The transfer's id, as prepare answered it."
+                }
+            ],
+            "post": {
+                "tags": [
+                    "Transfer"
+                ],
+                "summary": "Apply a prepared transfer",
+                "description": "Writes the reviewed plan as one change, or nothing (D111). There is no\nbody: everything was fixed when the transfer was prepared.\n\nEvery row the plan read is checked again inside the same commit, with\na `_transfers` ledger row that must not exist yet. The destination's\nproject and environment must still have the ids the plan was made\nagainst, so an environment deleted or recreated since counts as a\nchange. If anything has\nchanged, nothing is written, the answer is `409 stale_preview`, and\nthe transfer becomes `stale`: prepare it again. New media files are\nwritten first, under keys no file holds, and removed again if the\ncommit does not land. A server that stopped during an apply settles\nit when it starts again.\n\nApplying an applied transfer answers it again, with `200`. With\n`Accept: application/x-ndjson` the answer is a progress stream\n(`media`, then `commit`).\n\nAnswers only the key that prepared the transfer, and only under the\nenvironment it was prepared for; any other caller gets a 404.\n\nClaims, as the key holds them now: `transfer:copy`;\n`collections:{project}/{env}/{name}:create`, `:schema:update`,\n`:entries:create` and `:entries:update` for each selected collection;\n`:delete` and `:entries:delete` as well in `replace` mode; and\n`media:create` unless `media` is `none`.\n",
+                "operationId": "applyTransfer",
+                "responses": {
+                    "200": {
+                        "description": "The applied transfer, or, when `Accept: application/x-ndjson` asked for one, a progress stream whose last line carries it.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/PreparedTransfer"
+                                }
+                            },
+                            "application/x-ndjson": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/PreparedTransferProgressLine"
+                                }
+                            }
+                        }
+                    },
+                    "403": {
+                        "$ref": "#/components/responses/Forbidden"
+                    },
+                    "404": {
+                        "$ref": "#/components/responses/NotFound"
+                    },
+                    "409": {
+                        "description": "`stale_preview` when this server changed since the plan was made; `transfer_in_progress` while it is being prepared or applied; `transfer_cancelled`; `transfer_expired`.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/Error"
+                                }
+                            }
+                        }
+                    },
+                    "500": {
+                        "description": "The commit or a media file failed. Nothing was written, and the transfer is `prepared` again with `last_error`.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/Error"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/projects/{project}/environments/{env}/transfers/{id}/entries/{collection}/{entry}": {
+            "parameters": [
+                {
+                    "$ref": "#/components/parameters/Project"
+                },
+                {
+                    "$ref": "#/components/parameters/Env"
+                },
+                {
+                    "name": "id",
+                    "in": "path",
+                    "required": true,
+                    "schema": {
+                        "type": "string"
+                    },
+                    "description": "The transfer's id, as prepare answered it."
+                },
+                {
+                    "name": "collection",
+                    "in": "path",
+                    "required": true,
+                    "schema": {
+                        "$ref": "#/components/schemas/CollectionName"
+                    }
+                },
+                {
+                    "name": "entry",
+                    "in": "path",
+                    "required": true,
+                    "schema": {
+                        "type": "string"
+                    }
+                }
+            ],
+            "get": {
+                "tags": [
+                    "Transfer"
+                ],
+                "summary": "Read one packaged entry of a prepared transfer",
+                "description": "The entry as the package holds it, which is what Apply will write,\nwhatever the source has done since. It is shown raw, as the entry\neditor reads it: no media URLs and no variable substitution.\n\nAnswers only the key that prepared the transfer, and only under the\nenvironment it was prepared for; any other caller gets a 404.\n\nClaims: `transfer:copy`.\n",
+                "operationId": "getTransferEntry",
+                "responses": {
+                    "200": {
+                        "description": "The packaged entry.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/Entry"
+                                }
+                            }
+                        }
+                    },
+                    "400": {
+                        "$ref": "#/components/responses/ValidationFailed"
+                    },
+                    "403": {
+                        "$ref": "#/components/responses/Forbidden"
+                    },
+                    "404": {
+                        "$ref": "#/components/responses/NotFound"
                     }
                 }
             }
@@ -1437,11 +1847,14 @@
                     "Collections"
                 ],
                 "summary": "Delete a collection",
-                "description": "Refuses while entries exist. `?force=true` erases them and additionally\nrequires `entries:delete` on the collection (D37).\n",
+                "description": "Refuses while entries exist. `?force=true` erases them and additionally\nrequires `entries:delete` on the collection (D37).\n\n**Deletes are recoverable (D113).** Unless `?permanent=true`, this moves the\ncontent to the trash, where `GET /api/trash` lists it and\n`POST /api/trash/{id}/restore` puts it back. `?permanent=true` destroys it now\nand asks for `trash:purge`. An instance with `[trash] enabled = false` deletes\npermanently either way.\n",
                 "operationId": "deleteCollection",
                 "parameters": [
                     {
                         "$ref": "#/components/parameters/Force"
+                    },
+                    {
+                        "$ref": "#/components/parameters/Permanent"
                     }
                 ],
                 "responses": {
@@ -1583,7 +1996,7 @@
                     "Entries"
                 ],
                 "summary": "Delete one entry",
-                "description": "Requires the expected revision, like `PUT`. Claim `entries:delete`.",
+                "description": "Requires the expected revision, like `PUT`. Claim `entries:delete`.\n\n**Deletes are recoverable (D113).** Unless `?permanent=true`, this moves the\ncontent to the trash, where `GET /api/trash` lists it and\n`POST /api/trash/{id}/restore` puts it back. `?permanent=true` destroys it now\nand asks for `trash:purge`. An instance with `[trash] enabled = false` deletes\npermanently either way.\n",
                 "operationId": "deleteEntry",
                 "parameters": [
                     {
@@ -1591,11 +2004,22 @@
                     },
                     {
                         "$ref": "#/components/parameters/Rev"
+                    },
+                    {
+                        "$ref": "#/components/parameters/Permanent"
                     }
                 ],
                 "responses": {
                     "204": {
-                        "description": "Deleted."
+                        "description": "Deleted. Moved to the trash unless the trash is off or `permanent` was set.",
+                        "headers": {
+                            "X-Silo-Trash-Id": {
+                                "description": "The id of the trash item the delete made (D113). Absent when nothing was kept: `[trash] enabled = false`, or `?permanent=true`.",
+                                "schema": {
+                                    "type": "string"
+                                }
+                            }
+                        }
                     },
                     "400": {
                         "$ref": "#/components/responses/ValidationFailed"
@@ -2461,7 +2885,7 @@
                     "Media"
                 ],
                 "summary": "Delete up to 100 assets",
-                "description": "Always `200`: the request itself succeeded, and each id's outcome is\ndata in the body — including the referrers a `409` could not carry.\nClaim: `media:delete`; `force` additionally requires `entries:update`\nand `entries:read` at every scope the assets are referenced from (D49).\n",
+                "description": "Always `200`: the request itself succeeded, and each id's outcome is\ndata in the body — including the referrers a `409` could not carry.\nClaim: `media:delete`; `force` additionally requires `entries:update`\nand `entries:read` at every scope the assets are referenced from (D49).\n\n**Deletes are recoverable (D113).** Unless `?permanent=true`, this moves the\ncontent to the trash, where `GET /api/trash` lists it and\n`POST /api/trash/{id}/restore` puts it back. `?permanent=true` destroys it now\nand asks for `trash:purge`. An instance with `[trash] enabled = false` deletes\npermanently either way.\n",
                 "operationId": "deleteMediaBatch",
                 "requestBody": {
                     "required": true,
@@ -2512,7 +2936,12 @@
                     "413": {
                         "$ref": "#/components/responses/PayloadTooLarge"
                     }
-                }
+                },
+                "parameters": [
+                    {
+                        "$ref": "#/components/parameters/Permanent"
+                    }
+                ]
             }
         },
         "/api/media/purge": {
@@ -2983,7 +3412,7 @@
                     "Media"
                 ],
                 "summary": "Delete a folder",
-                "description": "Empty only by default. `?recursive=true` takes everything inside it and\nanswers `200` with per-id outcomes instead of `204`. `?force=true`\nrequires `recursive` and the content authority a forced asset delete\nneeds. Claim: `media:delete`.\n",
+                "description": "Empty only by default. `?recursive=true` takes everything inside it and\nanswers `200` with per-id outcomes instead of `204`. `?force=true`\nrequires `recursive` and the content authority a forced asset delete\nneeds. Claim: `media:delete`.\n\n**Deletes are recoverable (D113).** Unless `?permanent=true`, this moves the\ncontent to the trash, where `GET /api/trash` lists it and\n`POST /api/trash/{id}/restore` puts it back. `?permanent=true` destroys it now\nand asks for `trash:purge`. An instance with `[trash] enabled = false` deletes\npermanently either way.\n\n**A folder is one trash item.** Its folder records and every file that\nwent are one receipt, named in `X-Silo-Trash-Id`, and restoring it brings\nthem all back. A file still in use stays where it is, and then so do the\nfolder records, since the folder is not gone.\n",
                 "operationId": "deleteMediaFolder",
                 "parameters": [
                     {
@@ -3004,6 +3433,9 @@
                     },
                     {
                         "$ref": "#/components/parameters/Force"
+                    },
+                    {
+                        "$ref": "#/components/parameters/Permanent"
                     }
                 ],
                 "responses": {
@@ -3031,10 +3463,26 @@
                                     ]
                                 }
                             }
+                        },
+                        "headers": {
+                            "X-Silo-Trash-Id": {
+                                "description": "The id of the one trash item the folder delete made (D113). Absent when nothing was kept: `[trash] enabled = false`, `?permanent=true`, or a folder with nothing in it to keep.",
+                                "schema": {
+                                    "type": "string"
+                                }
+                            }
                         }
                     },
                     "204": {
-                        "description": "The empty folder was deleted."
+                        "description": "The empty folder was deleted.",
+                        "headers": {
+                            "X-Silo-Trash-Id": {
+                                "description": "The id of the one trash item the folder delete made (D113). Absent when nothing was kept: `[trash] enabled = false`, `?permanent=true`, or a folder with nothing in it to keep.",
+                                "schema": {
+                                    "type": "string"
+                                }
+                            }
+                        }
                     },
                     "400": {
                         "$ref": "#/components/responses/ValidationFailed"
@@ -3306,16 +3754,27 @@
                     "Media"
                 ],
                 "summary": "Delete one asset",
-                "description": "Refuses while anything references it, with the referrers the caller may\nread in the body. `?force=true` deletes anyway and additionally requires\n`entries:read` and `entries:update` at every referring scope (D49).\nClaim: `media:delete`.\n",
+                "description": "Refuses while anything references it, with the referrers the caller may\nread in the body. `?force=true` deletes anyway and additionally requires\n`entries:read` and `entries:update` at every referring scope (D49).\nClaim: `media:delete`.\n\n**Deletes are recoverable (D113).** Unless `?permanent=true`, this moves the\ncontent to the trash, where `GET /api/trash` lists it and\n`POST /api/trash/{id}/restore` puts it back. `?permanent=true` destroys it now\nand asks for `trash:purge`. An instance with `[trash] enabled = false` deletes\npermanently either way.\n",
                 "operationId": "deleteMedia",
                 "parameters": [
                     {
                         "$ref": "#/components/parameters/Force"
+                    },
+                    {
+                        "$ref": "#/components/parameters/Permanent"
                     }
                 ],
                 "responses": {
                     "204": {
-                        "description": "Deleted."
+                        "description": "Deleted. Moved to the trash unless the trash is off or `permanent` was set.",
+                        "headers": {
+                            "X-Silo-Trash-Id": {
+                                "description": "The id of the trash item the delete made (D113). Absent when nothing was kept: `[trash] enabled = false`, or `?permanent=true`.",
+                                "schema": {
+                                    "type": "string"
+                                }
+                            }
+                        }
                     },
                     "403": {
                         "$ref": "#/components/responses/Forbidden"
@@ -3636,6 +4095,9 @@
                         "type": "string",
                         "enum": [
                             "log",
+                            "http",
+                            "transfer",
+                            "trash",
                             "search",
                             "schema",
                             "auth",
@@ -4564,6 +5026,381 @@
                     }
                 }
             }
+        },
+        "/api/trash": {
+            "get": {
+                "tags": [
+                    "Trash"
+                ],
+                "summary": "List what is in the trash",
+                "description": "Newest first, one item per explicitly deleted thing.\n\nNo claim of its own: each item is filtered by the read claim its origin\nalready required, at the names the origin has today — `entries:read` for a trashed entry, `schema:read` for a\ncollection, environment or project — so a key sees exactly the deletions it\ncould have seen the content of. Media is visible to any authenticated\ncaller, because reading the library has needed no claim since D58. `total`\ncounts what this caller may see, and that filter applies before the page is\ncut, so `offset` and `limit` page through those items alone, however many\nthe trash holds.\n\nAnswers an empty list on an instance running with `[trash] enabled = false`.\n",
+                "operationId": "listTrash",
+                "parameters": [
+                    {
+                        "name": "kind",
+                        "in": "query",
+                        "schema": {
+                            "type": "string",
+                            "enum": [
+                                "project",
+                                "environment",
+                                "collection",
+                                "entry",
+                                "media",
+                                "media_folder"
+                            ]
+                        }
+                    },
+                    {
+                        "name": "project",
+                        "in": "query",
+                        "schema": {
+                            "type": "string"
+                        },
+                        "description": "Narrow to one project's deletions, by its name today."
+                    },
+                    {
+                        "name": "env",
+                        "in": "query",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "name": "collection",
+                        "in": "query",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "name": "deleted_after",
+                        "in": "query",
+                        "schema": {
+                            "type": "string",
+                            "format": "date-time"
+                        }
+                    },
+                    {
+                        "name": "deleted_before",
+                        "in": "query",
+                        "schema": {
+                            "type": "string",
+                            "format": "date-time"
+                        }
+                    },
+                    {
+                        "name": "q",
+                        "in": "query",
+                        "schema": {
+                            "type": "string"
+                        },
+                        "description": "Case-insensitive substring of the subject's name."
+                    },
+                    {
+                        "$ref": "#/components/parameters/Limit"
+                    },
+                    {
+                        "$ref": "#/components/parameters/Offset"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "One page of trash items.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "required": [
+                                        "items",
+                                        "total",
+                                        "limit",
+                                        "offset"
+                                    ],
+                                    "properties": {
+                                        "items": {
+                                            "type": "array",
+                                            "items": {
+                                                "$ref": "#/components/schemas/TrashItem"
+                                            }
+                                        },
+                                        "total": {
+                                            "type": "integer"
+                                        },
+                                        "limit": {
+                                            "type": "integer"
+                                        },
+                                        "offset": {
+                                            "type": "integer"
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    },
+                    "400": {
+                        "$ref": "#/components/responses/ValidationFailed"
+                    },
+                    "401": {
+                        "$ref": "#/components/responses/Unauthorized"
+                    }
+                }
+            }
+        },
+        "/api/trash/purge": {
+            "post": {
+                "tags": [
+                    "Trash"
+                ],
+                "summary": "Empty the trash",
+                "description": "Destroys every receipt and everything parked under it, including the media\nbytes a trashed asset was still holding. There is no undo.\n\nClaim: `trash:purge`, carried by no preset but `root` — for `media:purge`'s\nreason (D65): whoever deleted the content already spent their delete claim,\nand ending it forever is a second decision. The typed confirmation is the\nsame insurance `POST /api/media/purge` takes against a stray or replayed\nrequest.\n",
+                "operationId": "emptyTrash",
+                "requestBody": {
+                    "required": true,
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "type": "object",
+                                "required": [
+                                    "confirm"
+                                ],
+                                "properties": {
+                                    "confirm": {
+                                        "type": "string",
+                                        "enum": [
+                                            "empty"
+                                        ]
+                                    }
+                                }
+                            }
+                        }
+                    }
+                },
+                "responses": {
+                    "200": {
+                        "description": "How many receipts were destroyed.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "required": [
+                                        "purged"
+                                    ],
+                                    "properties": {
+                                        "purged": {
+                                            "type": "integer"
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    },
+                    "400": {
+                        "$ref": "#/components/responses/ValidationFailed"
+                    },
+                    "403": {
+                        "$ref": "#/components/responses/Forbidden"
+                    }
+                }
+            }
+        },
+        "/api/trash/{id}": {
+            "get": {
+                "tags": [
+                    "Trash"
+                ],
+                "summary": "One trash item",
+                "description": "Answers 404 rather than 403 for an item the caller may not see: saying\n\"forbidden\" would confirm that something was deleted there.\n",
+                "operationId": "getTrashItem",
+                "parameters": [
+                    {
+                        "name": "id",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        },
+                        "description": "The trash receipt's id."
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "The item.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/TrashItem"
+                                }
+                            }
+                        }
+                    },
+                    "401": {
+                        "$ref": "#/components/responses/Unauthorized"
+                    },
+                    "404": {
+                        "$ref": "#/components/responses/NotFound"
+                    }
+                }
+            },
+            "delete": {
+                "tags": [
+                    "Trash"
+                ],
+                "summary": "Destroy one trash item",
+                "description": "Permanently deletes this receipt and everything it parked, including any\nmedia bytes it was holding. There is no undo. Claim: `trash:purge`.\n\nMedia files still claimed by the live catalog are preserved, including\nassets revived by an import while an older receipt remains.\n",
+                "operationId": "purgeTrashItem",
+                "parameters": [
+                    {
+                        "name": "id",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        },
+                        "description": "The trash receipt's id."
+                    }
+                ],
+                "responses": {
+                    "204": {
+                        "description": "Destroyed."
+                    },
+                    "403": {
+                        "$ref": "#/components/responses/Forbidden"
+                    },
+                    "404": {
+                        "$ref": "#/components/responses/NotFound"
+                    }
+                }
+            }
+        },
+        "/api/trash/{id}/items": {
+            "get": {
+                "tags": [
+                    "Trash"
+                ],
+                "summary": "What a trash item parked",
+                "description": "The records this receipt holds, returned as opaque objects by kind.\n\nReceipt visibility alone does not grant access to entry bodies. In addition\nto the receipt's read claim, collection contents need entries:read on that\ncollection, environment contents on project/environment/*, and project\ncontents on project/*/*. A visible receipt without these claims returns 403.\nInternal restore journal fields are omitted.\n",
+                "operationId": "listTrashItemContents",
+                "parameters": [
+                    {
+                        "name": "id",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        },
+                        "description": "The trash receipt's id."
+                    },
+                    {
+                        "$ref": "#/components/parameters/Limit"
+                    },
+                    {
+                        "$ref": "#/components/parameters/Offset"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "One page of parked records.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "required": [
+                                        "items",
+                                        "total"
+                                    ],
+                                    "properties": {
+                                        "items": {
+                                            "type": "array",
+                                            "items": {
+                                                "type": "object"
+                                            }
+                                        },
+                                        "total": {
+                                            "type": "integer"
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    },
+                    "401": {
+                        "$ref": "#/components/responses/Unauthorized"
+                    },
+                    "403": {
+                        "$ref": "#/components/responses/Forbidden"
+                    },
+                    "404": {
+                        "$ref": "#/components/responses/NotFound"
+                    }
+                }
+            }
+        },
+        "/api/trash/{id}/restore": {
+            "post": {
+                "tags": [
+                    "Trash"
+                ],
+                "summary": "Put a trash item back",
+                "description": "Restores the content to where it came from, addressed by the record ids the\nreceipt holds — so a rename between the delete and the restore does not\nmisfile it.\n\n**Asks for the write claims at the destination**, not a claim of its own:\nrestoring an entry into `prod` is writing to `prod`, so it needs\n`entries:create` there. A container additionally needs `create`. The\nclaims are checked at the names the destination has today, and at\n`rename` in place of the subject's own name. With `chain`, every\ncontainer it brings back is checked the same way, before anything is\nwritten; one this key cannot read is a 403, since the blocked item\nalready names it. A\n`trash:restore` claim would let a key place content in a scope it cannot\notherwise write to, which is the escalation shape D37 measured for\n`keys:import`.\n\nRefuses with 409 when the container is gone (`blocked_by` says which) or\nwhen the name or id has been taken since — a restore that overwrote a live\nrecord would put one thing back by destroying another. It also refuses\nwith 409, and keeps the item, when the collection's current schema rejects\nan entry: a schema can change once its collection is empty (D70), and a\nrestore is held to it like any other write.\n\nAn interrupted restore can be retried, including after restart. The server\nrecognizes its own unchanged writes without overwriting live changes. A\nrenamed restore retains its original destination and checks claims there on\nretry; a different rename after replay has started is a 409.\n",
+                "operationId": "restoreTrashItem",
+                "parameters": [
+                    {
+                        "name": "id",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        },
+                        "description": "The trash receipt's id."
+                    }
+                ],
+                "requestBody": {
+                    "required": false,
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "type": "object",
+                                "properties": {
+                                    "rename": {
+                                        "type": "string",
+                                        "description": "Restore the subject under this name instead. Applies to the\nsubject only; the records under it were never in collision.\n"
+                                    },
+                                    "chain": {
+                                        "type": "boolean",
+                                        "default": false,
+                                        "description": "Restore the containers blocking this one first, in order.\nOnly works while they are themselves in the trash.\n"
+                                    }
+                                }
+                            }
+                        }
+                    }
+                },
+                "responses": {
+                    "200": {
+                        "description": "What came back.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/TrashRestoreResult"
+                                }
+                            }
+                        }
+                    },
+                    "401": {
+                        "$ref": "#/components/responses/Unauthorized"
+                    },
+                    "403": {
+                        "$ref": "#/components/responses/Forbidden"
+                    },
+                    "404": {
+                        "$ref": "#/components/responses/NotFound"
+                    },
+                    "409": {
+                        "$ref": "#/components/responses/Conflict"
+                    }
+                }
+            }
         }
     },
     "components": {
@@ -4741,6 +5578,17 @@
                     "type": "string"
                 },
                 "description": "The text to match. Omit it to filter and sort without a term."
+            },
+            "Permanent": {
+                "name": "permanent",
+                "in": "query",
+                "schema": {
+                    "type": "string",
+                    "enum": [
+                        "true"
+                    ]
+                },
+                "description": "Skip the trash and destroy now (D113). A purge fused to a delete, so it asks\nfor `trash:purge` on top of whatever the delete already needed. Only the\nliteral string `true` opts in.\n"
             }
         },
         "responses": {
@@ -5478,6 +6326,554 @@
                                 }
                             }
                         }
+                    }
+                }
+            },
+            "TransferPackageRequest": {
+                "type": "object",
+                "required": [
+                    "collections"
+                ],
+                "properties": {
+                    "collections": {
+                        "type": "array",
+                        "minItems": 1,
+                        "description": "Each collection once. An item without `entry_ids` carries its whole\ncollection; one with them carries exactly those entries. System\ncollections cannot be named.\n",
+                        "items": {
+                            "type": "object",
+                            "required": [
+                                "name"
+                            ],
+                            "properties": {
+                                "name": {
+                                    "$ref": "#/components/schemas/CollectionName"
+                                },
+                                "entry_ids": {
+                                    "type": "array",
+                                    "minItems": 1,
+                                    "uniqueItems": true,
+                                    "items": {
+                                        "type": "string"
+                                    }
+                                }
+                            }
+                        }
+                    },
+                    "media": {
+                        "type": "string",
+                        "enum": [
+                            "referenced",
+                            "none"
+                        ],
+                        "default": "referenced",
+                        "description": "`referenced` carries the assets the entries use, their bytes and their\nancestor folders. `none` carries no catalog row and no byte, which is\nstricter than an archive's `none`.\n"
+                    }
+                }
+            },
+            "PreparedTransferRequest": {
+                "type": "object",
+                "required": [
+                    "source",
+                    "from",
+                    "selection"
+                ],
+                "properties": {
+                    "source": {
+                        "type": "object",
+                        "required": [
+                            "url",
+                            "api_key"
+                        ],
+                        "properties": {
+                            "url": {
+                                "type": "string",
+                                "format": "uri",
+                                "description": "The source server's base URL: http or https, with no credentials, query or fragment. Redirects are refused."
+                            },
+                            "api_key": {
+                                "type": "string",
+                                "description": "A source key with `transfer:export` and read on each selected collection. Used for this pull and never stored."
+                            }
+                        }
+                    },
+                    "from": {
+                        "type": "object",
+                        "required": [
+                            "project",
+                            "env"
+                        ],
+                        "properties": {
+                            "project": {
+                                "$ref": "#/components/schemas/ScopeName"
+                            },
+                            "env": {
+                                "$ref": "#/components/schemas/ScopeName"
+                            }
+                        }
+                    },
+                    "selection": {
+                        "type": "array",
+                        "minItems": 1,
+                        "description": "Each collection once. An item without `entry_ids` takes its whole\ncollection. An entry subset cannot be used with `replace`.\n",
+                        "items": {
+                            "type": "object",
+                            "required": [
+                                "collection"
+                            ],
+                            "properties": {
+                                "collection": {
+                                    "$ref": "#/components/schemas/CollectionName"
+                                },
+                                "entry_ids": {
+                                    "type": "array",
+                                    "minItems": 1,
+                                    "items": {
+                                        "type": "string"
+                                    }
+                                }
+                            }
+                        }
+                    },
+                    "mode": {
+                        "type": "string",
+                        "enum": [
+                            "merge",
+                            "replace"
+                        ],
+                        "default": "merge"
+                    },
+                    "prefer": {
+                        "type": "string",
+                        "enum": [
+                            "local",
+                            "remote"
+                        ]
+                    },
+                    "media": {
+                        "type": "string",
+                        "enum": [
+                            "referenced",
+                            "none"
+                        ],
+                        "default": "referenced",
+                        "description": "`referenced` brings the assets the entries use. `none` brings no catalog row and no byte."
+                    }
+                }
+            },
+            "PreparedTransfer": {
+                "type": "object",
+                "required": [
+                    "id",
+                    "state",
+                    "created_at",
+                    "updated_at",
+                    "expires_at",
+                    "source",
+                    "from",
+                    "to",
+                    "selection",
+                    "mode",
+                    "media"
+                ],
+                "properties": {
+                    "id": {
+                        "type": "string"
+                    },
+                    "state": {
+                        "type": "string",
+                        "enum": [
+                            "preparing",
+                            "prepared",
+                            "applying",
+                            "applied",
+                            "stale",
+                            "cancelled",
+                            "expired"
+                        ]
+                    },
+                    "created_at": {
+                        "type": "string",
+                        "format": "date-time"
+                    },
+                    "updated_at": {
+                        "type": "string",
+                        "format": "date-time"
+                    },
+                    "expires_at": {
+                        "type": "string",
+                        "format": "date-time",
+                        "description": "When a `prepared` transfer becomes `expired`: 60 minutes after it was prepared."
+                    },
+                    "source": {
+                        "type": "object",
+                        "properties": {
+                            "url": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "from": {
+                        "type": "object",
+                        "required": [
+                            "project",
+                            "env"
+                        ],
+                        "properties": {
+                            "project": {
+                                "$ref": "#/components/schemas/ScopeName"
+                            },
+                            "env": {
+                                "$ref": "#/components/schemas/ScopeName"
+                            }
+                        }
+                    },
+                    "to": {
+                        "type": "object",
+                        "required": [
+                            "project",
+                            "env"
+                        ],
+                        "properties": {
+                            "project": {
+                                "$ref": "#/components/schemas/ScopeName"
+                            },
+                            "env": {
+                                "$ref": "#/components/schemas/ScopeName"
+                            }
+                        }
+                    },
+                    "selection": {
+                        "type": "array",
+                        "minItems": 1,
+                        "description": "Each collection once. An item without `entry_ids` takes its whole\ncollection. An entry subset cannot be used with `replace`.\n",
+                        "items": {
+                            "type": "object",
+                            "required": [
+                                "collection"
+                            ],
+                            "properties": {
+                                "collection": {
+                                    "$ref": "#/components/schemas/CollectionName"
+                                },
+                                "entry_ids": {
+                                    "type": "array",
+                                    "minItems": 1,
+                                    "items": {
+                                        "type": "string"
+                                    }
+                                }
+                            }
+                        }
+                    },
+                    "mode": {
+                        "type": "string",
+                        "enum": [
+                            "merge",
+                            "replace"
+                        ]
+                    },
+                    "prefer": {
+                        "type": "string",
+                        "enum": [
+                            "local",
+                            "remote"
+                        ]
+                    },
+                    "media": {
+                        "type": "string",
+                        "enum": [
+                            "referenced",
+                            "none"
+                        ]
+                    },
+                    "package": {
+                        "$ref": "#/components/schemas/TransferPackageSummary"
+                    },
+                    "review": {
+                        "$ref": "#/components/schemas/TransferReview"
+                    },
+                    "applied_at": {
+                        "type": "string",
+                        "format": "date-time",
+                        "description": "When the commit landed."
+                    },
+                    "entries": {
+                        "type": "object",
+                        "description": "One page of the plan. Only while the package is held.",
+                        "properties": {
+                            "offset": {
+                                "type": "integer"
+                            },
+                            "limit": {
+                                "type": "integer"
+                            },
+                            "total": {
+                                "type": "integer",
+                                "description": "How many lines the plan holds."
+                            },
+                            "items": {
+                                "type": "array",
+                                "items": {
+                                    "$ref": "#/components/schemas/TransferPlanItem"
+                                }
+                            }
+                        }
+                    },
+                    "last_error": {
+                        "type": "string"
+                    }
+                }
+            },
+            "PreparedTransferProgressLine": {
+                "type": "object",
+                "description": "One line of a preparation's progress stream. The first line names the transfer. The outcome is the last line: `result` on success, `error` otherwise.",
+                "required": [
+                    "type"
+                ],
+                "properties": {
+                    "type": {
+                        "type": "string",
+                        "enum": [
+                            "progress",
+                            "result",
+                            "error"
+                        ]
+                    },
+                    "phase": {
+                        "type": "string",
+                        "enum": [
+                            "fetch",
+                            "verify",
+                            "plan",
+                            "media",
+                            "commit",
+                            "working"
+                        ],
+                        "description": "`progress` lines only. Preparing: `fetch`, `verify`, `plan`. Applying: `media`, `commit`."
+                    },
+                    "transfer": {
+                        "type": "object",
+                        "properties": {
+                            "id": {
+                                "type": "string"
+                            },
+                            "state": {
+                                "type": "string"
+                            },
+                            "expires_at": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "result": {
+                        "$ref": "#/components/schemas/PreparedTransfer"
+                    },
+                    "status": {
+                        "type": "integer",
+                        "description": "`error` lines only: the status this would have been."
+                    },
+                    "error": {
+                        "type": "object",
+                        "properties": {
+                            "code": {
+                                "type": "string"
+                            },
+                            "message": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
+            },
+            "TransferPackageSummary": {
+                "type": "object",
+                "description": "What the verified package holds. Every number was counted from its files.",
+                "properties": {
+                    "created_at": {
+                        "type": "string",
+                        "format": "date-time"
+                    },
+                    "silo_version": {
+                        "type": "string"
+                    },
+                    "instance_id": {
+                        "type": "string"
+                    },
+                    "collections": {
+                        "type": "array",
+                        "items": {
+                            "type": "object",
+                            "properties": {
+                                "name": {
+                                    "$ref": "#/components/schemas/CollectionName"
+                                },
+                                "entries": {
+                                    "type": "integer"
+                                }
+                            }
+                        }
+                    },
+                    "media_assets": {
+                        "type": "integer"
+                    },
+                    "media_folders": {
+                        "type": "integer"
+                    },
+                    "missing_media": {
+                        "type": "array",
+                        "items": {
+                            "type": "string"
+                        },
+                        "description": "References the packaged entries hold that the source had no asset for."
+                    }
+                }
+            },
+            "TransferReview": {
+                "type": "object",
+                "description": "What Apply will do, counted as an import counts it: `replace` counts every row of a collection here as `deleted`, whether the package overwrites it or it is removed.",
+                "properties": {
+                    "planned_at": {
+                        "type": "string",
+                        "format": "date-time"
+                    },
+                    "added": {
+                        "type": "integer"
+                    },
+                    "updated": {
+                        "type": "integer"
+                    },
+                    "deleted": {
+                        "type": "integer"
+                    },
+                    "skipped": {
+                        "type": "integer"
+                    },
+                    "rejected": {
+                        "type": "integer"
+                    },
+                    "collections": {
+                        "type": "array",
+                        "items": {
+                            "type": "object",
+                            "properties": {
+                                "collection": {
+                                    "$ref": "#/components/schemas/CollectionName"
+                                },
+                                "schema": {
+                                    "type": "string",
+                                    "enum": [
+                                        "create",
+                                        "update",
+                                        "unchanged"
+                                    ]
+                                },
+                                "added": {
+                                    "type": "integer"
+                                },
+                                "updated": {
+                                    "type": "integer"
+                                },
+                                "deleted": {
+                                    "type": "integer"
+                                },
+                                "skipped": {
+                                    "type": "integer"
+                                },
+                                "rejected": {
+                                    "type": "integer"
+                                }
+                            }
+                        }
+                    },
+                    "media": {
+                        "type": "object",
+                        "properties": {
+                            "added": {
+                                "type": "integer"
+                            },
+                            "unchanged": {
+                                "type": "integer"
+                            },
+                            "skipped": {
+                                "type": "integer"
+                            },
+                            "folders_added": {
+                                "type": "integer"
+                            },
+                            "unresolved": {
+                                "type": "array",
+                                "items": {
+                                    "type": "string"
+                                },
+                                "description": "Media references the written entries hold that will not resolve here once the transfer lands."
+                            }
+                        }
+                    }
+                }
+            },
+            "TransferPlanItem": {
+                "type": "object",
+                "description": "One line of the plan: a packaged entry, a row here that `replace` removes, or a packaged media asset (`_media`) or folder (`_media_folders`).",
+                "required": [
+                    "collection",
+                    "action"
+                ],
+                "properties": {
+                    "collection": {
+                        "$ref": "#/components/schemas/CollectionName"
+                    },
+                    "id": {
+                        "type": "string",
+                        "description": "Absent on a `deleted` line unless the key may read the collection here."
+                    },
+                    "action": {
+                        "type": "string",
+                        "enum": [
+                            "added",
+                            "updated",
+                            "unchanged",
+                            "skipped",
+                            "rejected",
+                            "deleted"
+                        ],
+                        "description": "`rejected`: the schema the transfer leaves in place refuses the entry, so it is not written. `deleted`: `replace` removes a row the package does not carry. `unchanged`: this server already holds the same media asset or folder. A `skipped` media asset keeps this server's own, and `reason` says why."
+                    },
+                    "name": {
+                        "type": "string",
+                        "description": "A media line's filename, or its folder's path."
+                    },
+                    "rev": {
+                        "type": "integer",
+                        "description": "The packaged entry's."
+                    },
+                    "updated_at": {
+                        "type": "string",
+                        "format": "date-time",
+                        "description": "The packaged entry's."
+                    },
+                    "destination": {
+                        "type": "object",
+                        "description": "The row already here, as the plan read it. Only for a key that may read the collection here.",
+                        "properties": {
+                            "rev": {
+                                "type": "integer"
+                            },
+                            "updated_at": {
+                                "type": "string",
+                                "format": "date-time"
+                            }
+                        }
+                    },
+                    "reason": {
+                        "type": "string",
+                        "description": "Why a `rejected` entry was refused, or why a media asset was `skipped`."
+                    },
+                    "unresolved": {
+                        "type": "array",
+                        "items": {
+                            "type": "string"
+                        },
+                        "description": "The media references this entry holds that will not resolve here."
                     }
                 }
             },
@@ -7151,7 +8547,14 @@
                                     "internal",
                                     "payload_too_large",
                                     "archive_too_large",
-                                    "busy"
+                                    "busy",
+                                    "atomic_commit_unsupported",
+                                    "transfer_cancelled",
+                                    "transfer_in_progress",
+                                    "transfer_applied",
+                                    "stale_preview",
+                                    "transfer_expired",
+                                    "too_many_transfers"
                                 ]
                             },
                             "message": {
@@ -7323,6 +8726,242 @@
                                 "description": "For `-32602`: the validator's `{path, message}` list."
                             }
                         }
+                    }
+                }
+            },
+            "TrashItem": {
+                "type": "object",
+                "description": "One explicitly deleted thing (D113).\n\n`origin` holds both ids and names: the ids are what a restore anchors on,\nbecause a name is mutable and a rename between delete and restore would\notherwise misfile the content. The names are today's: a rename after the\ndelete shows here, and the read check, the restore check and the\nfilters all use it. A container that is gone keeps the name it had.\n",
+                "required": [
+                    "id",
+                    "kind",
+                    "origin",
+                    "subject_id",
+                    "subject_name",
+                    "deleted_at",
+                    "deleted_by",
+                    "expires_at",
+                    "contents",
+                    "media_refs",
+                    "state",
+                    "restorable"
+                ],
+                "properties": {
+                    "id": {
+                        "type": "string",
+                        "description": "The receipt's own id."
+                    },
+                    "kind": {
+                        "type": "string",
+                        "enum": [
+                            "project",
+                            "environment",
+                            "collection",
+                            "entry",
+                            "media",
+                            "media_folder"
+                        ]
+                    },
+                    "origin": {
+                        "type": "object",
+                        "description": "Where the thing was, by id and by name.",
+                        "properties": {
+                            "project_id": {
+                                "type": "string"
+                            },
+                            "project_name": {
+                                "type": "string"
+                            },
+                            "env_id": {
+                                "type": "string"
+                            },
+                            "env_name": {
+                                "type": "string"
+                            },
+                            "collection_id": {
+                                "type": "string"
+                            },
+                            "collection_name": {
+                                "type": "string"
+                            },
+                            "folder": {
+                                "type": "string",
+                                "description": "Media only: the normalised library path."
+                            }
+                        }
+                    },
+                    "subject_id": {
+                        "type": "string",
+                        "description": "Preserved, so a restore keeps every reference to it."
+                    },
+                    "subject_name": {
+                        "type": "string"
+                    },
+                    "deleted_at": {
+                        "type": "string",
+                        "format": "date-time"
+                    },
+                    "deleted_by": {
+                        "$ref": "#/components/schemas/TrashActor"
+                    },
+                    "expires_at": {
+                        "type": "string",
+                        "format": "date-time",
+                        "nullable": true,
+                        "description": "When the sweeper will purge this. Null when the instance keeps trash\nindefinitely (`[trash] retention_days = 0`). Stamped at delete time, so\nshortening the setting never retroactively destroys content.\n"
+                    },
+                    "contents": {
+                        "$ref": "#/components/schemas/TrashContents"
+                    },
+                    "media_refs": {
+                        "type": "array",
+                        "items": {
+                            "type": "string"
+                        },
+                        "description": "Media the parked content referenced. Those rows left the usage index with\nthe content, so an asset can be deleted while the only thing naming it\nsits in the trash; a restore reports what no longer resolves.\n"
+                    },
+                    "state": {
+                        "type": "string",
+                        "enum": [
+                            "parking",
+                            "parked",
+                            "restoring",
+                            "purging"
+                        ],
+                        "description": "Anything but `parked` is in flight and is resumed at the next start.\n"
+                    },
+                    "restorable": {
+                        "type": "boolean",
+                        "description": "False whenever `blocked_by` is set."
+                    },
+                    "blocked_by": {
+                        "$ref": "#/components/schemas/TrashBlocker"
+                    }
+                }
+            },
+            "TrashActor": {
+                "type": "object",
+                "description": "Who deleted it. silo authenticates keys, so \"who\" is a key.",
+                "required": [
+                    "kind"
+                ],
+                "properties": {
+                    "kind": {
+                        "type": "string",
+                        "enum": [
+                            "key",
+                            "cli",
+                            "system"
+                        ]
+                    },
+                    "id": {
+                        "type": "string",
+                        "description": "The `_keys` record id, for `kind: key`."
+                    },
+                    "label": {
+                        "type": "string",
+                        "description": "The key's label at the time, so a revoked key still reads."
+                    }
+                }
+            },
+            "TrashContents": {
+                "type": "object",
+                "description": "What rode along with the explicitly deleted thing, counted once at delete\ntime so drawing a list never counts anything.\n",
+                "required": [
+                    "collections",
+                    "entries",
+                    "assets",
+                    "bytes"
+                ],
+                "properties": {
+                    "collections": {
+                        "type": "integer"
+                    },
+                    "entries": {
+                        "type": "integer"
+                    },
+                    "assets": {
+                        "type": "integer"
+                    },
+                    "bytes": {
+                        "type": "integer"
+                    }
+                }
+            },
+            "TrashBlocker": {
+                "type": "object",
+                "description": "Why this cannot be restored yet: the container it came from is gone.\n\nRestoring into a missing container would orphan the content, so it is\nrefused and named instead. `trash_id` points at the receipt that would\nunblock it when the container is itself in the trash, which is what\n`chain` acts on; null means the container was purged.\n",
+                "required": [
+                    "kind",
+                    "name",
+                    "trash_id"
+                ],
+                "properties": {
+                    "kind": {
+                        "type": "string",
+                        "enum": [
+                            "project",
+                            "environment",
+                            "collection",
+                            "entry",
+                            "media",
+                            "media_folder"
+                        ]
+                    },
+                    "name": {
+                        "type": "string"
+                    },
+                    "trash_id": {
+                        "type": "string",
+                        "nullable": true
+                    }
+                }
+            },
+            "TrashRestoreResult": {
+                "type": "object",
+                "description": "What a restore put back, and what it could not fix.",
+                "required": [
+                    "restored",
+                    "projects",
+                    "environments",
+                    "collections",
+                    "entries",
+                    "assets",
+                    "broken_media_refs"
+                ],
+                "properties": {
+                    "restored": {
+                        "type": "array",
+                        "items": {
+                            "type": "string"
+                        },
+                        "description": "Receipt ids restored, containers first when `chain` was set."
+                    },
+                    "projects": {
+                        "type": "integer"
+                    },
+                    "environments": {
+                        "type": "integer"
+                    },
+                    "collections": {
+                        "type": "integer"
+                    },
+                    "entries": {
+                        "type": "integer"
+                    },
+                    "assets": {
+                        "type": "integer"
+                    },
+                    "broken_media_refs": {
+                        "type": "array",
+                        "items": {
+                            "type": "string"
+                        },
+                        "description": "Media ids the restored content still names that the library no longer\nholds. Reported rather than repaired: restoring an entry with a dead\nimage and saying nothing is worse than restoring it and saying so.\n"
+                    },
+                    "renamed_to": {
+                        "type": "string",
+                        "description": "Set when a name collision forced a rename."
                     }
                 }
             },

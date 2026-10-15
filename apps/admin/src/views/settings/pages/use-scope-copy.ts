@@ -15,8 +15,20 @@ export type ScopeCopyMode = 'merge' | 'replace'
 export type ScopeCopyPrefer = '' | 'local' | 'remote'
 const PreviewLimit = 25
 
+/**
+ * Where the source half reads: this server, or another one (D109). `endpoint`
+ * is null until another server's key checks out; `claims` are what the source
+ * key holds, and `projects` what it lists.
+ */
+export interface ScopeCopySource {
+  endpoint: Server | null
+  remote: boolean
+  claims: string[]
+  projects: string[]
+}
+
 /** Owns a source-to-fixed-destination copy form, including guarded async reads. */
-export function useScopeCopy(server: Server, destination: ScopeRef, claims: string[]) {
+export function useScopeCopy(server: Server, destination: ScopeRef, claims: string[], source: ScopeCopySource) {
   const [sourceProject, setSourceProject] = useState(destination.project)
   const [sourceEnvironments, setSourceEnvironments] = useState<string[]>([])
   const [sourceEnv, setSourceEnv] = useState('')
@@ -39,7 +51,8 @@ export function useScopeCopy(server: Server, destination: ScopeRef, claims: stri
   const inFlight = useRef(false)
   const configurationRef = useRef('')
   const from: ScopeRef | null = sourceEnv ? { project: sourceProject, env: sourceEnv } : null
-  const configuration = `${server.id}/${server.url}/${server.apiKey}/${destination.project}/${destination.env}/${sourceProject}/${sourceEnv}`
+  const reader = source.endpoint
+  const configuration = `${server.id}/${server.url}/${server.apiKey}/${reader?.url}/${reader?.apiKey}/${destination.project}/${destination.env}/${sourceProject}/${sourceEnv}`
   const invalidate = () => {
     operationRequest.current++
     inspectRequest.current++
@@ -66,39 +79,47 @@ export function useScopeCopy(server: Server, destination: ScopeRef, claims: stri
     setSourceEnv('')
     setCollections([])
     setSelection([])
-  }, [server.id, server.url, server.apiKey, destination.project, destination.env])
+  }, [server.id, server.url, server.apiKey, reader?.url, reader?.apiKey, destination.project, destination.env])
+
+  // Another server need not name its projects as this one does.
+  useEffect(() => {
+    if (source.projects.length > 0 && !source.projects.includes(sourceProject)) {
+      setSourceProject(source.projects.includes(destination.project) ? destination.project : source.projects[0])
+    }
+  }, [source.projects])
 
   useEffect(() => {
     const ticket = ++environmentsRequest.current
-    api.projects.listEnvironments(server.url, server.apiKey, sourceProject).then((records) => {
+    if (!reader) return
+    api.projects.listEnvironments(reader.url, reader.apiKey, sourceProject).then((records) => {
       if (!alive.current || ticket !== environmentsRequest.current) return
-      const eligible = records.map((record) => record.name).filter((env) => sourceProject !== destination.project || env !== destination.env)
+      const eligible = records.map((record) => record.name).filter((env) => source.remote || sourceProject !== destination.project || env !== destination.env)
       setSourceEnvironments(eligible)
       setSourceEnv((current) => eligible.includes(current) ? current : eligible[0] || '')
     }).catch((caught: unknown) => {
       if (!alive.current || ticket !== environmentsRequest.current) return
       setSourceEnvironments([]); setSourceEnv(''); setError(caught instanceof Error ? caught.message : 'Failed to load environments')
     })
-  }, [server.url, server.apiKey, sourceProject, destination.project, destination.env])
+  }, [reader?.url, reader?.apiKey, sourceProject, destination.project, destination.env])
 
   useEffect(() => {
     const ticket = ++collectionsRequest.current
     setSelection([]); setSelectedEntries({}); setCollections([]); setInspected(null)
-    if (!from) return
-    api.collections.list(server.url, server.apiKey, from).then((items) => {
+    if (!from || !reader) return
+    api.collections.list(reader.url, reader.apiKey, from).then((items) => {
       if (alive.current && ticket === collectionsRequest.current) setCollections(items)
     }).catch((caught: unknown) => {
       if (alive.current && ticket === collectionsRequest.current) setError(caught instanceof Error ? caught.message : 'Failed to load collections')
     })
-  }, [server.url, server.apiKey, sourceProject, sourceEnv])
+  }, [reader?.url, reader?.apiKey, sourceProject, sourceEnv])
 
-  const scopeSearch = useScopeCopySearch(server, from, collections)
+  const scopeSearch = useScopeCopySearch(reader ?? server, from, collections)
 
-  const hasCollectionAuthority = (scope: ScopeRef, collection: string, permissions: readonly CollectionPermission[]) => permissions.every((permission) => Claims.has(claims, Claims.collection(scope.project, scope.env, collection, permission)))
-  const canRead = !!from && Claims.hasScopeWide(claims, Claims.ScopeCopyReadPermissions, from.project, from.env)
+  const hasCollectionAuthority = (held: string[], scope: ScopeRef, collection: string, permissions: readonly CollectionPermission[]) => permissions.every((permission) => Claims.has(held, Claims.collection(scope.project, scope.env, collection, permission)))
+  const canRead = !!from && Claims.hasScopeWide(source.claims, Claims.ScopeCopyReadPermissions, from.project, from.env)
   const canWrite = Claims.hasScopeWide(claims, Claims.ScopeCopyWritePermissions, destination.project, destination.env)
   const canReplace = Claims.hasScopeWide(claims, Claims.ScopeCopyReplacePermissions, destination.project, destination.env)
-  const selectedAllowed = !!from && selection.every((item) => hasCollectionAuthority(from, item.collection, Claims.ScopeCopyReadPermissions) && hasCollectionAuthority(destination, item.collection, Claims.ScopeCopyWritePermissions) && (mode === 'merge' || hasCollectionAuthority(destination, item.collection, Claims.ScopeCopyReplacePermissions)))
+  const selectedAllowed = !!from && selection.every((item) => hasCollectionAuthority(source.claims, from, item.collection, Claims.ScopeCopyReadPermissions) && hasCollectionAuthority(claims, destination, item.collection, Claims.ScopeCopyWritePermissions) && (mode === 'merge' || hasCollectionAuthority(claims, destination, item.collection, Claims.ScopeCopyReplacePermissions)))
   const allowed = customize ? selection.length > 0 && selectedAllowed : canRead && canWrite && (mode === 'merge' || canReplace)
   const selectionValid = !customize || selection.length > 0 && selection.every((item) => item.entryIds === undefined || item.entryIds.length > 0)
 
@@ -156,12 +177,12 @@ export function useScopeCopy(server: Server, destination: ScopeRef, claims: stri
     toggleCollection: (collection: string) => { setSelection((current) => current.some((item) => item.collection === collection) ? current.filter((item) => item.collection !== collection) : [...current, { collection }]); invalidate() },
     subsetSelected: (collection: string, id: string) => selection.find((item) => item.collection === collection)?.entryIds?.includes(id) || false,
     inspectEntry: async (collection: string, id: string) => {
-      if (!from) return
+      if (!from || !reader) return
       const ticket = ++inspectRequest.current
-      const source = from
+      const scope = from
       const runConfiguration = configuration
       try {
-        const entry = await api.entries.get(server.url, server.apiKey, source, collection, id)
+        const entry = await api.entries.get(reader.url, reader.apiKey, scope, collection, id)
         if (alive.current && ticket === inspectRequest.current && configurationRef.current === runConfiguration) setInspected(entry)
       } catch (caught) {
         if (alive.current && ticket === inspectRequest.current) setError(caught instanceof Error ? caught.message : 'Could not load source entry')

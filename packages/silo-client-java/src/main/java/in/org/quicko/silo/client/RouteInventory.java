@@ -51,6 +51,12 @@ public final class RouteInventory {
       "GET /api/projects/:project/envs/:env/collections/:name/search",
       "GET /api/projects/:project/envs/:env/search",
       "GET /api/search",
+      "GET /api/trash",
+      "GET /api/trash/:id",
+      "GET /api/trash/:id/items",
+      "POST /api/trash/:id/restore",
+      "DELETE /api/trash/:id",
+      "POST /api/trash/purge",
       "GET /api/media",
       "POST /api/media",
       "GET /api/media/extensions",
@@ -91,6 +97,12 @@ public final class RouteInventory {
     reasons.put("POST /api/import", "transfer is an operator surface");
     reasons.put("POST /api/copy", "transfer is an operator surface");
     reasons.put("POST /api/projects/:project/envs/:env/copy", "scope-to-scope copy is transfer");
+    reasons.put("POST /api/projects/:project/envs/:env/package", "a transfer package is read by another silo");
+    reasons.put("POST /api/projects/:project/envs/:env/transfers", "a transfer from another silo is prepared by the admin");
+    reasons.put("GET /api/projects/:project/envs/:env/transfers/:id", "a transfer from another silo is reviewed in the admin");
+    reasons.put("GET /api/projects/:project/envs/:env/transfers/:id/entries/:collection/:entry", "a transfer from another silo is reviewed in the admin");
+    reasons.put("POST /api/projects/:project/envs/:env/transfers/:id/apply", "a transfer from another silo is applied by the admin");
+    reasons.put("DELETE /api/projects/:project/envs/:env/transfers/:id", "a transfer from another silo is cancelled by the admin");
     reasons.put("POST /api/search/reindex", "rebuilding the index is an operator action");
     reasons.put("POST /api/media/purge", "emptying the library is an operator action");
     reasons.put("POST /api/media/reconcile", "an operator action");
@@ -98,6 +110,9 @@ public final class RouteInventory {
     reasons.put("PUT /api/media/storage", "media configuration is an operator surface");
     reasons.put("GET /api/media/settings", "media configuration is an operator surface");
     reasons.put("PUT /api/media/settings", "media configuration is an operator surface");
+    reasons.put("GET /api/media/stats", "library totals for the admin's stats view");
+    reasons.put("POST /api/media/archives", "a browser download the admin prepares; content is read per asset");
+    reasons.put("GET /api/media/archives/:ticket/:part", "a browser URL, not a call: the prepared part's url");
     reasons.put("GET /api/plugins", "plugins are an operator surface");
     reasons.put("GET /api/plugins/:name", "plugins are an operator surface");
     reasons.put("GET /api/plugins/:name/ui", "a plugin's admin panel, rendered by the admin UI");

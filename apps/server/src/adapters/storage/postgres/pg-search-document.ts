@@ -20,7 +20,7 @@ export interface PgSearchRow {
  * own parser would read a URL, an e-mail address or a hyphenated word as one
  * token and stem nothing only with the right configuration — a second tokenizer
  * to keep in step. The label's terms carry weight A and the body's weight B,
- * which the ranking reads as 10:1 (docs/design/storage.md §6.6).
+ * which the ranking reads as 10:1 (resources/design/storage.md §6.6).
  *
  * Under `trigram` the folded text itself is stored, for `pg_trgm` to index.
  */

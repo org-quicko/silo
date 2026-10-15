@@ -1,6 +1,6 @@
 {
   "name": "silo",
-  "version": "1.5.0",
+  "version": "1.6.0",
   "description": "A minimal, self-hostable headless CMS in TypeScript on Bun and Hono",
   "private": true,
   "type": "module",
@@ -24,10 +24,10 @@
     "@codemirror/view": "6.43.10"
   },
   "devDependencies": {
-    "@types/bun": "^1.4.2",
+    "@types/bun": "^1.4.3",
     "@types/node": "^20.19.43",
     "@types/tar": "^6.1.13",
-    "concurrently": "^10.0.5",
+    "concurrently": "^10.0.6",
     "tar": "^7.5.22",
     "typescript": "^7.0.2"
   }

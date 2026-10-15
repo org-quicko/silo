@@ -1,6 +1,6 @@
 # Deployment
 
-> Docker, systemd, and what a data volume is for. The design rationale is in [docs/design/architecture.md](../design/architecture.md).
+> Docker, systemd, and what a data volume is for. The design rationale is in [resources/design/architecture.md](../design/architecture.md).
 
 Run silo in the **foreground**, and let Docker, systemd, or another supervisor
 own the process. The supervisor then sees the process exit, restarts it, and

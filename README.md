@@ -46,7 +46,7 @@ The image is on [Docker Hub](https://hub.docker.com/r/labsatquicko/silo) as
 `labsatquicko/silo`, and on the GitHub registry as `ghcr.io/org-quicko/silo`.
 Every release is tagged with its version, `:latest` points at the newest one,
 and each tag carries both an amd64 and an arm64 image, signed with Sigstore and
-carrying build provenance. [Deployment](docs/guide/deployment.md) has the two
+carrying build provenance. [Deployment](resources/guide/deployment.md) has the two
 commands that check them. To build it yourself instead:
 
 ```sh
@@ -154,6 +154,10 @@ engine handle them with no special code.
 - **A media library.** Local disk, or any S3-compatible bucket. Folders, tags, a
   type filter, and a check that refuses to delete an asset an entry still
   references. Where the library keeps its bytes is configurable from the admin.
+- **A trash.** A deleted project, environment, collection, entry or media file
+  goes to the trash for 30 days, and one click restores it to where it was. The
+  admin offers undo right after you delete an entry. Deleting for good takes its
+  own claim.
 - **Per-environment values.** A variable holds the one string that has to differ
   between `staging` and `prod`. Declare the name once in the project, value it
   in each environment, and silo puts the value into each `{{NAME}}` on the way
@@ -165,6 +169,11 @@ engine handle them with no special code.
   export format, so an fs-backed instance is a live backup you can copy with
   `cp`, replicate with `rsync`, or review in git. You can also pull an export
   straight from another running silo.
+- **Promotion between instances.** Copy the collections and entries you pick
+  from an environment on one silo into an environment on another, such as
+  `acme/dev` on the dev server into `acme/uat` on uat, with the media files
+  they use. You review the plan first, and Apply writes exactly that plan as
+  one change, or nothing.
 - **An MCP server.** Point Claude Code, Codex, Cursor or Claude Desktop at
   `/api/mcp` with an API key and the model gets silo's tools: browse projects
   and schemas, read, search, create and update entries. Every tool is one API
@@ -218,7 +227,7 @@ third-party package uses, and neither is bundled or enabled for you:
 - [silo-plugin-strapi-import](plugins/silo-plugin-strapi-import): imports a
   Strapi 5 SQLite export into silo collections, with the media.
 
-Full guide: [docs/guide/plugins.md](docs/guide/plugins.md).
+Full guide: [resources/guide/plugins.md](resources/guide/plugins.md).
 
 ## Deployment
 
@@ -237,24 +246,24 @@ For systemd, keep the default `Type=simple`, do not add `--detach`, and leave
 
 Several silos on one machine are fine. Give each one its own data directory and
 its own port. Two processes over one data directory is refused, and
-[docs/guide/deployment.md](docs/guide/deployment.md) explains why.
+[resources/guide/deployment.md](resources/guide/deployment.md) explains why.
 
 ## Documentation
 
 | Guide | What it covers |
 |-------|----------------|
-| [Configuration](docs/guide/configuration.md) | `silo.toml`, the `SILO_*` variables, and running as a service |
-| [CLI](docs/guide/cli.md) | Every subcommand and every flag |
-| [HTTP API](docs/guide/http-api.md) | The routes, the query AST, search, and the error shape |
-| [MCP](docs/guide/mcp.md) | Connect an AI client to silo's tools with an API key |
-| [Authentication and claims](docs/guide/claims.md) | The claim catalog, wildcards, and delegation |
-| [Plugins](docs/guide/plugins.md) | Write one, enable one, install one, inspect one |
-| [Export, import and copy](docs/guide/transfer.md) | Archives, the on-disk layout, and migration |
-| [Deployment](docs/guide/deployment.md) | Docker, systemd, and volumes |
+| [Configuration](resources/guide/configuration.md) | `silo.toml`, the `SILO_*` variables, and running as a service |
+| [CLI](resources/guide/cli.md) | Every subcommand and every flag |
+| [HTTP API](resources/guide/http-api.md) | The routes, the query AST, search, and the error shape |
+| [MCP](resources/guide/mcp.md) | Connect an AI client to silo's tools with an API key |
+| [Authentication and claims](resources/guide/claims.md) | The claim catalog, wildcards, and delegation |
+| [Plugins](resources/guide/plugins.md) | Write one, enable one, install one, inspect one |
+| [Export, import and copy](resources/guide/transfer.md) | Archives, the on-disk layout, and migration |
+| [Deployment](resources/guide/deployment.md) | Docker, systemd, and volumes |
 | [Admin UI](apps/admin/README.md) | The admin app, and how to work on it |
 
-`docs/design/` holds the rationale: why an interface has the shape it has, and
-what each decision cost.
+`resources/design/` holds the rationale: why an interface has the shape it has,
+and what each decision cost.
 
 ## Development
 
@@ -282,7 +291,8 @@ bun run seed --key "$SILO_KEY"
 | `plugins/` | First-party plugins, one workspace package each |
 | `tools/` | Build, packaging, seed and version tooling, run through `bun run` |
 | `packaging/` | The Homebrew formula, and the dnf package with its systemd unit |
-| `docs/` | `guide/` to use silo, `design/` for the rationale, `context/` for the current state |
+| `resources/` | `guide/` to use silo, `design/` for the rationale, `context/` for the current state, and `openapi.json` |
+| `docs/` | The Mintlify documentation site: `guides/` and `reference/` |
 
 The architecture is ports and adapters. `apps/server/src/core/` holds the domain
 types and the `Storage` and `BlobStorage` interfaces, and imports no adapter.
@@ -305,9 +315,9 @@ Issues and pull requests are welcome at <https://github.com/org-quicko/silo>.
   public format and moves only with a `format_version` bump, so those proposals
   are worth agreement before the code exists.
 
-Read [docs/context/code-design.md](docs/context/code-design.md) first. It is
-short: one artifact per file, short files, full names, and the rationale in
-`docs/` instead of in comments.
+Read [resources/context/code-design.md](resources/context/code-design.md)
+first. It is short: one artifact per file, short files, full names, and the
+rationale in `resources/` instead of in comments.
 
 ## Licence
 

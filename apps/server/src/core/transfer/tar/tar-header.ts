@@ -3,8 +3,8 @@
  *
  * Silo writes tar rather than delegating it because the archive has to be
  * produced entry by entry as the export walk finds them — see §7.1 in
- * [docs/design/transfer.md](../../../../../../docs/design/transfer.md). Reading
- * is still `tar.x`; only the writer is ours.
+ * [resources/design/transfer.md](../../../../../../resources/design/transfer.md).
+ * Reading is still `tar.x`; only the writer is ours.
  */
 export class TarHeader {
   static readonly BlockSize = 512;

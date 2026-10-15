@@ -74,7 +74,7 @@ export class ClaimVocabulary {
   /** Reading and changing how the media library is set up: where it keeps its
    *  bytes (D45), where its URLs point, and what it accepts (D46). A
    *  configuration claim, not a per-asset one — see `PluginForbiddenClaims`
-   *  and §6.4 / §6.5 in `docs/design/storage.md`. */
+   *  and §6.4 / §6.5 in `resources/design/storage.md`. */
   static readonly MediaConfigure = "media:configure";
 
   /**
@@ -97,6 +97,21 @@ export class ClaimVocabulary {
   static readonly PluginsConfigure = "plugins:configure";
   static readonly PluginsGrant = "plugins:grant";
   static readonly PluginsEnable = "plugins:enable";
+
+  /**
+   * Destroying trashed content for good (D113) — purging one item, emptying the
+   * trash, and `?permanent=true` on a delete route.
+   *
+   * Sending something to the trash asks for the delete claim it always asked
+   * for, and restoring asks for the write claims at the destination, so this is
+   * the only claim the feature adds. It is separate for `media:purge`'s reason
+   * (D65): whoever deleted the thing already spent their delete claim, and
+   * ending it forever is a second decision. Carried by no preset but `root`.
+   *
+   * Absent from `PluginForbiddenClaims` on purpose: it destroys data but grants
+   * no way out of a plugin's own grant, which is the test that list applies.
+   */
+  static readonly TrashPurge = "trash:purge";
 
   // The trail of authority changes (D38). Read-only by construction: nothing
   // updates or deletes an audit event, so there is no `audit:write` for a claim
@@ -164,6 +179,7 @@ export class ClaimVocabulary {
     [ClaimVocabulary.PluginsConfigure]: true,
     [ClaimVocabulary.PluginsGrant]: true,
     [ClaimVocabulary.PluginsEnable]: true,
+    [ClaimVocabulary.TrashPurge]: true,
     [ClaimVocabulary.AuditRead]: true,
     [ClaimVocabulary.ObservabilityRead]: true,
     [ClaimVocabulary.HttpRoute]: true,

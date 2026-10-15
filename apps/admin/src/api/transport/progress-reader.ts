@@ -13,21 +13,23 @@ export interface TransferProgress {
  *
  * The status went out before the work began, so it cannot carry the outcome:
  * the answer is the last line, and an `error` line becomes the same `ApiError`
- * an ordinary failed response would have produced.
+ * an ordinary failed response would have produced. Each progress line reaches
+ * `onProgress` whole, less its `type`: an import's carries its counters, a
+ * prepared transfer's names the transfer (D109).
  */
 export class ProgressReader {
   static readonly ContentType = 'application/x-ndjson'
 
-  static async read(
+  static async read<Result = ImportResult, Progress extends { phase: string } = TransferProgress>(
     response: Response,
-    onProgress?: (progress: TransferProgress) => void,
-  ): Promise<ImportResult> {
+    onProgress?: (progress: Progress) => void,
+  ): Promise<Result> {
     const reader = response.body?.getReader()
     if (!reader) throw new ApiError(502, 'invalid_response', 'the server sent no progress stream')
 
     const decoder = new TextDecoder()
     let buffered = ''
-    let result: ImportResult | null = null
+    let result: Result | null = null
 
     const take = (line: string) => {
       if (!line) return
@@ -39,14 +41,17 @@ export class ProgressReader {
         // malformed one is not worth failing a finished import over.
         return
       }
-      if (parsed.type === 'result') result = parsed.result as ImportResult
+      if (parsed.type === 'result') result = parsed.result as Result
       else if (parsed.type === 'error') {
         throw new ApiError(
           parsed.status || 500,
           parsed.error?.code || 'error',
           parsed.error?.message || 'transfer failed',
         )
-      } else onProgress?.({ phase: parsed.phase, result: parsed.result })
+      } else {
+        const { type: _type, ...progress } = parsed
+        onProgress?.(progress as Progress)
+      }
     }
 
     for (;;) {

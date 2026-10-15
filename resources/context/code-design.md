@@ -39,9 +39,9 @@
   lines. A longer note earns its place only where behaviour is genuinely
   surprising, and then it says what is surprising and why.
 
-- **Rationale lives in `docs/`, not in the source.** Why an interface has the
+- **Rationale lives in `resources/`, not in the source.** Why an interface has the
   shape it has, why an approach was rejected, what a decision cost — that is
-  what `docs/design/` is for, and a comment should link to it rather than
+  what `resources/design/` is for, and a comment should link to it rather than
   restate it.
 
 - **Inline comments explain the non-obvious line**, not the obvious one. If the
@@ -80,6 +80,12 @@
   forty times, did not. `refusal()` in `postgres.test.ts` is the pattern. The
   conformance suites' own `.rejects` calls are unaffected so far; the trigger
   was a rejection that had rolled back a transaction and closed its pool.
+- **Ids made in the same millisecond are unordered.** `EntryUtils.newID` is
+  plain `ulid()`, not monotonic, and an unsorted list is in id order (D92).
+  So entries created in a loop do not list, capture or restore in creation
+  order. A test that needs "the one that was written" reads it back rather
+  than indexing the array it created. `trash.test.ts` failed about two runs
+  in three on that until it did.
 - UI tests sit beside the source they cover, as `*.test.ts`.
 - White-box tests that reach into a private do so deliberately and say so.
 - `Response.json()` answers `unknown`. A test that reads fields off a body

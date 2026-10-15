@@ -386,7 +386,19 @@
 
 .modalActions {
   display: flex;
+  align-items: center;
   justify-content: flex-end;
   gap: 10px;
   margin-top: 8px;
+}
+
+/* Holds the left end of the actions row: the forget button, or its question. */
+.modalActionsLead {
+  margin-right: auto;
+}
+
+.modalConfirm {
+  margin-right: auto;
+  color: var(--text-2);
+  font-size: 12.5px;
 }

@@ -4,13 +4,13 @@ sidebarTitle: "Dart Client"
 description: "silo_client on pub.dev targets Dart VM, Flutter, and the web. Built on package:http and package:clock with Stream-based pagination and CancellationSignal."
 ---
 
-The `silo_client` Dart package exposes the same surface as the TypeScript and Java clients — immutable path-based handles, typed entries, filter builders, pagination, search, media, and variables — targeting the Dart VM, Flutter, and the web. It is published to pub.dev as `silo_client`. Where Dart forces a naming difference the client follows the Java conventions, so a developer reading both should not encounter two vocabularies for the same concept.
+The `silo_client` Dart package exposes the same surface as the TypeScript and Java clients: immutable path-based handles, typed entries, filter builders, pagination, search, media, trash, and variables. It targets the Dart VM, Flutter, and the web. It is published to pub.dev as `silo_client`. Where Dart forces a naming difference the client follows the Java conventions, so a developer reading both should not encounter two vocabularies for the same concept.
 
 ## Installation
 
 ```yaml
 dependencies:
-  silo_client: ^1.0.0  # check pub.dev for the latest version
+  silo_client: ^1.6.0  # check pub.dev for the latest version
 ```
 
 ## Basic usage
@@ -89,12 +89,16 @@ await movies.replace(created.id, created.rev, {
   'genres': ['sci-fi', 'drama'],
 });
 
-// Delete
-await movies.delete(created.id, created.rev);
+// Delete. Returns the trash item's id, or null when nothing was kept.
+final trashId = await movies.delete(created.id, created.rev);
 
 // Read raw before editing
 final draft = await movies.get(entryId, const EntryReadOptions.raw());
 ```
+
+<Note>
+  A delete moves the entry or asset to the [trash](/guides/trash). To get it back, see [Trash](#trash) below.
+</Note>
 
 ### Reading raw before editing
 
@@ -196,6 +200,7 @@ await asset.setTags(['poster']);    // replaces the list
 await asset.replace(MediaReplace(bytes: bytes, filename: 'arrival-hd.jpg'));
 
 // Refused while an entry references it, unless forced.
+// Returns the trash item's id, or null when nothing was kept.
 await asset.delete();
 await asset.delete(const DeleteOptions(force: true));
 
@@ -204,6 +209,30 @@ final usages = await asset.usages();
 usages.total;    // the true referrer count
 usages.visible;  // how many this key may see
 ```
+
+## Trash
+
+A delete moves its subject to the trash. `silo.trash` reads the trash, restores from it, and empties it. Like media, it takes no scope.
+
+```dart
+final trashId = await movies.delete(id, rev);            // the trash item's id, or null
+if (trashId != null) await silo.trash.restore(trashId);  // undo
+
+final page = await silo.trash.list(const TrashQuery(kind: TrashKind.entry, project: 'moviespace'));
+for (final item in page.items) {
+  print('${item.subjectName} ${item.expiresAt} ${item.restorable}');
+}
+
+final item = page.items.first;
+await silo.trash.get(item.id);
+await silo.trash.contents(item.id, const TrashContentsQuery(limit: 25));          // the records it holds
+await silo.trash.restore(item.id, const TrashRestoreOptions(chain: true));        // restore its container first
+await silo.trash.restore(item.id, const TrashRestoreOptions(rename: 'movies-2')); // when the name was taken
+await silo.trash.purge(item.id);                                                  // needs trash:purge
+await silo.trash.empty();                                                         // needs trash:purge
+```
+
+`TrashQuery` takes `kind`, `project`, `environment`, `collection`, `deletedAfter`, `deletedBefore`, `text`, `limit`, and `offset`. `list` returns a page with `next()` and `previous()`. Your key sees only the items whose content it can read. A restore needs the write claims at the destination. A blocked or colliding restore throws `ConflictException`. See [Trash](/guides/trash).
 
 ## Cancellation
 
@@ -277,7 +306,7 @@ silo.cache.statistics.hitRate;
 silo.cache.clear();
 ```
 
-The cache is off by default. Only `get` and `list` are cached. A write through this client drops that collection's cached entries. Clients created with `withKey()` or `withUrl()` start with an empty cache.
+The cache is off by default. Only `get` and `list` are cached. A write through this client drops that collection's cached entries. A `trash.restore` drops every collection's cached entries, because a chain restore can bring entries back to any collection. Clients created with `withKey()` or `withUrl()` start with an empty cache.
 
 ## Source and releases
 

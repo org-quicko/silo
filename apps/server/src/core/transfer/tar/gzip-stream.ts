@@ -12,7 +12,7 @@ import { createGzip, type Gzip } from "node:zlib";
  * the signal a walk needs and the one the web stream never gives.
  *
  * See §7.1 in
- * [docs/design/transfer.md](../../../../../../docs/design/transfer.md).
+ * [resources/design/transfer.md](../../../../../../resources/design/transfer.md).
  */
 export class GzipStream {
   private readonly gzip: Gzip;

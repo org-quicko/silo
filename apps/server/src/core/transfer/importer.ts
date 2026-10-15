@@ -25,10 +25,12 @@ import { ImportLimits } from "./import-limits";
 import { ImportSystemGate } from "./import-system-gate";
 import { ImportWalker, type ScopedImport } from "./import-walker";
 import { ImportMedia } from "./import-media";
+import { ImportRules } from "./import-rules";
 import type { ParsedImport } from "./parsed-import";
 import type { ImportOptions } from "./import-options";
 import type { ImportResult } from "./import-result";
 import { ScopeCopyPreviewBuilder } from "./scope-copy-preview-builder";
+import { TransferPackageFormat } from "./package/transfer-package-format";
 
 export class Importer {
   /**
@@ -65,6 +67,13 @@ export class Importer {
 
   private static async parseImportDir(src: string): Promise<ParsedImport> {
     const manifestPath = path.join(src, "manifest.json");
+    // A transfer package may hold part of a collection, which a replace here
+    // would read as the whole of it (D108). It is never an archive.
+    if (await Bun.file(path.join(src, TransferPackageFormat.Manifest)).exists()) {
+      throw new ValidationError(
+        "this is a transfer package, not an export archive; it can only be loaded by a transfer into an environment"
+      );
+    }
     const mdata = await fs.readFile(manifestPath, "utf8");
     const manifest = JSON.parse(mdata) as ExportManifest;
 
@@ -98,6 +107,16 @@ export class Importer {
     } catch (caught) {
       if (id === undefined || !(caught instanceof ConflictError)) throw caught;
       await create(undefined);
+    }
+  }
+
+  /** A collection's stored schema, or undefined when there is no such collection. */
+  private static async storedSchema(store: Storage, scope: Scope, collection: string): Promise<unknown> {
+    try {
+      return await store.getSchema(scope, collection);
+    } catch (caught) {
+      if (caught instanceof NotFoundError) return undefined;
+      throw caught;
     }
   }
 
@@ -228,7 +247,7 @@ export class Importer {
       }
     }
 
-    // Import schemas.
+    // Import schemas, as `ImportRules.schema` decides.
     //
     // Only the **merge-over-existing** branch is guarded (D70), because it is
     // the only one that can leave entries filed under constraints that never
@@ -243,38 +262,20 @@ export class Importer {
     // Replace is exempt for the same reason in reverse — a dry run removes
     // nothing, so a guard there would report a conflict the real run resolves.
     for (const [colName, remoteSchema] of schemas.entries()) {
-      const write = async (guarded: boolean) => {
-        if (guarded) await SchemaChangeGuard.assert(store, scope, colName, remoteSchema);
-        if (opts.dryRun) return;
-        await Importer.createRecord(
-          (id) => store.putSchema(scope, colName, remoteSchema, id),
-          scoped.collectionIds.get(colName)
-        );
-      };
-
-      try {
-        const localSchema = await store.getSchema(scope, colName);
-        if (mode === "merge") {
-          if (JSON.stringify(localSchema) !== JSON.stringify(remoteSchema)) {
-            preview?.schema(colName, opts.prefer === "local" ? "unchanged" : "update");
-            if (opts.prefer === "local") {
-              continue;
-            }
-            await write(true);
-          }
-          else preview?.schema(colName, "unchanged");
-        } else {
-          preview?.schema(colName, "update");
-          await write(false);
-        }
-      } catch (caught: any) {
-        if (caught instanceof NotFoundError) {
-          preview?.schema(colName, "create");
-          await write(false);
-        } else {
-          throw caught;
-        }
-      }
+      const decision = ImportRules.schema(
+        await Importer.storedSchema(store, scope, colName),
+        remoteSchema,
+        mode,
+        opts.prefer
+      );
+      preview?.schema(colName, decision.action);
+      if (!decision.write) continue;
+      if (decision.guarded) await SchemaChangeGuard.assert(store, scope, colName, remoteSchema);
+      if (opts.dryRun) continue;
+      await Importer.createRecord(
+        (id) => store.putSchema(scope, colName, remoteSchema, id),
+        scoped.collectionIds.get(colName)
+      );
     }
 
     validator.invalidate();
@@ -355,29 +356,7 @@ export class Importer {
         // Merge mode
         try {
           const local = await store.get(scope, colName, remote.id);
-          let win = false;
-          if (opts.prefer === "local") {
-            win = false;
-          } else if (opts.prefer === "remote") {
-            win = true;
-          } else {
-            const remoteTime = remote.updated_at.getTime();
-            const localTime = local.updated_at.getTime();
-            if (remoteTime > localTime) {
-              win = true;
-            } else if (localTime > remoteTime) {
-              win = false;
-            } else {
-              if (remote.rev > local.rev) {
-                win = true;
-              } else if (local.rev > remote.rev) {
-                win = false;
-              } else {
-                win = manifest.instance_id > localMeta.instance_id;
-              }
-            }
-          }
-
+          const win = ImportRules.incomingWins(local, remote, opts.prefer, manifest.instance_id, localMeta.instance_id);
           if (win) {
             if (!(await write(remote))) continue;
             response.updated++;

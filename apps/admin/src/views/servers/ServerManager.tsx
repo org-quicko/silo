@@ -16,6 +16,10 @@ interface Props {
   servers: Server[]
   onConnect: (serverId: string, project: string, env: string) => void
   onAddServer: (server: Server) => void
+  /** A saved server's details changed, replacing the entry with its id. */
+  onUpdateServer: (server: Server) => void
+  /** A saved server was removed from this browser. */
+  onForgetServer: (serverId: string) => void
   onOpenStatus: (serverId: string) => void
   /** The per-row settings affordance, one per column. Three callbacks rather
    *  than one, because each scope is addressed by a different number of names
@@ -35,12 +39,16 @@ interface Props {
  * environments.
  *
  * Three columns walked left to right, with the loading and creation of each
- * held by `useScopeBrowser` so this file stays layout.
+ * held by `useScopeBrowser` so this file stays layout. A server that refuses
+ * its saved key opens in the server dialog, so the key is fixed, or the server
+ * forgotten, where it failed.
  */
 export function ServerManager({
   servers,
   onConnect,
   onAddServer,
+  onUpdateServer,
+  onForgetServer,
   onOpenStatus,
   onOpenProjectSettings,
   onOpenEnvSettings,
@@ -55,17 +63,19 @@ export function ServerManager({
     env: initialEnv ?? null,
   })
   const [addingServer, setAddingServer] = useState(false)
+  const refused = browser.refusedServer
+  const dialogOpen = addingServer || refused !== null
 
   useEffect(() => {
     if (!onClose) return
     const onKeyDown = (event: KeyboardEvent) => {
-      // The dialog owns Esc while it is open, so the browser does not close
+      // A dialog owns Esc while it is open, so the browser does not close
       // underneath it.
-      if (event.key === 'Escape' && !addingServer) onClose()
+      if (event.key === 'Escape' && !dialogOpen) onClose()
     }
     window.addEventListener('keydown', onKeyDown)
     return () => window.removeEventListener('keydown', onKeyDown)
-  }, [onClose, addingServer])
+  }, [onClose, dialogOpen])
 
   const connect = () => {
     if (browser.server && browser.project && browser.env) {
@@ -184,12 +194,29 @@ export function ServerManager({
 
       {addingServer && (
         <AddServerDialog
-          onAdd={(server) => {
+          onSave={(server) => {
             onAddServer(server)
             browser.setServerId(server.id)
             setAddingServer(false)
           }}
           onClose={() => setAddingServer(false)}
+        />
+      )}
+
+      {refused && (
+        <AddServerDialog
+          key={refused.id}
+          server={refused}
+          initialError="This server refused the saved API key. Enter a new one."
+          onSave={(server) => {
+            onUpdateServer(server)
+            browser.recheckServer()
+          }}
+          onForget={() => {
+            onForgetServer(refused.id)
+            browser.dismissRefusedServer()
+          }}
+          onClose={browser.dismissRefusedServer}
         />
       )}
     </>

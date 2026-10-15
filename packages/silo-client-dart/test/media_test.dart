@@ -5,21 +5,6 @@ import 'package:test/test.dart';
 
 import 'support/stub_http.dart';
 
-Map<String, Object?> asset({String filename = 'logo.png', String hash = 'h1'}) => {
-  'id': '01M',
-  'filename': filename,
-  'folder': 'brand',
-  'blob_key': 'media/01M',
-  'size': 3,
-  'content_type': 'image/png',
-  'hash': hash,
-  'state': 'active',
-  'tags': ['brand'],
-  'url': '/media/01M',
-  'created_at': '2026-09-01T10:00:00Z',
-  'updated_at': '2026-09-01T10:00:00Z',
-};
-
 void main() {
   late StubHttp stub;
   late Media media;

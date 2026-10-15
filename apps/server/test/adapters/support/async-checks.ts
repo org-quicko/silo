@@ -5,7 +5,7 @@ export class AsyncChecks {
    *
    * In place of `expect(...).rejects`, which crashed Bun 1.4.2 on Windows
    * (a segfault, or a spin at full CPU) when it awaited a refused
-   * `PgStore.open` after the conformance run. See docs/context/code-design.md.
+   * `PgStore.open` after the conformance run. See resources/context/code-design.md.
    */
   static async refusal(pending: Promise<unknown>): Promise<string> {
     try {

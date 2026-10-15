@@ -25,8 +25,9 @@ and are superseded by it.
 ## 2. Decisions
 
 The full rows (choice and rationale) are in
-[docs/design/decisions.md](docs/design/decisions.md). Read the row before you
-change what it decides. A new decision gets a full row there and one line here.
+[resources/design/decisions.md](resources/design/decisions.md). Read the row
+before you change what it decides. A new decision gets a full row there and
+one line here.
 
 | # | Decision |
 |---|----------|
@@ -134,6 +135,13 @@ change what it decides. A new decision gets a full row there and one line here.
 | D104 | Collection names may have 128 characters (`CollectionName`); the name is checked before the claim |
 | D105 | The admin uploads a folder from a picker or a drop and recreates its subfolders from the paths; names are checked up front by a shared `MediaFolderName`, a refused file is skipped |
 | D106 | Bulk media download: one file direct, more as streamed STORE ZIP parts of ≤ 2 GiB behind a ticket; `[media] download_max_files` / `download_max_size_mb` / `download_max_streams` (5000, 5 GB, 3); `GET /api/media/stats` |
+| D107 | Optional `AtomicStorage.commit`: preconditions and writes in one transaction on SQLite and Postgres; the fs adapter does not offer it; fs blob writes are durable on return |
+| D108 | `POST …/envs/{env}/package` streams a transfer package: exactly the named collections and entries, the media they use, `package.json` so ordinary imports refuse it |
+| D109 | Prepared transfers: `POST …/envs/{env}/transfers` pulls a source's package once, verifies it exactly, keeps it 60 minutes for review (4 open at most, bound to the key); pages, one entry, cancel |
+| D110 | Transfer plan: `ImportRules` shared by `Importer` and `TransferPlanner`; entries checked against the effective schema; `plan.ndjson` lines with the baseline Apply will check; destination details only for readers |
+| D111 | Apply: `POST …/transfers/{id}/apply` writes the plan as one commit with a `_transfers` ledger row, or nothing (`409 stale_preview`); files first under saved free keys, taken back on failure; startup settles interrupted applies; existing assets never changed |
+| D112 | Admin env Data Transfer can read another saved server with a pasted, never-stored key checked against its `/api/session` first; Preview prepares, Apply applies, and a preparation is cancelled on any way out |
+| D113 | A delete goes to the trash: `_trash` receipts and `_trash_items` records in `Scope.System`, six `/api/trash` routes, `[trash] enabled` / `retention_days` (on, 30 days); reading follows the origin's read claim, restoring asks for write claims at the destination, and `trash:purge` is the one new claim |
 
 ## 3. Scope
 
@@ -142,7 +150,7 @@ the admin UI, export/import, SQLite and fs storage, key auth with claims,
 single-binary releases, plugins. Everything since (media, search, Postgres,
 clients, MCP) is listed above.
 
-**Not built (roadmap, [milestones.md](docs/design/milestones.md) §12):** sync
+**Not built (roadmap, [milestones.md](resources/design/milestones.md) §12):** sync
 engine, cache adapters, drafts/publish, durable webhooks, enforced relations,
 auth providers, GraphQL, editing a schema over existing entries.
 
@@ -152,15 +160,15 @@ Section numbers are stable, so a comment citing §13.5 still resolves.
 
 | Section | Document |
 |---------|----------|
-| Decisions, in full | [docs/design/decisions.md](docs/design/decisions.md) |
-| §4 Architecture | [docs/design/architecture.md](docs/design/architecture.md) |
-| §5 Core concepts: entries, schemas, the query AST, search | [docs/design/core-concepts.md](docs/design/core-concepts.md) |
-| §6 Storage adapters: the port, SQLite, fs, Postgres | [docs/design/storage.md](docs/design/storage.md) |
-| §7 Export, import and copy | [docs/design/transfer.md](docs/design/transfer.md) |
-| §8 HTTP API, including media and MCP | [docs/design/http-api.md](docs/design/http-api.md) |
-| §9 Admin UI | [docs/design/admin-ui.md](docs/design/admin-ui.md) |
-| §10 Configuration and the CLI | [docs/design/configuration.md](docs/design/configuration.md) |
-| §11–12 Milestones and roadmap | [docs/design/milestones.md](docs/design/milestones.md) |
-| §13 Plugins | [docs/design/plugins.md](docs/design/plugins.md) |
-| §14 The TypeScript client | [docs/design/api-client.md](docs/design/api-client.md) |
-| §15 The Java client | [docs/design/java-client.md](docs/design/java-client.md) |
+| Decisions, in full | [resources/design/decisions.md](resources/design/decisions.md) |
+| §4 Architecture | [resources/design/architecture.md](resources/design/architecture.md) |
+| §5 Core concepts: entries, schemas, the query AST, search | [resources/design/core-concepts.md](resources/design/core-concepts.md) |
+| §6 Storage adapters: the port, SQLite, fs, Postgres | [resources/design/storage.md](resources/design/storage.md) |
+| §7 Export, import and copy | [resources/design/transfer.md](resources/design/transfer.md) |
+| §8 HTTP API, including media and MCP | [resources/design/http-api.md](resources/design/http-api.md) |
+| §9 Admin UI | [resources/design/admin-ui.md](resources/design/admin-ui.md) |
+| §10 Configuration and the CLI | [resources/design/configuration.md](resources/design/configuration.md) |
+| §11–12 Milestones and roadmap | [resources/design/milestones.md](resources/design/milestones.md) |
+| §13 Plugins | [resources/design/plugins.md](resources/design/plugins.md) |
+| §14 The TypeScript client | [resources/design/api-client.md](resources/design/api-client.md) |
+| §15 The Java client | [resources/design/java-client.md](resources/design/java-client.md) |

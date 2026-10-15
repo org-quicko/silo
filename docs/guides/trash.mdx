@@ -1,0 +1,258 @@
+---
+title: "Restore deleted content from the Silo trash"
+sidebarTitle: "Trash"
+description: "A delete in Silo moves content to the trash instead of destroying it. Restore it, delete it for good, or skip the trash, and set how long Silo keeps deleted items."
+---
+
+A delete in Silo does not destroy the content. It moves the content to the trash. By default you can restore it from there for 30 days. This applies to a project, an environment, a collection, an entry, a media asset, and a media folder.
+
+## What goes to the trash
+
+The trash keeps one item for each thing you deleted on purpose. If you delete a collection that holds 300 entries, the trash shows one item that says "300 entries". It does not show 301 items. When you restore that item, all 300 entries come back with it.
+
+| You delete | The trash keeps |
+|---|---|
+| A project | One item, with every environment, collection, and entry in it |
+| An environment | One item, with every collection and entry in it |
+| A collection | One item, with every entry in it |
+| An entry | One item |
+| A media asset | One item. The file stays in storage until the item is purged |
+| A media folder | One item, with its subfolders and every file that went. A file that is still in use stays, and so does the folder |
+| Up to 100 assets, with `POST /api/media/delete` | One item for each asset |
+
+`?force=true` on a project, an environment, or a collection still moves everything under it to the trash. A delete asks for the same claims it asked for before the trash existed.
+
+<Warning>
+  `POST /api/media/purge` does not use the trash. It destroys every file in the library at once.
+</Warning>
+
+<Warning>
+  With S3 media in a public bucket, a media URL points at the bucket, not at Silo. This is the default unless `[blob_storage] public_read = false`. A trashed asset keeps its object, so its link keeps working until the item is purged. To remove a file at once, for example for a privacy request, [skip the trash](#skip-the-trash).
+</Warning>
+
+## Read the trash
+
+```bash
+curl http://localhost:8090/api/trash \
+  -H "Authorization: Bearer $SILO_KEY"
+```
+
+Reading the trash needs a key. The list is flat and newest first. Narrow it with `?kind=`, `?project=`, `?env=`, `?collection=`, `?q=`, `?deleted_after=`, and `?deleted_before=`. Page it with `?limit=` and `?offset=`. `kind` is one of `project`, `environment`, `collection`, `entry`, `media`, or `media_folder`. `q` matches part of the item's name, in any case.
+
+Each item tells you where the content was, what came with it, who deleted it, and when it expires:
+
+```json
+{
+  "id": "01JBX...",
+  "kind": "collection",
+  "subject_name": "posts",
+  "origin": { "project_name": "default", "env_name": "prod" },
+  "contents": { "collections": 1, "entries": 300, "assets": 0, "bytes": 124400 },
+  "deleted_at": "2026-09-22T09:14:03.000Z",
+  "deleted_by": { "kind": "key", "label": "ci-deploy" },
+  "expires_at": "2026-10-22T09:14:03.000Z",
+  "restorable": true
+}
+```
+
+`expires_at` is `null` when the instance keeps items until someone purges them. `restorable` is `false` when something blocks a restore. See [Restore](#restore).
+
+| Method | Path | What it does |
+|---|---|---|
+| `GET` | `/api/trash` | List the items your key can see |
+| `GET` | `/api/trash/{id}` | Read one item |
+| `GET` | `/api/trash/{id}/items` | Read the records one item holds, such as a collection's entries. Read-only |
+
+## Who can see and restore what
+
+There is no `trash:read` claim. Silo shows you an item only if your key can read the content it came from. Two keys can see two different trashes. `total` counts only the items your key can see, and `limit` and `offset` page through those items alone. An item your key cannot see answers `404`, not `403`.
+
+| Operation | Claim needed |
+|---|---|
+| See a deleted entry | `entries:read` on the collection it came from |
+| See a deleted collection | `schema:read` on that collection |
+| See a deleted environment | `schema:read` on `collections:<p>/<e>/*` |
+| See a deleted project | `schema:read` on `collections:<p>/*/*` |
+| See a deleted media asset or folder | Any key |
+| Restore an entry | `entries:create` on the collection it goes back to |
+| Restore a collection | `create` and `entries:create` on that collection |
+| Restore an environment | `create` and `entries:create` on `collections:<p>/<e>/*` |
+| Restore a project | `create` and `entries:create` on `collections:<p>/*/*` |
+| Restore a media asset or folder | `media:create` |
+| Delete an item for good, empty the trash, or skip the trash | `trash:purge` |
+
+So a read-only key with `entries:read`, such as the one a website uses, can list and read the entries deleted from its collections until they expire. If that key must never see some content again, [skip the trash](#skip-the-trash) when you delete it.
+
+A restore writes the content back, so it asks for the write claims at the destination.
+
+Silo checks these claims at the names that the project, the environment, and the collection have now. If someone renames a collection, a key scoped to the new name can see and restore the item. A key scoped to the old name cannot. If you send `rename`, Silo checks the claims at the new name.
+
+`trash:purge` is the only claim the trash adds. Only the `root` preset carries it.
+
+## Restore
+
+```bash
+curl -X POST http://localhost:8090/api/trash/01JBX.../restore \
+  -H "Authorization: Bearer $SILO_KEY"
+```
+
+The content goes back to the same place. Silo finds that place by record id, not by name. If someone renamed the project, the environment, or the collection while the content was in the trash, the restore still finds it. The item shows the new names too.
+
+The response says what came back:
+
+```json
+{
+  "restored": ["01JBX..."],
+  "projects": 0,
+  "environments": 0,
+  "collections": 1,
+  "entries": 300,
+  "assets": 0,
+  "broken_media_refs": []
+}
+```
+
+Three things can stop a restore. All three answer `409 conflict`.
+
+<Steps>
+  <Step title="The container is gone">
+    You cannot restore an entry into a collection that no longer exists. The item names the missing container in `blocked_by`, and `restorable` is `false`:
+
+    ```json
+    "restorable": false,
+    "blocked_by": { "kind": "collection", "name": "posts", "trash_id": "01JBY..." }
+    ```
+
+    If the container is in the trash too, `trash_id` names its item. Send `{"chain": true}` to restore the container first and then the content. Your key needs the claims to see and restore the container too. Silo checks them before it writes anything, and answers `403` if one is missing. If `trash_id` is `null`, the container was purged and the content cannot go back.
+  </Step>
+
+  <Step title="The name or the id is taken">
+    A deleted collection frees its name at once, so someone can create a new `posts` while the old one is in the trash. The restore then refuses rather than writing over the new one. Send a new name for the deleted project, environment, or collection:
+
+    ```bash
+    curl -X POST http://localhost:8090/api/trash/01JBX.../restore \
+      -H "Authorization: Bearer $SILO_KEY" \
+      -H "Content-Type: application/json" \
+      -d '{"rename": "posts-restored"}'
+    ```
+
+    The response then carries `renamed_to`. An entry keeps its id, so `rename` does not help an entry whose id exists again.
+  </Step>
+
+  <Step title="The schema changed">
+    You can change the schema of a collection that has no entries, so a collection can change shape after its last entry goes to the trash. A restored entry must agree with the schema the collection has now. If it does not, the restore refuses, names the entry, and leaves the item in the trash. Change the schema back, then restore again.
+  </Step>
+</Steps>
+
+A restore reports what it could not repair. If a media asset was deleted while an entry that references it sat in the trash, the entry comes back and `broken_media_refs` names the reference that no longer resolves.
+
+A restore fires no plugin hooks. A plugin that copies entries somewhere else does not hear that an entry came back. See [Plugin hooks](/reference/plugin-hooks#delivery-semantics).
+
+## Delete for good
+
+```bash
+# Delete one item for good
+curl -X DELETE http://localhost:8090/api/trash/01JBX... \
+  -H "Authorization: Bearer $SILO_KEY"
+
+# Empty the trash
+curl -X POST http://localhost:8090/api/trash/purge \
+  -H "Authorization: Bearer $SILO_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"confirm": "empty"}'
+```
+
+Both need `trash:purge`. Emptying the trash answers `{"purged": n}`, the number of items it destroyed. A purge also deletes the files of trashed media assets. There is no undo.
+
+### Skip the trash
+
+Add `?permanent=true` to a delete route to destroy the content at once. It needs `trash:purge` in addition to the delete claim. It works on these routes:
+
+- `DELETE /api/projects/{project}`
+- `DELETE /api/projects/{project}/envs/{env}`
+- `DELETE /api/projects/{project}/envs/{env}/collections/{name}/schema`
+- `DELETE /api/projects/{project}/envs/{env}/collections/{name}/{id}`
+- `DELETE /api/media/{id}`
+- `POST /api/media/delete`
+- `DELETE /api/media/folders`
+
+## Retention
+
+Items expire after 30 days, and Silo then deletes them for good. Change this in `silo.toml`:
+
+```toml
+[trash]
+enabled        = true
+retention_days = 30
+```
+
+| Setting | Default | Effect |
+|---|---|---|
+| `enabled` | `true` | `false` makes every delete permanent, and `GET /api/trash` answers an empty list. Use it for a CI instance that creates and removes scopes all day |
+| `retention_days` | `30` | Days an item stays in the trash. `0` keeps items until someone purges them |
+
+<Warning>
+  Empty the trash before you set `enabled = false`. Turning the trash off hides the items already in it and stops the hourly check, so they never expire. With a public bucket, their media links keep working too. A key with `trash:purge` can still empty the trash after it is off.
+</Warning>
+
+Silo checks for expired items once an hour. The expiry date is stamped on each item when you delete it. If you shorten `retention_days` later, items already in the trash keep the date they were given.
+
+The trash is on after an upgrade from an older version, because an older `silo.toml` has no `[trash]` table and the default applies. If Silo cannot delete an expired item, it logs a warning and tries again at the next check.
+
+`SILO_TRASH_ENABLED` accepts only `true` or `false`, in any case. With any other value, such as `0` or `no`, Silo does not start, and the error names the variable.
+
+Both settings take effect at the next restart. You can also set them with `SILO_TRASH_ENABLED` and `SILO_TRASH_RETENTION_DAYS`, or on **Settings > Configuration > Trash** in the admin, which needs `settings:configure`.
+
+`GET /api/session` tells any key whether this instance keeps a trash, and for how many days:
+
+```json
+{ "label": "editor", "prefix": "silo_ab12", "claims": ["..."], "trash": { "enabled": true, "retention_days": 30 } }
+```
+
+<Note>
+  Content in the trash still uses disk. A trashed media asset keeps its file until the item is purged, and a trashed project keeps a copy of every entry it held. `silo media reconcile` counts the file of a trashed asset as in use, so it does not report it as an orphan.
+</Note>
+
+## The undo header
+
+`DELETE` on an entry, a media asset, or a media folder returns the trash item's id in the `X-Silo-Trash-Id` header. The status and the body do not change, so a client that does not know the trash sees no change. The header is exposed through CORS, so a browser client can read it.
+
+```bash
+curl -i -X DELETE "http://localhost:8090/api/projects/acme/envs/prod/collections/posts/01J8XYZ...?rev=2" \
+  -H "Authorization: Bearer $SILO_KEY"
+
+# HTTP/1.1 204 No Content
+# X-Silo-Trash-Id: 01JBX...
+```
+
+Send that id to `POST /api/trash/{id}/restore` to undo the delete. The header is absent when the delete was permanent or the trash is off.
+
+## In the admin
+
+- **Trash** in the sidebar lists the items your key can see, a page at a time. Filter the list by type or by name.
+- Expand an item to see the records it holds.
+- **Restore** puts an item back. **Restore both** appears when the item's container is in the trash too.
+- **Delete permanently** and **Empty trash** need `trash:purge`. The admin hides them from a key without it. **Delete permanently** asks you to confirm. **Empty trash** asks you to type `empty`.
+- A delete dialog says whether you can restore the item, and for how long.
+- After you delete an entry, a toast offers **Undo**.
+
+## In the TypeScript client
+
+`silo.trash` covers the trash routes. An entry or media asset `delete()` returns the trash item's id, or `null` when nothing was kept.
+
+```ts
+const trashId = await movies.delete(id, rev)
+if (trashId) await silo.trash.restore(trashId)
+
+const page = await silo.trash.list({ kind: "entry", project: "moviespace" })
+await silo.trash.restore(page.items[0].id, { chain: true })
+```
+
+See [TypeScript SDK](/guides/typescript-client#trash). The [Dart](/guides/dart-client#trash) and [Java](/guides/java-client#trash) clients have the same methods. In Java, `delete()` returns an empty `Optional` instead of `null`. It returned `void` before the trash, so recompile Java code built against an older client. Without that, the call fails at run time with `NoSuchMethodError`.
+
+## Exports, imports, and transfers
+
+- **No export carries the trash.** This includes `silo export --instance`. The trash stays on the instance where you deleted the content.
+- **No import accepts it.** An archive that carries `_trash` or `_trash_items` is refused with `400`.
+- **Imports, environment copies, and transfer applies do not use the trash.** What a `replace` removes is gone, and you cannot restore it from the trash.
+- **The Strapi import plugin does use the trash.** Its `replace` mode deletes entries one at a time, like any other delete, so each replaced entry becomes its own trash item. To free the space before they expire, delete them for good.

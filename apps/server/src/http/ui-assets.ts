@@ -7,7 +7,8 @@ import path from "path";
  * A release build embeds the UI through Bun's `with { type: "file" }` imports,
  * whose content-hashed paths bear no resemblance to the request path — so
  * something has to hold the map. `tools/build/` generates it and calls
- * {@link useEmbedded} before the CLI starts. See `docs/design/build-and-release.md`.
+ * {@link useEmbedded} before the CLI starts. See D26 in
+ * `resources/design/decisions.md`.
  */
 export class UiAssets {
   /** Set only in a compiled release build; null means "read from disk". */

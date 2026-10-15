@@ -240,6 +240,23 @@ describe("Collection data caching", () => {
     expect((await posts.get("first")).title).toBe("Changed");
   });
 
+  test("a trash restore drops cached entries in every collection, since a chain can reach any", async () => {
+    let title = "Original";
+    respond = (request) => new URL(request.url).pathname.startsWith("/api/trash/")
+      ? Response.json({ restored: ["t1"], projects: 0, environments: 0, collections: 0, entries: 1, assets: 0, broken_media_refs: [] })
+      : Response.json({ id: "first", rev: 1, title });
+    const silo = new Silo({ url, cache: { enabled: true, ttl: 60_000, maxSize: 100 } });
+    const posts = silo.scope("acme", "dev").collection("posts");
+    const notes = silo.scope("other", "prod").collection("notes");
+    await posts.get("first");
+    await notes.get("first");
+    title = "Restored";
+
+    await silo.trash.restore("t1", { chain: true });
+    expect((await posts.get("first")).title).toBe("Restored");
+    expect((await notes.get("first")).title).toBe("Restored");
+  });
+
   test("preserves cached entries when a write fails", async () => {
     const silo = new Silo({ url, cache: { enabled: true, ttl: 60_000, maxSize: 100 } });
     const posts = silo.scope("acme", "dev").collection("posts");

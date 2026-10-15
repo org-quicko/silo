@@ -17,7 +17,7 @@ import type { MediaCatalogStore } from "./media-catalog-store";
  * just a field, on records nothing else names by path.
  *
  * No cap on subtree size. A large rename holds the write lock for many
- * record writes — `docs/design/http-api.md` §8.1 names that cost rather than
+ * record writes — `resources/design/http-api.md` §8.1 names that cost rather than
  * inventing a limit that would leave a large library with no way to rename a
  * folder at all.
  *

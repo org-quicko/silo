@@ -29,6 +29,8 @@ import styles from './SettingsView.module.css'
 
 interface SettingsViewProps {
   server: Server
+  /** Every saved server, for the pages that can reach another one. */
+  servers: Server[]
   route: SettingsRoute
   onUpdateServer: (patch: Partial<Server>) => void
   onDeleteServer: () => void
@@ -39,7 +41,7 @@ interface SettingsViewProps {
  * The settings shell: a nav column scoped by group (project / environment /
  * server / application) and whichever page the URL names.
  */
-export function SettingsView({ server, route, onUpdateServer, onDeleteServer, onBack }: SettingsViewProps) {
+export function SettingsView({ server, servers, route, onUpdateServer, onDeleteServer, onBack }: SettingsViewProps) {
   const { id: serverId, url, apiKey } = server
 
   const {
@@ -178,6 +180,7 @@ export function SettingsView({ server, route, onUpdateServer, onDeleteServer, on
           <EnvTransferPage
             key={`${route.project}/${route.env}`}
             server={server}
+            servers={servers}
             scope={{ project: route.project, env: route.env }}
             projects={projects}
             claims={claims}

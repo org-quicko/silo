@@ -81,11 +81,11 @@ export class CollectionTools {
       name: "delete_collection",
       title: "Delete collection",
       description:
-        "Delete a collection. Refused while it holds entries unless force is true, which erases them all and needs entries:delete as well as collection:delete.",
+        "Delete a collection. Refused while it holds entries unless force is true, which deletes them all with it and needs entries:delete as well as collection:delete. Deleted content goes to the trash when the trash is on.",
       inputSchema: ToolSchemas.scoped(
         {
           collection: ToolSchemas.Collection,
-          force: { type: "boolean", description: "Also erase every entry it holds." },
+          force: { type: "boolean", description: "Also delete every entry it holds." },
         },
         ["collection"]
       ),

@@ -10,9 +10,13 @@ import type { TransferTree } from './transfer-tree'
  * route to ask instead. It runs only while a tab that needs it is open, and
  * reports what it has if a scope refuses: a key that cannot read one project
  * should not blank the whole panel, so `partial` says the totals are a floor.
+ *
+ * A tree answers for the URL and key it was read with, and is null while
+ * either differs or the hook is off, so a copy is never narrowed with the last
+ * source's tree.
  */
 export function useTransferTree(url: string, apiKey: string, enabled: boolean): TransferTree | null {
-  const [tree, setTree] = useState<TransferTree | null>(null)
+  const [read, setRead] = useState<{ url: string; apiKey: string; tree: TransferTree } | null>(null)
 
   useEffect(() => {
     if (!enabled) return
@@ -59,12 +63,12 @@ export function useTransferTree(url: string, apiKey: string, enabled: boolean): 
     }
 
     gather()
-      .then((next) => alive && setTree(next))
-      .catch(() => alive && setTree(null))
+      .then((tree) => alive && setRead({ url, apiKey, tree }))
+      .catch(() => alive && setRead(null))
     return () => {
       alive = false
     }
   }, [url, apiKey, enabled])
 
-  return tree
+  return enabled && read?.url === url && read.apiKey === apiKey ? read.tree : null
 }

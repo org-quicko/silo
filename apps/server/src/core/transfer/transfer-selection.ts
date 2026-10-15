@@ -10,7 +10,7 @@ import type { TransferInclude } from "./transfer-include";
  * One vocabulary for all three operations — export writes only what it
  * matches, import loads only what it matches, copy forwards it to the source's
  * export so the source never builds what will be discarded. See §7.6 in
- * [docs/design/transfer.md](../../../../../docs/design/transfer.md).
+ * [resources/design/transfer.md](../../../../../resources/design/transfer.md).
  */
 export class TransferSelection {
   private readonly includes: readonly TransferInclude[];

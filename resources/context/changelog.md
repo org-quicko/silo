@@ -4,6 +4,561 @@
 > The *current* state is [CONTEXT.md](../../CONTEXT.md); this is how it got
 > there.
 
+- **The 1.6.0 release note is features and fixes (2026-10-15).** A release
+  note describes what is new and what was fixed; upgrade checks and rollback
+  steps belong in one only for a breaking or major change. The note drops
+  "Before you upgrade", the trash's operator notes and the 1.5.0 rollback
+  limits, and keeps the trash's settings, `?permanent=true` and the Java
+  client's `void` to `Optional<String>` break, the one breaking change. The
+  operator notes stay in `docs/guides/trash.mdx`; the rollback limits are
+  recorded in "1.6.0 upgrade and rollback notes" below.
+- **Every version is 1.6.0 (2026-10-15, D28).** `bun run set-version 1.6.0`
+  moved silo's five manifests from 1.5.0. The rest were moved by hand, since
+  `set-version` leaves them out on purpose: the TypeScript client from 1.1.2,
+  the Java client's `pom.xml` from 1.1.0, the Dart client's `pubspec.yaml`
+  from 1.0.0, and the observability and Strapi import plugins from 1.0.0.
+  Each client gained the trash since its last release and Java's `delete()`
+  broke binary compatibility, so they needed a bump anyway; the owner chose
+  to align them with silo's number this once. The clients still release on
+  their own tags, and `set-version` still leaves them alone. `bun.lock`'s
+  workspace versions, the Java and Dart install snippets (README and
+  `docs/guides/dart-client.mdx`) and `openapi.json`'s `info.version`, which
+  had stayed at 1.1.0 since D69, follow; the Dart `CHANGELOG.md` has a 1.6.0
+  entry. The compose example and the deployment guide keep `1.5.0`, which
+  they name as the first release with the Postgres driver. Each plugin's
+  `"silo": "^1.0.0"` range is unchanged.
+- **1.6.0 upgrade and rollback notes (2026-10-15, D113).** A 1.5.0 to 1.6.0
+  to 1.5.0 round trip on SQLite, SQLite with S3, fs and Postgres, with old and
+  new clients, found the server drop-in compatible but left operators things
+  to know. `resources/release-notes/1.6.0.md` gains an Upgrade notes section,
+  pointed at from "Read this before you upgrade": with a public S3 bucket a
+  trashed file's link keeps working until the purge, because the URL names
+  the bucket and the trash keeps the object; `entries:read` now reads a
+  collection's deleted entries and any key sees media trash
+  (`TrashVisibility`); `[trash] enabled = false` hides existing items and
+  stops the sweep, while `POST /api/trash/purge` still works; the Strapi
+  plugin's `replace` deletes entry by entry into the trash; a restore fires
+  no hooks. Rollback limits: 1.5.0 refuses a key naming `trash:purge`
+  (`ClaimGrammar.normalize` in `authenticate`), its fs usage scanner reads
+  `_trash_items` as live references, its import refuses the `_transfers`
+  schema every `--instance` export carries, and its reconcile reports
+  trashed files as orphans. 1.6.0's reconcile no longer does
+  (`TrashStore.parkedBlobKeys`), so that point is a rollback limit, not an
+  upgrade one. Clients: `delete()` returns the receipt id in all three, and
+  Java's `void` to `Optional<String>` needs a recompile. The trash guide
+  says the same where it fits. Client versions are still TypeScript 1.1.2,
+  Java 1.1.0 and Dart 1.0.0; CONTEXT.md lists the bump as open work.
+- **A flaky trash restore test is fixed (2026-10-15).** "an interrupted
+  collection restore retries safely" with `edited=true` failed about two runs
+  in three, on the committed code as well. It edited `entries[0]` as the entry
+  the interrupted restore had written, but entries replay in id order and
+  `EntryUtils.newID` ids made in one millisecond are unordered. The test now
+  reads back the one entry that was written. Monotonic `_trash_items` ids were
+  considered and not taken: capture copies in entry-id order, so the replay
+  order would still not be creation order, and kinds already replay
+  containers before entries (`TrashKinds.RestoreOrder`). The row names now
+  print `edited=true`/`false` (`%p`), since `%s` left the two rows with one
+  name. The pitfall is in code-design.md (Tests).
+- **Trash fixes from the 1.5.0 to 1.6.0 compatibility check (2026-10-15,
+  D113).** `SILO_TRASH_ENABLED` read `!== "false"`, so `0`, `no` and `False`
+  left the trash on; it now takes `true` or `false` in any case
+  (`TrashDefaults.parseEnabled`) and any other value stops the start with an
+  error naming the variable, since guessing either way loses something. An
+  unset variable and a `silo.toml` with no `[trash]` table still mean on, so
+  an upgrade from any earlier version keeps the trash on; a test pins that.
+  The hourly sweep moved out of `ServeCommand` into `TrashSweepTimer` and now
+  logs a warning with the count when a receipt fails to purge, which it
+  previously never logged. `silo media reconcile` counts the blob keys of
+  parked trash assets as claimed (`TrashStore.parkedBlobKeys`), so it no
+  longer reports a trashed asset as an orphan or adopts a trashed pre-D23 key
+  as a second live asset. `TrashSweeper.resumePending` rolls a `parking`
+  receipt back (drops its items, then the receipt, and no blob) instead of
+  marking it `parked`: every delete path commits its capture before it
+  erases, so a `parking` receipt always stands over content that is still
+  live, and the old comment describing a roll-forward predated copy-only
+  capture. Each fix has a regression test that fails on the previous code;
+  the trash ones run on SQLite, fs and Postgres.
+- **Trash and transfer P2 review fixes (2026-10-15, D111, D113).** A
+  restored entry is validated against its collection's current schema, which
+  can change once the collection is empty (D70); a mismatch is a `409` naming
+  the entry, and the receipt stays parked. A prepared transfer's review
+  records the destination's project and environment ids
+  (`TransferDestination`), and Apply refuses with `stale_preview` when the
+  environment was deleted or recreated since, instead of recreating it. The
+  trash list, the sweep and startup recovery read every receipt rather than
+  the newest thousand (`TrashStore.allReceipts`), a blocker's receipt is
+  looked up by subject id, and `GET /api/trash` applies the caller's
+  visibility before it pages, so `total` and the pages agree. The admin
+  Trash page has the shared pager. The TypeScript, Java and Dart clients
+  evict every cached entry read after a restore, reversing the documented
+  "call `clear()`" advice. On Windows, a staged package's rename into place
+  failed with `EPERM` about one time in 25: a stress loop showed the hold is
+  outside silo (awaiting the spool's close and the extractor's source made no
+  difference) and clears within about 10 ms, so `FsFiles.rename` retries for
+  up to five seconds on Windows only, for the adopt and for `writeAtomic`.
+  Each fix has a regression test that fails on the previous code.
+- **Trash P1 review fixes (2026-10-15, D113).** Reading a container receipt's
+  contents now requires `entries:read` over that container as well as the
+  `schema:read` that permits its metadata. A purge checks the live media
+  catalog before deleting a parked blob, so importing an asset back does not
+  leave it vulnerable to an old receipt's purge or expiry. Restore records an
+  intent in each parked item before writing it and can recognize its own
+  unchanged writes after failure or restart; a renamed destination is retained
+  and authorized again on retry. Changes made to a restored entry still cause
+  a conflict. Journal pagination uses immutable item ids and journal fields
+  stay out of HTTP responses. The admin's Empty trash dialog explicitly names
+  the entire server's trash, including items hidden by filters. Running the
+  trash suite on fs as well as SQLite and Postgres also exposed and repaired
+  the fs usage scanner counting parked trash as live media references.
+- **The refused-key dialog can forget the server (2026-10-15).** The edit
+  dialog a refused key opens had only Cancel and Save, so a server that was
+  gone for good could only be fixed or left in the list: its settings gear
+  sends the same refused key and ends at the gate. `AddServerDialog` now
+  takes `onForget` and, when editing, shows Forget server at the left of its
+  actions. One click turns the row into "Remove from this browser only?"
+  with Keep and Forget server, the same single confirm Settings' Connection
+  page asks. `App.forgetServer` is the one removal both paths call (the
+  server list, the remembered active id, `ScopeMemory`), and `Workspace`
+  passes it to the picker it opens. Checked in the browser against a running
+  server with a made-up key: the button shows, Keep backs out, Forget removes
+  only that server, and the Add dialog has no button. Admin only, no route
+  change.
+- **A chain restore checks every item it brings back (2026-10-15, D113).**
+  `POST /api/trash/{id}/restore` with `{"chain": true}` replays the trashed
+  containers that block the item first, but the claim check ran only on the
+  item asked for. A key with `entries:read` and `entries:create` on one
+  collection could restore a trashed entry with `chain` and bring back the
+  trashed collection above it, or a whole trashed project. `TrashService.
+  restore` now takes an `authorize` callback and runs it on every receipt in
+  the chain before the first is written; the route passes
+  `TrashRestoreAuthority.requireEach`, which asks for the read claim and the
+  write claims of each one. An ancestor the key cannot read is a 403, not a
+  404, because the blocked item's `blocked_by` already names it. The route
+  still checks the asked-for item first, so a key without its claims hears 403
+  before a blocked item's 409.
+- **Code scanning: two real findings fixed, four left as false positives
+  (2026-10-15).** CodeQL's six open alerts on `main` were checked one by one.
+  The Strapi import panel's `text()` helper only turned a value into a string
+  and did not escape it, yet the panel put labels, table names, notes and file
+  names from an uploaded Strapi database into `innerHTML` through it. A
+  database or a file name with markup in it could run script in the panel
+  (alerts 17 and 18). `text()` now escapes `& < > " '`, and the drop zone's
+  "Reading…" and "Uploading…" lines are set with `textContent`. The admin's
+  font URL put the typed font name into the Google Fonts query unencoded, so a
+  `&` or `#` cut the family short and rewrote the rest of the URL (alert 5;
+  the host is fixed, so not a script risk). Each word is now
+  `encodeURIComponent`ed, and a `theme-manager.test.ts` case covers it. Left
+  as they are: alert 4 (`KeyUtils.hashKey` uses SHA-256) because every key is
+  32 random bytes, so a slow password hash would only add cost to each
+  request; and alerts 2 and 3 (`App.tsx` keeps saved servers and their keys in
+  `localStorage`) because that is the design of the server manager (D15,
+  `resources/design/http-api.md`), and the plugin-panel sandbox (D41) and the
+  media CSP (D83) exist to keep that store out of reach.
+- **The Trash page looks like the rest of the admin (2026-10-15, D113).** It
+  now sits in the same frame as Media Library: the top search bar, the
+  breadcrumb and the page head. The name filter is the shared `ColumnSearch`
+  box (which gained a `className` for a host outside a column), and the type
+  filter is a "Type" chip with the media library's menu (D55), in place of the
+  browser's own `<select>` and text field. A row's menu (`TrashRowMenu`) closes
+  on an outside click or Escape and opens upward near the bottom of the page.
+  Before, the list clipped it with `overflow: hidden`, so the last row's
+  "Delete permanently" was cut off. "Delete permanently" now asks first, in a
+  plain confirm (`PurgeTrashItemDialog`) that names the item, where it was and
+  what is in it; typing a word back stays with "Empty trash". The search box
+  is scoped under `.toolbar` so it outranks `ColumnSearch`'s own margin and
+  input height in either stylesheet order, which had left it 8px off the Type
+  chip in a built admin. The page's CSS also used two tokens the design system
+  does not have (`--radius-xs`, `--danger`) and an error banner class that
+  does not exist; they are now `--r-1`, `--bad` and `banner banner-bad`.
+- **A media folder is one trash item, and the trash checks today's names
+  (2026-10-15, D113).** Two gaps from `feature/trash`, where the D113 row
+  promised more than the code did. First, `DELETE /api/media/folders` sent each
+  file to the trash on its own and destroyed the `_media_folders` records, and
+  an empty folder's delete was permanent. `MediaTrashService` now parks the
+  folder records and every file that goes as one `media_folder` receipt
+  (`TrashCapture.folder`, which nothing called before). A file still in use
+  stays and is reported per id as before, and then the folder records stay
+  too. The receipt id comes back in `X-Silo-Trash-Id`, on the `200` and on the
+  `204`. A restore joins a folder made again since instead of writing a second
+  record for the path. `?permanent=true` on the non-recursive delete now asks
+  for `trash:purge`; it was ignored. Second, the trash checked claims against
+  the names saved at delete time while a restore lands by record id. After
+  `posts` became `articles`, a key scoped to `posts` could restore into
+  `articles`, and a key scoped to `articles` got a 404. `TrashService` now
+  hands out every receipt with its origin's current names
+  (`TrashLocator.currentNames`), so visibility, the restore check, the
+  `?project=`/`?env=`/`?collection=` filters and the admin breadcrumb follow a
+  rename; a saved name stays only for a container that is gone. The restore
+  check also uses a `rename` target in place of the subject's own name, since
+  that is where the content lands. `MediaDeleteBatch.describe` is the per-id
+  failure shape both folder paths share.
+- **The Dart and Java clients have the trash (2026-10-15, D113).** `silo.trash`
+  in Dart and `silo.trash()` in Java cover the six `/api/trash` routes: a paged
+  list filtered by kind, project, environment, collection, delete time and
+  name, then get, contents, restore (with `rename` and `chain`), purge and
+  empty, one class per file under `trash/`. An entry or asset delete now
+  answers its `X-Silo-Trash-Id` receipt, `String?` in Dart and
+  `Optional<String>` in Java, through a new `emptyWithHeaders` on each
+  transport (java-client.md §15.9 says why `Optional`). Both route inventories
+  add the trash routes as covered and `GET /api/media/stats`,
+  `POST /api/media/archives` and `GET /api/media/archives/:ticket/:part` as out
+  of scope (D106), so both drift tests pass again. `TrashKind.of` throws on a
+  kind it does not know. The test stubs can answer a 204 with headers, and the
+  Dart `asset()` fixture moved to `test/support/stub_http.dart`. The Java
+  `delete` methods no longer return `void`, which callers' source survives but
+  compiled callers do not; neither package's version moved.
+- **`feature/trash` merged in (2026-10-15, D113).** The trash below was built
+  on 1.4.0 as D91. D91 is the Dart client here, so the trash is D113, and every
+  `(D91)` it wrote in code and docs now says D113. Both sides are kept:
+  `_transfers` and the two trash collections make eleven system collections,
+  which all three adapters seed (Postgres too) with no DDL change. `serve`
+  resumes pending trash work, then settles interrupted transfer applies.
+  `/api/*` CORS exposes `X-Silo-Trash-Id`, and `/media/*` keeps its read-only
+  CORS (D101). The sidebar gains Trash under Media and keeps the theme toggle
+  beside Settings. Imports, transfer applies (D111) and `silo export --instance`
+  (D97) neither capture nor carry the trash; the D113 row says why. The full
+  decision row moved to `resources/design/decisions.md`, with a one-line index
+  entry in `IMPLEMENTATION.md`. `test/core/trash.test.ts` now runs on Postgres
+  as well as SQLite when `SILO_TEST_PG_URL` is set. Only the TypeScript client
+  has `silo.trash`; the Dart and Java clients do not yet, so their route
+  inventory drift tests no longer match the TypeScript list.
+- **A delete goes to the trash, and one new claim takes it out for good
+  (2026-09-22, D113; D91 when it was built).** Deleting a project, an
+  environment, a collection, an entry, a media asset or a media folder no
+  longer destroys it. The content leaves the live tables and is parked in two
+  new system collections in `Scope.System` — `_trash`, one small receipt per
+  **explicitly** deleted thing, and `_trash_items`, the records themselves, read
+  only on a restore. That is
+  D12's trick for `_keys` and D23's for `_media` again, which is what gives the
+  trash every storage adapter, the conformance suite and the query layer for
+  free; it also means adding it is two entries in `SystemCollections.All`, so
+  **no DDL changed and `FormatVersion` did not move**. An instance upgraded in
+  place keeps working and starts with an empty trash.
+  - **One receipt per thing you deleted on purpose.** A collection deleted with
+    300 entries under it produces one item saying "300 entries", not 301, and
+    restoring it brings all 300 back. This is the rule the FreeDesktop trash
+    specification states for directories and the one Google Drive encodes as
+    `explicitlyTrashed` beside `trashed`. The list is therefore flat and
+    newest-first, with the project/environment/collection hierarchy as a
+    *filter* over it rather than a tree drawn through it — a trash tree is
+    mostly empty nodes, and an entry whose collection was deleted afterwards has
+    no node to hang under at all. The hierarchy reappears inside a receipt,
+    through `GET /api/trash/{id}/items`, which is the one place it is never
+    empty.
+  - **Capture is copy-only and runs before the erase it belongs to.**
+    `TrashCapture` reads what is about to go and writes it into `_trash_items`;
+    every existing delete path then runs exactly as it did, with its own
+    ordering, counts and hooks, so none of the four had to be rewritten. A
+    collection's entries are read twice, which is the price. Media is the one
+    exception, handled by `MediaTrashService`: the D23 saga exists to make the
+    blob and the catalog record agree, and the trash needs the opposite — the
+    record goes, the bytes stay, and only a purge takes them.
+  - **A receipt anchors on ids and draws with names.** `origin` carries both,
+    and `TrashLocator` turns each id back into the name the `Storage` port
+    addresses by at the moment of the restore, so a project renamed between the
+    delete and the restore does not misfile the content. A missing container
+    **blocks** the restore and says which one is in the way rather than orphaning
+    the content the way Drive does; `{"chain": true}` restores the ancestors
+    first when they are in the trash too. A name or id taken in the meantime is
+    refused with a 409 and an offer to restore under another name, because
+    parking frees a name at once and restoring one thing by destroying another
+    is not a restore.
+  - **Six routes, and reading them needs no claim.** `GET /api/trash`,
+    `/{id}`, `/{id}/items`, `POST /{id}/restore`, `DELETE /{id}` and
+    `POST /api/trash/purge`. A global `trash:read` is the opposite of D58's
+    retired `media:read` — the catalog was an index of an open shelf, the trash
+    is content removed from view — so `TrashVisibility` gates each receipt on the
+    read claim its origin already required instead. The trash is therefore **per
+    key**: `total` counts only what the caller may see, and `GET /api/trash/{id}`
+    answers 404 rather than 403 for the rest, because "forbidden" would confirm
+    that something was deleted there.
+  - **Restoring asks for the write claims at the destination**
+    (`TrashRestoreAuthority`), not a claim of its own: restoring an entry into
+    `prod` is writing to `prod`. A `trash:restore` claim would let a key place
+    content into a scope it cannot otherwise write to, which is the escalation
+    D37 measured for `keys:import`. Sending something to the trash asks for
+    nothing new either, so no existing key changed meaning on upgrade.
+  - **`trash:purge` is the only claim added**, on `media:purge`'s argument
+    (D65): whoever deleted the content already spent their delete claim, and
+    ending it forever is a second decision. It gates `DELETE /api/trash/{id}`,
+    the `{"confirm": "empty"}` purge, and `?permanent=true` on any delete route.
+    No preset but `root` carries it. It is deliberately *not* in
+    `PluginForbiddenClaims`, which is for claims that let a plugin escape its own
+    grant.
+  - **`[trash] enabled` and `retention_days = 30`**, swept hourly beside the
+    run-file heartbeat. The expiry is stamped per receipt at delete time rather
+    than compared against the live setting, so shortening the window never
+    retroactively destroys content somebody was counting on. `enabled = false`
+    restores silo's pre-D113 behaviour exactly, which is what a CI instance wants.
+    `GET /api/session` now answers `{enabled, retention_days}`, because every
+    delete dialog has to say whether the delete can be undone.
+  - **`DELETE` on an entry or an asset answers `X-Silo-Trash-Id`**, exposed
+    through CORS — a header rather than a body, so the 204 contract does not move
+    and an older client sees what it always saw. The admin hangs its undo toast
+    off it, which is where most of the value is collected: mistakes are usually
+    noticed within seconds, and `ToastManager` already keeps a toast with an
+    action on screen until it is acted on, so it needed no new infrastructure.
+  - **The admin has a Trash page** at `/servers/:sid/trash`, beside Media in the
+    sidebar for the same reason: both are instance-global. One row per receipt
+    with its type, origin breadcrumb, contents, who deleted it, when, and when it
+    expires; a blocked row says what is in the way and offers "Restore both".
+    Every delete dialog now says whether the delete can be undone, and "Empty
+    trash" takes the typed confirmation `DangerConfirm` already provides.
+  - **The client SDK gained `silo.trash`** — `list`, `get`, `contents`,
+    `restore`, `purge`, `empty` — and `CollectionHandle.delete` and
+    `MediaAsset.delete` now answer the receipt's id or null. `_trash` rides no
+    export, and an import **never** accepts it: a crafted `_trash_items`
+    document is a way to plant content a later restore writes into any scope.
+- **Docs and the release note for copying between instances (2026-10-14).**
+  The seventh step, for 1.6.0. `resources/guide/transfer.md` gains *Copying an
+  environment from another instance*: the three steps, the two keys, the admin
+  steps, the HTTP routes with the progress lines, the rules, the error codes,
+  and what `transfer:copy` opens (H7). `docs/guides/transfer.mdx` gains the
+  same in the public site's voice, rows for the package and transfer routes and
+  their claims, and a corrected system records table: `_audit` and `_plugins`
+  were listed as never imported, which D97 changed, and `_transfers` joins them.
+  Its description no longer says every transfer streams with nothing staged on
+  disk, which a prepared transfer does. `storage.md` names Apply as the commit's
+  first caller and counts nine system collections, not seven. The README gains
+  a *Promotion between instances* feature. `resources/release-notes/1.6.0.md`
+  is new: what to check before upgrading (which keys hold `transfer:copy`, and
+  egress rules), the new feature, the fixes since 1.5.0, and the rest.
+  `release.yml`'s publish step now reads `resources/release-notes/<version>.md`
+  from the tagged commit through the contents API (the job checks nothing
+  out) and puts it above the install text and GitHub's generated list. A
+  version with no file gets a warning and the old text; any other API failure
+  stops the publish, so a written note is never silently dropped. Dry-run
+  against a stubbed `gh` in all three cases. The version bump is left to the
+  maintainer.
+- **Copy key checks and source trees answer only for their own inputs
+  (2026-10-14).** Three faults on the two copy pages. In each, a check or a read
+  outlived the URL or key it was made for. (1) The server-wide *Copy from silo*
+  tab sent a narrowed copy as the whole source when its tree was missing. With
+  only `posts` checked, a failed project listing set the tree to null, the
+  request dropped `include`, and the dry run counted every collection (+4, not
+  +1). While *Choose* is on, Preview copy now waits for the tree (*Waiting for
+  the source scope*). `use-transfer-tree.ts` returns a tree only for the URL and
+  key it was read with, so a new source never draws, or narrows a copy with,
+  the last one's. The Export tab already waited for its tree. (2) The
+  `use-source-key.ts` from the entry below, and (3) D112's `use-copy-source.ts`,
+  set *checking* in an effect. So the render that took an edit to an accepted
+  key still read *ready*, and one read went out with the new key; its `401`
+  logged the admin out. Both now keep the URL and key beside the answer and
+  work the status out during render, so an edited key is unchecked at once.
+  Checked in the browser against two scratch SQLite servers, each fault
+  reproduced first: an edited key on either page now sends only
+  `/api/session`; with the project listing made to fail in the tab, Preview
+  copy is disabled and sends nothing; once the listing works again the request
+  carries `include: ["default/prod/posts"]` and the preview counts +1.
+- **The server-wide copy tab checks its pasted key first (2026-10-14).** On the
+  server Data Transfer page, *Copy from silo* read the source's tree once
+  *Choose* was picked, with the pasted URL and key, through
+  `HttpTransport.silo()`, whose `401` fires the app-wide handler. A wrong or
+  revoked source key therefore disconnected the admin from the destination and
+  sent it to `/servers`. `views/transfer/use-source-key.ts` now asks the
+  source's `/api/session` first (`api.session.verify`, which reads a `401` as
+  an answer), the same check as D112's `use-copy-source.ts`, and
+  `use-transfer-tree.ts` runs only once the key is accepted. A refusal shows
+  *The source refused this key.* under the key field; a source that does not
+  answer shows *Could not reach the source.* Preview and Apply were never
+  affected: they go through the destination, which turns the source's `401`
+  into a `400`. Checked in the browser with two scratch SQLite servers: before
+  the fix a wrong key went to `/servers` after one `GET /api/projects` (401);
+  after it the page stays and only `/api/session` is called, a good key then
+  loads the tree, and a closed port shows the second line.
+- **The env Data Transfer page can copy from another server (2026-10-14, D112).**
+  The sixth step of copying selected content between instances. A *Source
+  server* select offers this server and every other saved one. For another
+  server the page asks for a key for this copy only, checks it against that
+  server's `/api/session` (a wrong key says so under the field instead of
+  logging the admin out), and reads the source's projects, environments,
+  collections and search with it. Preview prepares a transfer here and shows
+  the saved plan: totals, a media line, plan pages, and the packaged copy of an
+  entry. Apply writes exactly that plan or nothing; a stale or expired preview
+  shows *Preview again*, and a lost Apply answer is followed by a read of the
+  transfer. A preparation is cancelled when an input changes, when the page
+  goes, when the tab closes, and when it was started for a form that moved on.
+  The page also names `transfer:copy`, `media:create` and the source's
+  `transfer:export` when they are missing. `HttpTransport.streamed` replaces
+  `TransferApi`'s private copy, and `ProgressReader` now passes each progress
+  line on whole; `progress-reader.test.ts` (2) covers that and the error code.
+  Checked in the browser against two scratch servers: wrong key, preview,
+  inspect, stale after a schema change, preview again, apply (entries, the
+  image and its bytes landed), cancel on an input change and on leaving the
+  page, a source key without `transfer:export`, and the local copy and the
+  server copy unchanged.
+- **A prepared transfer can be applied (2026-10-14, D111).** The fifth step of
+  copying selected content into another instance.
+  `POST /api/projects/{project}/envs/{env}/transfers/{id}/apply` asks again for
+  prepare's write claims and writes the plan as one `AtomicStorage.commit`:
+  every baseline is a precondition, every writing line a write, and last a
+  `_system/_transfers/<id>` ledger row that must not exist yet. Anything moved
+  is `409 stale_preview` and the transfer becomes `stale`; an applied one is
+  answered again with `200`; a second apply while one runs is
+  `409 transfer_in_progress`. The new assets' files go first, under free keys
+  saved in `record.json` before the first one, and are taken back when the
+  commit does not land; a failure is settled by the ledger row, and
+  `silo serve` settles any apply a stop interrupted. Media is planned under
+  D111's rules: an asset this server lacks is added under its own key; one it
+  holds under the same id is never changed (`unchanged` or `skipped` with the
+  reason); folders match by path; nothing is deleted; references that will not
+  resolve are listed. `_transfers` is a ninth system collection, instance-local
+  like `_audit`. `prepared-transfer-apply.test.ts` (11) covers the write, the
+  idempotent second apply, five ways a plan goes stale, the media rules,
+  replace, `media: none`, the claims, a concurrent apply, an S3 store failing
+  its second put, and a trigger failing the commit on SQLite and Postgres;
+  `prepared-transfer-recovery.test.ts` (2) kills a real process after the files
+  and after the commit. The admin page is next.
+- **A prepared transfer is planned by the importer's own rules (2026-10-14, D110).**
+  The fourth step of copying selected content into another instance. The
+  importer's decisions moved to `ImportRules` (which schema it writes and
+  whether the D70 guard applies; which side of an entry wins in merge), and
+  `Importer` now calls them; its flow and its tests are otherwise unchanged.
+  Once a package is verified, `TransferPlanner` plans it against the
+  destination environment with the same rules, reading only, and checks each
+  entry it would write against the schema the transfer leaves in place
+  (`SchemaValidator.validateEntryAgainst`), since one commit cannot write the
+  schemas first. A refused entry is a `rejected` line; a merge that changes a
+  populated collection's schema fails the preparation with the guard's `409`.
+  `plan.ndjson` replaces the entry index: a line per packaged entry, then per
+  row `replace` removes, each with the destination row it was read from. The
+  record's `review` holds the totals, counted as the importer counts them, and
+  the baseline Apply will check: each row's `seq`, each collection's record
+  stamp, the exact rows in `replace`, and emptiness where the guard allowed a
+  change only for an empty collection. `GET …/transfers/{id}` now pages the
+  plan, and shows a removed row's id and a destination `rev` only to a key with
+  the env copy's read claims on that collection. Progress gains a `plan`
+  phase. `prepared-transfer-plan.test.ts` (3) covers the decisions and the
+  re-addressing, the effective schema and the guard, and what a reader sees;
+  `import-rules.test.ts` (1) pins the instance tie-break, which no test held.
+  Sixteen deliberate breaks were each caught. Media planning and Apply are next
+  (D111).
+- **Prepared transfers hold a verified package for review (2026-10-14, D109).**
+  The third step of copying selected content into another instance, on the
+  destination. `POST /api/projects/{project}/envs/{env}/transfers` takes
+  `{source: {url, api_key}, from, selection, mode, prefer, media}`, refuses
+  what it can without the source (claims: `transfer:copy`, the env copy's
+  write claims per collection, the replace claims in `replace`, `media:create`
+  unless `media: none`; a missing environment; a store with no
+  `AtomicStorage.commit`, `409 atomic_commit_unsupported`; no free slot,
+  `429 too_many_transfers`), then pulls the source's package once through
+  `Importer.stage` under `[transfer]`'s ceilings and verifies it exactly:
+  only plain files and folders, nothing beyond the selection and its media
+  closure, sizes and sha256s that are the rows', and a `package.json` that
+  agrees with what was counted. A refused package is deleted with its record.
+  The transfer lives in `<data>/transfer/prepared/<id>/`, answers only the key
+  that prepared it under its own environment (`404` for anyone else), expires
+  60 minutes after it was prepared, is one of at most 4 open, and keeps its
+  record 24 hours once ended. `GET …/transfers/{id}` pages the packaged
+  entries, `GET …/transfers/{id}/entries/{collection}/{entry}` shows one raw,
+  and `DELETE` cancels, aborting a pull still running. The source key is never
+  written down. With `Accept: application/x-ndjson` the first line names the
+  transfer. `ConflictError` gained a `code`, so a `409` can say which conflict
+  it is, and `ProgressStream` is generic over what it reports. There is no
+  source allowlist, so `transfer:copy` now reaches any routable address
+  through two routes (audit H7); `transfer.md` §7.10 and `claims.md` say so.
+  `prepared-transfer.test.ts` (10) and `prepared-transfer-verification.test.ts`
+  (12) cover the review, the binding, the slots, the expiry, a cancel mid-pull,
+  a restart's leftovers, the claims, the fs refusal, nine tampered packages,
+  servers without the route and the size limits; thirteen deliberate breaks of
+  the code were each caught by the test meant to catch them. Apply is next.
+
+- **A transfer package sends only what was picked (2026-10-14, D108).** The
+  second step of copying selected content into another instance.
+  `POST /api/projects/{project}/envs/{env}/package` takes
+  `{collections: [{name, entry_ids?}], media: referenced|none}` and streams
+  the §6.3 tree cut to exactly that: the scope's markers, each named
+  collection's schema, and its whole content or exactly the named entries.
+  With `referenced` it adds each active asset those entries use whose bytes
+  exist, the bytes, and the folder records above them, and `package.json`
+  lists every reference it could not satisfy as `missing_media`; `none` sends
+  no catalog row or byte, and `all` is refused. Variables, keys and folder
+  moves never ride. Every name and id is checked before the first byte (`400`,
+  `404`). Claims are a narrowed export's. The code is
+  `core/transfer/package/`, `TransferService.package` and
+  `TransferPackageRoutes`. `Importer` now refuses a tree holding
+  `package.json` with a `400` naming it a transfer package, so a package can
+  never be loaded by `/api/import` as if it held whole collections. The three
+  clients list the route as out of scope. `transfer-package.test.ts` pins the
+  exact file list, `media: none`, six refusals, the claims and the import
+  refusal; the file-list and import tests were checked to fail when the
+  package ignored `entry_ids` and when the importer skipped the check.
+  `resources/openapi.json`, both `http-api.md` files and `transfer.md` §7.9
+  describe it. Nothing calls it yet; the destination's prepared transfer is
+  next. The Dart and Java route inventories were already missing
+  `GET /api/media/stats` from D106, which fails the Dart drift test; that is
+  left for its own change.
+
+- **The storage port can commit many writes as one (2026-10-14, D107).** The
+  first step of copying selected content from one instance into another
+  environment of another: applying a reviewed plan has to land all of it or
+  none of it, and every port write was its own transaction. `AtomicStorage`
+  is a new optional capability, like `IndexedStorage`: `commit(changes)` takes
+  a `ChangeSet` of `CommitPrecondition`s and ordered `CommitWrite`s, checks the
+  preconditions and makes the writes in one transaction, and throws a
+  `CommitConflictError` (`409`) naming each precondition that no longer holds
+  before writing anything. `SqliteStore` implements it in `sqlite-commit.ts`
+  as one synchronous transaction; `PgStore` in `pg-commit.ts` as one
+  transaction with its own resolver. That needed `PgCollectionStore.putIn` and
+  `findIn`, and `PgEntryStore.putIn`, `deleteIn`, `seqIn` and `rowsIn`, which
+  run on a transaction the caller holds; `put` and `delete` now call the same
+  statements. The fs adapter does not offer it. `FsBlobStorage.put` now
+  flushes the temp file before its rename and the directory after it, so a
+  key that exists after a power cut is whole. The conformance runner takes
+  `{ atomic: true }` from the SQLite and Postgres test files and runs
+  `CommitSuite` for them: a commit that lands every write with its derived
+  rows, five preconditions that each refuse it with nothing written, and a
+  write that fails part way leaving nothing behind. Each was checked to fail
+  against a commit without its transaction, or with the shared resolver on
+  Postgres. No route uses it yet.
+
+- **A refused key opens its server in an edit dialog (2026-10-14).** Picking a
+  saved server whose key the server no longer accepts showed a banner, and
+  nothing in the admin could change the key: the server's settings gear loads
+  with the same key, so its `401` sent the reader back to the gate. Only
+  clearing `localStorage` got them in. `useScopeBrowser` now checks the key
+  with `GET /api/session` before it lists projects. A refused key sets
+  `refusedServer`, and `ServerManager` opens `AddServerDialog` in a new edit
+  mode, with the server's name, URL and key filled in, the error shown and the
+  old key selected. Saving verifies, keeps the server's id and checks it
+  again (`onUpdateServer`, through `App.updateServer`, which clears the store
+  when the key changes, as `patchServer` already did); Cancel deselects the
+  server so a second click asks again. Checking first also keeps the
+  app-wide 401 handler out of the picker, which used to close a workspace
+  open behind it when another server's key was refused. Checked in the
+  browser against a scratch SQLite server: add, revoke, the dialog, a wrong
+  key, Cancel, a good key, opening the workspace, and the same from the
+  browser opened over a workspace. Admin only, no route change.
+
+- **The internal docs live in `resources/`, and every link now says so
+  (2026-10-13).** `6ef46ca` moved `context/`, `design/`, `guide/`, `help/`
+  and `openapi.json` from `docs/` to `resources/`, and `3254ddb` put the
+  Mintlify site at `docs/`. About 160 references still named the old paths:
+  `CLAUDE.md`, `CONTEXT.md`, `IMPLEMENTATION.md`, the READMEs, the guide's
+  headers, the `x-maintenance` note and the MCP route description in
+  `openapi.json`, the issue form's Documentation link, a `test.yml` comment,
+  and doc comments in the server, `shared` and both clients. Each now names
+  the file under `resources/`, and every relative link was checked to
+  resolve. `repo-map.md`, the README's layout table and `CLAUDE.md` list
+  `resources/` and name `docs/` as the Mintlify site. `ui-assets.ts` cited a
+  `build-and-release.md` that never existed; it now cites D26. Older entries
+  below use the new paths too, except the three that record a move into
+  `docs/` (the decisions table, the README's reference, the docs split),
+  which keep the paths of their day. No script or workflow reads these paths.
+
+- **An import stores media with its type and disposition (2026-10-13, D88).**
+  `ImportMedia.load` wrote each blob with `put(key, bytes)` and no options, so
+  every import, `POST /api/import` and server-to-server copy left objects with
+  no `Content-Disposition`, and on S3 a `media/<id>` key, which has no
+  extension, was stored as `application/octet-stream`. A bucket in front of
+  silo then served SVGs that did not draw. Found after a copy from prod into a
+  Postgres instance on S3. The archive's `_media` row now gives each blob its
+  `content_type` and `MediaDisposition.header(content_type, filename)`, as an
+  upload stores them; a blob no row claims is written bare, as before.
+  `silo media rekey --rewrite` repairs a library imported before this.
+  `import-media-keys.test.ts` records the put options for a `media/<id>` key, a
+  pre-D88 key and an unclaimed blob. The D88 row and `transfer.md` §7.1 say so.
+
 - **A saved server URL that is not http(s) never leads a media link
   (2026-09-30).** CodeQL (`js/xss-through-dom`) traced the server form's
   input, by way of localStorage, into the Download `href`s and
@@ -36,7 +591,7 @@
   `GET /api/media/stats` (no claim) totals files, bytes and folders with a
   split by kind, the largest file and the last upload, and `MediaStatsDialog`
   shows them as tiles and a share table. `ByteSize` now reaches GB and TB.
-  `docs/openapi.json` and both HTTP docs carry the three routes, and the TS
+  `resources/openapi.json` and both HTTP docs carry the three routes, and the TS
   client's `RouteInventory` lists them as out of its scope. New tests:
   `media-archives.test.ts` (reads every ZIP through its central directory
   with an independent CRC, in `test/http/support/zip-entries.ts`, and checks
@@ -79,7 +634,7 @@
   128"); the claim grammar's collection segment is built from it; the create
   and rename routes check the name before the claim and before a dry run. The
   admin shows the reason as you type, in the new-collection field and the
-  rename form. MCP, the Strapi importer and `docs/openapi.json` (a
+  rename form. MCP, the Strapi importer and `resources/openapi.json` (a
   `CollectionName` schema) follow; projects and environments stay at 64. New
   tests `collection-name.test.ts` (shared) and `collection-names.test.ts`
   (HTTP).
@@ -464,7 +1019,7 @@
   Arguments are AJV-checked against the tool's schema before dispatch
   (`-32602`); a route's `4xx` is a result with `isError`. Stateless (no
   session id, `GET`/`DELETE` are `405`), a key is required even where a read
-  would be public, no SDK. New: `docs/guide/mcp.md`, `/api/mcp` in
+  would be public, no SDK. New: `resources/guide/mcp.md`, `/api/mcp` in
   `openapi.json`, the `--url`/`--key` flags and `SILO_URL`/`SILO_API_KEY`.
 
 - **A streamed import is bounded, locks only its load, and never empties a
@@ -813,7 +1368,7 @@
   sorts into the order they were taken. The tab strip stopped clipping a label
   longer than its fixed 120px. The stale `?validate=` parameter D70 removed, and
   the `rejected`/`rejections` fields it added, are finally correct in
-  `docs/openapi.json`.
+  `resources/openapi.json`.
 
 - **silo-client 1.1.1 can cache reads (2026-09-16).** `SiloCache`
   caches successful GET JSON responses only when a caller supplies a finite
@@ -980,10 +1535,10 @@
   yet, so the first publish to Maven Central is by hand.
 
 - **The HTTP API had no machine-readable description (2026-09-16).** Every route
-  was documented three times in prose — `docs/guide/http-api.md` for the shape,
-  `docs/design/http-api.md` for the reason, the handler's own doc comment for the
+  was documented three times in prose — `resources/guide/http-api.md` for the shape,
+  `resources/design/http-api.md` for the reason, the handler's own doc comment for the
   detail — and none of the three could be handed to Swagger UI, Redoc or a client
-  generator. `docs/openapi.json` is OpenAPI 3.1 over all 83 operations: the
+  generator. `resources/openapi.json` is OpenAPI 3.1 over all 83 operations: the
   `/api` surface, the public `/media/{id}` stream outside it, and the one handler
   `/api/ext/{name}/*` dispatches every plugin route through. What it adds over the
   existing table is per-operation *structure* — parameters with their types and
@@ -1003,7 +1558,7 @@
   canonical form is described and `info.description` says the other exists.
   **JSON rather than YAML:** it is the form every viewer and generator takes
   without a parser choice, and there is no comment syntax to tempt anyone into
-  putting the maintenance rule somewhere a tool would drop it. `docs/openapi.json`
+  putting the maintenance rule somewhere a tool would drop it. `resources/openapi.json`
   sits beside `context/`, `design/` and `guide/` rather than inside one, because
   it is not prose and has no single audience.
 
@@ -1464,7 +2019,7 @@
   would send a question or a documentation typo nowhere. Its contact links
   cover the exception that must never be a public issue, a vulnerability, which
   goes to private advisories (already enabled on the repo), and the general
-  case, which goes to `docs/guide/`. The labels applied on submit, `bug` and
+  case, which goes to `resources/guide/`. The labels applied on submit, `bug` and
   `enhancement`, are ones the repo already carries: GitHub silently drops a
   label that does not exist, so a form is a bad place to name a new one.
 
@@ -1606,7 +2161,7 @@
   `updated_at` before answering and no client can reconstruct them.
 
   **Three documentation gaps closed on the way through.**
-  `docs/guide/http-api.md` was missing `GET /api/media/folders`,
+  `resources/guide/http-api.md` was missing `GET /api/media/folders`,
   `POST /api/media/folders` and `GET /api/media/{id}/usages` from its route
   table, and `media_in_use` from its error list. That is why `RouteInventory`
   is checked against the server's own route registrations rather than against
@@ -1811,8 +2366,8 @@
   stamp moves from `"1"` to `"999"`, since `"1"` is now the current one, and the
   fresh-dir test asserts `FormatVersion` instead of a literal. Alongside it the
   docs stopped saying pre-1.0. `IMPLEMENTATION.md` D14 and
-  `docs/context/architecture.md` both named `"2"` as the current stamp;
-  `docs/design/storage.md` and `docs/design/transfer.md` both rested a live
+  `resources/context/architecture.md` both named `"2"` as the current stamp;
+  `resources/design/storage.md` and `resources/design/transfer.md` both rested a live
   policy on breaking changes being cheap before 1.0. Those now say what is true
   from 1.0: a bump is a major release, and the stamp exists so an older layout
   is refused rather than misread. Two source comments that named the old
@@ -2764,7 +3319,7 @@
   renders from. The `Palette*` names in `views/search/palette-results.ts`
   stay — that file is the bar's result builder and always was; only the second
   consumer it once had is gone. The sidebar's `⌘K` trigger is struck from
-  `docs/design/admin-ui.md` too: that button became the `⌥F` collection filter
+  `resources/design/admin-ui.md` too: that button became the `⌥F` collection filter
   earlier and the doc had not caught up.
 
 - **The top-bar search reaches the whole scope again, and lists the collections
@@ -3286,7 +3841,7 @@
   The order is D42's reversed, on the same rule: un-list first and fail hard (a block naming a
   package that is gone fails the *process*, not the plugin), stop the worker, forget the record so
   a re-install comes back approved for nothing, delete the files last and forgive it. The audit
-  entry outlives the record. §13.22 in `docs/design/plugins.md`.
+  entry outlives the record. §13.22 in `resources/design/plugins.md`.
 
 - **A plugin's page is a summary plus four sheets, and its panel gets the page (D44, 2026-08-27).**
   The grant, routes, config and trail sections moved into a new right-hand `Sheet`
@@ -3297,7 +3852,7 @@
   at least the viewport, so a panel could only grow; the frame's canvas was white behind a
   transparent document; and the `ResizeObserver` was never retained, so it was collected and
   stopped reporting. `PluginPanelFrame` gains a `fill` mode for full screen. §10/§10a in
-  `docs/design/admin-ui.md`.
+  `resources/design/admin-ui.md`.
 
 - **Plugins install from the API and the admin, and the block they get carries no claims (D42, 2026-08-27).**
   `POST /api/plugins/install` acquires a package — npm spec, git URL, HTTPS tarball, local path, or
@@ -3334,7 +3889,7 @@
   `on_error` are validated and no longer dropped when there is no config file; the route's two body
   shapes share one field reader; `installArchive` throws the same `ApiError` as every other admin
   call, so a 401 still routes the session back to the gate; and the modal's Cancel button was a bare
-  `<button>` inside a `<form>`, so cancelling installed. See §13.21 in `docs/design/plugins.md`.
+  `<button>` inside a `<form>`, so cancelling installed. See §13.21 in `resources/design/plugins.md`.
 
 - **Media thumbnails in the entries grid resolve against the active server's base URL (2026-08-27).**
   In `apps/admin`, `CellValue.tsx` rendered media thumbnails using `src={asset.url}`. Because

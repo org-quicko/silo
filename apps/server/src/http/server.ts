@@ -1,5 +1,6 @@
 import { Hono } from "hono";
 import { cors } from "hono/cors";
+import { TrashHeader } from "./routes/trash-header";
 import type { SiloService } from "../core/services/silo-service";
 import { RouteManager } from "./routes/route-manager";
 import { LoggingMiddleware } from "./middleware/logging-middleware";
@@ -17,6 +18,7 @@ import { UnauthorizedError } from "../core/errors/unauthorized-error";
 import { ForbiddenError } from "../core/errors/forbidden-error";
 import { RangeNotSatisfiableError } from "../core/errors/range-not-satisfiable-error";
 import { StorageBusyError } from "../core/errors/storage-busy-error";
+import { TooManyTransfersError } from "../core/errors/too-many-transfers-error";
 import type { Logger } from "../logging/logger";
 import { PluginRegistry, PluginSupervisor, ProviderRegistry } from "../plugins";
 import { ConfigSupervisor, MediaPolicySupervisor, MediaStorageSupervisor } from "../settings";
@@ -153,8 +155,10 @@ export class SiloServer {
     // be switched from the settings API without a restart (D47).
     app.use("*", LoggingMiddleware.create(this.logger, this.observability));
 
-    // Enable CORS
-    app.use("/api/*", cors());
+    // Enable CORS. `exposeHeaders` names the trash receipt id (D113): a
+    // cross-origin admin cannot read a response header it is not told about,
+    // and without it every delete would lose its undo.
+    app.use("/api/*", cors({ exposeHeaders: [TrashHeader.Name] }));
     // Read-only and to any origin (D101): an admin on another origin reads a
     // text asset with `fetch` for its preview. The bytes are public (D58), and
     // `GET /api/media` already lists them to any origin.
@@ -255,7 +259,7 @@ export class SiloServer {
       }
       if (err instanceof ConflictError) {
         return c.json(
-          { error: { code: "conflict", message: err.message } },
+          { error: { code: err.code, message: err.message } },
           409
         );
       }
@@ -277,6 +281,14 @@ export class SiloServer {
         return c.json(
           { error: { code: "archive_too_large", message: err.message } },
           413
+        );
+      }
+      // Every prepared-transfer slot is taken (D109). No `Retry-After`: a slot
+      // frees when someone applies or cancels, not after a known time.
+      if (err instanceof TooManyTransfersError) {
+        return c.json(
+          { error: { code: "too_many_transfers", message: err.message } },
+          429
         );
       }
       // Too many reads already waiting on storage (D81): shed the request with

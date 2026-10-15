@@ -4,7 +4,7 @@
 #
 # `test` is the whole suite against the newest Postgres, the check the release
 # workflows' verify jobs also run. `postgres-oldest` runs only the Postgres
-# tests, against the oldest version silo supports (14, docs/design/storage.md
+# tests, against the oldest version silo supports (14, resources/design/storage.md
 # §6.6), so that promise is checked too.
 #
 # Both set SILO_TEST_PG_REQUIRED=1: a Postgres test that cannot run fails the

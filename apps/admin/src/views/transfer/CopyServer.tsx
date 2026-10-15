@@ -16,6 +16,7 @@ import { MediaModeRow } from './MediaModeRow'
 import { TransferInclude } from './transfer-include'
 import { TransferScopePicker } from './TransferScopePicker'
 import { useTransferTree } from './use-transfer-tree'
+import { useSourceKey, type SourceKeyStatus } from './use-source-key'
 import { SettingsAlert } from '../settings/parts/SettingsAlert'
 import { SettingsRow } from '../settings/parts/SettingsRow'
 import { SettingsSection } from '../settings/parts/SettingsSection'
@@ -23,6 +24,11 @@ import ledger from '../settings/parts/SettingsLedger.module.css'
 
 type Mode = 'merge' | 'replace'
 type Prefer = '' | 'local' | 'remote'
+
+const KeyProblem: Partial<Record<SourceKeyStatus, string>> = {
+  refused: 'The source refused this key.',
+  unreachable: 'Could not reach the source.',
+}
 
 /**
  * Pull another running silo's data straight in, no archive in the middle.
@@ -64,11 +70,8 @@ export function CopyServerPanel({
   const [progress, setProgress] = useState<TransferProgress | null>(null)
   const [error, setError] = useState('')
 
-  const sourceTree = useTransferTree(
-    sourceUrl.trim(),
-    sourceApiKey.trim(),
-    browsing && !!sourceUrl.trim() && !!sourceApiKey.trim(),
-  )
+  const sourceKey = useSourceKey(sourceUrl.trim(), sourceApiKey.trim(), browsing)
+  const sourceTree = useTransferTree(sourceUrl.trim(), sourceApiKey.trim(), sourceKey === 'ready')
 
   const invalidatePreview = () => {
     setPreview(null)
@@ -80,12 +83,20 @@ export function CopyServerPanel({
   // nothing is a real state and has to block the copy rather than quietly
   // meaning the whole source.
   const nothingChosen = browsing && include.length === 0
+  // A narrowed copy is sent only with the tree it was chosen on. Without one,
+  // `wire` cannot run, and the empty list would reach the route as the whole
+  // source rather than what was checked.
+  const waitingForTree = browsing && !sourceTree
 
   const copy = async (dryRun: boolean) => {
     const cleanUrl = sourceUrl.trim()
     const cleanKey = sourceApiKey.trim()
     if (!cleanUrl || !cleanKey) {
       setError('Enter the source server URL and a key that permits export.')
+      return
+    }
+    if (waitingForTree) {
+      setError('Wait for the source scope to load.')
       return
     }
     if (nothingChosen) {
@@ -177,6 +188,9 @@ export function CopyServerPanel({
               {showKey ? <EyeOff size={16} /> : <Eye size={16} />}
             </button>
           </div>
+          {KeyProblem[sourceKey] && (
+            <span className={`${ledger.controlNote} ${ledger.noteBad}`}>{KeyProblem[sourceKey]}</span>
+          )}
         </SettingsRow>
       </SettingsSection>
 
@@ -344,14 +358,18 @@ export function CopyServerPanel({
           ) : (
             <>
               <span className={ledger.sectionNote}>
-                {nothingChosen
-                  ? 'Check what to copy first'
-                  : 'Runs a dry run first — nothing is written'}
+                {waitingForTree
+                  ? 'Waiting for the source scope'
+                  : nothingChosen
+                    ? 'Check what to copy first'
+                    : 'Runs a dry run first — nothing is written'}
               </span>
               <Button
                 variant="primary"
                 onClick={() => copy(true)}
-                disabled={busy || !sourceUrl.trim() || !sourceApiKey.trim() || nothingChosen}
+                disabled={
+                  busy || !sourceUrl.trim() || !sourceApiKey.trim() || nothingChosen || waitingForTree
+                }
               >
                 {busy ? <RefreshCw size={14} className="spin" /> : <Copy size={14} />} Preview copy
               </Button>

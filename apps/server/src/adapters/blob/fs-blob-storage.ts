@@ -1,5 +1,5 @@
 import crypto from "crypto";
-import fs from "fs/promises";
+import fs, { type FileHandle } from "fs/promises";
 import path from "path";
 import type {
   BlobStorage,
@@ -45,21 +45,47 @@ export class FsBlobStorage implements BlobStorage {
    * stray blob whose name parses as the pre-D23 `<sha256>_<name>` shape.
    * Nothing here contains an underscore, so a leftover is reported as an
    * orphan rather than adopted as an asset.
+   *
+   * The bytes and then the rename are flushed to disk before this returns, so
+   * a transfer can commit a catalog row that points at the key and know the
+   * file survives a power cut (D107).
    */
   async put(key: string, data: Uint8Array, options?: BlobPutOptions): Promise<void> {
     const filePath = this.resolvePath(key);
-    await fs.mkdir(path.dirname(filePath), { recursive: true });
+    const directory = path.dirname(filePath);
+    await fs.mkdir(directory, { recursive: true });
 
-    const tempPath = path.join(
-      path.dirname(filePath),
-      `.silo-put-${crypto.randomBytes(8).toString("hex")}.tmp`
-    );
+    const tempPath = path.join(directory, `.silo-put-${crypto.randomBytes(8).toString("hex")}.tmp`);
     try {
-      await fs.writeFile(tempPath, data);
+      const handle = await fs.open(tempPath, "w");
+      try {
+        await handle.writeFile(data);
+        await handle.sync();
+      } finally {
+        await handle.close();
+      }
       await fs.rename(tempPath, filePath);
     } catch (error) {
       await fs.unlink(tempPath).catch(() => {});
       throw error;
+    }
+    await FsBlobStorage.syncDirectory(directory);
+  }
+
+  /**
+   * Makes a rename in `directory` durable. Windows cannot open a directory to
+   * flush it, and some filesystems refuse; both keep the rename the OS made.
+   */
+  private static async syncDirectory(directory: string): Promise<void> {
+    if (process.platform === "win32") return;
+    let handle: FileHandle | undefined;
+    try {
+      handle = await fs.open(directory, "r");
+      await handle.sync();
+    } catch (error: any) {
+      if (!["EINVAL", "EPERM", "EISDIR", "ENOTSUP", "EACCES"].includes(error?.code)) throw error;
+    } finally {
+      await handle?.close();
     }
   }
 

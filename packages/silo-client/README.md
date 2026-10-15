@@ -72,8 +72,10 @@ used directly; treat them as immutable for the client's lifetime. A custom
 `fetch` must keep its routing and authentication stable for that client.
 
 Successful collection `create()`, `replace()`, `delete()`, `rename()` and
-`schema.delete()` invalidate the affected collection's entries and pages. Failed
-writes preserve cached data. Other writes, including variable, project and
+`schema.delete()` invalidate the affected collection's entries and pages. A
+successful `trash.restore()` invalidates every cached entry and page, because a
+chain restore can bring entries back to any collection. Failed writes preserve
+cached data. Other writes, including variable, project and
 environment changes, do not trigger automatic invalidation. Use `clear()` after
 those changes when a fresh collection read is needed. Clearing and invalidation
 do not reset statistics; `evictions` counts expiry and capacity removal only.
@@ -427,8 +429,8 @@ bun run test:packaged   # packs the tarball and consumes it from Node, Bun and a
 ```
 
 The design and the reasoning behind it are in
-[docs/design/api-client.md](../../docs/design/api-client.md). The routes are in
-[docs/guide/http-api.md](../../docs/guide/http-api.md).
+[resources/design/api-client.md](../../resources/design/api-client.md). The
+routes are in [resources/guide/http-api.md](../../resources/guide/http-api.md).
 
 ## License
 

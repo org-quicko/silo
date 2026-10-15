@@ -28,6 +28,19 @@ export type { DeleteOptions } from "./scope/delete-options.js";
 // Collections and schemas
 export { Collections } from "./collections/collections.js";
 export { CollectionHandle } from "./collections/collection-handle.js";
+export { TrashHeader } from "./trash-header.js";
+export { Trash } from "./trash/trash.js";
+export { TrashPage } from "./trash/trash-page.js";
+export type { TrashQuery } from "./trash/trash-query.js";
+export type { TrashRestoreResult } from "./trash/trash-restore-result.js";
+export type {
+  TrashActor,
+  TrashBlocker,
+  TrashContents,
+  TrashKind,
+  TrashOrigin,
+  TrashRecord,
+} from "./trash/trash-record.js";
 export { CollectionSchema } from "./collections/collection-schema.js";
 export type { CollectionSummary } from "./collections/collection-summary.js";
 export type { CollectionDefinition } from "./collections/collection-definition.js";

@@ -3,6 +3,29 @@ import path from "path";
 
 /** The filesystem primitives every part of the fs adapter shares. */
 export class FsFiles {
+  /** What Windows answers while another process briefly holds a file. */
+  private static readonly TransientRenameCodes = new Set(["EPERM", "EACCES", "EBUSY"]);
+  private static readonly RenameRetryMs = 5_000;
+
+  /**
+   * `fs.rename`, retried for a few seconds on Windows while another process
+   * holds a file under `from`. A virus scanner opens what was just written,
+   * and a folder holding an open file cannot be renamed; the hold clears in
+   * milliseconds.
+   */
+  static async rename(from: string, to: string): Promise<void> {
+    const deadline = Date.now() + FsFiles.RenameRetryMs;
+    for (let attempt = 1; ; attempt++) {
+      try {
+        return await fs.rename(from, to);
+      } catch (caught: any) {
+        const transient = process.platform === "win32" && FsFiles.TransientRenameCodes.has(caught?.code);
+        if (!transient || Date.now() >= deadline) throw caught;
+        await Bun.sleep(Math.min(10 * attempt, 100));
+      }
+    }
+  }
+
   /**
    * Writes through a temporary file in the same directory, fsyncs, then
    * renames. A reader — including an `rsync` or a `git add` running against a
@@ -21,7 +44,7 @@ export class FsFiles {
       await handle.writeFile(data, "utf8");
       await handle.sync();
       await handle.close();
-      await fs.rename(tempPath, filePath);
+      await FsFiles.rename(tempPath, filePath);
     } catch (error) {
       await fs.rm(tempPath, { force: true }).catch(() => {});
       throw error;

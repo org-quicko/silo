@@ -13,8 +13,8 @@ import java.lang.annotation.Target;
  * number left out is taken from there instead. Required even when it carries
  * nothing, because it is what makes a read cacheable at all.
  *
- * <p>Why it decorates rather than intercepts: {@code docs/design/java-client.md}
- * §15.8.
+ * <p>Why it decorates rather than intercepts:
+ * {@code resources/design/java-client.md} §15.8.
  */
 @Documented
 @Retention(RetentionPolicy.RUNTIME)

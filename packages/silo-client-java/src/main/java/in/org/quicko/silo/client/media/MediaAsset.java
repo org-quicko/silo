@@ -1,6 +1,7 @@
 package in.org.quicko.silo.client.media;
 
 import in.org.quicko.silo.client.RequestOptions;
+import in.org.quicko.silo.client.TrashHeader;
 import in.org.quicko.silo.client.scope.DeleteOptions;
 import in.org.quicko.silo.client.transport.ApiPath;
 import in.org.quicko.silo.client.transport.Transport;
@@ -8,6 +9,7 @@ import in.org.quicko.silo.client.transport.TransportRequest;
 import java.time.Instant;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 
 /**
  * A catalogued asset, live: the record plus the operations on it. A mutating
@@ -135,18 +137,19 @@ public final class MediaAsset {
     return this;
   }
 
-  public void delete() {
-    delete(DeleteOptions.none());
+  public Optional<String> delete() {
+    return delete(DeleteOptions.none());
   }
 
   /** Refused while an entry references it. Forcing also needs
-   *  {@code entries:update} on every scope this asset reaches. */
-  public void delete(DeleteOptions options) {
-    transport.empty(
+   *  {@code entries:update} on every scope this asset reaches. Answers the trash
+   *  receipt's id, or empty when nothing was kept (D113). */
+  public Optional<String> delete(DeleteOptions options) {
+    return TrashHeader.read(transport.emptyWithHeaders(
         TransportRequest.delete(ApiPath.mediaAsset(id()))
             .query("force", options.force() ? true : null)
             .options(options.request())
-            .build());
+            .build()));
   }
 
   public MediaUsagePage usages() {

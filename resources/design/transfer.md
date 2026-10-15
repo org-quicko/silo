@@ -35,7 +35,7 @@
   **The cost is stated rather than hidden.** A storage or blob failure now arrives *after* the response has begun, so it truncates the body instead of becoming an error status. A truncated archive fails its own gzip check at the far end and extracts nothing, so it cannot half-import — the same property §7.2 relies on for a truncated upload. The trade is deliberate: "a clean error after 68 seconds of silence" was not available, because the silence was the failure.
 
   **Reproducibility is now real rather than claimed.** Ordering was always fixed; the mtimes were not, because they were the clock at the moment the staging files were written. Every entry is stamped with the export's own `exported_at`, so two exports of unchanged data are identical byte for byte.
-- `media/` stays a top-level directory in the archive, unaffected by scoping — media is instance-global (§8.1), not per-project/env. Since D23 the bytes travel with their catalog: `_media` and `_media_folders` ride in `_system` and are **never** gated on `--with-keys`, because filenames and folders are data, not credentials. The directory stays **flat**, which since D88 is a thing the archive keeps rather than a thing a blob key is: a key is `media/<id>`, and its prefix is that directory rather than part of the entry's name, so the prefix is stripped on the way out and put back on the way in. Which key an entry goes back to is decided by the archive's own `_media` rows, not by its name — a row saying `<id>.jpg` loads to `<id>.jpg`, one saying `media/<id>` loads to `media/<id>`, and a blob no row claims keeps its own name. That is what lets an archive written before D88 load unmigrated and an older silo go on reading one written after it, with no `format_version` bump on either side.
+- `media/` stays a top-level directory in the archive, unaffected by scoping — media is instance-global (§8.1), not per-project/env. Since D23 the bytes travel with their catalog: `_media` and `_media_folders` ride in `_system` and are **never** gated on `--with-keys`, because filenames and folders are data, not credentials. The directory stays **flat**, which since D88 is a thing the archive keeps rather than a thing a blob key is: a key is `media/<id>`, and its prefix is that directory rather than part of the entry's name, so the prefix is stripped on the way out and put back on the way in. Which key an entry goes back to is decided by the archive's own `_media` rows, not by its name — a row saying `<id>.jpg` loads to `<id>.jpg`, one saying `media/<id>` loads to `media/<id>`, and a blob no row claims keeps its own name. The same row gives what the object is stored as: its `content_type`, and a `Content-Disposition` naming its `filename`, as an upload stores them, because a bucket that serves the object answers without silo. A blob no row claims gets neither. Before this, an import wrote bare bytes, so a bucket served a `media/<id>` object as `application/octet-stream` and an SVG did not draw; `silo media rekey --rewrite` repairs a library imported that way. That is what lets an archive written before D88 load unmigrated and an older silo go on reading one written after it, with no `format_version` bump on either side.
 
 ### 7.2 Import
 
@@ -94,7 +94,7 @@ destination.
 
 Because export/import speak only `Storage`, migrating backends is: `silo export` on the old instance, `silo import --mode replace` on the new one. This doubles as the acceptance test for every new adapter.
 
-**A plain export is a copy, not a move** (D97). It leaves behind what silo keeps for the instance itself — the audit log, the plugin grants and the managed keys minted for them — because an archive is the one artifact that leaves an instance, and those belong to the instance rather than to its content. Changing driver is the one case where that is wrong: the destination *is* the same instance. `silo export --instance` is that case. It carries everything a whole export does, every key (managed ones too, since the grant that names each travels with it), `_plugins` and `_audit`, and stamps `instance: true` in the manifest. It refuses `--include` and `--media referenced`, since a move is whole, and refuses while a `_scope_renames` marker is pending, since the marker never travels and the content would arrive half renamed. On the way in, `ImportSystemGate` loads `_audit` and `_plugins` only from an archive stamped `instance` **and** only for `ImportGrants.Trusted`, which is the CLI: no claim reaches it, so no key — root included — can rewrite the trail or grant a plugin through `POST /api/import`. An archive carrying either without the stamp is refused as before, and `--include` against a move is refused too, since part of one would bring grants and keys for plugins whose content stayed behind. There is no separate migrate command: `--dry-run` already previews the import, and the import result already names every entry the destination's schemas refused. The operator's steps are in `docs/guide/configuration.md`, *Changing the storage driver*.
+**A plain export is a copy, not a move** (D97). It leaves behind what silo keeps for the instance itself — the audit log, the plugin grants, the managed keys minted for them and, since D111, the transfer ledger — because an archive is the one artifact that leaves an instance, and those belong to the instance rather than to its content. Changing driver is the one case where that is wrong: the destination *is* the same instance. `silo export --instance` is that case. It carries everything a whole export does, every key (managed ones too, since the grant that names each travels with it), `_plugins` and `_audit`, and stamps `instance: true` in the manifest. It refuses `--include` and `--media referenced`, since a move is whole, and refuses while a `_scope_renames` marker is pending, since the marker never travels and the content would arrive half renamed. On the way in, `ImportSystemGate` loads `_audit`, `_plugins` and `_transfers` only from an archive stamped `instance` **and** only for `ImportGrants.Trusted`, which is the CLI: no claim reaches it, so no key — root included — can rewrite the trail or grant a plugin through `POST /api/import`. An archive carrying either without the stamp is refused as before, and `--include` against a move is refused too, since part of one would bring grants and keys for plugins whose content stayed behind. There is no separate migrate command: `--dry-run` already previews the import, and the import result already names every entry the destination's schemas refused. The operator's steps are in `resources/guide/configuration.md`, *Changing the storage driver*.
 
 ### 7.4.1 Scoped copy selection and preview
 
@@ -247,3 +247,326 @@ A job model with polling would survive a page reload and support cancellation,
 which this does not. It is the right next step and is deliberately not this one:
 it needs durable job state, a listing, a GC policy and claims of its own, none of
 which the failure this fixes requires.
+
+### 7.9 Transfer packages (D108)
+
+Copying selected content from an environment of one instance into an
+environment of another starts at the source, and the rule there is that what
+was not picked never leaves. `POST /api/copy` cannot keep it: its archive goes
+three depths deep and no further (§7.6), so picking three posts out of a
+thousand would ship the thousand and the media they all use, and a refresh from
+prod would hand a lower stage prod entries nobody chose. A transfer package is
+the answer: `POST /api/projects/{project}/envs/{env}/package` with
+`{collections: [{name, entry_ids?}], media}`.
+
+- **Exactly what was named.** The tree is §6.3's, cut to one scope: the project
+  and environment markers, each named collection's schema and marker, and its
+  entries — all of them for an item with no `entry_ids`, exactly those for an
+  item with them. Variables, keys, folder moves and every other `_system` row
+  stay behind; the destination's own settings are not the source's to send.
+- **Media is the closure of the entries, or nothing.** With `referenced` (the
+  default) the package carries each asset the entries point at that is
+  `active` and whose bytes the store holds, the bytes themselves, and the folder
+  records of every folder above those assets. "Point at" is `MediaRefs.extract`,
+  legacy blob tokens included, so it means what §7.7 means. Every reference the
+  package could not satisfy — no row, a row being deleted, or bytes gone — is
+  listed in `missing_media`, so the destination can say so before anything is
+  applied. With `none` the package carries no catalog row and no byte, which is
+  stricter than an archive's `none`: the destination finds its own unresolved
+  references. `all` is refused, since a package is never the library.
+- **Refused before the first byte, never widened.** Every name and id is checked
+  first: malformed, reserved or repeated is a `400`, absent from the scope a
+  `404` naming what is missing, and only then does the body start. A source too
+  old to know the route answers `404` for the route itself, so there is no older
+  behaviour to fall back to. An entry deleted while the package streams
+  truncates it, and a truncated package fails its gzip check at the far end.
+- **`package.json`, not `manifest.json`.** It records `package_version` (`1`),
+  the source's `silo_version` and `instance_id`, the scope, the echoed selection
+  with a count per collection, the media mode, what media rode and
+  `missing_media`, and it is written last so the counts are what was written.
+  The name is the safety: `Importer` refuses a tree holding `package.json` with
+  a `400` saying it is a transfer package, and every older silo refuses it for
+  having no `manifest.json`. Without that, an operator who saved a package and
+  loaded it with `POST /api/import?mode=replace` would empty every collection
+  of all but the picked entries — the hazard §7.6 kept entry subsets off the
+  archive routes to avoid.
+- **Claims are a narrowed export's** (§7.6): `transfer:export`, plus
+  `schema:read` and `entries:read` on each named collection. No media claim, for
+  the reason D58 gives.
+
+The route only produces. The destination's half — fetching a package, checking
+it against what was asked for, planning it against its own state, and applying
+it through `AtomicStorage.commit` — is the prepared transfer (§7.10).
+
+### 7.10 Prepared transfers (D109)
+
+The destination's half starts with a saved package. `POST
+/api/projects/{project}/envs/{env}/transfers` with `{source: {url, api_key},
+from: {project, env}, selection: [{collection, entry_ids?}], mode, prefer,
+media}` pulls the source's package (§7.9) once, verifies it, and keeps it. The
+review reads that package and nothing else, and Apply will write that package
+and nothing else, which is Terraform's `plan -out` / `apply planfile` and the
+opposite of the env copy's preview, whose own copy warns that live edits may
+shift its numbers. The route names the destination, the body the source, as
+`/api/copy` and the env copy do, and `from` and the route's env may differ:
+`acme/dev` lands in `acme/uat`.
+
+- **Everything refusable is refused before the source is contacted.** The
+  claims first: `transfer:copy`, because this server reaches outside itself,
+  which the env copy (D22) never does; the env copy's write claims on each
+  selected collection at the destination; its replace claims in `replace`
+  mode; `media:create` unless `media` is `none`. Then the body, by the source
+  route's own rules (`TransferPackageSelection.parse`), plus the env copy's rule
+  that an entry subset is merge-only. Then the destination environment, which
+  must exist: a transfer fills an environment, it does not create one, and the
+  package's own markers name the source's records. Then the store, which must
+  offer `AtomicStorage.commit` (D107): the fs adapter answers `409
+  atomic_commit_unsupported`, since a promise of one change is not one it can
+  keep (§6.1 of storage.md). Then a slot. Only then is the source asked.
+- **Pulled as an upload is.** `Importer.stage` spools and unpacks under
+  `[transfer]`'s two ceilings (D85), which matter more here than for `/api/copy`
+  because the source can be any server. Redirects are refused. A body that is
+  not `application/gzip` is refused unread. A `404` with no silo error in it, or
+  silo's own route-miss `not found`, is a server without the route, so the
+  answer says the source needs silo 1.6.0; any other refusal is the source's
+  own message. A connection that breaks mid-pull, and a body that will not
+  unpack, are `400`s about the source, not `500`s about this server.
+- **Verified exactly, or deleted** (`TransferPackageVerifier`,
+  `TransferPackageMediaCheck`). Only plain files and folders, judged by the
+  listing's own file types: a symbolic link in a package could name any file on
+  this host, and following it would hand that file to the review or to Apply as
+  content. At the top only `package.json`, `projects/` and, with `referenced`,
+  `media/`; under `projects/` only the `from` project and, with `referenced`,
+  `_system`. The schemas are exactly the selection's; content folders are a
+  subset of it; each entry file is named by its id, holds that id and a valid
+  envelope, and an item with `entry_ids` holds exactly those. `package.json`
+  must name version `1`, the `from` scope, the media mode and the selection,
+  and its counts must be the counted ones. Under `_system` only `_media` and
+  `_media_folders`: each asset row answers for a reference some packaged entry
+  holds (`MediaRefs.extract`, the source's rule) and is `active`; each row has
+  its file in `media/` and `media/` holds nothing else; each file has its row's
+  size and sha256; a blob key is one plain name, never a path; each folder row
+  is normalised, unique and above a carried asset; and `missing_media` is
+  exactly what the rows leave unresolved. Any difference deletes the transfer,
+  record included, so a source that sends too much does not keep a slot.
+- **Kept on local disk**, under `<data>/transfer/prepared/<id>/`: `record.json`
+  (written through a synced temporary file and a rename), the verified
+  `package/`, and, once planned, `plan.ndjson` (§7.11), which the review pages
+  a line at a time. Local disk is right because
+  one process owns a data directory (D25, D94). The same fact makes the
+  process's own list of running pulls authoritative: a `preparing` record that
+  no pull in this process owns was left by one that stopped, and is removed the
+  next time anything reads the transfers.
+- **Bound to its key and scope.** Every read and the cancel answer only the key
+  that prepared the transfer, under the environment it was prepared for, and
+  still ask for `transfer:copy`. Anyone else gets a `404`, not a `403`, so a
+  transfer id is not something another key can confirm.
+- **Bounded in number and time**, by constants rather than settings for now.
+  A prepared transfer expires 60 minutes after it was prepared and loses its
+  package. At most 4 may be preparing, prepared or applying; the fifth is `429
+  too_many_transfers`, with no `Retry-After` because a slot frees when someone
+  acts. An ended record (cancelled, expired, and later applied or stale) stays
+  24 hours, so a client that lost a response can read the outcome, and is then
+  removed. All of it is applied when transfers are read, so no timer runs.
+- **States**: `preparing`, `prepared`, `applying`, `applied`, `stale`,
+  `cancelled`, `expired`. A cancel of a running pull aborts its fetch, the
+  staged files go, and the prepare answers `409 transfer_cancelled`; a cancel of
+  a prepared one drops the package and keeps the record. A cancel of one that is
+  applying or applied is a `409`.
+- **The source key is never written down.** It lives in the `HttpPackageSource`
+  that makes the one pull; the record holds the source's normalised URL.
+- **Progress** is the D75 stream on `Accept: application/x-ndjson`, and its
+  first line names the transfer, so a client can cancel by id while the pull
+  runs. Without the header the answer is `201` with the transfer.
+- **The review.** `GET …/transfers/{id}?detail_offset=&detail_limit=` answers
+  the record, the package summary, the review and one page of the plan (at
+  most 100; §7.11).
+  `GET …/transfers/{id}/entries/{collection}/{entry}` answers one packaged entry
+  raw, as the editor reads entries (no media URLs, no variables), addressed to
+  the destination. Neither reads the source again, so neither moves when the
+  source does.
+
+**What it opens.** There is no source allowlist: any silo may be a source. A
+key holding `transfer:copy` can therefore make this server send a `POST` to any
+address it can route to, which is the server-side request forgery `/api/copy`
+already carries (audit finding H7), now through a second route that also sends
+a JSON body. What limits it is what limits `/api/copy`: credentials, a query or
+a fragment in the URL are refused, redirects are refused, and a body that is
+not `application/gzip` is refused unread, though a refusal's message can carry
+the `error.message` of a JSON error body. Give `transfer:copy` only to the
+people who release content, and keep egress rules on the host. An allowlist
+(`[transfer] copy_sources`) was designed and left out of 1.6.0 by choice.
+
+The plan (§7.11) is what the review shows and what Apply will write.
+
+### 7.11 The plan (D110)
+
+A prepared transfer is planned as soon as its package is verified, against the
+environment it was prepared for. Planning reads the destination and writes
+nothing, so it takes no write lock; the baseline it records is what lets Apply
+see a change made since.
+
+- **One set of rules.** `ImportRules` holds the decisions an import makes.
+  `schema()`: create a collection that is absent, update in `replace`, and in
+  `merge` update only a schema that differs, unless `prefer: "local"` keeps the
+  destination's; only that last update is guarded (D70). `incomingWins()`:
+  `prefer` when given, else the later `updated_at`, then the higher `rev`, then
+  the higher instance id. `Importer` and `TransferPlanner` both call them, so an
+  archive import, an env copy and a transfer decide the same input the same
+  way. The importer's flow is otherwise as it was, and so are its tests.
+- **Re-addressed.** The package's paths name the source scope. The planner
+  reads them there and plans, as Apply will write, into the route's
+  environment. The package's project, environment and collection markers are
+  ignored: a transfer fills an environment that exists, and a collection it
+  creates takes a fresh id, as in the env copy (D22), because the source's id
+  can belong to a collection here under another name.
+- **Checked against the effective schema.** An import writes the schemas and
+  then validates entries against the stored ones. A plan that becomes one
+  commit cannot do that, so each entry to be written is checked against the
+  scope's schemas as they will stand: the package's where the plan writes the
+  schema, this environment's where it does not (unchanged, or kept by
+  `prefer: "local"`). `SchemaValidator.validateEntryAgainst` compiles from that
+  map, with the same protocol checks (D62, D92). A skipped entry is not judged,
+  as the importer does not judge it. A refused entry is a `rejected` line
+  carrying the validator's message, and Apply will not write it. A schema that
+  does not compile is a `400`. A merge that would change what validates a
+  collection holding entries fails the preparation with the guard's `409`, and
+  the transfer is removed.
+- **Lines and counts.** `plan.ndjson` replaces D109's entry index: one line per
+  packaged entry, by collection and then id, followed in `replace` by one
+  `deleted` line per destination row the package does not carry. A line names
+  its action (`added`, `updated`, `skipped`, `rejected`, `deleted`), the
+  packaged `rev` and time, and the destination row it was planned against
+  (`seq`, `rev`, `updated_at`), if there was one. The record's `review` holds
+  the totals per collection, counted as the importer counts them, so a transfer
+  and an env copy of the same content read the same: `replace` counts every
+  destination row as `deleted`, overwritten or removed, and the lines say
+  which.
+- **The baseline**, which Apply turns into D107's preconditions: each line's
+  destination `seq`, or that there was no row; each collection's record id and
+  `updated_at`, which a schema write and a rename both move, or that there was
+  no collection; in `replace`, the exact set of rows (`rows: "listed"`); and,
+  for a merge whose schema change the guard let through only because the
+  collection was empty, that it is still empty (`rows: "none"`). A skipped or
+  rejected line is part of it too, so anything the review described that has
+  moved makes the transfer stale. Planning reads row by row rather than from
+  one snapshot, and that is enough: Apply checks every observation in one
+  transaction, so it commits only when all of them hold at once. The review
+  also records the destination's project and environment ids
+  (`review.destination`, never shown), because every other observation is
+  relative to a scope name.
+- **What a reader sees.** A page answers each line without its `seq`. What
+  only the destination holds, the id on a `deleted` line and any line's
+  destination `rev` and time, is shown only to a key holding the env copy's
+  read claims (`:schema:read`, `:entries:read`) on that collection here, judged
+  at each read, as the env copy's preview hides destination ids (§7.4.1). The
+  collection baselines are never shown.
+- **Progress** gains a `plan` phase after `verify`.
+
+Media is planned with the content, by `TransferMediaPlanner`, under the rules
+of §7.12 (D111): its lines follow the entries', and each entry line names the
+references it holds that will not resolve here.
+
+### 7.12 Apply (D111)
+
+`POST …/transfers/{id}/apply` writes the plan (§7.11) as one commit, or
+nothing. It takes no body: everything it acts on was fixed when the transfer
+was prepared.
+
+- **The claims, again.** The route asks for `transfer:copy`, then for the write
+  claims prepare asked for, as the key holds them now. A key that lost one
+  since the review is a `403`, and the transfer stays `prepared`. Only the key
+  that prepared the transfer, under its environment, reaches it at all
+  (§7.10).
+- **States.** Apply moves a `prepared` transfer to `applying` under the
+  registry's lock, so a second apply, or a cancel, while it runs is `409
+  transfer_in_progress`. An `applied` transfer is answered as it is, with
+  `200`, so a client that lost the response can apply again safely. A
+  `preparing` one is `409 transfer_in_progress`, a `cancelled` one `409
+  transfer_cancelled`, an `expired` one `409 transfer_expired`, a `stale` one
+  `409 stale_preview`.
+- **One commit.** Under the write lock, `TransferChangeSet` turns the plan into
+  a `ChangeSet` (D107), deciding nothing. Every baseline becomes a
+  precondition: each selected collection's record stamp; in `replace`, the
+  exact rows; elsewhere each line's row at its `seq`, or absent; a collection
+  the guard let change only while empty, still empty; each media line's row;
+  each asset here that a written reference resolved to; and the ledger row,
+  absent. The writes are the added folders and assets, then per collection the
+  schema where the plan writes it, the added and updated entries with their
+  usages and search text (extracted against the effective schema), and in
+  `replace` a delete for every listed row that is not written; last, the
+  ledger row. A precondition that no longer holds is `409 stale_preview`: the
+  transfer becomes `stale` and loses its package, and this server is exactly
+  as it was.
+- **Three checks the commit cannot state**, made under the same write lock
+  just before it, which every other write also waits for: the destination's
+  project and environment still have the ids the plan recorded, no folder now
+  exists at a path the plan adds, and no file at a key it writes. Any is
+  `stale_preview`. The first exists because a plan into an environment whose
+  selected collections were all absent has only absence preconditions, which
+  hold just as well after the environment is deleted, or deleted and made
+  again under its name; the schema writes would then recreate the scope with a
+  new id. Checking the ids refuses both, and a deleted environment is never
+  recreated by an apply.
+- **Files outside the transaction.** A blob store cannot join a database
+  commit, so the new assets' files go first, each under a key that was free,
+  and the keys are saved in `record.json` (`blob_intents`) before the first
+  file is written. When the commit does not land, every saved key that no
+  catalog row claims is deleted. A file under an existing asset is never
+  written.
+- **The ledger.** The commit writes `_system/_transfers/<id>`, a new system
+  collection: the source, the scopes, the selection, the options, the times
+  and the totals. Its absence is a precondition, so a transfer lands at most
+  once, and after a crash its presence is what says the commit landed. It is
+  instance-local like `_audit` (§7.4): it rides only in `silo export
+  --instance`, every other import refuses it, and it is kept without limit.
+- **Failures.** A failure that is not a conflict (a refused file, a constraint
+  or trigger inside the commit, a lost connection) is settled at once. If the
+  ledger row exists the commit landed after all, as Postgres can report a
+  dropped connection after `COMMIT`, and the transfer is `applied`. Otherwise
+  the files are taken back, the transfer returns to `prepared` with
+  `last_error`, and the request answers the failure. If even that cannot be
+  learned, the transfer stays `applying` with its keys, and the next apply or
+  the next start settles it.
+- **Recovery.** `silo serve` settles every `applying` transfer that no apply in
+  the process runs, before it listens: with the ledger row, `applied`; without,
+  the files taken back and `prepared` again, with `last_error` saying it was
+  interrupted, to be applied within its hour.
+- **After.** An applied transfer keeps its record, its review and `applied_at`
+  for 24 hours (§7.10), and drops its package and plan. The schema cache is
+  invalidated. No hooks fire, as for an import (D31).
+- **Progress.** With `Accept: application/x-ndjson`, the phases are `media`
+  (the files) and `commit`.
+
+**Media (D111)** is planned with the content (§7.11) and shown on the plan's
+`_media` and `_media_folders` lines, each with the asset's filename or the
+folder's path.
+
+- An asset this server lacks, whose key is free, is `added`: its row as the
+  package holds it and its file under the same key, so a pre-D23 `blob:`
+  reference to it still resolves.
+- An asset this server holds under the same id is never changed. The same
+  bytes (sha256 and size) with the same filename, folder, content type and
+  tags is `unchanged`. Anything else is `skipped` with the reason, and this
+  server's asset is kept: other bytes, other details, or an asset being
+  deleted. A transfer does not rename, move, retag or replace an asset; that
+  is each library's own work (D67).
+- A packaged asset whose key holds a file this server's catalog does not claim
+  is `skipped`.
+- Folders are matched by path. One this server lacks is `added`, under the
+  package's id when that id is free.
+- Nothing is deleted, in either mode: `replace` replaces entries, not the
+  library.
+- With `media: none` no row and no byte ride, and the plan names every
+  reference the written entries hold that will not resolve here, in
+  `review.media.unresolved` and on each entry line. So does `referenced`, for
+  the source's `missing_media` and for a skipped asset this server does not
+  hold. The entry API refuses such a reference; a transfer writes it as an
+  import does (§7.2), and the review is where it is seen. A pre-D23 `blob:`
+  reference names a key rather than an asset and is not judged, as the entry
+  API does not judge it.
+
+**Memory.** A commit is one `ChangeSet`, so every entry the plan writes is in
+memory at once, bounded by `[transfer]`'s ceilings on the package (D85).
+
+The admin's page for a transfer from another server comes next.

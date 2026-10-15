@@ -1,6 +1,6 @@
 # Configuration
 
-> Operator reference for `silo.toml`, the `SILO_*` variables, and running silo as a service. The design rationale is in [docs/design/configuration.md](../design/configuration.md).
+> Operator reference for `silo.toml`, the `SILO_*` variables, and running silo as a service. The design rationale is in [resources/design/configuration.md](../design/configuration.md).
 
 Configuration layers, highest priority first: **flags**, then `SILO_*`
 environment variables, then the TOML file, then the defaults. Every key is
@@ -95,6 +95,7 @@ max_files   = 5               # kept as silo.log.1 ... silo.log.5
 | `SILO_HTTP_IDLE_TIMEOUT` | `[http] idle_timeout` |
 | `SILO_HTTP_MAX_BODY_SIZE_MB`, `SILO_HTTP_MAX_JSON_BODY_SIZE_MB` | `[http] max_body_size_mb`, `[http] max_json_body_size_mb` |
 | `SILO_TRANSFER_MAX_ARCHIVE_SIZE_MB`, `SILO_TRANSFER_MAX_EXTRACTED_SIZE_MB` | `[transfer] max_archive_size_mb`, `[transfer] max_extracted_size_mb` |
+| `SILO_TRASH_ENABLED`, `SILO_TRASH_RETENTION_DAYS` | `[trash] enabled` (`true` or `false` only, see [How long a delete can be undone](#how-long-a-delete-can-be-undone)), `[trash] retention_days` |
 | `SILO_READ_THREAD` | `on` or `off`: whether entry lists and searches on SQLite run on a separate storage thread. On by default; off under the test runner. Not in the file |
 | `SILO_DEFAULT_PROJECT`, `SILO_DEFAULT_ENV` | `default_project`, `default_env` |
 | `SILO_STORAGE_DRIVER`, `SILO_STORAGE_PATH` | `[storage]` |
@@ -297,6 +298,53 @@ The message names the setting to raise. Raise both to copy a large instance.
 An archive or directory you name on the command line with `silo import` is
 not checked. Both take effect at the next restart, and both are on
 **Settings > Configuration > Transfers**.
+
+## How long a delete can be undone
+
+A delete moves its subject to the trash instead of destroying it. This applies
+to a project, an environment, a collection, an entry, a media asset and a media
+folder. `GET /api/trash` lists what is there, and the admin shows the same list
+under **Trash** in the sidebar.
+
+```toml
+[trash]
+enabled = true
+retention_days = 30
+```
+
+`enabled` decides whether a delete is recoverable at all. Set it to `false` and
+every delete is permanent, which is how silo behaved before this setting
+existed. Use that for a CI instance that creates and tears down scopes, where a
+trash only fills the disk.
+
+The trash is on when you upgrade. A `silo.toml` from an older version has no
+`[trash]` table, so silo uses the default, which is `true`.
+
+`SILO_TRASH_ENABLED` accepts only `true` or `false`, in any case. With any
+other value, such as `0`, `no` or `off`, silo does not start, and the error
+names the variable. silo does not guess. If it read an unknown value as off,
+a typo would make every delete permanent. If it read the value as on, it would
+ignore an operator who wanted the trash off. An empty variable is the same as
+no variable.
+
+`retention_days` is how long an item stays before silo deletes it for good. The
+default is 30. The server checks once an hour. Set it to `0` to keep items until
+someone deletes them by hand. If the server cannot delete an expired item, it
+logs a warning with the count and tries again at the next check.
+
+The expiry date is stamped on each item when you delete it. If you shorten
+`retention_days` later, items already in the trash keep the date they were
+given, so a change to this setting never destroys something that was already
+safe.
+
+Both fields are also on **Settings > Configuration > Trash**, behind the
+`settings:configure` claim. They take effect at the next restart.
+
+Deleting from the trash needs the `trash:purge` claim, which only a `root` key
+has. The same claim lets a delete skip the trash with `?permanent=true`.
+
+Content in the trash still uses disk. A trashed media asset keeps its file until
+the item is purged, and a trashed project keeps a copy of every entry it held.
 
 ## Media, from the admin
 

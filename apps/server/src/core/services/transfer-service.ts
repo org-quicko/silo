@@ -5,6 +5,8 @@ import { Exporter } from "../transfer/exporter";
 import type { ImportOptions } from "../transfer/import-options";
 import type { ImportResult } from "../transfer/import-result";
 import { Importer } from "../transfer/importer";
+import { TransferPackageExporter } from "../transfer/package/transfer-package-exporter";
+import type { TransferPackageSelection } from "../transfer/package/transfer-package-selection";
 import type { ScopeCopyOptions } from "../transfer/scope-copy-options";
 import { ScopeCopier } from "../transfer/scope-copier";
 import type { ServiceContext } from "./support/service-context";
@@ -57,6 +59,15 @@ export class TransferService {
    */
   exportTarGzStream(options: ExportOptions): ReadableStream<Uint8Array> {
     return Exporter.exportTarGzStream(this.context.store, options, this.context.blobStorage);
+  }
+
+  /**
+   * A transfer package (D108): the selection is checked against storage first,
+   * so a missing name is an error status, and then the package streams.
+   */
+  async package(selection: TransferPackageSelection): Promise<ReadableStream<Uint8Array>> {
+    const plan = await TransferPackageExporter.plan(this.context.store, selection);
+    return TransferPackageExporter.stream(this.context.store, plan, this.context.blobStorage);
   }
 
   /** A tree already on the host's disk: nothing to unpack, so straight to the load. */

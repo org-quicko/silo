@@ -14,6 +14,13 @@ public final class JsonValues {
     return value == null || value.isNull() ? "" : value.asText();
   }
 
+  /** The named field as text, or null when it is absent or null, for the
+   *  fields whose absence means something. */
+  public static String textOrNull(JsonNode node, String field) {
+    JsonNode value = node == null ? null : node.get(field);
+    return value == null || value.isNull() ? null : value.asText();
+  }
+
   /** A string array as a list, or an empty list when it is absent. */
   public static List<String> strings(JsonNode array) {
     List<String> values = new ArrayList<>();

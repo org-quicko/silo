@@ -14,6 +14,7 @@ import '../search/search.dart';
 import '../search/search_page.dart';
 import '../search/search_query.dart';
 import '../search/search_reach.dart';
+import '../trash_header.dart';
 import '../transport/api_path.dart';
 import '../transport/transport_request.dart';
 import 'collection_schema.dart';
@@ -66,15 +67,20 @@ final class CollectionHandle<F> {
   Future<Entry<F>> replace(String id, int rev, F fields, [RequestOptions options = const RequestOptions()]) =>
       _write('PUT', ApiPath.entry(_scope.project, _scope.environment, name, id), fields, rev, options);
 
-  Future<void> delete(String id, int rev, [RequestOptions options = const RequestOptions()]) => _scope.transport.empty(
-    TransportRequest(
-      'DELETE',
-      ApiPath.entry(_scope.project, _scope.environment, name, id),
-      query: {'rev': rev},
-      options: options,
-      evicts: _entries,
-    ),
-  );
+  /// Answers the trash receipt's id, or null when the delete was permanent or
+  /// the instance keeps no trash (D113).
+  Future<String?> delete(String id, int rev, [RequestOptions options = const RequestOptions()]) async =>
+      TrashHeader.read(
+        await _scope.transport.emptyWithHeaders(
+          TransportRequest(
+            'DELETE',
+            ApiPath.entry(_scope.project, _scope.environment, name, id),
+            query: {'rev': rev},
+            options: options,
+            evicts: _entries,
+          ),
+        ),
+      );
 
   Future<SearchPage> search(SearchQuery query, [RequestOptions options = const RequestOptions()]) =>
       Search(_scope.transport, SearchReach.collection(_scope.project, _scope.environment, name)).run(query, options);

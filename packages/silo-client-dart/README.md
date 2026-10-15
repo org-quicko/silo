@@ -6,7 +6,7 @@ runs on the Dart VM, Flutter and the web.
 
 ```yaml
 dependencies:
-  silo_client: ^1.0.0
+  silo_client: ^1.6.0
 ```
 
 ## Start
@@ -71,6 +71,19 @@ final logo = await silo.media.upload(MediaUpload(bytes: bytes, filename: 'logo.p
 fields['hero'] = logo.reference; // silo://media/<id>. Do not store logo.url.
 ```
 
+## Trash
+
+A delete moves its subject to the trash and returns the trash item's id, or `null` when nothing was kept.
+
+```dart
+final trashId = await posts.delete(id, rev);
+if (trashId != null) await silo.trash.restore(trashId);
+
+final page = await silo.trash.list(const TrashQuery(kind: TrashKind.entry, project: 'acme'));
+await silo.trash.restore(page.items.first.id, const TrashRestoreOptions(chain: true));
+await silo.trash.purge(page.items.first.id); // needs trash:purge
+```
+
 ## Failures
 
 ```dart
@@ -99,7 +112,8 @@ silo.cache.clear();
 ```
 
 The cache is off by default. Only `get` and `list` are cached. A write through
-this client drops that collection. `withKey` and `withUrl` start empty.
+this client drops that collection. A `trash.restore` drops every collection,
+because a chain restore can bring entries back anywhere. `withKey` and `withUrl` start empty.
 
 ## Your own HTTP client
 

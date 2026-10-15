@@ -11,7 +11,7 @@ short version. For the reasons behind a design, read `../design/`.
 | [mcp.md](mcp.md) | Connect Claude Code, Codex, Cursor or Claude Desktop to silo's tools with an API key |
 | [claims.md](claims.md) | The claim catalog, wildcards, delegation, and public reads |
 | [plugins.md](plugins.md) | Write a plugin, enable it, install it, inspect it |
-| [transfer.md](transfer.md) | Export, import, server copy, and the on-disk layout |
+| [transfer.md](transfer.md) | Export, import, server copy, copying an environment from another instance, and the on-disk layout |
 | [deployment.md](deployment.md) | Docker, systemd, and volumes |
 
 [../openapi.json](../openapi.json) is the machine-readable form of the HTTP API.

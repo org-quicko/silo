@@ -28,6 +28,8 @@ export class S3MockServer {
   readonly requests: string[] = [];
   /** Number of keys one `ListObjectsV2` may return; S3's own cap is 1000. */
   maxKeysPerPage = 1000;
+  /** Puts this answers with a `500` instead of storing, as a failing store would. */
+  refusesPut: (key: string) => boolean = () => false;
 
   private constructor() {
     this.server = Bun.serve({ port: 0, fetch: (req) => this.handle(req) });
@@ -67,6 +69,10 @@ export class S3MockServer {
   }
 
   private async putObject(req: Request, key: string): Promise<Response> {
+    if (this.refusesPut(key)) {
+      await req.arrayBuffer();
+      return new Response("<Error><Code>InternalError</Code><Message>refused</Message></Error>", { status: 500 });
+    }
     this.objects.set(key, {
       body: new Uint8Array(await req.arrayBuffer()),
       contentType: req.headers.get("content-type") ?? undefined,

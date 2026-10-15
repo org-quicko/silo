@@ -120,7 +120,9 @@ export class HttpSiloClient {
     });
   }
 
-  private static normalizeUrl(value: string): string {
+  /** A source URL as both pulls use it: http or https, no credentials, query
+   *  or fragment, no trailing slash. Shared with `HttpPackageSource`. */
+  static normalizeUrl(value: string): string {
     const trimmed = value.trim();
     if (!trimmed) {
       throw new ValidationError("source_url is required");

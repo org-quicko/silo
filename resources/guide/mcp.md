@@ -1,6 +1,6 @@
 # MCP
 
-> Use silo's tools from an AI client. The design rationale is in [docs/design/http-api.md](../design/http-api.md), section 8.6.
+> Use silo's tools from an AI client. The design rationale is in [resources/design/http-api.md](../design/http-api.md), section 8.6.
 
 silo is an MCP server. MCP, the Model Context Protocol, is how AI clients such
 as Claude Code, Claude Desktop, Codex and Cursor call tools on another program.

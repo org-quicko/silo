@@ -39,6 +39,16 @@ abstract final class ApiPath {
 
   static String instanceSearch() => '/api/search';
 
+  static String trash() => '/api/trash';
+
+  static String trashItem(String id) => '/api/trash/${_segment(id)}';
+
+  static String trashItemContents(String id) => '${trashItem(id)}/items';
+
+  static String trashRestore(String id) => '${trashItem(id)}/restore';
+
+  static String trashPurge() => '/api/trash/purge';
+
   static String media() => '/api/media';
 
   static String mediaExtensions() => '/api/media/extensions';

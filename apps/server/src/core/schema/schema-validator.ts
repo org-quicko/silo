@@ -52,6 +52,33 @@ export class SchemaValidator {
   }
 
   async validateEntry(scope: Scope, collection: string, data: any): Promise<void> {
+    await this.validateWith(`${scope.key()}:${collection}`, scope, collection, data, async () =>
+      CollectionSchemas.map(await this.store.listCollections(scope))
+    );
+  }
+
+  /**
+   * Validates against `schemas`, a scope's schemas as they will stand once a
+   * planned change lands, instead of the stored ones (D110). A plan that
+   * writes schemas and entries in one commit cannot write the schemas first
+   * and ask the store, as the importer does.
+   */
+  async validateEntryAgainst(
+    schemas: ReadonlyMap<string, unknown>,
+    scope: Scope,
+    collection: string,
+    data: unknown
+  ): Promise<void> {
+    await this.validateWith(`planned:${scope.key()}:${collection}`, scope, collection, data, async () => new Map(schemas));
+  }
+
+  private async validateWith(
+    cacheKey: string,
+    scope: Scope,
+    collection: string,
+    data: any,
+    schemas: () => Promise<Map<string, any>>
+  ): Promise<void> {
     // Before the schema is even compiled, because this is a protocol rule and
     // not a schema one: Ajv runs `strict: false` against whatever document the
     // author supplied, and JSON Schema admits undeclared properties unless a
@@ -64,10 +91,9 @@ export class SchemaValidator {
     // check it again, since system writes do not come through here.
     PortableData.assert(data);
 
-    const cacheKey = `${scope.key()}:${collection}`;
     let validateFn = this.cache.get(cacheKey);
     if (!validateFn) {
-      const all = CollectionSchemas.map(await this.store.listCollections(scope));
+      const all = await schemas();
       if (!all.has(collection)) {
         throw new NotFoundError(`collection "${scope.key()}/${collection}" not found`);
       }

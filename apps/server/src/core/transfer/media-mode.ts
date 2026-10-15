@@ -11,7 +11,7 @@ import { ValidationError } from "@silo/shared/validation-error";
  *
  * The catalog is filtered to match in every mode, so `_media` never describes
  * an asset the archive neither carries nor leaves behind on purpose. See §7.7
- * in [docs/design/transfer.md](../../../../../docs/design/transfer.md).
+ * in [resources/design/transfer.md](../../../../../resources/design/transfer.md).
  */
 export type MediaMode = "all" | "referenced" | "none";
 

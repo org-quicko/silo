@@ -44,32 +44,53 @@ export class PgCollectionStore {
    * have done.
    */
   async put(scope: Scope, collection: string, schema: any, id?: string): Promise<CollectionRecord> {
+    return this.resolver.invalidating(() =>
+      this.connection.transaction((transaction) =>
+        this.putIn(transaction, scope, collection, schema, id)
+      )
+    );
+  }
+
+  /** `put` on a transaction the caller holds; the caller clears the resolver around it. */
+  async putIn(
+    transaction: PgQueryable,
+    scope: Scope,
+    collection: string,
+    schema: any,
+    id?: string
+  ): Promise<CollectionRecord> {
     EntryUtils.assertSafeSegment(collection, "collection");
     const document = JSON.stringify(schema);
+    const { projectId, envId } = await this.scopes.ensureScope(transaction, scope);
+    const now = EntryUtils.now().toISOString();
 
-    return this.resolver.invalidating(() =>
-      this.connection.transaction(async (transaction) => {
-        const { projectId, envId } = await this.scopes.ensureScope(transaction, scope);
-        const now = EntryUtils.now().toISOString();
+    const existing = await this.read(transaction, envId, collection);
+    const recordId = existing
+      ? existing.id
+      : await PgIdClaim.claim(transaction, this.tables, id, "collection");
 
-        const existing = await this.read(transaction, envId, collection);
-        const recordId = existing
-          ? existing.id
-          : await PgIdClaim.claim(transaction, this.tables, id, "collection");
-
-        const [row] = await transaction.query(
-          `INSERT INTO ${this.tables.collections}
-             (id, project_id, env_id, name, schema, created_at, updated_at)
-           VALUES ($1, $2, $3, $4, $5, $6, $6)
-           ON CONFLICT (env_id, name) DO UPDATE SET
-             schema = excluded.schema,
-             updated_at = excluded.updated_at
-           RETURNING ${PgRecordMapper.CollectionColumns}`,
-          [recordId, projectId, envId, collection, document, now]
-        );
-        return { ...PgRecordMapper.toCollection(row), schema };
-      })
+    const [row] = await transaction.query(
+      `INSERT INTO ${this.tables.collections}
+         (id, project_id, env_id, name, schema, created_at, updated_at)
+       VALUES ($1, $2, $3, $4, $5, $6, $6)
+       ON CONFLICT (env_id, name) DO UPDATE SET
+         schema = excluded.schema,
+         updated_at = excluded.updated_at
+       RETURNING ${PgRecordMapper.CollectionColumns}`,
+      [recordId, projectId, envId, collection, document, now]
     );
+    return { ...PgRecordMapper.toCollection(row), schema };
+  }
+
+  /** `find` on a transaction the caller holds, so it sees that transaction's own writes. */
+  async findIn(
+    transaction: PgQueryable,
+    resolver: PgScopeResolver,
+    scope: Scope,
+    collection: string
+  ): Promise<CollectionRecord | null> {
+    const envId = await resolver.environmentId(scope.project, scope.env);
+    return envId === null ? null : this.read(transaction, envId, collection);
   }
 
   async get(scope: Scope, collection: string): Promise<any> {

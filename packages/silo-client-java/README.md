@@ -11,12 +11,12 @@ Java 25 or newer. Every call blocks, so run it on virtual threads.
 <dependency>
   <groupId>in.org.quicko.silo</groupId>
   <artifactId>client</artifactId>
-  <version>1.1.0</version>
+  <version>1.6.0</version>
 </dependency>
 ```
 
 The rationale for every decision here is in
-[docs/design/java-client.md](../../docs/design/java-client.md). The
+[resources/design/java-client.md](../../resources/design/java-client.md). The
 TypeScript client is [`packages/silo-client`](../silo-client), and the two are
 held to the same route inventory by a test.
 
@@ -429,6 +429,20 @@ report.failed().forEach(failure ->
     System.out.printf("%s: %s (%s)%n", failure.id(), failure.message(), failure.code()));
 ```
 
+## Trash
+
+A delete moves its subject to the trash. `delete` returns the trash item's id,
+or an empty `Optional` when nothing was kept, so an undo is one call:
+
+```java
+Optional<String> trashId = posts.delete(id, rev);
+trashId.ifPresent(silo.trash()::restore);
+
+TrashPage page = silo.trash().list(TrashQuery.all().kind(TrashKind.ENTRY).project("acme"));
+silo.trash().restore(page.items().get(0).id(), TrashRestoreOptions.none().chain(true));
+silo.trash().purge(page.items().get(0).id());   // needs trash:purge
+```
+
 ## Failures
 
 `SiloException` is the base for everything silo answered and refused, with one
@@ -591,6 +605,8 @@ the key of a read carrying one more parameter.
 
 Every write this client makes to a collection drops that collection's rows and
 pages. The path stays the prefix of every key, so one sweep catches both. A
+`trash().restore` drops every collection's rows and pages, because a chain
+restore can bring entries back anywhere. A
 write made anywhere else is not something the client can be told about, which is
 what the ttl is for, and `cache().clear()` when you know better.
 

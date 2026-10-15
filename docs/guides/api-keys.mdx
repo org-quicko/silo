@@ -148,12 +148,15 @@ Every claim Silo recognizes is listed here. In the collection claims, `<p>` is t
 | `http:route` | Allow a plugin to be reached at the routes its manifest declares |
 | `settings:configure` | Change server settings (logging, search, auth, etc.) — root-only |
 | `observability:read` | Read aggregate operating metrics |
+| `trash:purge` | Delete [trash](/guides/trash) items for good, empty the trash, and skip it with `?permanent=true`. Root-only |
 | `transfer:export` | Export data as a tarball archive |
 | `transfer:import` | Import a tarball archive |
 | `transfer:copy` | Pull and import data from another Silo instance |
 
 <Note>
   `media:purge` is intentionally not part of `media:delete`. Purging the entire library is a separate, irreversible operation. The purge route requires **both** `media:purge` and `media:delete` — holding one alone does nothing.
+
+  `trash:purge` is root-only too. Moving content to the trash needs only the delete claim, and restoring it needs the write claims where it goes back. Destroying it for good is a separate decision.
 
   `media:configure` and `settings:configure` are root-only. Both expose credentials or security-sensitive configuration and cannot be carried by plugins or granted outside a root-preset key.
 
@@ -216,7 +219,7 @@ Presets are named shortcuts over the same claim set. The CLI's `--preset` flag a
 <Note>
   `plugins:grant` and `plugins:enable` are carried only by the `root` preset. Empowering a plugin to act on your instance is always an explicit, deliberate grant — no convenience preset includes it.
 
-  `settings:configure`, `media:configure`, and `media:purge` are also root-only and are not carried by any other preset.
+  `settings:configure`, `media:configure`, `media:purge`, and `trash:purge` are also root-only and are not carried by any other preset.
 </Note>
 
 ## Audit trail

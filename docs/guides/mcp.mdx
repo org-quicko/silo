@@ -101,12 +101,12 @@ Every key sees the same tool list. What differs is which calls succeed. The clai
 | `get_schema` | One collection's JSON Schema, references bundled | `collections:<p>/<e>/<c>:schema:read` |
 | `create_collection` | Create a collection from a schema | `collections:<p>/<e>/<c>:create` |
 | `update_schema` | Replace a schema (frozen while entries exist) | `collections:<p>/<e>/<c>:schema:update` |
-| `delete_collection` | Delete a collection; `force` erases its entries | `collections:<p>/<e>/<c>:delete`, plus `entries:delete` with `force` |
+| `delete_collection` | Delete a collection; `force` takes its entries too. Both go to the [trash](/guides/trash) | `collections:<p>/<e>/<c>:delete`, plus `entries:delete` with `force` |
 | `list_entries` | Filtered, sorted page of entries | `collections:<p>/<e>/<c>:entries:read` |
 | `get_entry` | One entry with its `rev` | `collections:<p>/<e>/<c>:entries:read` |
 | `create_entry` | Create an entry, validated against the schema | `collections:<p>/<e>/<c>:entries:create` |
 | `update_entry` | Replace an entry's fields, with the `rev` you read | `collections:<p>/<e>/<c>:entries:update` |
-| `delete_entry` | Delete an entry, with the `rev` you read | `collections:<p>/<e>/<c>:entries:delete` |
+| `delete_entry` | Delete an entry, with the `rev` you read. It goes to the trash | `collections:<p>/<e>/<c>:entries:delete` |
 | `search` | Text search across one collection, environment, or everything | `entries:read` where it looks |
 | `list_media` | Media catalog, filtered and paged | public read (the MCP endpoint still needs a key) |
 | `get_media` | One asset's catalog record | public read (the MCP endpoint still needs a key) |

@@ -1,10 +1,12 @@
 import type { Context } from "hono";
 import { Claims } from "@silo/shared/claims";
+import type { MediaInUseError } from "../../core/errors/media-in-use-error";
 import { SiloService } from "../../core/services/silo-service";
 import { ValidationError } from "@silo/shared/validation-error";
 import { RouteAuth } from "../auth/route-auth";
 import { MediaDeleteBatch } from "./media-delete-batch";
 import { MediaInUseDetails } from "./media-in-use-details";
+import { TrashHeader } from "./trash-header";
 
 /**
  * `/api/media/folders`: list, create, rename/move (D49), and delete —
@@ -42,10 +44,15 @@ export class MediaFolderRoutes {
       return c.json(result, 200);
     });
 
+    // Into the trash unless `permanent`: the folder records and every file that
+    // went are one receipt, named in `X-Silo-Trash-Id` (D113).
     app.delete("/api/media/folders", async (c: Context) => {
       RouteAuth.requireClaim(c, Claims.MediaDelete);
       const path = c.req.query("path");
       const force = c.req.query("force") === "true";
+      const options = RouteAuth.getDeleteOptions(c);
+      const inUseDetails = (id: string, caught: MediaInUseError) =>
+        MediaInUseDetails.build(c, service, id, caught);
 
       if (c.req.query("recursive") !== "true") {
         if (force) {
@@ -56,7 +63,8 @@ export class MediaFolderRoutes {
           throw new ValidationError('"force" requires "recursive": without it there is nothing to force');
         }
         // Unchanged default: refuses while anything is inside (D23).
-        await service.media.deleteFolder(path);
+        const receipt = await service.media.deleteFolder(path, options);
+        if (receipt) c.header(TrashHeader.Name, receipt);
         return c.body(null, 204);
       }
 
@@ -65,9 +73,17 @@ export class MediaFolderRoutes {
         await RouteAuth.requireMediaContentAuthority(c, "recursive folder delete with force", service.media, ids);
       }
 
-      const batch = await MediaDeleteBatch.run(service, ids, force, (id, caught) =>
-        MediaInUseDetails.build(c, service, id, caught)
-      );
+      if (service.media.recoverable(options)) {
+        const outcome = await service.media.trashFolder(path, ids, { force, ...options });
+        const failed: Array<Record<string, unknown>> = [];
+        for (const { id, error } of outcome.failed) {
+          failed.push(await MediaDeleteBatch.describe(id, error, inUseDetails));
+        }
+        if (outcome.trashId) c.header(TrashHeader.Name, outcome.trashId);
+        return c.json({ deleted: outcome.deleted, failed, folders_deleted: outcome.foldersDeleted }, 200);
+      }
+
+      const batch = await MediaDeleteBatch.run(service, ids, force, inUseDetails, options);
       // An asset a delete could not remove means the folder is not actually
       // gone — `not_found` is the one outcome that doesn't, since the asset
       // was already gone before this request touched it.

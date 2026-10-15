@@ -8,7 +8,9 @@ import type { MediaQuery } from "../../media/media-query";
 import type { MediaReconcileResult } from "../../media/media-reconcile-result";
 import type { MediaRekeyResult } from "../../media/media-rekey-result";
 import type { MediaUsage } from "../../media/media-usage";
+import type { DeleteOptions } from "../../trash/delete-options";
 import type { ServiceContext } from "../support/service-context";
+import type { TrashService } from "../trash/trash-service";
 import type { MediaAssetPatchInput } from "./media-asset-patch";
 import type { MediaArchivePart } from "../../media/media-archive-plan";
 import type { MediaStats } from "../../media/media-stats";
@@ -25,6 +27,7 @@ import { MediaDelivery } from "./media-delivery";
 import { MediaDeletionService } from "./media-deletion-service";
 import { MediaFolderMoveService } from "./media-folder-move-service";
 import { MediaFolderService } from "./media-folder-service";
+import type { MediaFolderTrashOutcome } from "./media-folder-trash-outcome";
 import { MediaLinkResolver } from "./media-link-resolver";
 import type { MediaContentReach } from "./media-usage-scopes";
 import { MediaUsageScopes } from "./media-usage-scopes";
@@ -33,6 +36,7 @@ import { MediaPurgeService } from "./media-purge-service";
 import { MediaReconciler } from "./media-reconciler";
 import { MediaRekeyer } from "./media-rekeyer";
 import { MediaReferenceGuard } from "./media-reference-guard";
+import { MediaTrashService } from "./media-trash-service";
 import { MediaUsageCounter } from "./media-usage-counter";
 
 /**
@@ -55,11 +59,12 @@ export class MediaService {
   private readonly purgeService: MediaPurgeService;
   private readonly archives: MediaArchiveService;
   private readonly statsCounter: MediaStatsCounter;
+  private readonly trashService: MediaTrashService;
 
   /** The entry write path checks new references through this (§8.1). */
   readonly referenceGuard: MediaReferenceGuard;
 
-  constructor(context: ServiceContext) {
+  constructor(context: ServiceContext, trash: TrashService) {
     const catalog = new MediaCatalogStore(context);
 
     this.assets = new MediaAssetService(context, catalog, new MediaUsageCounter(context));
@@ -67,7 +72,7 @@ export class MediaService {
     this.folders = new MediaFolderService(context, catalog);
     this.folderMove = new MediaFolderMoveService(context, catalog);
     this.deletion = new MediaDeletionService(context, catalog);
-    this.reconciler = new MediaReconciler(context, catalog, this.deletion);
+    this.reconciler = new MediaReconciler(context, catalog, this.deletion, trash);
     this.rekeyer = new MediaRekeyer(context, catalog);
     this.referenceGuard = new MediaReferenceGuard(catalog);
     this.linkResolver = new MediaLinkResolver(context, catalog);
@@ -75,6 +80,7 @@ export class MediaService {
     this.purgeService = new MediaPurgeService(context, catalog);
     this.archives = new MediaArchiveService(context, catalog, this.delivery);
     this.statsCounter = new MediaStatsCounter(catalog);
+    this.trashService = new MediaTrashService(context, catalog, this.folders, trash);
   }
 
   /**
@@ -157,9 +163,21 @@ export class MediaService {
     return this.delivery.open(idOrKey, range);
   }
 
-  /** `force` skips the usage check and deletes over a live reference (D48). */
-  delete(id: string, options?: { force?: boolean }): Promise<void> {
-    return this.deletion.delete(id, options);
+  /**
+   * `force` skips the usage check and deletes over a live reference (D48).
+   * Unless `permanent`, this moves the asset to the trash instead of running
+   * the deletion saga, so its bytes survive until a purge (D113). Answers the
+   * receipt's id when it did, so the caller can offer an undo.
+   */
+  async delete(
+    id: string,
+    options?: { force?: boolean } & DeleteOptions
+  ): Promise<string | null> {
+    if (this.trashService.handles(options)) {
+      return this.trashService.moveToTrash(id, options ?? {});
+    }
+    await this.deletion.delete(id, options);
+    return null;
   }
 
   /** Finishes any folder move the process died partway through (D49). */
@@ -179,8 +197,29 @@ export class MediaService {
     return this.folders.create(folderPath);
   }
 
-  deleteFolder(folderPath: unknown): Promise<void> {
-    return this.folders.delete(folderPath);
+  /** Deletes an empty folder. Unless `permanent`, its records go to the trash
+   *  as one receipt, whose id this answers (D113). */
+  async deleteFolder(folderPath: unknown, options?: DeleteOptions): Promise<string | null> {
+    if (this.trashService.handles(options)) {
+      return this.trashService.moveEmptyFolderToTrash(folderPath, options ?? {});
+    }
+    await this.folders.delete(folderPath);
+    return null;
+  }
+
+  /** Whether a delete with these options goes to the trash. */
+  recoverable(options?: DeleteOptions): boolean {
+    return this.trashService.handles(options);
+  }
+
+  /** A recursive folder delete into the trash: `ids` and the folder records
+   *  become one receipt (D113). The permanent path is `MediaFolderRoutes`'. */
+  trashFolder(
+    folderPath: unknown,
+    ids: readonly string[],
+    options: { force?: boolean } & DeleteOptions
+  ): Promise<MediaFolderTrashOutcome> {
+    return this.trashService.moveFolderToTrash(folderPath, ids, options);
   }
 
   /** Renames or moves a folder, its descendant folders, and every asset

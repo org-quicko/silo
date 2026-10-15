@@ -31,7 +31,7 @@ export class MediaUsageScopes {
    *  seen before distinct scopes can be trusted. 2000 is generous for any
    *  library this check is meant to gate in practice; past it, the authority
    *  decision falls back to requiring root rather than trusting a partial
-   *  scan (`docs/design/http-api.md` §8.1 names why this is a fixed cap and
+   *  scan (`resources/design/http-api.md` §8.1 names why this is a fixed cap and
    *  not a `listMediaUsageScopes` port method). Shared by
    *  `MediaAssetService.usages`, which counts a true "visible" referrer count
    *  up to the same bound rather than inventing a cap of its own. */

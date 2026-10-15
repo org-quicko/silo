@@ -5,6 +5,8 @@ import type { Meta } from "../../../core/domain/meta";
 import type { ProjectRecord } from "../../../core/domain/project-record";
 import type { Scope } from "../../../core/domain/scope";
 import type { MediaUsage } from "../../../core/media/media-usage";
+import type { AtomicStorage } from "../../../core/ports/atomic-storage";
+import type { ChangeSet } from "../../../core/ports/change-set";
 import type { DerivedIndex } from "../../../core/ports/derived-index";
 import type { MeasuredStorage } from "../../../core/ports/measured-storage";
 import type { IndexedStorage } from "../../../core/ports/indexed-storage";
@@ -12,6 +14,7 @@ import type { OwnedStorage } from "../../../core/ports/owned-storage";
 import type { StorageMeasurement } from "../../../core/ports/storage-measurement";
 import type { Query } from "../../../core/query/query";
 import { PgCollectionStore } from "./pg-collection-store";
+import { PgCommit } from "./pg-commit";
 import { PgConnection } from "./pg-connection";
 import { PgEntryStore } from "./pg-entry-store";
 import { PgMediaReferenceStore } from "./pg-media-reference-store";
@@ -71,7 +74,7 @@ export interface PgStoreOptions {
  * its pool (`MeasuredStorage`). Every write first asks the owner lock, when
  * one was claimed, so nothing is written while it is being taken back.
  */
-export class PgStore implements OwnedStorage, MeasuredStorage, IndexedStorage {
+export class PgStore implements OwnedStorage, MeasuredStorage, IndexedStorage, AtomicStorage {
   static readonly DefaultSchema = "silo";
   static readonly DefaultPoolSize = 10;
   static readonly DefaultHeartbeatMs = 10_000;
@@ -88,6 +91,7 @@ export class PgStore implements OwnedStorage, MeasuredStorage, IndexedStorage {
   private readonly entries: PgEntryStore;
   private readonly mediaReferences: PgMediaReferenceStore;
   private readonly searchDocuments: PgSearchDocumentStore;
+  private readonly commits: PgCommit;
   private owner: PgOwnerLock | null = null;
   private closing: Promise<void> | null = null;
   /** The index this store keeps, which `PgSearchIndex.settle` decided; null for none. */
@@ -121,6 +125,7 @@ export class PgStore implements OwnedStorage, MeasuredStorage, IndexedStorage {
     );
     this.scopes = new PgScopeStore(connection, tables, this.entries, resolver);
     this.collections = new PgCollectionStore(connection, tables, resolver, this.scopes);
+    this.commits = new PgCommit(connection, tables, resolver, this.collections, this.entries);
     this.useIndex(index);
   }
 
@@ -340,6 +345,11 @@ export class PgStore implements OwnedStorage, MeasuredStorage, IndexedStorage {
   async delete(scope: Scope, collection: string, id: string): Promise<void> {
     this.writing();
     await this.entries.delete(scope, collection, id);
+  }
+
+  async commit(changes: ChangeSet): Promise<void> {
+    this.writing();
+    await this.commits.apply(changes);
   }
 
   async list(

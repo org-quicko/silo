@@ -32,6 +32,11 @@ Hono web framework on Bun. JSON everywhere. Admin UI served at `/`; API under `/
 | GET | `/api/export?include=&media=` | streams tar.gz as it is walked (§7.1); `include` is repeatable and narrows it, `media` is `all\|referenced\|none` (§7.6, §7.7). `transfer:export`, plus read permissions at the reach `include` names or instance-wide without one; `keys:export` and instance-wide read when including keys |
 | POST | `/api/import?mode=&include=&media=` | streams in a tar.gz — a raw body, or a `multipart/form-data` `file` part. `transfer:import` + write permissions at the same reach, `media:create` unless `media=none`, plus the delete permissions in replace mode; archives containing keys also require `keys:import`. `Accept: application/x-ndjson` answers with a progress stream (§7.8) |
 | POST | `/api/copy` | pulls and imports another silo (`{source_url, source_api_key, mode, with_keys, dry_run, prefer, include, media}`; `transfer:copy`). `include` is forwarded to the source's own export, and the progress stream applies here too |
+| POST | `/api/projects/{project}/envs/{env}/package` | streams a transfer package (`{collections: [{name, entry_ids?}], media: referenced\|none}`; `transfer:export` plus `schema:read` and `entries:read` on each named collection) — exactly the named entries, their schemas and, with `referenced`, the assets they use (§7.9, D108). Every name and id is checked before the first byte: a malformed one is a `400`, a missing one a `404` |
+| POST | `/api/projects/{project}/envs/{env}/transfers` | prepares a transfer from another instance (`{source: {url, api_key}, from: {project, env}, selection, mode, prefer, media}`; `transfer:copy`, the env copy's write claims on each selected collection at this env, the replace claims in `replace` mode, `media:create` unless `media` is `none`). Pulls the source's package, verifies it exactly, plans it against this env by the importer's rules with entries checked against the effective schema (a merge that changes a populated collection's schema is the D70 `409`), and keeps it for 60 minutes, at most 4 open per instance (§7.10, §7.11, D109, D110). Refusals that need no source come first: claims, a missing env, a store with no atomic commit (`409 atomic_commit_unsupported`), no slot (`429 too_many_transfers`). `201` with the transfer, or the progress stream, whose first line names it |
+| GET / DELETE | `/api/projects/{project}/envs/{env}/transfers/{id}` | the transfer, its `review` totals and one page of its plan (`detail_offset`, `detail_limit` up to 100): per line the action, the packaged `rev`, and, for a key with the env copy's read claims on that collection here, the destination row and the ids `replace` removes / cancel it, stopping a running pull. `transfer:copy`, and only the key that prepared it, under this env: anyone else gets a `404` |
+| GET | `/api/projects/{project}/envs/{env}/transfers/{id}/entries/{collection}/{entry}` | one packaged entry, raw, as Apply will write it. Same binding |
+| POST | `/api/projects/{project}/envs/{env}/transfers/{id}/apply` | writes the plan as one `AtomicStorage.commit` with its `_transfers` ledger row, or nothing (§7.12, D111). Same binding; asks again for prepare's write claims, as the key holds them now. `200` with the applied transfer, and the same again for an applied one; `409 stale_preview` when anything the plan read has moved, the destination environment's id included (the transfer becomes `stale`), `409 transfer_in_progress` while it applies, `transfer_cancelled`, `transfer_expired`. The new assets' files are written first under free keys saved in the record, and taken back when the commit does not land; `silo serve` settles an apply a stop interrupted. NDJSON progress (`media`, `commit`) on request |
 | GET / POST | `/api/keys` | list (`keys:read`) / create (`keys:create`); create returns the secret exactly once |
 | PATCH | `/api/keys/{id}` | edit a key's label and/or claims (`keys:create`, **and** the authority to have minted both what it holds and what it is being given — D63) |
 | DELETE | `/api/keys/{id}` | revoke a key (`keys:revoke`, **and** the authority to have minted it — D37) |
@@ -72,7 +77,7 @@ Hono web framework on Bun. JSON everywhere. Admin UI served at `/`; API under `/
 
 **Optimistic concurrency:** PUT/DELETE require the expected rev (`If-Match: "3"` or `?rev=3`); mismatch → `409` with the current entry. Prevents lost updates from two admin tabs — cheap now, painful to retrofit.
 
-**Errors:** `{"error": {"code": "validation_failed", "message": "...", "details": [...]}}`; validation details use JSON Pointer paths from the validator. Since D79 a body over its route class's ceiling is `413 payload_too_large`, answered from the headers before the route or auth runs (§10.4 in configuration.md). Since D81 an entry list or a search whose scan cannot be queued on the storage read worker is `503 busy` with `Retry-After: 1`, and a filter naming more than `MaxFilterLeaves` (16) field tests is a `400` (§6.2 in storage.md). Any route can be `503 busy` while storage cannot answer — on Postgres, while the database is unreachable (D94) — and since D102 that includes the key lookup every request makes: a `StorageBusyError` from `KeyService.authenticate` goes to the error handler instead of becoming `401 invalid API key`, which would have sent every admin tab back to the server manager (below) and told every client to drop a valid key during a database blip. Since D85 an import or a copy whose archive, or whose unpacked tree, is past `[transfer]`'s ceilings is `413 archive_too_large`, naming the setting (§10.5 in configuration.md).
+**Errors:** `{"error": {"code": "validation_failed", "message": "...", "details": [...]}}`; validation details use JSON Pointer paths from the validator. Since D79 a body over its route class's ceiling is `413 payload_too_large`, answered from the headers before the route or auth runs (§10.4 in configuration.md). Since D81 an entry list or a search whose scan cannot be queued on the storage read worker is `503 busy` with `Retry-After: 1`, and a filter naming more than `MaxFilterLeaves` (16) field tests is a `400` (§6.2 in storage.md). Any route can be `503 busy` while storage cannot answer — on Postgres, while the database is unreachable (D94) — and since D102 that includes the key lookup every request makes: a `StorageBusyError` from `KeyService.authenticate` goes to the error handler instead of becoming `401 invalid API key`, which would have sent every admin tab back to the server manager (below) and told every client to drop a valid key during a database blip. Since D85 an import or a copy whose archive, or whose unpacked tree, is past `[transfer]`'s ceilings is `413 archive_too_large`, naming the setting (§10.5 in configuration.md); a prepared transfer's pull is held to the same ceilings (D109). Since D109 a `409` can carry a code of its own instead of `conflict` (`ConflictError.code`): `atomic_commit_unsupported`, `transfer_cancelled`, `transfer_in_progress`, `transfer_applied`, and since D111 `transfer_expired` and `stale_preview`; and every prepared-transfer slot taken is `429 too_many_transfers`, with no `Retry-After` because a slot frees when someone acts, not after a known time.
 
 **Auth: claims-based API keys, Shlink-style.** No users or browser sessions: a presented key authenticates a request and its claims authorize individual operations. Claims are deny-by-default. Anonymous collection schema and entry reads remain public within their scope unless the schema sets `"x-silo-auth": true`. When a key is presented, its claims become the visibility boundary and even public collections require the corresponding read claim.
 
@@ -230,7 +235,12 @@ Pre-D23 entries hold `/media/<blobKey>`; those are **dual-read** into the token
 `blob:<blobKey>` and counted as usages, so a partially backfilled instance
 still refuses to delete a referenced file. `silo media reconcile` backfills
 catalog records for blobs uploaded before D23, rebuilds usages from entries,
-and reports orphan blobs.
+and reports orphan blobs. A blob a trashed asset holds (D113) is neither
+adopted nor reported: the asset has no `_media` row while it is in the trash,
+but its bytes are kept for a restore, so its key counts as claimed. Without
+that, reconcile reported every trashed asset as an orphan and adopted a
+trashed pre-D23 `<sha256>_<name>` key as a second live asset over the same
+bytes.
 
 **Deletion** is a saga in `Service`, under `writeMu`, because the catalog and a
 remote object store cannot share a transaction:
@@ -1082,3 +1092,252 @@ in-process server over the data directory: that would wire a second app per
 spawn, and a stdio process writing to a data directory a `serve` owns is the
 very thing D25 forbids. Being a client is also what lets it run from any working
 directory with no config file (§10.6).
+
+### 8.7 Trash: what a delete leaves behind (D113)
+
+A delete moves its subject into the trash instead of destroying it, and two
+routes take it out again: `POST /api/trash/{id}/restore` and, for good,
+`DELETE /api/trash/{id}`. Six kinds go in — project, environment, collection,
+entry, media asset, media folder — and one shape comes out.
+
+**The list is flat, and only the explicitly deleted thing is in it.** Deleting
+a collection that holds 300 entries writes *one* receipt saying "300 entries",
+not 301 receipts. This is the rule the FreeDesktop trash specification states
+for directories ("if a directory was trashed in its entirety, it is easiest to
+undelete it… only in its entirety as well") and the rule Google Drive encodes
+as `explicitlyTrashed` beside `trashed`. It is what keeps the list short, the
+payload small and a restore predictable: you restore the collection, and its
+entries come with it, because they were never separable in the first place.
+
+The flatness is also the answer to the obvious alternative, which is to draw
+the trash as a project → environment → collection tree. That tree is mostly
+empty nodes; the question anyone actually brings to a trash is "undo what I
+just did", which is time-ordered rather than place-ordered; and an entry whose
+collection was deleted afterwards has no node to hang under at all. So the
+hierarchy becomes a *filter* over a flat list, and reappears inside a receipt
+through `GET /api/trash/{id}/items` — the one place it is never empty.
+
+**Nothing is soft-deleted in place.** The obvious implementation is a
+`deleted_at` column on `projects`, `environments`, `collections` and `entries`,
+with every read filtering it out. It was rejected for five reasons that are all
+specific to this codebase. `SqliteMigrations.guardFormatVersion` refuses a data
+directory whose shape does not match and there is no migration path, so four new
+columns would push every existing install through an export/import cycle for a
+convenience feature. `FsLayout` *is* the export format (D5), and a
+deleted-but-present entry file has no honest representation in a tree meant to
+be read and diffed. Every query in three adapters would have to filter — `list`,
+`countEntries`, `listScopes`, `listEntryCollections`, `listCollections`, the
+usage queries, the FTS trigger, the export walker — and one missed filter is
+deleted content in an API response. `UNIQUE (env_id, name)` does not know about
+a flag, so a deleted `posts` would keep the name occupied until it expired.
+And `media_references` cascades from `entries`, so a soft-deleted entry would
+keep refusing an asset's deletion on behalf of content nobody can see.
+
+**Instead the content leaves the live tables and is parked**, in two system
+collections in `Scope.System` — the trick D12 used for `_keys`, D23 for
+`_media` and D34 for `_plugins`, which is what gives them every storage
+adapter, the conformance suite and the query layer for free. `_trash` holds one
+small receipt per deleted thing; `_trash_items` holds the records themselves,
+read only on a restore and never listed. That split is the FreeDesktop
+`$trash/info` and `$trash/files` split, adopted for the same reason: the thing
+you enumerate and the thing you move are different sizes and want different
+storage. Adding two system collections is two entries in
+`SystemCollections.All`, so **no DDL changes and `FormatVersion` does not
+move** — an instance upgraded in place keeps working and starts with an empty
+trash.
+
+The cost is that a restore replays records rather than flipping a flag, which
+for a large project is real work. It is the same work an import already does,
+and it is bounded by the retention window rather than by instance size.
+
+**Capture is copy-only, and runs before the delete it belongs to.**
+`TrashCapture` reads what is about to go and writes it into `_trash_items`; the
+existing erase then runs exactly as it always did, with its own ordering, counts
+and hooks. A collection's entries are therefore read twice. That was chosen
+deliberately over threading the trash through four delete paths: none of them
+had to be rewritten, so none of them could be broken. Media is the one
+exception and is handled by `MediaTrashService`, because the deletion saga
+exists to make the blob and the catalog record agree and the trash needs the
+opposite — the record goes, the bytes stay, and only a purge takes them.
+
+**A media folder is one receipt, like a collection.** `MediaTrashService`
+parks the folder's `_media_folders` records and every file that goes as one
+`media_folder` receipt, then drops them. A file still in use stays, reported per
+id exactly as the permanent path reports it, and then the folder records stay
+too, because the folder is not gone. A restore joins a folder someone has made
+again since rather than writing a second record for the same path.
+
+**A receipt anchors on ids, and every reader sees today's names.** `origin`
+carries both. Names are mutable since D51, so a project renamed between the
+delete and the restore would send the content nowhere or somewhere wrong if the
+receipt held only a name; `TrashLocator` turns each id back into the name the
+`Storage` port addresses by. It does so for every read too, not only at the
+moment of the restore: `TrashService` hands out each receipt with its origin's
+current names, so the visibility check, the restore check, the `?project=`
+filters and the admin's breadcrumb all follow a rename. The names saved at
+delete time survive only for a container that is gone, where they are the
+history the admin draws greyed. Checking claims against the saved names was
+the first version and was wrong both ways: after `posts` became `articles`, a
+key scoped to `posts` could restore into `articles`, and one scoped to
+`articles` could not see the item.
+
+**A missing container blocks the restore rather than orphaning the content.**
+This is the one place silo can clearly beat the products it is copying: Drive
+restores a file whose parent was purged as an orphan, which is the single most
+complained-about behaviour in any trash. `TrashBlockers` answers *why* instead —
+which container is gone, and whether it is itself in the trash. When it is,
+`{"chain": true}` restores the ancestors first, in order. When it was purged,
+the only honest offers are a different destination or a purge, and the API says
+so rather than inventing a home.
+
+**A collision is refused, never overwritten.** Parking frees a name at once,
+which is most of the point, so by the time someone restores `posts` there may be
+a new `posts`. `TrashRestorer` checks before every write — a project,
+environment or collection name, and an entry's id — and answers `409` with an
+offer to restore under another name. Restoring one thing by destroying another
+is not a restore, and the FreeDesktop spec's own rule that trashing a name twice
+must never overwrite the earlier copy is the same principle at the other end.
+
+**Restore reports what it cannot repair.** An entry's media references leave
+`media_references` when the entry does, so an asset can be deleted for good
+while the only thing naming it sits in the trash. The restore succeeds and
+`broken_media_refs` names what no longer resolves. Softening the media usage
+guard because the asset is now recoverable was considered and rejected: the
+reference breaks the moment the asset leaves the catalog, recoverable or not,
+and a broken image on a live site is the same problem either way.
+
+**Crash safety reuses the staging D23 and D49 already have.** A receipt carries
+a `state`: it opens `parking`, becomes `parked` when the copy is complete, and
+passes through `restoring` or `purging`. `TrashSweeper.resumePending` settles
+anything else at the next start, beside the two media resumes. A `parking`
+receipt is **rolled back**: every delete path finishes its capture, receipt
+included, before it erases anything, so the live content is still whole and
+the parked half is a partial duplicate. Its items and the receipt are dropped,
+items first so an interrupted rollback is found again, and no blob is touched,
+since the bytes belong to the live record. The delete simply did not happen.
+Marking it `parked` instead, as the first version did, left a visible receipt
+for content that was still live, which a restore could only refuse. A
+`purging` receipt finishes, and a `restoring` one returns to `parked`.
+
+A restore writes an intent into each parked item before its live write. On
+retry, a matching container id or an unchanged entry written under that intent
+is recognized without overwriting it. Entries with different data, revision or
+timestamps still conflict. The chosen subject name is retained for retries and
+checked by restore authorization again. Journal fields are internal and are
+removed from receipt and contents responses. Item pagination uses ids so
+journal updates cannot shift items between pages. This is resumable replay on
+every adapter, rather than a transaction that the filesystem cannot provide.
+
+A restored entry is validated against its collection's schema as it stands
+at the restore, not the one it was deleted under. A collection's schema can
+change shape once it is empty (D70), which is exactly the state deleting its
+last entry leaves, and the restore's raw store write would otherwise land data
+no other write path accepts. A refusal is a `409` naming the entry, written
+before that entry's journal mark, so the receipt goes back to `parked` intact.
+
+The list, the sweep and startup recovery read every receipt, not one store
+page of them: a trash past a thousand receipts otherwise showed none older
+and never expired them. The receipts are read whole before a sweep purges
+any, so purging cannot shift the rows under an offset. The caller's
+visibility check runs before the page is cut, so a page and `total` describe
+only what that key may see. A blocker's `trash_id` is looked up by subject id
+rather than from a page of receipts.
+
+Purging checks whether a live catalog row still owns each media blob before
+deleting it: an import may have revived an asset while its old receipt remains.
+The filesystem usage scanner excludes parked trash, as indexed adapters already
+do. The admin confirms emptying the entire server's trash, including items
+hidden by the current search and filters.
+
+#### Claims
+
+The feature adds **one** claim, and that is the whole of its authority story.
+
+**Reading has no claim.** A single `trash:read` was the obvious design and is
+wrong here, for the opposite of the reason `media:read` was retired in D58. The
+media catalog was an index of an open shelf; the trash is content that was
+removed from view, and one global listing would show entry data, collection
+names and filenames from every scope in the instance to anyone holding it.
+`TrashVisibility` instead gates each receipt on the read claim its **origin**
+already requires, at today's names — `entries:read` for an entry,
+`schema:read` for a collection, environment or project, nothing for media. A
+key sees exactly the deletions it
+could have seen the content of, `total` counts only those, and
+`GET /api/trash/{id}` answers `404` rather than `403` for the rest, because
+"forbidden" would confirm that something was deleted there. The behaviour to
+design around is that the trash is **per key**: two keys see two different
+trashes, and the count badge differs between them.
+
+Receipt visibility does not grant access to its descendants' bodies.
+`GET /api/trash/{id}/items` additionally requires `entries:read` for the
+collection, for `project/environment/*` on an environment, or for
+`project/*/*` on a project. A visible receipt without this content authority
+answers `403`; media contents remain readable by any authenticated key.
+
+**Sending something to the trash asks for nothing new.** It is the delete that
+already existed — `entries:delete`, `collection:delete`, `media:delete`, and
+`ForcedDeletePermissions` unchanged on `?force=true`. Adding a requirement would
+break every existing key on upgrade for an operation whose reach did not change.
+What `force` now *means* is softer (the entries go to the trash rather than
+being destroyed), but what it asks for is not, because the content still leaves
+the live instance and `collection:delete` alone should still not make 300
+entries disappear from every API response.
+
+**Restoring asks for the write claims at the destination.**
+`TrashRestoreAuthority` requires `entries:create` at the scope an entry lands
+in, and `collection:create` on top for a container — at the names the
+destination has today, and at `rename` in place of the subject's own name when
+one is sent, since that is where the content lands. `chain` replays the
+blocking ancestors too, so every receipt it replays is checked the same way,
+visibility included, before the first is written (`TrashService.restore`
+takes the check as a callback, like `MediaService.purge` takes its force
+check); checking only the receipt asked for let a key with `entries:create`
+on one collection bring back the whole trashed project above it. An ancestor
+the key cannot read is a `403`, not a `404`: the blocked receipt's
+`blocked_by` already named it. A `trash:restore` claim
+would let a key place content into a scope it cannot otherwise write to, which
+is precisely the escalation D37 measured for `keys:import`. Deriving the answer
+from the existing vocabulary is both tighter and one less string to hold.
+
+**Only `trash:purge` is new**, on `media:purge`'s argument exactly (D65):
+whoever deleted the content already spent their delete claim, and ending it
+forever is a second decision, usually by someone else and later. It gates
+`DELETE /api/trash/{id}`, `POST /api/trash/purge` — with the same typed
+confirmation `POST /api/media/purge` takes — and `?permanent=true` on any delete
+route, which is a purge fused to a delete. No preset but `root` carries it, the
+shape `media:purge`, `media:configure` and `settings:configure` already take.
+
+It is deliberately **not** in `PluginForbiddenClaims`. That list is for claims
+that let a plugin escape its own grant; `trash:purge` destroys data but widens
+nothing, and the test that list applies is escalation, not damage.
+
+#### The undo header
+
+`DELETE` on an entry, on a media asset and on a media folder answer their
+receipt's id in `X-Silo-Trash-Id`, exposed through CORS. A recursive folder
+delete answers `200` with its per-id body and the header beside it. A header
+rather than a body so the `204` contract does not move and a client that has
+never heard of the trash sees exactly the response it always saw. The admin
+hangs its undo toast off the entry and asset headers, which
+is where most of this feature's value is actually collected: most mistakes are
+noticed within seconds, and an undo at that moment costs one click instead of a
+page visit and a search.
+
+#### Export and import
+
+`_trash` and `_trash_items` ride no export (`ExportSystem.rides`): an export is
+what the instance holds, and a clone should not inherit its source's undo
+history. That includes a whole-instance move (D97), which carries the audit
+log, the plugin grants and the transfer ledger but leaves the trash behind. A
+trashed asset's bytes sit under no `_media` row an archive could carry them by,
+so a receipt that rode would restore an asset with no file. An import **never**
+accepts them, move or not — `ImportSystemGate` refuses both as instance-local —
+and the asymmetry is the point. A crafted `_trash_items` document is a way to
+plant content that a later restore writes into any scope, which is the
+`keys:import` escalation again; refusing the collection outright is cheaper
+than gating it.
+
+An import's `replace` and a prepared transfer's Apply (D111) write through the
+store and never capture. What they empty is the archive's decision rather than
+a delete, it was never recoverable before the trash, and capturing it would
+make the trash the size of the instance on every promotion.

@@ -1,6 +1,6 @@
 # Export, import and copy
 
-> The archive format, the on-disk layout, and every way data moves. The design rationale is in [docs/design/transfer.md](../design/transfer.md).
+> The archive format, the on-disk layout, and every way data moves. The design rationale is in [resources/design/transfer.md](../design/transfer.md).
 
 ```sh
 silo export --dir ./backup                        # an on-disk tree
@@ -217,8 +217,8 @@ same claims their own routes ask for:
 | `_keys` | `keys:import` |
 | `_media`, `_media_folders`, `_media_folder_moves` | `media:create`, even with `media=none`; `media:delete` too when `replace` would empty them |
 | `_variables` for a project | `create` and `entries:update` on `<project>/*/*` |
-| `_audit`, `_plugins` | only by `silo import`, from an archive made with `silo export --instance`. Over HTTP the request is a `403`, for every key |
-| `_scope_renames`, any other `_` name | never imported. The request is a `400` |
+| `_audit`, `_plugins`, `_transfers` | only by `silo import`, from an archive made with `silo export --instance`. Over HTTP the request is a `403`, for every key |
+| `_scope_renames`, `_trash`, `_trash_items`, any other `_` name | never imported. The request is a `400` |
 
 A missing claim is a `403` that names the records and the claim. The check
 reads rows, not empty collections, so an export of an empty library loads with
@@ -337,6 +337,173 @@ collection or entry selections to a compact removable list; it accepts an exact
 entry id. Dry-run details paginate
 collection schema actions and entry actions, and an entry can be opened there
 to inspect its source payload before applying.
+
+To copy from an environment on a different instance, see
+[Copying an environment from another instance](#copying-an-environment-from-another-instance).
+
+## Copying an environment from another instance
+
+Use this to move content from an environment on one instance to an
+environment on a different instance. For example, promote `acme/dev` on the
+dev server to `acme/uat` on the uat server, or copy `acme/prod` down to
+`acme/uat` to refresh it. The two environment names can be different.
+
+The copy has three steps:
+
+1. **Prepare.** The destination gets a package from the source. The package
+   holds only the collections and entries that you select, and the media files
+   that those entries use. The destination checks the package and makes a plan
+   from it. It writes nothing.
+2. **Review.** Read the plan. It shows each entry and each media file that the
+   copy adds, updates, skips or deletes.
+3. **Apply.** The destination writes the plan as one change. If the
+   destination changed after the plan was made, it writes nothing, and the
+   transfer becomes `stale`. Prepare it again. A deleted environment is a
+   change. So is an environment that someone deleted and made again with the
+   same name. Apply does not make the environment again.
+
+The review and Apply use the saved package. They do not read the source
+again, so changes on the source after Prepare do not move the plan.
+
+The source must run silo 1.6.0 or later. The destination must use the SQLite
+or the Postgres driver. The fs driver cannot write a plan as one change, so it
+refuses with `409 atomic_commit_unsupported`.
+
+### The keys
+
+Make one key on each instance:
+
+```
+source        transfer:export
+              collections:<project>/<env>/*:schema:read
+              collections:<project>/<env>/*:entries:read
+destination   transfer:copy
+              collections:<project>/<env>/*:create
+              collections:<project>/<env>/*:schema:update
+              collections:<project>/<env>/*:entries:create
+              collections:<project>/<env>/*:entries:update
+replace mode  collections:<project>/<env>/*:delete
+              collections:<project>/<env>/*:entries:delete
+media         media:create, unless media is none
+```
+
+Give the source key read claims only. The destination does not keep the source
+key. Give it again for each copy.
+
+The plan shows the id of an entry that only the destination holds, as in a
+`replace` delete, only to a destination key that can read that collection
+(`schema:read` and `entries:read`).
+
+### In the admin
+
+1. Add the source server to the admin's server list one time.
+2. Open the destination server, and go to **Settings > Environment > Data
+   Transfer** for the destination environment.
+3. In **Source server**, select the source.
+4. Paste the source key in **Source API key**. The admin does not save it.
+5. Select the source project and environment, the mode, and what to copy.
+6. Click **Preview copy**. Read the totals and the changes.
+7. Click **Apply copy**.
+
+If the page shows **This environment changed since the preview**, click
+**Preview again**. When you change an input or leave the page, the admin
+cancels the preview.
+
+The browser reads the source to show its projects, collections and entries. Use
+a source URL that works from the browser and from the destination server.
+
+### With HTTP
+
+Prepare a transfer:
+
+```sh
+curl -X POST https://uat.example.com/api/projects/acme/envs/uat/transfers \
+  -H "Authorization: Bearer $UAT_SILO_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "source": {"url": "https://dev.example.com", "api_key": "'"$DEV_SILO_KEY"'"},
+    "from": {"project": "acme", "env": "dev"},
+    "selection": [{"collection": "posts"}, {"collection": "pages", "entry_ids": ["01J8XQ4Z8K9M2P3R5T7V9X1B3D"]}],
+    "mode": "merge",
+    "media": "referenced"
+  }'
+```
+
+The answer is `201` with the transfer. `review` holds the totals, and `entries`
+holds the first page of the plan. Then use these routes, with the same key:
+
+| Request | What it does |
+|---------|--------------|
+| `GET …/transfers/{id}?detail_offset=25` | Reads the next page of the plan |
+| `GET …/transfers/{id}/entries/{collection}/{entry}` | Reads the copy of one entry that Apply writes |
+| `POST …/transfers/{id}/apply` | Writes the plan as one change |
+| `DELETE …/transfers/{id}` | Cancels the transfer |
+
+Send `Accept: application/x-ndjson` to Prepare and to Apply to get progress
+lines (see [Watch a long transfer](#watch-a-long-transfer)). The first line has
+the transfer id, so you can cancel a transfer while the destination pulls it.
+
+```
+{"type":"progress","phase":"fetch","transfer":{"id":"01J9...","state":"preparing","expires_at":"..."}}
+{"type":"progress","phase":"verify","transfer":{...}}
+{"type":"progress","phase":"plan","transfer":{...}}
+{"type":"result","result":{"id":"01J9...","state":"prepared",...}}
+```
+
+Apply sends the phases `media` and `commit`.
+
+### The rules
+
+- `selection` must name each collection. An item with `entry_ids` copies only
+  those entries, and only in `merge` mode.
+- `media` is `referenced` (the default) or `none`. `referenced` copies the
+  media files that the selected entries use. `none` copies no media rows and no
+  files.
+- The copy adds a media asset that the destination does not have. It never
+  changes or deletes an asset on the destination, also in `replace` mode. If
+  the destination has an asset with the same id but other bytes or details,
+  the plan shows it as `skipped`, with the reason.
+- The plan lists each media reference that will not resolve on the
+  destination.
+- Variables and keys do not move. Each instance keeps its own.
+- Only the key that prepared a transfer can read, apply or cancel it. Other
+  keys get `404`.
+- A prepared transfer expires after 60 minutes. A server holds 4 open
+  transfers at most. The next one gets `429 too_many_transfers`. Cancel the
+  transfers that you do not use.
+- Apply asks for the destination claims again. A key that lost a claim gets
+  `403`, and the transfer stays prepared.
+- Apply on an applied transfer returns the transfer with `200`, and writes
+  nothing.
+- Each Apply writes one row in `_system/_transfers`. These rows move only with
+  `silo export --instance`.
+- If the server stops during Apply, `silo serve` completes or removes that
+  Apply when it starts again.
+
+### The errors
+
+| Code | Status | What to do |
+|------|--------|------------|
+| `stale_preview` | `409` | The destination changed after the plan. Prepare again. |
+| `transfer_expired` | `409` | The transfer is older than 60 minutes. Prepare again. |
+| `transfer_in_progress` | `409` | The transfer is still in Prepare or in Apply. Wait, then read it. |
+| `transfer_cancelled` | `409` | The transfer was cancelled. Prepare again. |
+| `transfer_applied` | `409` | A cancel of an applied transfer. The copy is already written. |
+| `too_many_transfers` | `429` | Cancel a transfer, or wait until one ends. |
+| `atomic_commit_unsupported` | `409` | The destination uses the fs driver. Use SQLite or Postgres. |
+| `conflict` | `409` | A schema change on a collection that has entries on the destination (D70). |
+
+A refusal from the source, for example a bad key, is a `400` that gives the
+source's message.
+
+### Security
+
+The destination sends a request to the URL in `source.url`. silo does not
+limit the addresses that it sends to. Thus a key with `transfer:copy` can make
+the server send a request to any address that the server can reach, also an
+address in your private network. Give `transfer:copy` only to the people who
+release content. Use firewall rules to limit the outbound connections of the
+server.
 
 ## Format version
 

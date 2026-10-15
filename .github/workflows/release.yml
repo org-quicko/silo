@@ -14,6 +14,10 @@
 # -SNAPSHOT and every other suffix fall outside the filter, so such a tag builds
 # nothing and publishes nothing.
 #
+# The release text is resources/release-notes/<version>.md from the tagged
+# commit when there is one, then the install and verify text below, then
+# GitHub's generated list. Commit the note before you tag.
+#
 # `workflow_dispatch` runs the same build and uploads the artifacts to the run
 # without publishing anything — the image is built and smoke-tested on both
 # architectures and pushed nowhere — which is how to rehearse a release, or
@@ -563,6 +567,25 @@ jobs:
           # rather than as command substitutions, which leaves it no way to
           # read $VERSION. The one place the notes need it is filled in here.
           sed -i "s/__VERSION__/$VERSION/g" notes.md
+
+          # A release that needs more than the generated list says so in
+          # resources/release-notes/<version>.md, and that text goes first.
+          # It is read from the tagged commit through the API, since this job
+          # has no source tree. No file is allowed, with a warning; any other
+          # failure stops the publish, because a release whose note went
+          # missing on the way would look complete and say nothing.
+          note="resources/release-notes/$VERSION.md"
+          if gh api "repos/$GH_REPO/contents/$note?ref=$GITHUB_SHA" \
+              -H "Accept: application/vnd.github.raw+json" > release-note.md 2> release-note.err; then
+            { cat release-note.md; printf '\n'; cat notes.md; } > notes-with-note.md
+            mv notes-with-note.md notes.md
+            echo "release note: $note"
+          elif grep -q "HTTP 404" release-note.err; then
+            echo "::warning::no $note at $GITHUB_SHA — publishing the install text and generated notes only"
+          else
+            cat release-note.err >&2
+            exit 1
+          fi
 
           flags=(--title "silo $VERSION" --notes-file notes.md --generate-notes)
 

@@ -1,6 +1,6 @@
 # Authentication and claims
 
-> The claim catalog and the rules that govern it. The design rationale is in [docs/design/core-concepts.md](../design/core-concepts.md).
+> The claim catalog and the rules that govern it. The design rationale is in [resources/design/core-concepts.md](../design/core-concepts.md).
 
 silo has no users and no browser sessions. A presented key authenticates the
 request, and the claims on that key authorize each individual operation. Claims
@@ -36,6 +36,7 @@ keys:read         keys:create       keys:revoke
 keys:export       keys:import
 plugins:read      plugins:grant     plugins:enable     plugins:configure
 audit:read        http:route        settings:configure  observability:read
+trash:purge
 transfer:export   transfer:import   transfer:copy
 ```
 
@@ -65,6 +66,22 @@ library, which is a different job from managing the files you uploaded. Only
 the `root` preset carries it, and the route asks for both claims together, so a
 key holding `media:purge` alone still purges nothing. The admin hides **Purge
 library** from a key that does not hold both.
+
+**`trash:purge` is the only claim the trash adds.** A delete moves its subject
+to the trash, and that delete asks for exactly what it always asked for, so no
+key changed meaning when the trash arrived. Reading the trash asks for nothing
+either: the server shows you an item only if you can read the content it came
+from, so a key with `entries:read` on one collection sees deletions from that
+collection and no others. Restoring asks for the **write** claims where the
+content lands, because putting an entry back into `prod` is writing to `prod`.
+
+What does need a claim is destroying something for good. `trash:purge` covers
+deleting one item from the trash, emptying the trash, and `?permanent=true` on
+any delete route. Only the `root` preset carries it. The reason is the one
+behind `media:purge`: whoever deleted the content already used their delete
+claim, and ending it forever is a second decision, usually by someone else and
+later. The admin hides **Delete permanently** and **Empty trash** from a key
+that does not hold it.
 
 **`media:replace` is not part of `media:create`.** `media:create` uploads a
 new file. `media:replace` changes the file behind an asset that is already in
@@ -118,6 +135,16 @@ its own, so a key holding it gains nothing. One claim covers every route a
 manifest lists, because they all mount under the plugin's own name and it cannot
 escape that prefix. What an operator weighs is the route list itself. See
 [Serving routes](plugins.md#serving-routes).
+
+**`transfer:copy` makes this server connect to an address that you give.**
+`POST /api/copy` and a prepared transfer
+(`POST /api/projects/{project}/envs/{env}/transfers`) both get data from
+another silo. The server connects to the URL in the request. silo does not
+limit which addresses are permitted. Thus a key with `transfer:copy` can make
+the server send requests to any address that the server can reach, which
+includes addresses on your private network. Give `transfer:copy` only to the
+people who release content. Use firewall rules on the host to limit where the
+server can connect.
 
 ## The rules
 

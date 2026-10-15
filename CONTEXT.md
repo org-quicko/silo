@@ -3,8 +3,8 @@
 > The entry point for anyone, human or AI, working in this repo. It says what
 > exists **now**, in short. Keep it short: the detail belongs in the files it
 > links to, and the history belongs in
-> [docs/context/changelog.md](docs/context/changelog.md). Update it in the same
-> change set as any change to behaviour, architecture or layout.
+> [resources/context/changelog.md](resources/context/changelog.md). Update it
+> in the same change set as any change to behaviour, architecture or layout.
 
 ## What is silo
 
@@ -12,17 +12,20 @@ A minimal, self-hostable headless CMS. You define collections with JSON Schema
 and get generated admin forms and a CRUD API. You can move all the data
 anywhere with export/import. What sets it apart is **portability**: standard
 schemas, pluggable storage, and one command to clone an instance. The vision
-and every decision (D1–D106) are indexed in [IMPLEMENTATION.md](IMPLEMENTATION.md).
+and every decision (D1–D113) are indexed in [IMPLEMENTATION.md](IMPLEMENTATION.md).
 
 ## Where things stand
 
-*Last updated: 2026-09-30. Version 1.4.0 (root `package.json`, D28).*
+*Last updated: 2026-10-15. Version 1.6.0 (root `package.json`, D28).*
 
 **Stack.** Bun + TypeScript in one workspace: `apps/server` (CLI, Hono HTTP
 API, core, adapters), `apps/admin` (React, embedded in the executable),
 `packages/shared`, three published clients, and first-party plugins in
-`plugins/`. [repo-map.md](docs/context/repo-map.md) says where everything lives.
-[architecture.md](docs/context/architecture.md) says how it fits together.
+`plugins/`. The internal docs are in `resources/` (`context/`, `design/`,
+`guide/`, `openapi.json`, and `release-notes/` for a release that needs
+one); `docs/` is the public Mintlify site.
+[repo-map.md](resources/context/repo-map.md) says where everything lives.
+[architecture.md](resources/context/architecture.md) says how it fits together.
 
 **What is built:**
 
@@ -39,9 +42,12 @@ API, core, adapters), `apps/admin` (React, embedded in the executable),
   D102–D103: a pool Bun broke is replaced, only the owner shapes the index).
   All three pass one conformance suite with a strict query contract (D92).
   Search is FTS5, `PgSearcher`, or `ScanSearcher` for any other store.
+  SQLite and Postgres can also commit many writes as one, behind
+  preconditions (`AtomicStorage`, D107); the fs adapter cannot.
 - **Auth.** API keys with claims (`collections:<p>/<e>/<name>:<perm>`, prefix
   segments like `acme-*`, D64). A root key is printed at first boot. Keys are
-  editable (D63). [docs/guide/claims.md](docs/guide/claims.md) has the grammar.
+  editable (D63). [resources/guide/claims.md](resources/guide/claims.md) has
+  the grammar.
 - **Media.** A catalog (`_media`) over fs or S3 blob storage (D23, D45).
   References are `silo://media/<id>`. Blob keys are `media/<id>` (D88). Media
   is streamed with `Range` support (D80) and sandboxed on serve (D83).
@@ -53,11 +59,38 @@ API, core, adapters), `apps/admin` (React, embedded in the executable),
   at most 5000 files and 5 GB, three parts at once, all three settable in
   `[media]`; `GET /api/media/stats` totals the library for the admin's
   stats modal (D106).
+- **Trash.** Deleting a project, environment, collection, entry, media asset
+  or folder moves it to the trash instead of destroying it (D113). `_trash`
+  holds one receipt per thing deleted on purpose and `_trash_items` the
+  records, so no DDL changed; a media folder is one receipt with its folder
+  records and files. A restore puts content back by id and refuses a
+  missing container or a taken name; receipts expire after
+  `[trash] retention_days` (30). Reading the trash follows the origin's read
+  claim, restoring needs write claims at the destination, both at the names
+  the origin has today and for every container a `chain` restore brings back,
+  and only purging has a claim of its own
+  (`trash:purge`, root only). `DELETE` on an entry, an asset or a media folder
+  answers `X-Silo-Trash-Id`; the admin's undo toast uses it after an entry
+  delete. Imports, transfer applies and a whole-instance move do not touch the
+  trash.
 - **Transfer.** Export, import, server-to-server copy and scope copy, with
   `include` selections and media modes (D74). They are streaming and
   memory-flat (D73, D76–D78), size-bounded (D85), and gated per system
   collection (D84). NDJSON progress is opt-in (D75). `silo export --instance`
-  moves a whole instance across storage drivers (D97).
+  moves a whole instance across storage drivers (D97). A transfer package
+  (`POST …/envs/{env}/package`, D108) carries exactly the picked entries and
+  the media they use, for a transfer into another instance; ordinary imports
+  refuse it. The destination prepares a transfer (`POST …/envs/{env}/transfers`,
+  D109): it pulls the package once, verifies it exactly, plans it against the
+  destination by the importer's own rules (D110), and keeps both for review for
+  60 minutes, bound to the key that prepared it. Apply writes the plan as one
+  commit with a `_transfers` ledger row, or nothing; new media files go first
+  and are taken back if the commit does not land, and an existing asset is
+  never changed (D111). The env Data Transfer page can take another saved
+  server as its source, with a key pasted for that copy (D112). The user
+  guide and the public transfer page describe it, and
+  [resources/release-notes/1.6.0.md](resources/release-notes/1.6.0.md) is
+  its release note.
 - **Plugins.** A plugin is a granted principal whose `ctx.fetch` goes through
   the real API (D34–D39). Plugins install and uninstall from the API or with
   `silo add` (D32, D42, D43), expose routes under `/api/ext/{name}/*`, and can
@@ -65,14 +98,19 @@ API, core, adapters), `apps/admin` (React, embedded in the executable),
   and observability (D52, D98, D99).
 - **Configuration.** `silo.toml`, `SILO_*` variables and flags. Most tables are
   editable from the admin, which says when a restart is owed (D45–D47, D50).
-  [docs/guide/configuration.md](docs/guide/configuration.md) lists every
-  setting.
-- **API surface.** REST under `/api` ([docs/openapi.json](docs/openapi.json) is
-  hand-written and must be kept in step), MCP at `POST /api/mcp` plus the
-  `silo mcp` stdio bridge (D86), and clients for TypeScript (D61, D71), Java
-  (D69, D87) and Dart (D91).
-- **Admin UI.** A server manager, then collections, entries, media, transfer and
-  settings. Server state lives in one stale-while-revalidate store (D53).
+  [resources/guide/configuration.md](resources/guide/configuration.md) lists
+  every setting.
+- **API surface.** REST under `/api`
+  ([resources/openapi.json](resources/openapi.json) is hand-written and must be
+  kept in step), MCP at `POST /api/mcp` plus the `silo mcp` stdio bridge
+  (D86), and clients for TypeScript (D61, D71), Java (D69, D87) and Dart
+  (D91).
+- **Admin UI.** A server manager, then collections, entries, media, trash,
+  transfer and settings. Server state lives in one stale-while-revalidate
+  store (D53). A saved server whose key is refused opens prefilled in the
+  server dialog, so the key is replaced there. A source key pasted for a copy
+  is checked against the source's `/api/session` before any read, so a refused
+  one is a message under the field, not a logout.
 - **Distribution.** Compiled executables, signed checksums, a Homebrew tap, a
   dnf repository, and a multi-arch image on Docker Hub and GHCR (D26–D28, D90).
   Only `vX.Y.Z` tags release. `packaging/compose/` runs silo beside Postgres.
@@ -84,25 +122,75 @@ API, core, adapters), `apps/admin` (React, embedded in the executable),
 - Changing a schema over existing entries is deferred until a migration plan
   exists (D70).
 - Roadmap items (sync, drafts/publish, durable webhooks, enforced relations)
-  are in [milestones.md](docs/design/milestones.md) §12. [IDEAS.md](IDEAS.md)
-  holds loose ideas.
+  are in [milestones.md](resources/design/milestones.md) §12.
+  [IDEAS.md](IDEAS.md) holds loose ideas.
 
-**Most recent changes:** bulk download and library stats in the media
-library (D106); folder upload in the media library (D105); collection names
-of up to 128 characters (D104). Read the top of the
-[changelog](docs/context/changelog.md) for more.
+**Most recent changes:** every version reads 1.6.0: silo's five manifests
+through `set-version`, and by hand the three clients (from TypeScript 1.1.2,
+Java 1.1.0 and Dart 1.0.0), both first-party plugins (from 1.0.0), `bun.lock`,
+the client install snippets and `openapi.json`'s `info.version`. The 1.6.0
+release note covers features and fixes, plus the Java client's binary break,
+the one breaking change; what the trash changes for operators (public bucket
+links, read keys, turning it off, the Strapi plugin) is on the public trash
+page. Before that, four trash fixes from the
+same check: `SILO_TRASH_ENABLED` takes only `true` or `false` and
+refuses to start on anything else, while an upgraded instance keeps the trash
+on; the hourly sweep logs a receipt it could not purge; `silo media reconcile`
+leaves trashed assets' bytes alone; and a delete interrupted before its
+capture committed is rolled back at the next start, not left as a receipt.
+A trash restore test that failed about two runs in three now reads back the
+entry it edits instead of assuming id order. Before them, the pre-PR review's P2 issues are fixed: a restore
+is held to the collection's current schema, Apply refuses a destination
+environment deleted or recreated since its plan, the trash lists, sweeps and
+pages past a thousand receipts with visibility applied before the page is cut,
+the admin Trash page pages, the three clients evict cached entry reads after a
+restore, and a staged package's rename retries briefly on Windows. The P1
+issues before them are fixed too:
+container contents require entry-read authority, purging preserves files still
+owned by the live media catalog, restore journals survive an interruption and
+retain their chosen destination, and Empty trash explicitly includes filtered
+items. Filesystem media usage ignores parked trash records.
+Two CodeQL findings are fixed: the Strapi import
+panel now escapes the names it renders from an uploaded database, and the
+admin encodes a typed font name in the Google Fonts URL (the other four open
+alerts are false positives, with the reasons in the changelog);
+`feature/trash` is merged in: deletes go to the
+trash, with `/api/trash`, a Trash page and undo toast in the admin, and
+`silo.trash` on the TypeScript, Dart and Java clients (D113; built on 1.4.0
+as D91 and renumbered here, since D91 is the Dart client), and since then a
+media folder delete is one trash receipt, the trash checks claims at
+today's names, not the ones saved at delete time, a `chain` restore checks
+every container it brings back, and the Trash page uses the
+admin's own page frame, Type chip and search box, with a row menu that is no
+longer cut off on the last row and a confirm before a permanent delete; the server-wide *Copy from silo* tab checks its
+pasted source key before it reads the source tree, so a wrong key no longer
+logs the admin out, an edited key is checked again on both copy pages, and a
+narrowed copy waits for its tree instead of going out as the whole source; the
+first six steps of moving selected content
+between instances: an optional atomic commit on the storage port (D107), a
+transfer package route that sends only what was picked (D108), prepared
+transfers on the destination that pull, verify and hold a package for review
+(D109), a plan of each one, made by the importer's own rules and checked
+against the schemas it leaves in place (D110), and Apply, which writes that
+plan as one commit or nothing, with media rules and crash recovery (D111), and
+the env Data Transfer page's other-server source that drives all of it (D112); a server
+whose saved key is refused opens in an edit dialog from the server picker,
+instead of a banner that needed `localStorage` cleared, and that dialog can
+also forget the server without fixing it; the internal docs moved
+from `docs/` to `resources/`, and every link to them now points there. Read the
+top of the [changelog](resources/context/changelog.md) for more.
 
 ## Reading order
 
 | Document | What it answers |
 |----------|-----------------|
-| [docs/context/architecture.md](docs/context/architecture.md) | How the pieces fit together |
-| [docs/context/repo-map.md](docs/context/repo-map.md) | Where everything lives |
-| [docs/context/code-design.md](docs/context/code-design.md) | How code here is shaped, and test-suite pitfalls |
-| [docs/context/changelog.md](docs/context/changelog.md) | Every notable change, newest first |
-| [IMPLEMENTATION.md](IMPLEMENTATION.md) | Vision, the decision index, and the index into `docs/design/` |
-| [docs/design/decisions.md](docs/design/decisions.md) | Each decision in full: choice and rationale |
-| [docs/guide/](docs/guide/README.md) | How to run, configure and extend silo |
+| [resources/context/architecture.md](resources/context/architecture.md) | How the pieces fit together |
+| [resources/context/repo-map.md](resources/context/repo-map.md) | Where everything lives |
+| [resources/context/code-design.md](resources/context/code-design.md) | How code here is shaped, and test-suite pitfalls |
+| [resources/context/changelog.md](resources/context/changelog.md) | Every notable change, newest first |
+| [IMPLEMENTATION.md](IMPLEMENTATION.md) | Vision, the decision index, and the index into `resources/design/` |
+| [resources/design/decisions.md](resources/design/decisions.md) | Each decision in full: choice and rationale |
+| [resources/guide/](resources/guide/README.md) | How to run, configure and extend silo |
 
 ## Working in this repo
 
@@ -117,9 +205,9 @@ bun run build                              # the single-file executable
 ```
 
 - Postgres tests run only when `SILO_TEST_PG_URL` is set. See
-  [code-design.md](docs/context/code-design.md) (Tests).
+  [code-design.md](resources/context/code-design.md) (Tests).
 - A change to a route, parameter, body, response or claim updates
-  `docs/openapi.json`, `docs/guide/http-api.md` and `docs/design/http-api.md`
-  together.
+  `resources/openapi.json`, `resources/guide/http-api.md` and
+  `resources/design/http-api.md` together.
 - Never `git add`, `git commit` or `git push` here. The author stages and
   commits. Leave the working tree dirty.

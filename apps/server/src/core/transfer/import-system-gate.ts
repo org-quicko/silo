@@ -18,11 +18,12 @@ import type { ParsedImport } from "./parsed-import";
  * collection could plant `_variables` for any project, forge `_audit` events,
  * or empty the audit trail with a whole-instance replace. Now each collection
  * that rides an export is gated on the claim its own routes ask for, read off
- * `ImportGrants`; and the three that never ride — audit, plugins, scope
- * renames — are refused outright, since an archive carrying them was not
- * written by silo's exporter. The one exception is a whole-instance move
- * (D97): an archive whose manifest says `instance` may carry the audit log and
- * the plugin grants, and they load only for `ImportGrants.Trusted` — the CLI —
+ * `ImportGrants`; and the four that never ride — audit, plugins, the transfer
+ * ledger (D111), scope renames — are refused outright, since an archive
+ * carrying them was not written by silo's exporter. The one exception is a
+ * whole-instance move (D97): an archive whose manifest says `instance` may
+ * carry the audit log, the plugin grants and the transfer ledger, and they
+ * load only for `ImportGrants.Trusted` — the CLI —
  * since no claim may rewrite the trail or grant a plugin through an import.
  *
  * Judged on **rows**, not on schemas: every export carries the riding
@@ -40,7 +41,11 @@ export class ImportSystemGate {
   ];
 
   /** What only a whole-instance move carries, and only the CLI loads. */
-  private static readonly MoveOnly: readonly string[] = [SystemCollections.Audit, SystemCollections.Plugins];
+  private static readonly MoveOnly: readonly string[] = [
+    SystemCollections.Audit,
+    SystemCollections.Plugins,
+    SystemCollections.Transfers,
+  ];
 
   private static readonly Catalog: readonly string[] = [
     SystemCollections.Media,

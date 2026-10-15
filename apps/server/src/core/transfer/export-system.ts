@@ -22,7 +22,7 @@ import type { ExportSink } from "./sink/export-sink";
  * It runs after `ExportWalk` because two of its filters depend on what that
  * walk found: which assets the exported entries reference, and which projects
  * were written at all. See §7.7 in
- * [docs/design/transfer.md](../../../../../docs/design/transfer.md).
+ * [resources/design/transfer.md](../../../../../resources/design/transfer.md).
  */
 export class ExportSystem {
   private static readonly PageSize = 100;
@@ -90,14 +90,18 @@ export class ExportSystem {
    * and the variables are data — an archive carrying media bytes without their
    * filenames restores a library with no organisation, and one carrying
    * `{{API_URL}}` without its declaration restores content whose references
-   * have quietly stopped resolving (D23, D57). The audit log and the plugin
-   * grants are instance-local and ride only in a move, which is the same
-   * instance arriving somewhere else. Scope renames never ride; `Exporter`
-   * refuses a move while one is pending.
+   * have quietly stopped resolving (D23, D57). The audit log, the plugin
+   * grants and the transfer ledger (D111) are instance-local and ride only in a
+   * move, which is the same instance arriving somewhere else. Scope renames
+   * never ride; `Exporter` refuses a move while one is pending.
    */
   private rides(collection: string): boolean {
     if (collection === KeyUtils.KeysCollection) return this.withKeys;
-    if (collection === SystemCollections.Audit || collection === SystemCollections.Plugins) {
+    if (
+      collection === SystemCollections.Audit ||
+      collection === SystemCollections.Plugins ||
+      collection === SystemCollections.Transfers
+    ) {
       return this.instance;
     }
     return (

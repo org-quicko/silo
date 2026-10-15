@@ -1,18 +1,26 @@
 import fs from "fs/promises";
 import path from "path";
+import { MediaDisposition } from "../media/media-disposition";
 import { MediaPaths } from "../media/media-paths";
-import type { BlobStorage } from "../ports/blob-storage";
+import { MimeUtils } from "../media/mime-utils";
+import type { BlobPutOptions, BlobStorage } from "../ports/blob-storage";
 import type { ExportManifest } from "./export-manifest";
 import { ImportAuthority } from "./import-authority";
 import type { ImportOptions } from "./import-options";
 import { MediaModes } from "./media-mode";
+
+/** What an archive's `_media` row says about one of its blobs. */
+interface ArchivedBlob {
+  key: string;
+  put: BlobPutOptions;
+}
 
 /**
  * Loading an archive's media bytes, and the one question that decides whether
  * replace mode may empty the destination library first.
  *
  * See §7.7 in
- * [docs/design/transfer.md](../../../../../docs/design/transfer.md).
+ * [resources/design/transfer.md](../../../../../resources/design/transfer.md).
  */
 export class ImportMedia {
   /** Where the archive keeps the media catalog it is describing its own bytes
@@ -59,24 +67,26 @@ export class ImportMedia {
       }
     }
 
-    const keys = await ImportMedia.keysByArchiveName(options.source);
+    const blobs = await ImportMedia.blobsByArchiveName(options.source);
 
     const replacing = options.options.mode === "replace";
     let written = 0;
     for (const name of names) {
       if (name.startsWith(".")) continue;
-      const key = keys.get(name) ?? name;
+      const blob = blobs.get(name);
+      const key = blob?.key ?? name;
       if (!replacing && (await options.blobStorage.exists(key))) continue;
       const bytes = await fs.readFile(path.join(mediaDirectory, name));
-      await options.blobStorage.put(key, new Uint8Array(bytes));
+      await options.blobStorage.put(key, new Uint8Array(bytes), blob?.put);
       written++;
     }
     return written;
   }
 
   /**
-   * Archive name to the key its catalog row says it is, for every `_media` row
-   * the archive carries (D88).
+   * Archive name to the key its catalog row says it is, and the type and
+   * disposition to store it with, for every `_media` row the archive carries
+   * (D88).
    *
    * The archive's `media/` directory is flat, so an entry's name alone cannot
    * say whether it was stored at `<name>` or at `media/<name>` — and getting
@@ -86,10 +96,13 @@ export class ImportMedia {
    * a row saying `<id>.jpg` loads to `<id>.jpg` and keeps resolving unmigrated,
    * a row saying `media/<id>` loads to `media/<id>`.
    *
-   * A name no row claims falls back to itself — a blob placed in the store by
-   * hand, or one whose record the filter dropped, is not ours to rename.
+   * The object gets the row's `content_type` and a disposition naming its
+   * `filename`, as an upload's does, because a bucket serves it without silo.
+   * A name no row claims falls back to itself with neither — a blob placed in
+   * the store by hand, or one whose record the filter dropped, is not ours to
+   * rename or describe.
    */
-  private static async keysByArchiveName(source: string): Promise<Map<string, string>> {
+  private static async blobsByArchiveName(source: string): Promise<Map<string, ArchivedBlob>> {
     const directory = path.join(source, ImportMedia.CatalogDirectory);
 
     let files: string[];
@@ -100,21 +113,32 @@ export class ImportMedia {
       throw caught;
     }
 
-    const keys = new Map<string, string>();
+    const blobs = new Map<string, ArchivedBlob>();
     for (const file of files) {
       if (!file.endsWith(".json")) continue;
-      let blobKey: unknown;
+      let row: Record<string, unknown>;
       try {
         const parsed = JSON.parse(await fs.readFile(path.join(directory, file), "utf8"));
-        blobKey = parsed?.data?.blob_key;
+        row = parsed?.data ?? {};
       } catch {
         // A row that will not parse is the entry importer's problem to report,
         // not a reason to refuse every blob in the archive.
         continue;
       }
-      if (typeof blobKey !== "string" || !blobKey) continue;
-      keys.set(MediaPaths.archiveName(blobKey), blobKey);
+      const key = row.blob_key;
+      if (typeof key !== "string" || !key) continue;
+      blobs.set(MediaPaths.archiveName(key), { key, put: ImportMedia.presentation(row, key) });
     }
-    return keys;
+    return blobs;
+  }
+
+  /** The type and disposition a `_media` row describes, as an upload stores them. */
+  private static presentation(row: Record<string, unknown>, key: string): BlobPutOptions {
+    const filename = typeof row.filename === "string" && row.filename ? row.filename : undefined;
+    const contentType =
+      typeof row.content_type === "string" && row.content_type
+        ? row.content_type
+        : MimeUtils.lookup(filename ?? key);
+    return { contentType, contentDisposition: MediaDisposition.header(contentType, filename) };
   }
 }

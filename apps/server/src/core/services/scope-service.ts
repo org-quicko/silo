@@ -7,11 +7,14 @@ import { Scope } from "../domain/scope";
 import { ConflictError } from "../errors/conflict-error";
 import type { WriteContext } from "../hooks/write-context";
 import { WriteContexts } from "../hooks/write-contexts";
+import type { DeleteOptions } from "../trash/delete-options";
+import { DeleteOptionsUtils } from "../trash/delete-options";
 import type { CollectionService } from "./collection-service";
 import { CollectionEvents } from "./support/collection-events";
 import { CollectionEraser } from "./support/collection-eraser";
 import type { ScopeRenameCascade } from "./support/scope-rename-cascade";
 import type { ServiceContext } from "./support/service-context";
+import type { TrashService } from "./trash/trash-service";
 import type { VariableService } from "./variable-service";
 
 /** One collection a scope delete erased, carried out of the write lock so the
@@ -36,6 +39,7 @@ export class ScopeService {
    *  or a value, because both are keyed by a record id that is about to stop
    *  existing. */
   private readonly variables: VariableService;
+  private readonly trash: TrashService;
 
   /** Derived from schema content, so it is dropped whenever schemas change. */
   private publicScopeCache: ReadonlyMap<string, ReadonlySet<string>> | null = null;
@@ -44,12 +48,14 @@ export class ScopeService {
     context: ServiceContext,
     collections: CollectionService,
     renames: ScopeRenameCascade,
-    variables: VariableService
+    variables: VariableService,
+    trash: TrashService
   ) {
     this.context = context;
     this.collections = collections;
     this.renames = renames;
     this.variables = variables;
+    this.trash = trash;
     context.schemaRegistry.onInvalidate(() => {
       this.publicScopeCache = null;
     });
@@ -139,7 +145,8 @@ export class ScopeService {
   async deleteProject(
     project: string,
     force: boolean,
-    writeContext: WriteContext = WriteContexts.Api
+    writeContext: WriteContext = WriteContexts.Api,
+    options: DeleteOptions = {}
   ): Promise<void> {
     Scope.validateProject(project);
 
@@ -161,6 +168,14 @@ export class ScopeService {
             plan.collections
           );
         }
+      }
+
+      if (this.trash.enabled && !DeleteOptionsUtils.isPermanent(options)) {
+        await this.trash.capture.project(
+          project,
+          DeleteOptionsUtils.actorOf(options),
+          this.trash.expiryStamp()
+        );
       }
 
       const counts: Erased[] = [];
@@ -204,7 +219,8 @@ export class ScopeService {
     project: string,
     env: string,
     force: boolean,
-    writeContext: WriteContext = WriteContexts.Api
+    writeContext: WriteContext = WriteContexts.Api,
+    options: DeleteOptions = {}
   ): Promise<void> {
     const scope = Scope.of(project, env);
 
@@ -213,6 +229,15 @@ export class ScopeService {
       if (!force) {
         ScopeService.refuseNonEmpty(`environment "${scope.key()}"`, collections);
       }
+      if (this.trash.enabled && !DeleteOptionsUtils.isPermanent(options)) {
+        await this.trash.capture.environment(
+          project,
+          env,
+          DeleteOptionsUtils.actorOf(options),
+          this.trash.expiryStamp()
+        );
+      }
+
       const counts: Erased[] = [];
       for (const collection of collections) {
         counts.push({

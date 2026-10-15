@@ -5,6 +5,7 @@ import { MimeUtils } from "../../media/mime-utils";
 import type { MediaAsset } from "../../media/media-asset";
 import type { MediaReconcileResult } from "../../media/media-reconcile-result";
 import type { ServiceContext } from "../support/service-context";
+import type { TrashService } from "../trash/trash-service";
 import type { MediaCatalogStore } from "./media-catalog-store";
 import type { MediaDeletionService } from "./media-deletion-service";
 
@@ -12,6 +13,8 @@ import type { MediaDeletionService } from "./media-deletion-service";
  * Reconciles the catalog against the blob store: adopts blobs that predate D23
  * or that a half-finished upload left behind, finishes staged deletions, prunes
  * records whose bytes are gone, and reports orphans without deleting them.
+ * An asset in the trash has no catalog record but keeps its bytes (D113), so
+ * its key counts as claimed.
  *
  * Operator-invoked repair, not a background job.
  */
@@ -19,15 +22,18 @@ export class MediaReconciler {
   private readonly context: ServiceContext;
   private readonly catalog: MediaCatalogStore;
   private readonly deletion: MediaDeletionService;
+  private readonly trash: TrashService;
 
   constructor(
     context: ServiceContext,
     catalog: MediaCatalogStore,
-    deletion: MediaDeletionService
+    deletion: MediaDeletionService,
+    trash: TrashService
   ) {
     this.context = context;
     this.catalog = catalog;
     this.deletion = deletion;
+    this.trash = trash;
   }
 
   async run(): Promise<MediaReconcileResult> {
@@ -42,6 +48,7 @@ export class MediaReconciler {
       };
 
       const claimedBlobKeys = await this.reconcileRecords(result);
+      for (const key of await this.trash.parkedBlobKeys()) claimedBlobKeys.add(key);
       await this.adoptOrphans(result, claimedBlobKeys);
 
       result.orphans.sort();

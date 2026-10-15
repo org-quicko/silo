@@ -65,19 +65,29 @@ export class MediaFolderService {
     const normalized = MediaFolderService.require(folderPath);
 
     await this.context.withWriteLock(async () => {
-      const occupied = (await this.assetsWithin(normalized)).length;
-      if (occupied > 0) {
-        throw new ConflictError(
-          `folder "${normalized}" still holds ${occupied} file${occupied === 1 ? "" : "s"}`
-        );
-      }
-
-      for (const entry of await this.catalog.allFolders()) {
-        if (MediaPaths.isWithin(MediaCatalog.folderOf(entry), normalized)) {
-          await this.catalog.deleteFolder(entry.id);
-        }
+      await this.requireEmpty(normalized);
+      for (const entry of await this.recordsWithin(normalized)) {
+        await this.catalog.deleteFolder(entry.id);
       }
     });
+  }
+
+  /** Refuses while any asset names the folder or one beneath it. Callers hold
+   *  the write lock. */
+  async requireEmpty(folderPath: string): Promise<void> {
+    const occupied = (await this.assetsWithin(folderPath)).length;
+    if (occupied > 0) {
+      throw new ConflictError(
+        `folder "${folderPath}" still holds ${occupied} file${occupied === 1 ? "" : "s"}`
+      );
+    }
+  }
+
+  /** Every explicit `_media_folders` record at or beneath `folderPath`. */
+  async recordsWithin(folderPath: string): Promise<Entry[]> {
+    return (await this.catalog.allFolders()).filter((entry) =>
+      MediaPaths.isWithin(MediaCatalog.folderOf(entry), folderPath)
+    );
   }
 
   /**
@@ -109,14 +119,9 @@ export class MediaFolderService {
     const normalized = MediaFolderService.require(folderPath);
 
     return this.context.withWriteLock(async () => {
-      let count = 0;
-      for (const entry of await this.catalog.allFolders()) {
-        if (MediaPaths.isWithin(MediaCatalog.folderOf(entry), normalized)) {
-          await this.catalog.deleteFolder(entry.id);
-          count++;
-        }
-      }
-      return count;
+      const records = await this.recordsWithin(normalized);
+      for (const entry of records) await this.catalog.deleteFolder(entry.id);
+      return records.length;
     });
   }
 
@@ -125,7 +130,8 @@ export class MediaFolderService {
     for (const ancestor of MediaPaths.ancestors(folder)) paths.add(ancestor);
   }
 
-  private static require(folderPath: unknown): string {
+  /** The normalised path, or a `ValidationError` when there is none. */
+  static require(folderPath: unknown): string {
     const normalized = MediaPaths.normalizeFolder(folderPath);
     if (!normalized) throw new ValidationError("folder path is required");
     return normalized;

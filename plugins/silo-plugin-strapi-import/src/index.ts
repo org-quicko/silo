@@ -41,7 +41,7 @@ import { ImportRuntime } from './worker/import-runtime'
  *   `[plugins.config]` names a scope.
  *
  * See [the README](../README.md) for the operator's view, and
- * `docs/design/plugins.md` §13 for the contract this is written against.
+ * `resources/design/plugins.md` §13 for the contract this is written against.
  */
 export default defineSiloPlugin({
   /**

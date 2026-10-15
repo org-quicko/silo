@@ -1,6 +1,7 @@
 import { afterAll, describe } from "bun:test";
 import type { Storage } from "../../src/core/ports/storage";
 import { StorageTestContext } from "./storage-test-context";
+import { CommitSuite } from "./suites/commit-suite";
 import { EntrySuite } from "./suites/entry-suite";
 import { MediaUsageSuite } from "./suites/media-usage-suite";
 import { QuerySuite } from "./suites/query-suite";
@@ -17,11 +18,16 @@ import { ScopeIsolationSuite } from "./suites/scope-isolation-suite";
  * A port with several implementations is only a port if they all answer the
  * same questions the same way, so this suite is the contract — `fs.test.ts`,
  * `sqlite.test.ts` and `postgres.test.ts` point it at their adapter.
+ *
+ * `atomic` says the adapter offers `AtomicStorage.commit` (D107), so its
+ * contract is run too. It is the caller's statement, not read off the store,
+ * so an adapter that loses `commit` fails here instead of skipping.
  */
 export function runStorageTestSuite(
   name: string,
   open: () => Promise<Storage>,
-  cleanup: (store: Storage) => Promise<void>
+  cleanup: (store: Storage) => Promise<void>,
+  capabilities: { atomic?: boolean } = {}
 ) {
   describe(`Storage Conformance: ${name}`, () => {
     const context = new StorageTestContext(open, cleanup);
@@ -36,5 +42,6 @@ export function runStorageTestSuite(
     RenameSuite.register(context);
     SafetySuite.register(context);
     MediaUsageSuite.register(context);
+    if (capabilities.atomic) CommitSuite.register(context);
   });
 }

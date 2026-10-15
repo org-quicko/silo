@@ -1,6 +1,6 @@
 # HTTP API
 
-> Every route, the query grammar, search, and the error shape. The design rationale is in [docs/design/http-api.md](../design/http-api.md).
+> Every route, the query grammar, search, and the error shape. The design rationale is in [resources/design/http-api.md](../design/http-api.md).
 
 JSON everywhere, and clean routes under `/api`. There is no URL versioning: a
 breaking change is a release-note event, and the data format carries its own
@@ -8,7 +8,7 @@ version. CORS is enabled for `/api/*`. It is also enabled for `GET` and
 `HEAD` on `/media/*`, so a page on a different origin can read a media file
 with `fetch`.
 
-[docs/openapi.json](../openapi.json) is the same API as an OpenAPI 3.1
+[resources/openapi.json](../openapi.json) is the same API as an OpenAPI 3.1
 description. Open it in Swagger UI or Redoc, or give it to a code generator to
 make a client. This page is the short version that you read.
 
@@ -26,6 +26,11 @@ Present a key as `Authorization: Bearer <key>` or `X-Api-Key: <key>`.
 | `PATCH` | `/api/projects/{project}/envs/{env}` | rename an environment (`?dry_run=true`) |
 | `DELETE` | `/api/projects/{project}/envs/{env}` | delete an environment and its collections (`?force=true`) |
 | `POST` | `/api/projects/{project}/envs/{env}/copy` | copy another environment of this instance into it |
+| `POST` | `/api/projects/{project}/envs/{env}/package` | stream a transfer package: only the named collections and entries, and the media they use. Another silo reads it |
+| `POST` | `/api/projects/{project}/envs/{env}/transfers` | prepare a transfer from another silo into this environment: get its package, check it, plan it against this environment, and keep it for review for 60 minutes |
+| `GET` / `DELETE` | `/api/projects/{project}/envs/{env}/transfers/{id}` | read a prepared transfer, its totals and one page of its plan (`?detail_offset=&detail_limit=`) / cancel it |
+| `GET` | `/api/projects/{project}/envs/{env}/transfers/{id}/entries/{collection}/{entry}` | read one entry as the prepared transfer holds it |
+| `POST` | `/api/projects/{project}/envs/{env}/transfers/{id}/apply` | write the reviewed plan in one change, or nothing. The claims are checked again. An applied transfer gives the same answer again |
 | `POST` | `/api/projects/{project}/variables` | declare a variable, and value it in one environment with `?env=` |
 | `PATCH` / `DELETE` | `/api/projects/{project}/variables/{name}` | rename or re-describe a declaration / undeclare it everywhere |
 | `GET` | `/api/projects/{project}/envs/{env}/variables` | the declarations, with this environment's values |
@@ -47,6 +52,12 @@ Present a key as `Authorization: Bearer <key>` or `X-Api-Key: <key>`.
 | `PATCH` / `DELETE` | `/api/plugins/{name}/config` | change its config / return it to `silo.toml` |
 | `POST` | `/api/plugins/{name}/restart` | bring a dead worker back |
 | `POST` | `/api/plugins/rescan` | re-read `silo.toml` and apply it |
+| `GET` | `/api/trash` | what has been deleted and can still be restored (`?kind=&project=&env=&collection=&q=`) |
+| `GET` | `/api/trash/{id}` | one trash item |
+| `GET` | `/api/trash/{id}/items` | the records that item parked, read only |
+| `POST` | `/api/trash/{id}/restore` | put it back (`{rename?, chain?}`). Asks for the write claims at the destination |
+| `DELETE` | `/api/trash/{id}` | destroy one trash item for good (`trash:purge`) |
+| `POST` | `/api/trash/purge` | empty the trash (`{confirm: "empty"}`, `trash:purge`) |
 | `GET` | `/api/audit` | who changed what authority, and when |
 | `GET` | `/api/observability` | aggregate API traffic, errors, latency, process resources, local storage, and the database pool and TLS mode when the driver is `postgres` (`observability:read`) |
 | `GET` / `POST` | `/api/media` | list / upload media |
@@ -64,11 +75,11 @@ Present a key as `Authorization: Bearer <key>` or `X-Api-Key: <key>`.
 | `GET` | `/api/media/folders` | the folders the library holds |
 | `POST` | `/api/media/folders` | create a folder (`{path}`, `media:create`) |
 | `PATCH` | `/api/media/folders` | rename or move a folder (`{from, to}`), and every asset and descendant folder within |
-| `DELETE` | `/api/media/folders` | delete a folder. Empty only by default, or everything inside it with `?recursive=true` (`?force=true` as above) |
+| `DELETE` | `/api/media/folders` | delete a folder. Empty only by default, or everything inside it with `?recursive=true` (`?force=true` as above). The folder is one trash item |
 | `GET` / `PUT` | `/api/media/storage` | read / change where the library keeps its bytes (`media:configure`) |
 | `GET` / `PUT` | `/api/media/settings` | read / change where media URLs point, what may be uploaded, and the bulk download limits (`media:configure`) |
 | `GET` | `/api/settings` | the rest of `silo.toml`, with what is in force and what a restart is owed for (`settings:configure`) |
-| `PUT` | `/api/settings/{table}` | rewrite one of `log`, `search`, `schema`, `auth` (`settings:configure`) |
+| `PUT` | `/api/settings/{table}` | rewrite one of `log`, `http`, `transfer`, `trash`, `search`, `schema`, `auth` (`settings:configure`) |
 | `GET` | `/api/projects/{project}/envs/{env}/collections/{name}/search` | search one collection |
 | `GET` | `/api/projects/{project}/envs/{env}/search` | search one environment |
 | `GET` | `/api/search` | search everything the key can read |
@@ -211,6 +222,155 @@ routes above, called with the key the client presents, so the claims decide
 exactly as they do here. [mcp.md](mcp.md) lists the tools and shows how to
 connect Claude Code, Codex, Cursor and Claude Desktop.
 
+## Trash
+
+A delete does not destroy the content. It moves it to the trash, where you can
+restore it. This applies to a project, an environment, a collection, an entry, a
+media asset and a media folder.
+
+The trash keeps one item for each thing you deleted on purpose. If you delete a
+collection that holds 300 entries, the trash shows one item that says
+"300 entries". It does not show 301 items. When you restore that item, all 300
+entries come back with it.
+
+A media folder works the same way. The trash shows one item for the folder. It
+holds the subfolders and the files that went with it. If a file is still in
+use, the file stays, and the folder stays too. The `X-Silo-Trash-Id` response
+header names the item.
+
+`GET /api/session` tells you whether this instance keeps a trash, and for how
+many days.
+
+### Read the trash
+
+```sh
+curl http://localhost:8090/api/trash \
+  -H "Authorization: Bearer $SILO_KEY"
+```
+
+Narrow the list with `?kind=`, `?project=`, `?env=`, `?collection=`, `?q=`,
+`?deleted_after=` and `?deleted_before=`. Page it with `?limit=` and `?offset=`.
+The pages include only the items that your key can see, and `total` counts
+only those items.
+
+There is no `trash:read` claim. The server shows you each item only if you can
+read the content it came from. A key with `entries:read` on `default/prod/posts`
+sees entries deleted from that collection, and no others. Two keys see two
+different trashes.
+
+`GET /api/trash/{id}/items` reads the parked records. For a collection,
+environment or project, seeing the receipt with `schema:read` is not enough:
+you also need `entries:read` over that container (`project/environment/*` for
+an environment, `project/*/*` for a project). Otherwise this route returns `403`.
+
+The names in `origin` are the names that the project, the environment and the
+collection have now. If someone renames the collection, the item shows the new
+name. The read check and the filters use the new name too. An item keeps the
+old name only when its container is gone.
+
+Each item tells you where the content was, what rode along with it, who deleted
+it, and when it expires:
+
+```json
+{
+  "id": "01JBX...",
+  "kind": "collection",
+  "subject_name": "posts",
+  "origin": { "project_name": "default", "env_name": "prod" },
+  "contents": { "collections": 1, "entries": 300, "assets": 0, "bytes": 124400 },
+  "deleted_at": "2026-09-22T09:14:03.000Z",
+  "deleted_by": { "kind": "key", "label": "ci-deploy" },
+  "expires_at": "2026-10-22T09:14:03.000Z",
+  "restorable": true
+}
+```
+
+### Restore
+
+```sh
+curl -X POST http://localhost:8090/api/trash/01JBX.../restore \
+  -H "Authorization: Bearer $SILO_KEY"
+```
+
+Restoring writes the content back. It therefore asks for the write claims at the
+destination, not for a claim of its own. To restore an entry into `default/prod`
+you need `entries:create` there. To restore a collection you also need `create`.
+The server checks these claims at the names that the destination has now. If
+you send `rename`, it checks them at the new name.
+
+The content goes back to the same place, addressed by record id. If someone
+renamed the project, the environment or the collection while the content was in
+the trash, the restore still finds it.
+
+Three things can stop a restore:
+
+- **The container is gone.** You cannot restore an entry into a collection that
+  no longer exists. The item says so in `blocked_by`, and `restorable` is
+  `false`. If the container is in the trash too, send `{"chain": true}` to
+  restore the container first and then the content. Your key needs the
+  claims to read and restore the container too. The server checks them
+  before it writes anything.
+- **The name or the id is taken.** A trashed collection frees its name at once,
+  so someone can create a new `posts` while the old one is in the trash. The
+  restore then answers `409` instead of writing over the new one. Send
+  `{"rename": "posts-restored"}` to bring it back under a different name.
+- **The schema changed.** You can change the schema of a collection that has
+  no entries. A restored entry must agree with the schema that its collection
+  has now. If it does not, the restore answers `409` and the item stays in the
+  trash. Change the schema back, then restore again.
+
+A restore reports what it could not repair. If a media asset was deleted while
+an entry that references it sat in the trash, the entry comes back and
+`broken_media_refs` names the reference that no longer resolves.
+
+If a restore fails partway through, retry the same receipt. The server records
+progress before each write and recognizes unchanged records it already restored,
+including after a restart. A renamed restore keeps its original destination
+when you retry without `rename`, and checks your claims there again. A live
+entry changed since the partial restore still causes `409` rather than being
+overwritten.
+
+### Delete for good
+
+```sh
+curl -X DELETE http://localhost:8090/api/trash/01JBX... \
+  -H "Authorization: Bearer $SILO_KEY"
+
+curl -X POST http://localhost:8090/api/trash/purge \
+  -H "Authorization: Bearer $SILO_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"confirm": "empty"}'
+```
+
+Both need `trash:purge`. No preset carries it except `root`. Whoever deleted the
+content already used their delete claim. Destroying it forever is a second
+decision.
+
+Purging preserves a file still owned by a live media asset, including one
+revived by an import while its old receipt remains in the trash. Emptying the
+trash applies to the whole server, including items hidden by UI filters.
+
+To skip the trash on the way in, add `?permanent=true` to any delete route. That
+also needs `trash:purge`.
+
+### Retention
+
+Items expire after 30 days and the server then deletes them. Change this in
+`silo.toml`:
+
+```toml
+[trash]
+enabled = true
+retention_days = 30
+```
+
+Set `enabled = false` to make every delete permanent, which is how silo behaved
+before the trash. Set `retention_days = 0` to keep items until someone purges
+them by hand.
+
+The expiry is stamped on each item when you delete it. If you shorten
+`retention_days` later, content already in the trash keeps the date it was given.
+
 ## Optimistic concurrency
 
 `PUT` and `DELETE` on an entry require the revision you expect, as
@@ -227,8 +387,19 @@ admin tabs from overwriting each other in silence.
 The codes are `validation_failed` (400), `unauthorized` (401), `forbidden`
 (403), `not_found` (404), `method_not_allowed` (405, only from `/api/mcp`),
 `conflict` (409), `payload_too_large` (413), `archive_too_large` (413),
-`internal` (500) and `busy` (503). Validation details carry JSON Pointer paths
-from the validator.
+`too_many_transfers` (429), `internal` (500) and `busy` (503). Validation
+details carry JSON Pointer paths from the validator.
+
+A prepared transfer has its own `409` codes:
+
+- `atomic_commit_unsupported`: this server uses the `fs` storage driver. That
+  driver cannot write a transfer as one change. Use SQLite or Postgres.
+- `transfer_cancelled`: a cancel stopped the transfer while it got its package.
+- `transfer_in_progress` and `transfer_applied`: you tried to cancel a transfer
+  that silo is applying, or that silo applied.
+
+A `429 too_many_transfers` means that 4 transfers are open on this server.
+Apply or cancel one, or wait until one expires.
 
 A `503 busy` comes from an entry list or a search. A filter or a sort over
 entry data scans the collection. Those scans run on a separate storage thread
@@ -248,7 +419,8 @@ media upload, media replace, import and plugin install routes accept up to
 `[http] max_body_size_mb` (default 128 MB). See
 [configuration.md](configuration.md).
 
-A `413` with the code `archive_too_large` comes from an import or a copy. The
+A `413` with the code `archive_too_large` comes from an import, a copy or a
+prepared transfer. The
 archive is larger than `[transfer] max_archive_size_mb`, or it would unpack to
 more than `[transfer] max_extracted_size_mb`. The message names the setting.
 

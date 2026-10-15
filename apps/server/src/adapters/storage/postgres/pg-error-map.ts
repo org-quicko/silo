@@ -10,7 +10,7 @@ import { PgUnavailableError } from "./pg-unavailable-error";
  * Read by field rather than by class, so this file does not import the driver:
  * Bun puts the SQLSTATE in `errno` and its own label in `code`. Anything not
  * listed passes through unchanged and becomes a 500, which is the right answer
- * for a bug in the SQL (docs/design/storage.md §6.6).
+ * for a bug in the SQL (resources/design/storage.md §6.6).
  */
 export class PgErrorMap {
   /**

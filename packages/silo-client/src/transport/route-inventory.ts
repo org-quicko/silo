@@ -4,7 +4,7 @@
  * The point is that the two lists together must account for the whole API: a
  * route in neither is a gap, and `test/contract/route-inventory.test.ts`
  * checks them against the server's own registrations rather than against
- * `docs/guide/http-api.md`, which can be, and has been, incomplete.
+ * `resources/guide/http-api.md`, which can be, and has been, incomplete.
  *
  * Paths use the server's own `:param` spelling and the `/envs/` spelling of
  * the two it accepts.
@@ -48,6 +48,13 @@ export class RouteInventory {
     "GET /api/projects/:project/envs/:env/search",
     "GET /api/search",
 
+    "GET /api/trash",
+    "GET /api/trash/:id",
+    "GET /api/trash/:id/items",
+    "POST /api/trash/:id/restore",
+    "DELETE /api/trash/:id",
+    "POST /api/trash/purge",
+
     "GET /api/media",
     "POST /api/media",
     "GET /api/media/extensions",
@@ -81,6 +88,12 @@ export class RouteInventory {
     "POST /api/import": "transfer is an operator surface",
     "POST /api/copy": "transfer is an operator surface",
     "POST /api/projects/:project/envs/:env/copy": "scope-to-scope copy is transfer",
+    "POST /api/projects/:project/envs/:env/package": "a transfer package is read by another silo",
+    "POST /api/projects/:project/envs/:env/transfers": "a transfer from another silo is prepared by the admin",
+    "GET /api/projects/:project/envs/:env/transfers/:id": "a transfer from another silo is reviewed in the admin",
+    "GET /api/projects/:project/envs/:env/transfers/:id/entries/:collection/:entry": "a transfer from another silo is reviewed in the admin",
+    "POST /api/projects/:project/envs/:env/transfers/:id/apply": "a transfer from another silo is applied by the admin",
+    "DELETE /api/projects/:project/envs/:env/transfers/:id": "a transfer from another silo is cancelled by the admin",
     "POST /api/search/reindex": "rebuilding the index is an operator action",
     "POST /api/media/purge": "emptying the library is an operator action",
     "POST /api/media/reconcile": "an operator action",

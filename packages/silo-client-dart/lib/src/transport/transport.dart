@@ -43,6 +43,10 @@ final class Transport {
   /// A route that answers `204`.
   Future<void> empty(TransportRequest request) => _execute(request);
 
+  /// A `204` that carries its result in a header, the way a delete reports
+  /// its trash receipt (D113).
+  Future<Map<String, String>> emptyWithHeaders(TransportRequest request) async => (await _execute(request)).headers;
+
   Future<Map<String, Object?>> upload(
     TransportRequest request,
     http.MultipartFile file, [

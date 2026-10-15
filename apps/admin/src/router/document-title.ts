@@ -29,6 +29,7 @@ export class DocumentTitle {
     if (route.view === 'media') {
       return route.folder ? `${prefix} - Media Library ${route.folder}` : `${prefix} - Media Library`
     }
+    if (route.view === 'trash') return `${prefix} - Trash`
     if (
       route.view === 'server-settings' ||
       route.view === 'project-settings' ||

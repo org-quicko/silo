@@ -81,6 +81,26 @@ export class ApiPath {
     return "/api/search";
   }
 
+  static trash(): string {
+    return "/api/trash";
+  }
+
+  static trashItem(id: string): string {
+    return `/api/trash/${encodeURIComponent(id)}`;
+  }
+
+  static trashItemContents(id: string): string {
+    return `${ApiPath.trashItem(id)}/items`;
+  }
+
+  static trashRestore(id: string): string {
+    return `${ApiPath.trashItem(id)}/restore`;
+  }
+
+  static trashPurge(): string {
+    return "/api/trash/purge";
+  }
+
   static media(): string {
     return "/api/media";
   }
