@@ -1,6 +1,14 @@
 {
   "$schema": "https://mintlify.com/docs.json",
   "name": "Silo",
+  "description": "Silo - Open Source,  Agent Native, Headless CMS. Shape your content with JSON Schema. Get a generated admin UI, REST APIs and MCP server, with your data kept as plain JSON. All hosted in a single binary.",
+  "seo": {
+    "metatags": {
+      "og:title": "Silo - Open Source, Agent-Native, Headless CMS by Quicko",
+      "og:description": "Model content in JSON Schema and get a generated editor, REST API and MCP server. Multi-tenant, multi-environment and self-hosted in a single binary.",
+      "og:image": "https://framerusercontent.com/assets/Nxo9xrJaMyZ82rr4sL5mJ692YkI.jpg"
+    }
+  },
   "theme": "luma",
   "colors": {
     "primary": "#bf3b41",
