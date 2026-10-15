@@ -15,7 +15,7 @@
     },
     "apps/admin": {
       "name": "@silo/admin",
-      "version": "1.5.0",
+      "version": "1.6.0",
       "dependencies": {
         "@codemirror/lang-json": "^6.0.2",
         "@org-quicko/silo-client": "workspace:*",
@@ -25,8 +25,8 @@
         "@silo/shared": "workspace:*",
         "@uiw/react-codemirror": "^4.25.12",
         "lucide-react": "^1.57.0",
-        "react": "^19.3.0",
-        "react-dom": "^19.3.0",
+        "react": "^19.3.1",
+        "react-dom": "^19.3.1",
       },
       "devDependencies": {
         "@types/bun": "^1.4.3",
@@ -42,7 +42,7 @@
     },
     "apps/server": {
       "name": "@silo/server",
-      "version": "1.5.0",
+      "version": "1.6.0",
       "dependencies": {
         "@silo/shared": "workspace:*",
         "ajv": "^8.20.0",
@@ -62,7 +62,7 @@
     },
     "packages/create-silo-plugin": {
       "name": "create-silo-plugin",
-      "version": "1.5.0",
+      "version": "1.6.0",
       "bin": {
         "create-silo-plugin": "./dist/cli.js",
       },
@@ -73,11 +73,11 @@
     },
     "packages/shared": {
       "name": "@silo/shared",
-      "version": "1.5.0",
+      "version": "1.6.0",
     },
     "packages/silo-client": {
       "name": "@org-quicko/silo-client",
-      "version": "1.1.2",
+      "version": "1.6.0",
       "dependencies": {
         "@isaacs/ttlcache": "^2.1.5",
       },
@@ -90,11 +90,11 @@
     },
     "plugins/silo-plugin-observability": {
       "name": "silo-plugin-observability",
-      "version": "1.0.0",
+      "version": "1.6.0",
     },
     "plugins/silo-plugin-strapi-import": {
       "name": "@org-quicko/silo-plugin-strapi-import",
-      "version": "1.0.0",
+      "version": "1.6.0",
     },
   },
   "overrides": {
@@ -420,7 +420,7 @@
 
     "fast-deep-equal": ["fast-deep-equal@3.1.3", "", {}, "sha512-f3qQ9oQy9j2AhBe/H9VC91wLmKBCCU/gDOnKNAYG5hswO7BLKj09Hc5HYNz9cGI++xlpDCIgDaitVs03ATR84Q=="],
 
-    "fast-equals": ["fast-equals@6.2.0", "", {}, "sha512-e5ZcvjQdvN9EDt9lzDj37cuKNcP8EL+pPcYSWPSSpuzAra8LbymuMdB7wpk2d2OigMKMK7UZ9I5AU8TJswDzpQ=="],
+    "fast-equals": ["fast-equals@6.2.1", "", {}, "sha512-s7KFkLPAAbIDGTh+nVYhjTiwKGvgMXAUG5vwzg8vQKj7NSRZ4eEGExBQ4rq9V90fTYVWd1cb/Wr4ffCNBmLQMQ=="],
 
     "fast-glob": ["fast-glob@3.3.3", "", { "dependencies": { "@nodelib/fs.stat": "^2.0.2", "@nodelib/fs.walk": "^1.2.3", "glob-parent": "^5.1.2", "merge2": "^1.3.0", "micromatch": "^4.0.8" } }, "sha512-7MptL8U0cqcFdzIzwOTHoilX9x5BrNqye7Z/LuC7kCMRio1EMSyqRK3BEAUD7sXRq4iT4AzTVuZdhgQ2TCvYLg=="],
 
@@ -604,9 +604,9 @@
 
     "queue-microtask": ["queue-microtask@1.2.3", "", {}, "sha512-NuaNSa6flKT5JaSYQzJok04JzTL1CA6aGhv5rfLW3PgqA+M2ChpZQnAC8h8i4ZFkBS8X5RqkDBHA7r4hej3K9A=="],
 
-    "react": ["react@19.3.0", "", {}, "sha512-E8LUcbtBWt20bbl2YoHfx4ZDBdxVTfOKtCZn9cDSJ4l6/nuoApcpIBcj47t2wZoVX8g2ZHuMHbiShgCR1T5Sog=="],
+    "react": ["react@19.3.1", "", {}, "sha512-QNhWdt7nrgVWWQG58QuGsAR3jv3Hbe4mb4vz7w2csnHavciZJgda1CPNaldF6eVxv90ud3jUXpKlHL69gO38yw=="],
 
-    "react-dom": ["react-dom@19.3.0", "", { "dependencies": { "scheduler": "^0.28.0" }, "peerDependencies": { "react": "^19.3.0" } }, "sha512-JDk8dgif51OjFoDE70+OT9ICyYr+69HlmihNwp1+Nsfbna3t5sIiCa9ZJktDmQ4/1b/rn26hIAR2uYXDMr5r0Q=="],
+    "react-dom": ["react-dom@19.3.1", "", { "dependencies": { "scheduler": "^0.28.0" }, "peerDependencies": { "react": "^19.3.1" } }, "sha512-Y0bARz53lhEC1NMCASs0/j+faB/zqt3R8hpvg1e8+61ZVJ4UL0UdC4cBbXfZMcIuhrfgeILTLe+ZeBCavQPtKQ=="],
 
     "react-is": ["react-is@18.3.1", "", {}, "sha512-/LLMVyas0ljjAtoYiPqYiL8VWXzUUdThrmU5+n20DZv+a+ClRoevUzw5JxU+Ieh5/c87ytoTBV9G1FiKfNJdmg=="],
 

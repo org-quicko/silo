@@ -11,7 +11,7 @@ Java 25 or newer. Every call blocks, so run it on virtual threads.
 <dependency>
   <groupId>in.org.quicko.silo</groupId>
   <artifactId>client</artifactId>
-  <version>1.1.0</version>
+  <version>1.6.0</version>
 </dependency>
 ```
 

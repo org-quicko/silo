@@ -16,7 +16,7 @@ and every decision (D1–D113) are indexed in [IMPLEMENTATION.md](IMPLEMENTATION
 
 ## Where things stand
 
-*Last updated: 2026-10-15. Version 1.5.0 (root `package.json`, D28).*
+*Last updated: 2026-10-15. Version 1.6.0 (root `package.json`, D28).*
 
 **Stack.** Bun + TypeScript in one workspace: `apps/server` (CLI, Hono HTTP
 API, core, adapters), `apps/admin` (React, embedded in the executable),
@@ -121,18 +121,18 @@ one); `docs/` is the public Mintlify site.
   and the medium findings are still open. The report is not in the repo.
 - Changing a schema over existing entries is deferred until a migration plan
   exists (D70).
-- The client package versions (TypeScript 1.1.2, Java 1.1.0, Dart 1.0.0) are
-  unchanged since 1.5.0, though each gained the trash and Java's `delete()`
-  change breaks binary compatibility. They need a bump before release.
 - Roadmap items (sync, drafts/publish, durable webhooks, enforced relations)
   are in [milestones.md](resources/design/milestones.md) §12.
   [IDEAS.md](IDEAS.md) holds loose ideas.
 
-**Most recent changes:** the 1.6.0 release note has Upgrade notes from the
-1.5.0 to 1.6.0 compatibility check: what the trash changes for operators
-(public bucket links, read keys, turning it off, the Strapi plugin), the four
-limits of a rollback to 1.5.0, and the Java client's binary break. The public
-trash page says the same where it fits. Before that, four trash fixes from the
+**Most recent changes:** every version reads 1.6.0: silo's five manifests
+through `set-version`, and by hand the three clients (from TypeScript 1.1.2,
+Java 1.1.0 and Dart 1.0.0), both first-party plugins (from 1.0.0), `bun.lock`,
+the client install snippets and `openapi.json`'s `info.version`. The 1.6.0
+release note covers features and fixes, plus the Java client's binary break,
+the one breaking change; what the trash changes for operators (public bucket
+links, read keys, turning it off, the Strapi plugin) is on the public trash
+page. Before that, four trash fixes from the
 same check: `SILO_TRASH_ENABLED` takes only `true` or `false` and
 refuses to start on anything else, while an upgraded instance keeps the trash
 on; the hourly sweep logs a receipt it could not purge; `silo media reconcile`

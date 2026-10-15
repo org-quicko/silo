@@ -1,6 +1,6 @@
 {
   "name": "@org-quicko/silo-plugin-strapi-import",
-  "version": "1.0.0",
+  "version": "1.6.0",
   "description": "Import a Strapi 5 SQLite export into silo collections, from a panel in the admin",
   "type": "module",
   "main": "src/index.ts",

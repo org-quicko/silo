@@ -6,7 +6,7 @@ runs on the Dart VM, Flutter and the web.
 
 ```yaml
 dependencies:
-  silo_client: ^1.0.0
+  silo_client: ^1.6.0
 ```
 
 ## Start

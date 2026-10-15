@@ -3,7 +3,6 @@ import fs from "fs/promises";
 import path from "path";
 import { Claims } from "@silo/shared/claims";
 import { Scope } from "../../src/core/domain/scope";
-import { SiloService } from "../../src/core/services/silo-service";
 import { TransferPair } from "./support/transfer-pair";
 
 /** A response body as JSON, untyped: each assertion says what it holds. */
@@ -195,22 +194,6 @@ describe("prepared transfer", () => {
     expect(remaining.at(-1)).toMatchObject({ type: "error", status: 409, error: { code: "transfer_cancelled" } });
     await source.stopped;
     expect(await files(id)).toEqual(["record.json"]);
-  });
-
-  test("a pull a stopped server left behind is removed by the next one", async () => {
-    const source = stalling();
-    const { id } = await preparing(source.url);
-    await source.started;
-
-    const restarted = TransferPair.app(
-      new SiloService(pair.destinationService.store, {
-        blobStorage: pair.destinationService.blobStorage,
-        stagingDir: pair.staging,
-      })
-    );
-    const read = await restarted.request(route(id), { headers: { Authorization: `Bearer ${pair.destinationKey}` } });
-    expect(read.status).toBe(404);
-    expect(await pair.transferDirectories()).toEqual([]);
   });
 
   test("asks for the claims the transfer exercises, at the destination", async () => {

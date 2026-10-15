@@ -9,16 +9,16 @@ import { NotFoundError } from "../../src/core/errors/not-found-error";
 import { SiloService } from "../../src/core/services/silo-service";
 import { TransferPair } from "./support/transfer-pair";
 
-const Child = path.join(import.meta.dir, "support", "transfer-apply-child.ts");
+const Child = path.join(import.meta.dir, "support", "transfer-recovery-child.ts");
 
 /**
- * An apply the process died in (D111), settled when the server starts again:
- * the ledger row says whether the commit landed. A real process is killed at
- * the point named, so what is on disk is what a crash leaves.
+ * A transfer the process died in (D109, D111), settled when the server starts
+ * again. A real process is killed at the point named, so what is on disk is
+ * what a crash leaves, with no old pull still writing into it.
  */
-describe("an apply the process died in", () => {
-  /** Runs the child to `stop`, kills it there, and answers the transfer it was applying. */
-  async function killedAt(directory: string, stop: "after-files" | "after-commit") {
+describe("a transfer the process died in", () => {
+  /** Runs the child to `stop`, kills it there, and answers its transfer. */
+  async function killedAt(directory: string, stop: "during-pull" | "after-files" | "after-commit") {
     const child = Bun.spawn([process.execPath, Child, directory, stop], { stdout: "pipe", stderr: "pipe" });
     const seen: string[] = [];
     let ready: string[] | undefined;
@@ -51,6 +51,27 @@ describe("an apply the process died in", () => {
     });
     return { store, service, settled: await service.preparedTransfers.resumeInterrupted() };
   }
+
+  test("a pull a stopped server left behind is removed by the next one", async () => {
+    const directory = await fs.mkdtemp(path.join(os.tmpdir(), "silo-recovery-test-"));
+    try {
+      const { id, key } = await killedAt(directory, "during-pull");
+      const prepared = path.join(directory, "destination-transfer", "prepared");
+      expect(await Bun.file(path.join(prepared, id, "record.json")).json()).toMatchObject({ id, state: "preparing" });
+
+      const destination = await restarted(directory);
+      try {
+        const app = TransferPair.app(destination.service);
+        const response = await app.request(`${TransferPair.Prepare}/${id}`, { headers: { Authorization: `Bearer ${key}` } });
+        expect(response.status).toBe(404);
+        expect(await fs.readdir(prepared)).toEqual([]);
+      } finally {
+        await destination.store.close();
+      }
+    } finally {
+      await fs.rm(directory, { recursive: true, force: true }).catch(() => {});
+    }
+  }, 60_000);
 
   const cases: ["after-files" | "after-commit", { applied: number; restored: number; pending: number }, string][] = [
     ["after-files", { applied: 0, restored: 1, pending: 0 }, "prepared"],

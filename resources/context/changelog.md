@@ -4,6 +4,29 @@
 > The *current* state is [CONTEXT.md](../../CONTEXT.md); this is how it got
 > there.
 
+- **The 1.6.0 release note is features and fixes (2026-10-15).** A release
+  note describes what is new and what was fixed; upgrade checks and rollback
+  steps belong in one only for a breaking or major change. The note drops
+  "Before you upgrade", the trash's operator notes and the 1.5.0 rollback
+  limits, and keeps the trash's settings, `?permanent=true` and the Java
+  client's `void` to `Optional<String>` break, the one breaking change. The
+  operator notes stay in `docs/guides/trash.mdx`; the rollback limits are
+  recorded in "1.6.0 upgrade and rollback notes" below.
+- **Every version is 1.6.0 (2026-10-15, D28).** `bun run set-version 1.6.0`
+  moved silo's five manifests from 1.5.0. The rest were moved by hand, since
+  `set-version` leaves them out on purpose: the TypeScript client from 1.1.2,
+  the Java client's `pom.xml` from 1.1.0, the Dart client's `pubspec.yaml`
+  from 1.0.0, and the observability and Strapi import plugins from 1.0.0.
+  Each client gained the trash since its last release and Java's `delete()`
+  broke binary compatibility, so they needed a bump anyway; the owner chose
+  to align them with silo's number this once. The clients still release on
+  their own tags, and `set-version` still leaves them alone. `bun.lock`'s
+  workspace versions, the Java and Dart install snippets (README and
+  `docs/guides/dart-client.mdx`) and `openapi.json`'s `info.version`, which
+  had stayed at 1.1.0 since D69, follow; the Dart `CHANGELOG.md` has a 1.6.0
+  entry. The compose example and the deployment guide keep `1.5.0`, which
+  they name as the first release with the Postgres driver. Each plugin's
+  `"silo": "^1.0.0"` range is unchanged.
 - **1.6.0 upgrade and rollback notes (2026-10-15, D113).** A 1.5.0 to 1.6.0
   to 1.5.0 round trip on SQLite, SQLite with S3, fs and Postgres, with old and
   new clients, found the server drop-in compatible but left operators things
