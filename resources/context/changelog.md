@@ -4,6 +4,27 @@
 > The *current* state is [CONTEXT.md](../../CONTEXT.md); this is how it got
 > there.
 
+- **1.6.0 upgrade and rollback notes (2026-10-15, D113).** A 1.5.0 to 1.6.0
+  to 1.5.0 round trip on SQLite, SQLite with S3, fs and Postgres, with old and
+  new clients, found the server drop-in compatible but left operators things
+  to know. `resources/release-notes/1.6.0.md` gains an Upgrade notes section,
+  pointed at from "Read this before you upgrade": with a public S3 bucket a
+  trashed file's link keeps working until the purge, because the URL names
+  the bucket and the trash keeps the object; `entries:read` now reads a
+  collection's deleted entries and any key sees media trash
+  (`TrashVisibility`); `[trash] enabled = false` hides existing items and
+  stops the sweep, while `POST /api/trash/purge` still works; the Strapi
+  plugin's `replace` deletes entry by entry into the trash; a restore fires
+  no hooks. Rollback limits: 1.5.0 refuses a key naming `trash:purge`
+  (`ClaimGrammar.normalize` in `authenticate`), its fs usage scanner reads
+  `_trash_items` as live references, its import refuses the `_transfers`
+  schema every `--instance` export carries, and its reconcile reports
+  trashed files as orphans. 1.6.0's reconcile no longer does
+  (`TrashStore.parkedBlobKeys`), so that point is a rollback limit, not an
+  upgrade one. Clients: `delete()` returns the receipt id in all three, and
+  Java's `void` to `Optional<String>` needs a recompile. The trash guide
+  says the same where it fits. Client versions are still TypeScript 1.1.2,
+  Java 1.1.0 and Dart 1.0.0; CONTEXT.md lists the bump as open work.
 - **A flaky trash restore test is fixed (2026-10-15).** "an interrupted
   collection restore retries safely" with `edited=true` failed about two runs
   in three, on the committed code as well. It edited `entries[0]` as the entry

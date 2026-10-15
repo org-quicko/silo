@@ -26,6 +26,10 @@ The trash keeps one item for each thing you deleted on purpose. If you delete a 
   `POST /api/media/purge` does not use the trash. It destroys every file in the library at once.
 </Warning>
 
+<Warning>
+  With S3 media in a public bucket, a media URL points at the bucket, not at Silo. This is the default unless `[blob_storage] public_read = false`. A trashed asset keeps its object, so its link keeps working until the item is purged. To remove a file at once, for example for a privacy request, [skip the trash](#skip-the-trash).
+</Warning>
+
 ## Read the trash
 
 ```bash
@@ -76,6 +80,8 @@ There is no `trash:read` claim. Silo shows you an item only if your key can read
 | Restore a project | `create` and `entries:create` on `collections:<p>/*/*` |
 | Restore a media asset or folder | `media:create` |
 | Delete an item for good, empty the trash, or skip the trash | `trash:purge` |
+
+So a read-only key with `entries:read`, such as the one a website uses, can list and read the entries deleted from its collections until they expire. If that key must never see some content again, [skip the trash](#skip-the-trash) when you delete it.
 
 A restore writes the content back, so it asks for the write claims at the destination.
 
@@ -140,6 +146,8 @@ Three things can stop a restore. All three answer `409 conflict`.
 
 A restore reports what it could not repair. If a media asset was deleted while an entry that references it sat in the trash, the entry comes back and `broken_media_refs` names the reference that no longer resolves.
 
+A restore fires no plugin hooks. A plugin that copies entries somewhere else does not hear that an entry came back. See [Plugin hooks](/reference/plugin-hooks#delivery-semantics).
+
 ## Delete for good
 
 ```bash
@@ -183,6 +191,10 @@ retention_days = 30
 | `enabled` | `true` | `false` makes every delete permanent, and `GET /api/trash` answers an empty list. Use it for a CI instance that creates and removes scopes all day |
 | `retention_days` | `30` | Days an item stays in the trash. `0` keeps items until someone purges them |
 
+<Warning>
+  Empty the trash before you set `enabled = false`. Turning the trash off hides the items already in it and stops the hourly check, so they never expire. With a public bucket, their media links keep working too. A key with `trash:purge` can still empty the trash after it is off.
+</Warning>
+
 Silo checks for expired items once an hour. The expiry date is stamped on each item when you delete it. If you shorten `retention_days` later, items already in the trash keep the date they were given.
 
 The trash is on after an upgrade from an older version, because an older `silo.toml` has no `[trash]` table and the default applies. If Silo cannot delete an expired item, it logs a warning and tries again at the next check.
@@ -198,7 +210,7 @@ Both settings take effect at the next restart. You can also set them with `SILO_
 ```
 
 <Note>
-  Content in the trash still uses disk. A trashed media asset keeps its file until the item is purged, and a trashed project keeps a copy of every entry it held.
+  Content in the trash still uses disk. A trashed media asset keeps its file until the item is purged, and a trashed project keeps a copy of every entry it held. `silo media reconcile` counts the file of a trashed asset as in use, so it does not report it as an orphan.
 </Note>
 
 ## The undo header
@@ -236,10 +248,11 @@ const page = await silo.trash.list({ kind: "entry", project: "moviespace" })
 await silo.trash.restore(page.items[0].id, { chain: true })
 ```
 
-See [TypeScript SDK](/guides/typescript-client#trash). The [Dart](/guides/dart-client#trash) and [Java](/guides/java-client#trash) clients have the same methods. In Java, `delete()` returns an empty `Optional` instead of `null`.
+See [TypeScript SDK](/guides/typescript-client#trash). The [Dart](/guides/dart-client#trash) and [Java](/guides/java-client#trash) clients have the same methods. In Java, `delete()` returns an empty `Optional` instead of `null`. It returned `void` before the trash, so recompile Java code built against an older client. Without that, the call fails at run time with `NoSuchMethodError`.
 
 ## Exports, imports, and transfers
 
 - **No export carries the trash.** This includes `silo export --instance`. The trash stays on the instance where you deleted the content.
 - **No import accepts it.** An archive that carries `_trash` or `_trash_items` is refused with `400`.
 - **Imports, environment copies, and transfer applies do not use the trash.** What a `replace` removes is gone, and you cannot restore it from the trash.
+- **The Strapi import plugin does use the trash.** Its `replace` mode deletes entries one at a time, like any other delete, so each replaced entry becomes its own trash item. To free the space before they expire, delete them for good.
