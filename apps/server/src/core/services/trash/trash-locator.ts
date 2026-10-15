@@ -1,5 +1,6 @@
 import { Scope } from "../../domain/scope";
 import type { Storage } from "../../ports/storage";
+import type { TrashOrigin } from "../../trash/trash-origin";
 
 /**
  * Turns the record ids a receipt holds back into the names the `Storage` port
@@ -56,6 +57,21 @@ export class TrashLocator {
       this.collections.set(record.id, record.name);
     }
     return this.collections.get(id) ?? null;
+  }
+
+  /** `origin` with today's names, so a rename since the delete moves with it.
+   *  A container that is gone keeps the name it was saved with. */
+  async currentNames(origin: TrashOrigin): Promise<TrashOrigin> {
+    const current: TrashOrigin = { ...origin };
+    const { project_id: projectId, env_id: envId, collection_id: collectionId } = origin;
+    if (!projectId) return current;
+    current.project_name = (await this.projectName(projectId)) ?? origin.project_name;
+    if (!envId) return current;
+    current.env_name = (await this.environmentName(projectId, envId)) ?? origin.env_name;
+    if (!collectionId) return current;
+    current.collection_name =
+      (await this.collectionName(projectId, envId, collectionId)) ?? origin.collection_name;
+    return current;
   }
 
   /** The live scope a (project id, env id) pair names, or null if either is

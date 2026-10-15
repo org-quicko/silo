@@ -4,7 +4,7 @@ sidebarTitle: "Trash"
 description: "A delete in Silo moves content to the trash instead of destroying it. Restore it, delete it for good, or skip the trash, and set how long Silo keeps deleted items."
 ---
 
-A delete in Silo does not destroy the content. It moves the content to the trash. By default you can restore it from there for 30 days. This applies to a project, an environment, a collection, an entry, and a media asset.
+A delete in Silo does not destroy the content. It moves the content to the trash. By default you can restore it from there for 30 days. This applies to a project, an environment, a collection, an entry, a media asset, and a media folder.
 
 ## What goes to the trash
 
@@ -17,7 +17,7 @@ The trash keeps one item for each thing you deleted on purpose. If you delete a 
 | A collection | One item, with every entry in it |
 | An entry | One item |
 | A media asset | One item. The file stays in storage until the item is purged |
-| A media folder, with `?recursive=true` | One item for each file in the folder. The folder comes back when you restore a file that was in it |
+| A media folder | One item, with its subfolders and every file that went. A file that is still in use stays, and so does the folder |
 | Up to 100 assets, with `POST /api/media/delete` | One item for each asset |
 
 `?force=true` on a project, an environment, or a collection still moves everything under it to the trash. A delete asks for the same claims it asked for before the trash existed.
@@ -69,15 +69,19 @@ There is no `trash:read` claim. Silo shows you an item only if your key can read
 | See a deleted collection | `schema:read` on that collection |
 | See a deleted environment | `schema:read` on `collections:<p>/<e>/*` |
 | See a deleted project | `schema:read` on `collections:<p>/*/*` |
-| See a deleted media asset | Any key |
+| See a deleted media asset or folder | Any key |
 | Restore an entry | `entries:create` on the collection it goes back to |
 | Restore a collection | `create` and `entries:create` on that collection |
 | Restore an environment | `create` and `entries:create` on `collections:<p>/<e>/*` |
 | Restore a project | `create` and `entries:create` on `collections:<p>/*/*` |
-| Restore a media asset | `media:create` |
+| Restore a media asset or folder | `media:create` |
 | Delete an item for good, empty the trash, or skip the trash | `trash:purge` |
 
-A restore writes the content back, so it asks for the write claims at the destination. `trash:purge` is the only claim the trash adds. Only the `root` preset carries it.
+A restore writes the content back, so it asks for the write claims at the destination.
+
+Silo checks these claims at the names that the project, the environment, and the collection have now. If someone renames a collection, a key scoped to the new name can see and restore the item. A key scoped to the old name cannot. If you send `rename`, Silo checks the claims at the new name.
+
+`trash:purge` is the only claim the trash adds. Only the `root` preset carries it.
 
 ## Restore
 
@@ -86,7 +90,7 @@ curl -X POST http://localhost:8090/api/trash/01JBX.../restore \
   -H "Authorization: Bearer $SILO_KEY"
 ```
 
-The content goes back to the same place. Silo finds that place by record id, not by name. If someone renamed the project, the environment, or the collection while the content was in the trash, the restore still finds it.
+The content goes back to the same place. Silo finds that place by record id, not by name. If someone renamed the project, the environment, or the collection while the content was in the trash, the restore still finds it. The item shows the new names too.
 
 The response says what came back:
 
@@ -191,7 +195,7 @@ Both settings take effect at the next restart. You can also set them with `SILO_
 
 ## The undo header
 
-`DELETE` on an entry and `DELETE` on a media asset return the trash item's id in the `X-Silo-Trash-Id` header. The status stays `204`, so a client that does not know the trash sees no change. The header is exposed through CORS, so a browser client can read it.
+`DELETE` on an entry, a media asset, or a media folder returns the trash item's id in the `X-Silo-Trash-Id` header. The status and the body do not change, so a client that does not know the trash sees no change. The header is exposed through CORS, so a browser client can read it.
 
 ```bash
 curl -i -X DELETE "http://localhost:8090/api/projects/acme/envs/prod/collections/posts/01J8XYZ...?rev=2" \

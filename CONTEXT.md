@@ -62,14 +62,16 @@ one); `docs/` is the public Mintlify site.
 - **Trash.** Deleting a project, environment, collection, entry, media asset
   or folder moves it to the trash instead of destroying it (D113). `_trash`
   holds one receipt per thing deleted on purpose and `_trash_items` the
-  records, so no DDL changed. A restore puts content back by id and refuses a
+  records, so no DDL changed; a media folder is one receipt with its folder
+  records and files. A restore puts content back by id and refuses a
   missing container or a taken name; receipts expire after
   `[trash] retention_days` (30). Reading the trash follows the origin's read
-  claim, restoring needs write claims at the destination, and only purging has
-  a claim of its own (`trash:purge`, root only). `DELETE` on an entry or an
-  asset answers `X-Silo-Trash-Id`; the admin's undo toast uses it after an
-  entry delete. Imports, transfer applies and a whole-instance move do not
-  touch the trash.
+  claim, restoring needs write claims at the destination, both at the names
+  the origin has today, and only purging has a claim of its own
+  (`trash:purge`, root only). `DELETE` on an entry, an asset or a media folder
+  answers `X-Silo-Trash-Id`; the admin's undo toast uses it after an entry
+  delete. Imports, transfer applies and a whole-instance move do not touch the
+  trash.
 - **Transfer.** Export, import, server-to-server copy and scope copy, with
   `include` selections and media modes (D74). They are streaming and
   memory-flat (D73, D76–D78), size-bounded (D85), and gated per system
@@ -118,9 +120,6 @@ one); `docs/` is the public Mintlify site.
   and the medium findings are still open. The report is not in the repo.
 - Changing a schema over existing entries is deferred until a migration plan
   exists (D70).
-- A media folder delete sends each file to the trash on its own and destroys
-  the folder records; `TrashCapture.folder` exists but nothing calls it, so the
-  one-receipt-per-folder the D113 row describes is not wired yet.
 - Roadmap items (sync, drafts/publish, durable webhooks, enforced relations)
   are in [milestones.md](resources/design/milestones.md) §12.
   [IDEAS.md](IDEAS.md) holds loose ideas.
@@ -128,7 +127,9 @@ one); `docs/` is the public Mintlify site.
 **Most recent changes:** `feature/trash` is merged in: deletes go to the
 trash, with `/api/trash`, a Trash page and undo toast in the admin, and
 `silo.trash` on the TypeScript, Dart and Java clients (D113; built on 1.4.0
-as D91 and renumbered here, since D91 is the Dart client); the server-wide *Copy from
+as D91 and renumbered here, since D91 is the Dart client), and since then a
+media folder delete is one trash receipt and the trash checks claims at
+today's names, not the ones saved at delete time; the server-wide *Copy from
 silo* tab checks its pasted source key before it reads the source tree, so a wrong key no longer
 logs the admin out, an edited key is checked again on both copy pages, and a
 narrowed copy waits for its tree instead of going out as the whole source; the

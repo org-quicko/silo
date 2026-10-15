@@ -38,27 +38,30 @@ export class MediaDeleteBatch {
         await service.media.delete(id, { force, ...options });
         deleted.push(id);
       } catch (caught) {
-        if (caught instanceof MediaInUseError) {
-          failed.push({
-            id,
-            code: "media_in_use",
-            message: caught.message,
-            ...(await inUseDetails(id, caught)),
-          });
-        } else if (caught instanceof NotFoundError) {
-          failed.push({ id, code: "not_found", message: caught.message });
-        } else if (caught instanceof MediaDeleteStalledError) {
-          failed.push({ id, code: "media_delete_stalled", message: caught.message });
-        } else if (caught instanceof ValidationError) {
-          failed.push({ id, code: "invalid_id", message: caught.message });
-        } else {
-          // An error this loop does not know how to describe as one id's
-          // outcome — propagate rather than folding it silently into the array.
-          throw caught;
-        }
+        failed.push(await MediaDeleteBatch.describe(id, caught, inUseDetails));
       }
     }
 
     return { deleted, failed };
+  }
+
+  /** One id's failure in the batch shape. Shared with the recursive folder
+   *  delete into the trash, which collects its failures itself. */
+  static async describe(
+    id: string,
+    caught: unknown,
+    inUseDetails: (id: string, caught: MediaInUseError) => Promise<Record<string, unknown>>
+  ): Promise<Record<string, unknown>> {
+    if (caught instanceof MediaInUseError) {
+      return { id, code: "media_in_use", message: caught.message, ...(await inUseDetails(id, caught)) };
+    }
+    if (caught instanceof NotFoundError) return { id, code: "not_found", message: caught.message };
+    if (caught instanceof MediaDeleteStalledError) {
+      return { id, code: "media_delete_stalled", message: caught.message };
+    }
+    if (caught instanceof ValidationError) return { id, code: "invalid_id", message: caught.message };
+    // An error this cannot describe as one id's outcome — propagate rather than
+    // folding it silently into the array.
+    throw caught;
   }
 }

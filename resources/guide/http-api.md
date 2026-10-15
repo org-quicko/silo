@@ -75,7 +75,7 @@ Present a key as `Authorization: Bearer <key>` or `X-Api-Key: <key>`.
 | `GET` | `/api/media/folders` | the folders the library holds |
 | `POST` | `/api/media/folders` | create a folder (`{path}`, `media:create`) |
 | `PATCH` | `/api/media/folders` | rename or move a folder (`{from, to}`), and every asset and descendant folder within |
-| `DELETE` | `/api/media/folders` | delete a folder. Empty only by default, or everything inside it with `?recursive=true` (`?force=true` as above) |
+| `DELETE` | `/api/media/folders` | delete a folder. Empty only by default, or everything inside it with `?recursive=true` (`?force=true` as above). The folder is one trash item |
 | `GET` / `PUT` | `/api/media/storage` | read / change where the library keeps its bytes (`media:configure`) |
 | `GET` / `PUT` | `/api/media/settings` | read / change where media URLs point, what may be uploaded, and the bulk download limits (`media:configure`) |
 | `GET` | `/api/settings` | the rest of `silo.toml`, with what is in force and what a restart is owed for (`settings:configure`) |
@@ -233,6 +233,11 @@ collection that holds 300 entries, the trash shows one item that says
 "300 entries". It does not show 301 items. When you restore that item, all 300
 entries come back with it.
 
+A media folder works the same way. The trash shows one item for the folder. It
+holds the subfolders and the files that went with it. If a file is still in
+use, the file stays, and the folder stays too. The `X-Silo-Trash-Id` response
+header names the item.
+
 `GET /api/session` tells you whether this instance keeps a trash, and for how
 many days.
 
@@ -250,6 +255,11 @@ There is no `trash:read` claim. The server shows you each item only if you can
 read the content it came from. A key with `entries:read` on `default/prod/posts`
 sees entries deleted from that collection, and no others. Two keys see two
 different trashes.
+
+The names in `origin` are the names that the project, the environment and the
+collection have now. If someone renames the collection, the item shows the new
+name. The read check and the filters use the new name too. An item keeps the
+old name only when its container is gone.
 
 Each item tells you where the content was, what rode along with it, who deleted
 it, and when it expires:
@@ -278,6 +288,8 @@ curl -X POST http://localhost:8090/api/trash/01JBX.../restore \
 Restoring writes the content back. It therefore asks for the write claims at the
 destination, not for a claim of its own. To restore an entry into `default/prod`
 you need `entries:create` there. To restore a collection you also need `create`.
+The server checks these claims at the names that the destination has now. If
+you send `rename`, it checks them at the new name.
 
 The content goes back to the same place, addressed by record id. If someone
 renamed the project, the environment or the collection while the content was in

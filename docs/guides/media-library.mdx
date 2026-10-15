@@ -148,7 +148,7 @@ Folders are plain path strings. Create them explicitly or let an upload create t
       -H "Authorization: Bearer $SILO_KEY"
     ```
 
-    A recursive delete moves each file in the folder to the [trash](/guides/trash) as its own item. The folder comes back when you restore a file that was in it.
+    The folder goes to the [trash](/guides/trash) as one item, with its subfolders and every file that went. Restore that item to bring all of them back. The `X-Silo-Trash-Id` response header names it. If a file is still in use, the file stays, and so does the folder. Add `?permanent=true` to skip the trash. That needs `trash:purge`.
   </Step>
 </Steps>
 

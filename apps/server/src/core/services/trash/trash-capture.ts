@@ -156,10 +156,12 @@ export class TrashCapture {
     return id;
   }
 
-  /** A folder record and every asset beneath it, as one receipt. */
+  /** A folder's `_media_folders` records and the assets beneath it, as one
+   *  receipt. Either list may be empty, but not both. */
   async folder(
     path: string,
     assets: readonly Entry[],
+    folders: readonly Entry[],
     actor: AuditActor,
     expiresAt: string | null
   ): Promise<string> {
@@ -173,7 +175,9 @@ export class TrashCapture {
     });
 
     const contents = TrashContentsUtils.empty();
-    await this.parker.parkRecord(id, "media_folder", { path });
+    for (const entry of folders) {
+      await this.parker.parkRecord(id, "media_folder", { path: MediaCatalog.folderOf(entry) });
+    }
     for (const entry of assets) {
       const asset = MediaCatalog.toAsset(entry);
       await this.parker.parkAsset(

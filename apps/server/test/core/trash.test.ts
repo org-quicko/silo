@@ -7,6 +7,7 @@ import { SqliteStore } from "../../src/adapters/storage/sqlite/sqlite-store";
 import { PgStore } from "../../src/adapters/storage/postgres/pg-store";
 import { SiloService } from "../../src/core/services/silo-service";
 import { Scope } from "../../src/core/domain/scope";
+import { MediaCatalog } from "../../src/core/media/media-catalog";
 import { ConflictError } from "../../src/core/errors/conflict-error";
 import { NotFoundError } from "../../src/core/errors/not-found-error";
 import { PgTestDatabase } from "../adapters/support/pg-test-database";
@@ -144,6 +145,67 @@ describe.each(kinds)("trash on %s (D113)", (kind) => {
     await service.media.delete(asset.id);
     await service.trash.purge((await service.trash.list()).items[0].id);
     expect(await service.blobStorage.exists(asset.blob_key)).toBe(false);
+  });
+
+  test("a folder delete is one receipt that restores the folder and its files", async () => {
+    const bytes = new TextEncoder().encode("bytes");
+    await service.media.createFolder("/shoots/empty");
+    const top = await service.media.save("a.png", bytes, "/shoots");
+    const nested = await service.media.save("b.png", bytes, "/shoots/raw");
+
+    const ids = await service.media.folderAssetIds("/shoots");
+    const outcome = await service.media.trashFolder("/shoots", ids, {});
+    expect(outcome.deleted.sort()).toEqual([top.id, nested.id].sort());
+    expect(outcome.foldersDeleted).toBe(1);
+    expect(await service.media.listFolders()).toEqual([]);
+    expect(await service.blobStorage.exists(nested.blob_key)).toBe(true);
+
+    const page = await service.trash.list();
+    expect(page.items.map((item) => item.id)).toEqual([outcome.trashId!]);
+    expect(page.items[0].kind).toBe("media_folder");
+    expect(page.items[0].subject_name).toBe("shoots");
+    expect(page.items[0].contents.assets).toBe(2);
+
+    await service.trash.restore(outcome.trashId!);
+    expect(await service.media.listFolders()).toEqual(["/shoots", "/shoots/empty", "/shoots/raw"]);
+    expect((await service.media.get(nested.id)).folder).toBe("/shoots/raw");
+  });
+
+  test("a file still in use stays, and keeps its folder", async () => {
+    await seedCollection();
+    const bytes = new TextEncoder().encode("bytes");
+    await service.media.createFolder("/press");
+    const used = await service.media.save("used.png", bytes, "/press");
+    const loose = await service.media.save("loose.png", bytes, "/press");
+    await service.entries.create(Scope.Default, "posts", { title: "x", cover: MediaRef.url(used.id) });
+
+    const outcome = await service.media.trashFolder(
+      "/press",
+      await service.media.folderAssetIds("/press"),
+      {}
+    );
+    expect(outcome.deleted).toEqual([loose.id]);
+    expect(outcome.failed.map((failure) => failure.id)).toEqual([used.id]);
+    expect(outcome.foldersDeleted).toBe(0);
+    expect(await service.media.listFolders()).toEqual(["/press"]);
+
+    await service.trash.restore(outcome.trashId!);
+    expect((await service.media.get(loose.id)).folder).toBe("/press");
+  });
+
+  test("an empty folder goes to the trash, and a restore joins one made again since", async () => {
+    await service.media.createFolder("/drafts");
+    const receipt = await service.media.deleteFolder("/drafts");
+    expect(await service.media.listFolders()).toEqual([]);
+    expect((await service.trash.get(receipt!)).kind).toBe("media_folder");
+
+    await service.media.createFolder("/drafts");
+    await service.trash.restore(receipt!);
+    const records = await store.list(Scope.System, MediaCatalog.FoldersCollection, {
+      limit: 10,
+      offset: 0,
+    });
+    expect(records.total).toBe(1);
   });
 
   test("a restore reports references the library no longer holds", async () => {

@@ -4,6 +4,28 @@
 > The *current* state is [CONTEXT.md](../../CONTEXT.md); this is how it got
 > there.
 
+- **A media folder is one trash item, and the trash checks today's names
+  (2026-10-15, D113).** Two gaps from `feature/trash`, where the D113 row
+  promised more than the code did. First, `DELETE /api/media/folders` sent each
+  file to the trash on its own and destroyed the `_media_folders` records, and
+  an empty folder's delete was permanent. `MediaTrashService` now parks the
+  folder records and every file that goes as one `media_folder` receipt
+  (`TrashCapture.folder`, which nothing called before). A file still in use
+  stays and is reported per id as before, and then the folder records stay
+  too. The receipt id comes back in `X-Silo-Trash-Id`, on the `200` and on the
+  `204`. A restore joins a folder made again since instead of writing a second
+  record for the path. `?permanent=true` on the non-recursive delete now asks
+  for `trash:purge`; it was ignored. Second, the trash checked claims against
+  the names saved at delete time while a restore lands by record id. After
+  `posts` became `articles`, a key scoped to `posts` could restore into
+  `articles`, and a key scoped to `articles` got a 404. `TrashService` now
+  hands out every receipt with its origin's current names
+  (`TrashLocator.currentNames`), so visibility, the restore check, the
+  `?project=`/`?env=`/`?collection=` filters and the admin breadcrumb follow a
+  rename; a saved name stays only for a container that is gone. The restore
+  check also uses a `rename` target in place of the subject's own name, since
+  that is where the content lands. `MediaDeleteBatch.describe` is the per-id
+  failure shape both folder paths share.
 - **The Dart and Java clients have the trash (2026-10-15, D113).** `silo.trash`
   in Dart and `silo.trash()` in Java cover the six `/api/trash` routes: a paged
   list filtered by kind, project, environment, collection, delete time and

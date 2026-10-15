@@ -3,8 +3,9 @@
  *
  * The ids are what a restore anchors on, because a name is mutable (D51) and a
  * rename between delete and restore would otherwise misfile the content. The
- * names are what the UI draws, and are allowed to go stale — a stale name
- * renders greyed rather than wrong.
+ * names stored are the ones at delete time; `TrashService` hands every reader
+ * today's (`TrashLocator.currentNames`), and a stored name survives only for a
+ * container that is gone, where the UI draws it greyed.
  */
 export interface TrashOrigin {
   project_id?: string;

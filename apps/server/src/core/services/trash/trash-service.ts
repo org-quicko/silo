@@ -9,6 +9,7 @@ import type { TrashView } from "../../trash/trash-view";
 import type { ServiceContext } from "../support/service-context";
 import { TrashBlockers } from "./trash-blockers";
 import { TrashCapture } from "./trash-capture";
+import { TrashLocator } from "./trash-locator";
 import { TrashParker } from "./trash-parker";
 import { TrashPurger } from "./trash-purger";
 import type { TrashQuery } from "./trash-query";
@@ -87,27 +88,33 @@ export class TrashService {
     if (!this.config.enabled) return { items: [], total: 0, limit, offset };
 
     // Filtered in memory rather than pushed into the query: a receipt's
-    // narrowing fields are six optional ones across two shapes, and the trash
-    // is bounded by retention, not by traffic.
+    // narrowing fields are six optional ones across two shapes, the names are
+    // today's rather than stored ones, and the trash is bounded by retention,
+    // not by traffic.
     const { items } = await this.store.listReceipts({
       limit: TrashStore.PageSize,
       offset: 0,
     });
-    const matched = items.filter((entry) =>
-      TrashService.matches(entry.data as TrashReceipt, query)
-    );
+    const locator = new TrashLocator(this.context.store);
+    const matched: Array<{ id: string; receipt: TrashReceipt }> = [];
+    for (const entry of items) {
+      const receipt = await TrashService.withCurrentNames(entry, locator);
+      if (TrashService.matches(receipt, query)) matched.push({ id: entry.id, receipt });
+    }
 
-    const blockers = new TrashBlockers(this.context.store, items);
+    const blockers = new TrashBlockers(locator, items);
     const page = matched.slice(offset, offset + limit);
     const views: TrashView[] = [];
-    for (const entry of page) views.push(await this.toView(entry, blockers));
+    for (const { id, receipt } of page) views.push(await this.toView(id, receipt, blockers));
     return { items: views, total: matched.length, limit, offset };
   }
 
   async get(id: string): Promise<TrashView> {
     const entry = await this.store.receipt(id);
     const { items } = await this.store.listReceipts({ limit: TrashStore.PageSize, offset: 0 });
-    return this.toView(entry, new TrashBlockers(this.context.store, items));
+    const locator = new TrashLocator(this.context.store);
+    const receipt = await TrashService.withCurrentNames(entry, locator);
+    return this.toView(entry.id, receipt, new TrashBlockers(locator, items));
   }
 
   /** The records a receipt parked, read-only, for the admin's expanded row. */
@@ -227,15 +234,21 @@ export class TrashService {
     return order;
   }
 
-  private async toView(entry: Entry, blockers: TrashBlockers): Promise<TrashView> {
-    const receipt = entry.data as TrashReceipt;
+  private async toView(id: string, receipt: TrashReceipt, blockers: TrashBlockers): Promise<TrashView> {
     const blocker = await blockers.blockerFor(receipt);
     return {
       ...receipt,
-      id: entry.id,
+      id,
       restorable: !blocker && receipt.state === "parked",
       ...(blocker ? { blocked_by: blocker } : {}),
     };
+  }
+
+  /** The receipt as every reader of the trash sees it: who may read it, who
+   *  may restore it and what the filters match all follow a rename. */
+  private static async withCurrentNames(entry: Entry, locator: TrashLocator): Promise<TrashReceipt> {
+    const receipt = entry.data as TrashReceipt;
+    return { ...receipt, origin: await locator.currentNames(receipt.origin) };
   }
 
   private static matches(receipt: TrashReceipt, query: TrashQuery): boolean {

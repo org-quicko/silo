@@ -27,6 +27,7 @@ import { MediaDelivery } from "./media-delivery";
 import { MediaDeletionService } from "./media-deletion-service";
 import { MediaFolderMoveService } from "./media-folder-move-service";
 import { MediaFolderService } from "./media-folder-service";
+import type { MediaFolderTrashOutcome } from "./media-folder-trash-outcome";
 import { MediaLinkResolver } from "./media-link-resolver";
 import type { MediaContentReach } from "./media-usage-scopes";
 import { MediaUsageScopes } from "./media-usage-scopes";
@@ -79,7 +80,7 @@ export class MediaService {
     this.purgeService = new MediaPurgeService(context, catalog);
     this.archives = new MediaArchiveService(context, catalog, this.delivery);
     this.statsCounter = new MediaStatsCounter(catalog);
-    this.trashService = new MediaTrashService(context, catalog, trash);
+    this.trashService = new MediaTrashService(context, catalog, this.folders, trash);
   }
 
   /**
@@ -196,8 +197,29 @@ export class MediaService {
     return this.folders.create(folderPath);
   }
 
-  deleteFolder(folderPath: unknown): Promise<void> {
-    return this.folders.delete(folderPath);
+  /** Deletes an empty folder. Unless `permanent`, its records go to the trash
+   *  as one receipt, whose id this answers (D113). */
+  async deleteFolder(folderPath: unknown, options?: DeleteOptions): Promise<string | null> {
+    if (this.trashService.handles(options)) {
+      return this.trashService.moveEmptyFolderToTrash(folderPath, options ?? {});
+    }
+    await this.folders.delete(folderPath);
+    return null;
+  }
+
+  /** Whether a delete with these options goes to the trash. */
+  recoverable(options?: DeleteOptions): boolean {
+    return this.trashService.handles(options);
+  }
+
+  /** A recursive folder delete into the trash: `ids` and the folder records
+   *  become one receipt (D113). The permanent path is `MediaFolderRoutes`'. */
+  trashFolder(
+    folderPath: unknown,
+    ids: readonly string[],
+    options: { force?: boolean } & DeleteOptions
+  ): Promise<MediaFolderTrashOutcome> {
+    return this.trashService.moveFolderToTrash(folderPath, ids, options);
   }
 
   /** Renames or moves a folder, its descendant folders, and every asset

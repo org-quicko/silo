@@ -1155,12 +1155,26 @@ exception and is handled by `MediaTrashService`, because the deletion saga
 exists to make the blob and the catalog record agree and the trash needs the
 opposite — the record goes, the bytes stay, and only a purge takes them.
 
-**A receipt anchors on ids and draws with names.** `origin` carries both.
-Names are mutable since D51, so a project renamed between the delete and the
-restore would send the content nowhere or somewhere wrong if the receipt held
-only a name; `TrashLocator` turns each id back into the name the `Storage` port
-addresses by, at the moment of the restore. The names are what a UI prints, and
-are allowed to go stale.
+**A media folder is one receipt, like a collection.** `MediaTrashService`
+parks the folder's `_media_folders` records and every file that goes as one
+`media_folder` receipt, then drops them. A file still in use stays, reported per
+id exactly as the permanent path reports it, and then the folder records stay
+too, because the folder is not gone. A restore joins a folder someone has made
+again since rather than writing a second record for the same path.
+
+**A receipt anchors on ids, and every reader sees today's names.** `origin`
+carries both. Names are mutable since D51, so a project renamed between the
+delete and the restore would send the content nowhere or somewhere wrong if the
+receipt held only a name; `TrashLocator` turns each id back into the name the
+`Storage` port addresses by. It does so for every read too, not only at the
+moment of the restore: `TrashService` hands out each receipt with its origin's
+current names, so the visibility check, the restore check, the `?project=`
+filters and the admin's breadcrumb all follow a rename. The names saved at
+delete time survive only for a container that is gone, where they are the
+history the admin draws greyed. Checking claims against the saved names was
+the first version and was wrong both ways: after `posts` became `articles`, a
+key scoped to `posts` could restore into `articles`, and one scoped to
+`articles` could not see the item.
 
 **A missing container blocks the restore rather than orphaning the content.**
 This is the one place silo can clearly beat the products it is copying: Drive
@@ -1202,8 +1216,9 @@ media catalog was an index of an open shelf; the trash is content that was
 removed from view, and one global listing would show entry data, collection
 names and filenames from every scope in the instance to anyone holding it.
 `TrashVisibility` instead gates each receipt on the read claim its **origin**
-already required — `entries:read` for an entry, `schema:read` for a collection,
-environment or project, nothing for media. A key sees exactly the deletions it
+already requires, at today's names — `entries:read` for an entry,
+`schema:read` for a collection, environment or project, nothing for media. A
+key sees exactly the deletions it
 could have seen the content of, `total` counts only those, and
 `GET /api/trash/{id}` answers `404` rather than `403` for the rest, because
 "forbidden" would confirm that something was deleted there. The behaviour to
@@ -1221,7 +1236,9 @@ entries disappear from every API response.
 
 **Restoring asks for the write claims at the destination.**
 `TrashRestoreAuthority` requires `entries:create` at the scope an entry lands
-in, and `collection:create` on top for a container. A `trash:restore` claim
+in, and `collection:create` on top for a container — at the names the
+destination has today, and at `rename` in place of the subject's own name when
+one is sent, since that is where the content lands. A `trash:restore` claim
 would let a key place content into a scope it cannot otherwise write to, which
 is precisely the escalation D37 measured for `keys:import`. Deriving the answer
 from the existing vocabulary is both tighter and one less string to hold.
@@ -1240,10 +1257,12 @@ nothing, and the test that list applies is escalation, not damage.
 
 #### The undo header
 
-`DELETE` on an entry and on a media asset answer their receipt's id in
-`X-Silo-Trash-Id`, exposed through CORS. A header rather than a body so the
-`204` contract does not move and a client that has never heard of the trash sees
-exactly the response it always saw. The admin hangs its undo toast off it, which
+`DELETE` on an entry, on a media asset and on a media folder answer their
+receipt's id in `X-Silo-Trash-Id`, exposed through CORS. A recursive folder
+delete answers `200` with its per-id body and the header beside it. A header
+rather than a body so the `204` contract does not move and a client that has
+never heard of the trash sees exactly the response it always saw. The admin
+hangs its undo toast off the entry and asset headers, which
 is where most of this feature's value is actually collected: most mistakes are
 noticed within seconds, and an undo at that moment costs one click instead of a
 page visit and a search.

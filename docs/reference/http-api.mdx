@@ -199,7 +199,7 @@ A delete moves its subject to the trash instead of destroying it. See [Trash](/g
 | `POST` | `/api/trash/purge` | Empty the trash (`{confirm: "empty"}`). Answers `{purged}`. Requires `trash:purge` |
 
 <Note>
-  Add `?permanent=true` to a delete route to skip the trash. It requires `trash:purge` on top of the delete claim. `DELETE` on an entry or a media asset returns the trash item's id in the `X-Silo-Trash-Id` header, exposed through CORS. The header is absent when nothing was kept.
+  Add `?permanent=true` to a delete route to skip the trash. It requires `trash:purge` on top of the delete claim. `DELETE` on an entry, a media asset, or a media folder returns the trash item's id in the `X-Silo-Trash-Id` header, exposed through CORS. The header is absent when nothing was kept.
 </Note>
 
 ### Settings & Observability

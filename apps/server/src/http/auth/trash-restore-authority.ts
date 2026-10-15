@@ -16,9 +16,13 @@ import { RouteAuth } from "./route-auth";
  */
 export class TrashRestoreAuthority {
   /** The permissions restoring this receipt exercises, at the reach it lands
-   *  in. A collection brings its entries back, so it asks for both. */
-  static require(c: Context, view: TrashView): void {
+   *  in: the origin's names as they are today (`TrashService` resolves them),
+   *  and `rename` in place of the subject's own. A collection brings its
+   *  entries back, so it asks for both. */
+  static require(c: Context, view: TrashView, rename?: string): void {
     const { project_name, env_name, collection_name } = view.origin;
+    // `||`, as `TrashRestorer` reads it: an empty rename is no rename.
+    const subject = rename || view.subject_name;
     switch (view.kind) {
       case "media":
       case "media_folder":
@@ -30,19 +34,19 @@ export class TrashRestoreAuthority {
         ]);
         return;
       case "collection":
-        TrashRestoreAuthority.at(c, view, project_name, env_name, view.subject_name, [
+        TrashRestoreAuthority.at(c, view, project_name, env_name, subject, [
           Claims.CollectionCreate,
           Claims.CollectionEntriesCreate,
         ]);
         return;
       case "environment":
-        TrashRestoreAuthority.at(c, view, project_name, view.subject_name, "*", [
+        TrashRestoreAuthority.at(c, view, project_name, subject, "*", [
           Claims.CollectionCreate,
           Claims.CollectionEntriesCreate,
         ]);
         return;
       case "project":
-        TrashRestoreAuthority.at(c, view, view.subject_name, "*", "*", [
+        TrashRestoreAuthority.at(c, view, subject, "*", "*", [
           Claims.CollectionCreate,
           Claims.CollectionEntriesCreate,
         ]);

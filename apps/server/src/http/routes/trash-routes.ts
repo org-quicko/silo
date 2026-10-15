@@ -63,12 +63,10 @@ export class TrashRoutes {
 
     app.post("/api/trash/:id/restore", async (c: Context) => {
       const view = await TrashRoutes.visible(c, service);
-      TrashRestoreAuthority.require(c, view);
       const body = await c.req.json().catch(() => null);
-      const result = await service.trash.restore(view.id, {
-        rename: typeof body?.rename === "string" ? body.rename : undefined,
-        chain: body?.chain === true,
-      });
+      const rename = typeof body?.rename === "string" ? body.rename : undefined;
+      TrashRestoreAuthority.require(c, view, rename);
+      const result = await service.trash.restore(view.id, { rename, chain: body?.chain === true });
       return c.json(result);
     });
 

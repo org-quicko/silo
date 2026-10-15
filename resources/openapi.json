@@ -3412,7 +3412,7 @@
                     "Media"
                 ],
                 "summary": "Delete a folder",
-                "description": "Empty only by default. `?recursive=true` takes everything inside it and\nanswers `200` with per-id outcomes instead of `204`. `?force=true`\nrequires `recursive` and the content authority a forced asset delete\nneeds. Claim: `media:delete`.\n\n**Deletes are recoverable (D113).** Unless `?permanent=true`, this moves the\ncontent to the trash, where `GET /api/trash` lists it and\n`POST /api/trash/{id}/restore` puts it back. `?permanent=true` destroys it now\nand asks for `trash:purge`. An instance with `[trash] enabled = false` deletes\npermanently either way.\n",
+                "description": "Empty only by default. `?recursive=true` takes everything inside it and\nanswers `200` with per-id outcomes instead of `204`. `?force=true`\nrequires `recursive` and the content authority a forced asset delete\nneeds. Claim: `media:delete`.\n\n**Deletes are recoverable (D113).** Unless `?permanent=true`, this moves the\ncontent to the trash, where `GET /api/trash` lists it and\n`POST /api/trash/{id}/restore` puts it back. `?permanent=true` destroys it now\nand asks for `trash:purge`. An instance with `[trash] enabled = false` deletes\npermanently either way.\n\n**A folder is one trash item.** Its folder records and every file that\nwent are one receipt, named in `X-Silo-Trash-Id`, and restoring it brings\nthem all back. A file still in use stays where it is, and then so do the\nfolder records, since the folder is not gone.\n",
                 "operationId": "deleteMediaFolder",
                 "parameters": [
                     {
@@ -3463,10 +3463,26 @@
                                     ]
                                 }
                             }
+                        },
+                        "headers": {
+                            "X-Silo-Trash-Id": {
+                                "description": "The id of the one trash item the folder delete made (D113). Absent when nothing was kept: `[trash] enabled = false`, `?permanent=true`, or a folder with nothing in it to keep.",
+                                "schema": {
+                                    "type": "string"
+                                }
+                            }
                         }
                     },
                     "204": {
-                        "description": "The empty folder was deleted."
+                        "description": "The empty folder was deleted.",
+                        "headers": {
+                            "X-Silo-Trash-Id": {
+                                "description": "The id of the one trash item the folder delete made (D113). Absent when nothing was kept: `[trash] enabled = false`, `?permanent=true`, or a folder with nothing in it to keep.",
+                                "schema": {
+                                    "type": "string"
+                                }
+                            }
+                        }
                     },
                     "400": {
                         "$ref": "#/components/responses/ValidationFailed"
@@ -5017,7 +5033,7 @@
                     "Trash"
                 ],
                 "summary": "List what is in the trash",
-                "description": "Newest first, one item per explicitly deleted thing.\n\nNo claim of its own: each item is filtered by the read claim its origin\nalready required — `entries:read` for a trashed entry, `schema:read` for a\ncollection, environment or project — so a key sees exactly the deletions it\ncould have seen the content of. Media is visible to any authenticated\ncaller, because reading the library has needed no claim since D58. `total`\ncounts what this caller may see.\n\nAnswers an empty list on an instance running with `[trash] enabled = false`.\n",
+                "description": "Newest first, one item per explicitly deleted thing.\n\nNo claim of its own: each item is filtered by the read claim its origin\nalready required, at the names the origin has today — `entries:read` for a trashed entry, `schema:read` for a\ncollection, environment or project — so a key sees exactly the deletions it\ncould have seen the content of. Media is visible to any authenticated\ncaller, because reading the library has needed no claim since D58. `total`\ncounts what this caller may see.\n\nAnswers an empty list on an instance running with `[trash] enabled = false`.\n",
                 "operationId": "listTrash",
                 "parameters": [
                     {
@@ -5041,7 +5057,7 @@
                         "schema": {
                             "type": "string"
                         },
-                        "description": "Narrow to one project's deletions, by name."
+                        "description": "Narrow to one project's deletions, by its name today."
                     },
                     {
                         "name": "env",
@@ -5323,7 +5339,7 @@
                     "Trash"
                 ],
                 "summary": "Put a trash item back",
-                "description": "Restores the content to where it came from, addressed by the record ids the\nreceipt holds — so a rename between the delete and the restore does not\nmisfile it.\n\n**Asks for the write claims at the destination**, not a claim of its own:\nrestoring an entry into `prod` is writing to `prod`, so it needs\n`entries:create` there. A container additionally needs `create`. A\n`trash:restore` claim would let a key place content in a scope it cannot\notherwise write to, which is the escalation shape D37 measured for\n`keys:import`.\n\nRefuses with 409 when the container is gone (`blocked_by` says which) or\nwhen the name or id has been taken since — a restore that overwrote a live\nrecord would put one thing back by destroying another.\n",
+                "description": "Restores the content to where it came from, addressed by the record ids the\nreceipt holds — so a rename between the delete and the restore does not\nmisfile it.\n\n**Asks for the write claims at the destination**, not a claim of its own:\nrestoring an entry into `prod` is writing to `prod`, so it needs\n`entries:create` there. A container additionally needs `create`. The\nclaims are checked at the names the destination has today, and at\n`rename` in place of the subject's own name. A\n`trash:restore` claim would let a key place content in a scope it cannot\notherwise write to, which is the escalation shape D37 measured for\n`keys:import`.\n\nRefuses with 409 when the container is gone (`blocked_by` says which) or\nwhen the name or id has been taken since — a restore that overwrote a live\nrecord would put one thing back by destroying another.\n",
                 "operationId": "restoreTrashItem",
                 "parameters": [
                     {
@@ -8712,7 +8728,7 @@
             },
             "TrashItem": {
                 "type": "object",
-                "description": "One explicitly deleted thing (D113).\n\n`origin` holds both ids and names: the ids are what a restore anchors on,\nbecause a name is mutable and a rename between delete and restore would\notherwise misfile the content. The names are what a UI draws and may be\nstale.\n",
+                "description": "One explicitly deleted thing (D113).\n\n`origin` holds both ids and names: the ids are what a restore anchors on,\nbecause a name is mutable and a rename between delete and restore would\notherwise misfile the content. The names are today's: a rename after the\ndelete shows here, and the read check, the restore check and the\nfilters all use it. A container that is gone keeps the name it had.\n",
                 "required": [
                     "id",
                     "kind",

@@ -11,6 +11,7 @@ import { MediaRefs } from "../../media/media-refs";
 import { SearchText } from "../../search/search-text";
 import { TrashKinds } from "../../trash/trash-kind";
 import type { TrashedAsset, TrashedEntry, TrashItem } from "../../trash/trash-item";
+import { MediaCatalogStore } from "../media/media-catalog-store";
 import type { ServiceContext } from "../support/service-context";
 import { TrashLocator } from "./trash-locator";
 import type { TrashRestoreResult } from "./trash-restore-result";
@@ -223,19 +224,12 @@ export class TrashRestorer {
     into.assets += 1;
   }
 
+  /** A folder someone has made again since is joined, not refused: two
+   *  records for one path would be a duplicate, not a collision. */
   private async writeFolder(record: { path: string }): Promise<void> {
-    const entry: Entry = {
-      id: EntryUtils.newID(),
-      project: Scope.System.project,
-      env: Scope.System.env,
-      collection: MediaCatalog.FoldersCollection,
-      rev: 1,
-      seq: 0,
-      created_at: EntryUtils.now(),
-      updated_at: EntryUtils.now(),
-      data: { path: record.path },
-    };
-    await this.context.store.put(entry, { usages: [], search: null });
+    const catalog = new MediaCatalogStore(this.context);
+    if (await catalog.folder(record.path)) return;
+    await catalog.putFolder(record.path);
   }
 
   /**

@@ -1,7 +1,8 @@
 /** What a trash receipt stands for (D113). */
 export type TrashKind = "project" | "environment" | "collection" | "entry" | "media" | "media_folder";
 
-/** Where the thing was. Ids are what a restore anchors on; names may be stale. */
+/** Where the thing was. Ids are what a restore anchors on; names are today's,
+ *  except for a container that is gone. */
 export interface TrashOrigin {
   project_id?: string;
   project_name?: string;

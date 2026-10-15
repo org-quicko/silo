@@ -1,8 +1,7 @@
 import type { Entry } from "../../domain/entry";
-import type { Storage } from "../../ports/storage";
 import type { TrashReceipt } from "../../trash/trash-receipt";
 import type { TrashBlocker } from "../../trash/trash-view";
-import { TrashLocator } from "./trash-locator";
+import type { TrashLocator } from "./trash-locator";
 
 /**
  * Whether a receipt can go back where it came from, and what is in the way
@@ -19,8 +18,10 @@ export class TrashBlockers {
    *  at the receipt that unblocks it. */
   private readonly bySubject: Map<string, string>;
 
-  constructor(store: Storage, receipts: readonly Entry[]) {
-    this.locator = new TrashLocator(store);
+  /** `locator` is shared with the caller's name lookups, so one list reads
+   *  each container table once. */
+  constructor(locator: TrashLocator, receipts: readonly Entry[]) {
+    this.locator = locator;
     this.bySubject = new Map(
       receipts.map((entry) => [(entry.data as TrashReceipt).subject_id, entry.id])
     );

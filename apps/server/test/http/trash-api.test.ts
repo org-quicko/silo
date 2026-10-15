@@ -16,6 +16,7 @@ interface TrashPageBody {
     id: string;
     kind: string;
     subject_name: string;
+    origin: { collection_name?: string };
     restorable: boolean;
     blocked_by?: { kind: string; trash_id: string | null };
   }>;
@@ -133,6 +134,61 @@ describe("trash API (D113)", () => {
     expect(await service.entries.get(Scope.Default, "posts", entry.id)).toBeTruthy();
   });
 
+  test("a restore checks the names the destination has now, not the ones it had at delete", async () => {
+    await seed();
+    const entry = await trashAnEntry();
+    const id = (await service.trash.list()).items[0].id;
+    await service.renames.renameCollection(Scope.Default, "posts", "articles", { kind: "cli" });
+
+    const oldName = await mint([
+      Claims.collection("default", "prod", "posts", Claims.CollectionEntriesRead),
+      Claims.collection("default", "prod", "posts", Claims.CollectionEntriesCreate),
+    ]);
+    // The old name now names nothing this key may read, so the item is not
+    // there for it at all.
+    const refused = await app.request(`/api/trash/${id}/restore`, {
+      method: "POST",
+      headers: auth(oldName),
+    });
+    expect(refused.status).toBe(404);
+
+    const newName = await mint([
+      Claims.collection("default", "prod", "articles", Claims.CollectionEntriesRead),
+      Claims.collection("default", "prod", "articles", Claims.CollectionEntriesCreate),
+    ]);
+    const listed = await app.request("/api/trash?collection=articles", { headers: auth(newName) });
+    const body = (await listed.json()) as TrashPageBody;
+    expect(body.items.map((item) => item.origin.collection_name)).toEqual(["articles"]);
+
+    const allowed = await app.request(`/api/trash/${id}/restore`, {
+      method: "POST",
+      headers: auth(newName),
+    });
+    expect(allowed.status).toBe(200);
+    expect(await service.entries.get(Scope.Default, "articles", entry.id)).toBeTruthy();
+  });
+
+  test("a restore under another name asks for the claims at that name", async () => {
+    await seed();
+    await service.collections.delete(Scope.Default, "posts", true);
+    const id = (await service.trash.list()).items[0].id;
+
+    const atPosts = await mint([
+      Claims.collection("default", "prod", "posts", Claims.CollectionSchemaRead),
+      Claims.collection("default", "prod", "posts", Claims.CollectionCreate),
+      Claims.collection("default", "prod", "posts", Claims.CollectionEntriesCreate),
+    ]);
+    const restore = (rename?: string) =>
+      app.request(`/api/trash/${id}/restore`, {
+        method: "POST",
+        headers: { ...auth(atPosts), "Content-Type": "application/json" },
+        body: JSON.stringify(rename ? { rename } : {}),
+      });
+
+    expect((await restore("elsewhere")).status).toBe(403);
+    expect((await restore()).status).toBe(200);
+  });
+
   test("purging needs trash:purge, and emptying needs the typed confirmation", async () => {
     await seed();
     await trashAnEntry();
@@ -216,6 +272,28 @@ describe("trash API (D113)", () => {
     expect(receipt).toBeTruthy();
     const item = await app.request(`/api/trash/${receipt}`, { headers: auth(deleter) });
     expect(item.status).toBe(200);
+  });
+
+  test("a folder delete answers its one receipt in the header, recursive or not", async () => {
+    await service.media.save("a.png", new TextEncoder().encode("bytes"), "/shoots/raw");
+    await service.media.save("b.png", new TextEncoder().encode("bytes"), "/shoots");
+    const deleter = await mint([Claims.MediaDelete]);
+
+    const recursive = await app.request("/api/media/folders?path=%2Fshoots&recursive=true", {
+      method: "DELETE",
+      headers: auth(deleter),
+    });
+    expect(recursive.status).toBe(200);
+    const receipt = recursive.headers.get(TrashHeader.Name);
+    expect((await service.trash.list()).items.map((item) => item.id)).toEqual([receipt!]);
+
+    await service.media.createFolder("/drafts");
+    const empty = await app.request("/api/media/folders?path=%2Fdrafts", {
+      method: "DELETE",
+      headers: auth(deleter),
+    });
+    expect(empty.status).toBe(204);
+    expect(empty.headers.get(TrashHeader.Name)).toBeTruthy();
   });
 
   test("the session says whether deletes are recoverable, so a dialog can too", async () => {

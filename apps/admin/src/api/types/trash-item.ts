@@ -7,8 +7,9 @@ export type TrashKind =
   | 'media'
   | 'media_folder'
 
-/** Where the thing was, by id and by name. Names may be stale and render
- *  greyed; ids are what a restore anchors on. */
+/** Where the thing was, by id and by name. Names are today's, except for a
+ *  container that is gone, which renders greyed; ids are what a restore
+ *  anchors on. */
 export interface TrashOrigin {
   project_id?: string
   project_name?: string
