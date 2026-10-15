@@ -213,6 +213,12 @@ export class TrashService {
     return this.sweeper.resumePending();
   }
 
+  /** Blob keys the parked assets hold, so `silo media reconcile` neither
+   *  reports nor adopts them. Read whether or not the trash is on. */
+  parkedBlobKeys(): Promise<Set<string>> {
+    return this.store.parkedBlobKeys();
+  }
+
   private async replay(
     id: string,
     rename: string | undefined,

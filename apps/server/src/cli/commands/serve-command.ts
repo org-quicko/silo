@@ -1,8 +1,8 @@
 import type { Config } from "../../config/config";
 import { HttpDefaults } from "../../config/http-defaults";
-import { TrashDefaults } from "../../config/trash-defaults";
 import { SiloServer } from "../../http/server";
 import { SiloRuntime } from "../runtime/silo-runtime";
+import { TrashSweepTimer } from "../runtime/trash-sweep-timer";
 import { BootId } from "../../runtime/boot-id";
 import { ListenAddress } from "../../runtime/listen-address";
 import { ProcessTitle } from "../../runtime/process-title";
@@ -201,23 +201,8 @@ export class ServeCommand {
 
     // Retention, on a timer rather than on each request: a receipt expires by
     // wall clock, not by traffic, and an instance nobody is using is exactly
-    // the one whose trash should still empty (D113). `unref`, like the
-    // heartbeat, so a shutdown is not held open by the next sweep.
-    const sweep = setInterval(() => {
-      service.trash
-        .sweep()
-        .then((result) => {
-          if (result.purged > 0) {
-            logger.info("purged expired trash", { count: result.purged });
-          }
-        })
-        .catch((caught: unknown) => {
-          logger.warn("trash sweep failed", {
-            message: caught instanceof Error ? caught.message : String(caught),
-          });
-        });
-    }, TrashDefaults.SweepIntervalMs);
-    sweep.unref?.();
+    // the one whose trash should still empty (D113).
+    const sweep = TrashSweepTimer.start(service.trash, logger);
 
     logger.info("listening", {
       version,

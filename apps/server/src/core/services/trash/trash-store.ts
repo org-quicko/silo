@@ -7,7 +7,7 @@ import { SystemCollections } from "../../domain/system-collections";
 import { NotFoundError } from "../../errors/not-found-error";
 import { ConflictError } from "../../errors/conflict-error";
 import type { Query } from "../../query/query";
-import type { TrashItem } from "../../trash/trash-item";
+import type { TrashedAsset, TrashItem } from "../../trash/trash-item";
 import type { TrashReceipt } from "../../trash/trash-receipt";
 import type { ServiceContext } from "../support/service-context";
 
@@ -165,6 +165,26 @@ export class TrashStore {
       limit: page.limit ?? TrashStore.PageSize,
       offset: page.offset ?? 0,
     });
+  }
+
+  /** The blob key of every parked asset, whatever its receipt's state: the
+   *  bytes stay until a purge, so they are still spoken for. */
+  async parkedBlobKeys(): Promise<Set<string>> {
+    const keys = new Set<string>();
+    for (let offset = 0; ; ) {
+      const page = await this.context.store.list(this.scope, SystemCollections.TrashItems, {
+        filter: { op: "eq", path: "$.data.kind", value: "media" },
+        sort: [{ path: JsonPath.Id, desc: false }],
+        limit: TrashStore.PageSize,
+        offset,
+      });
+      for (const entry of page.items) {
+        const key = ((entry.data as TrashItem).record as TrashedAsset).blob_key;
+        if (key) keys.add(key);
+      }
+      offset += page.items.length;
+      if (page.items.length === 0 || offset >= page.total) return keys;
+    }
   }
 
   /** Every parked record for a receipt, dropped one at a time. */

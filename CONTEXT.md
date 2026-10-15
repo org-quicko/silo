@@ -125,7 +125,14 @@ one); `docs/` is the public Mintlify site.
   are in [milestones.md](resources/design/milestones.md) §12.
   [IDEAS.md](IDEAS.md) holds loose ideas.
 
-**Most recent changes:** the pre-PR review's P2 issues are fixed: a restore
+**Most recent changes:** four trash fixes from the 1.5.0 to 1.6.0
+compatibility check: `SILO_TRASH_ENABLED` takes only `true` or `false` and
+refuses to start on anything else, while an upgraded instance keeps the trash
+on; the hourly sweep logs a receipt it could not purge; `silo media reconcile`
+leaves trashed assets' bytes alone; and a delete interrupted before its
+capture committed is rolled back at the next start, not left as a receipt.
+A trash restore test that failed about two runs in three now reads back the
+entry it edits instead of assuming id order. Before them, the pre-PR review's P2 issues are fixed: a restore
 is held to the collection's current schema, Apply refuses a destination
 environment deleted or recreated since its plan, the trash lists, sweeps and
 pages past a thousand receipts with visibility applied before the page is cut,

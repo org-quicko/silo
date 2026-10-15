@@ -185,6 +185,10 @@ retention_days = 30
 
 Silo checks for expired items once an hour. The expiry date is stamped on each item when you delete it. If you shorten `retention_days` later, items already in the trash keep the date they were given.
 
+The trash is on after an upgrade from an older version, because an older `silo.toml` has no `[trash]` table and the default applies. If Silo cannot delete an expired item, it logs a warning and tries again at the next check.
+
+`SILO_TRASH_ENABLED` accepts only `true` or `false`, in any case. With any other value, such as `0` or `no`, Silo does not start, and the error names the variable.
+
 Both settings take effect at the next restart. You can also set them with `SILO_TRASH_ENABLED` and `SILO_TRASH_RETENTION_DAYS`, or on **Settings > Configuration > Trash** in the admin, which needs `settings:configure`.
 
 `GET /api/session` tells any key whether this instance keeps a trash, and for how many days:

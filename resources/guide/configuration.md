@@ -95,7 +95,7 @@ max_files   = 5               # kept as silo.log.1 ... silo.log.5
 | `SILO_HTTP_IDLE_TIMEOUT` | `[http] idle_timeout` |
 | `SILO_HTTP_MAX_BODY_SIZE_MB`, `SILO_HTTP_MAX_JSON_BODY_SIZE_MB` | `[http] max_body_size_mb`, `[http] max_json_body_size_mb` |
 | `SILO_TRANSFER_MAX_ARCHIVE_SIZE_MB`, `SILO_TRANSFER_MAX_EXTRACTED_SIZE_MB` | `[transfer] max_archive_size_mb`, `[transfer] max_extracted_size_mb` |
-| `SILO_TRASH_ENABLED`, `SILO_TRASH_RETENTION_DAYS` | `[trash] enabled`, `[trash] retention_days` |
+| `SILO_TRASH_ENABLED`, `SILO_TRASH_RETENTION_DAYS` | `[trash] enabled` (`true` or `false` only, see [How long a delete can be undone](#how-long-a-delete-can-be-undone)), `[trash] retention_days` |
 | `SILO_READ_THREAD` | `on` or `off`: whether entry lists and searches on SQLite run on a separate storage thread. On by default; off under the test runner. Not in the file |
 | `SILO_DEFAULT_PROJECT`, `SILO_DEFAULT_ENV` | `default_project`, `default_env` |
 | `SILO_STORAGE_DRIVER`, `SILO_STORAGE_PATH` | `[storage]` |
@@ -317,9 +317,20 @@ every delete is permanent, which is how silo behaved before this setting
 existed. Use that for a CI instance that creates and tears down scopes, where a
 trash only fills the disk.
 
+The trash is on when you upgrade. A `silo.toml` from an older version has no
+`[trash]` table, so silo uses the default, which is `true`.
+
+`SILO_TRASH_ENABLED` accepts only `true` or `false`, in any case. With any
+other value, such as `0`, `no` or `off`, silo does not start, and the error
+names the variable. silo does not guess. If it read an unknown value as off,
+a typo would make every delete permanent. If it read the value as on, it would
+ignore an operator who wanted the trash off. An empty variable is the same as
+no variable.
+
 `retention_days` is how long an item stays before silo deletes it for good. The
 default is 30. The server checks once an hour. Set it to `0` to keep items until
-someone deletes them by hand.
+someone deletes them by hand. If the server cannot delete an expired item, it
+logs a warning with the count and tries again at the next check.
 
 The expiry date is stamped on each item when you delete it. If you shorten
 `retention_days` later, items already in the trash keep the date they were

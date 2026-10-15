@@ -80,6 +80,12 @@
   forty times, did not. `refusal()` in `postgres.test.ts` is the pattern. The
   conformance suites' own `.rejects` calls are unaffected so far; the trigger
   was a rejection that had rolled back a transaction and closed its pool.
+- **Ids made in the same millisecond are unordered.** `EntryUtils.newID` is
+  plain `ulid()`, not monotonic, and an unsorted list is in id order (D92).
+  So entries created in a loop do not list, capture or restore in creation
+  order. A test that needs "the one that was written" reads it back rather
+  than indexing the array it created. `trash.test.ts` failed about two runs
+  in three on that until it did.
 - UI tests sit beside the source they cover, as `*.test.ts`.
 - White-box tests that reach into a private do so deliberately and say so.
 - `Response.json()` answers `unknown`. A test that reads fields off a body

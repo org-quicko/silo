@@ -4,6 +4,36 @@
 > The *current* state is [CONTEXT.md](../../CONTEXT.md); this is how it got
 > there.
 
+- **A flaky trash restore test is fixed (2026-10-15).** "an interrupted
+  collection restore retries safely" with `edited=true` failed about two runs
+  in three, on the committed code as well. It edited `entries[0]` as the entry
+  the interrupted restore had written, but entries replay in id order and
+  `EntryUtils.newID` ids made in one millisecond are unordered. The test now
+  reads back the one entry that was written. Monotonic `_trash_items` ids were
+  considered and not taken: capture copies in entry-id order, so the replay
+  order would still not be creation order, and kinds already replay
+  containers before entries (`TrashKinds.RestoreOrder`). The row names now
+  print `edited=true`/`false` (`%p`), since `%s` left the two rows with one
+  name. The pitfall is in code-design.md (Tests).
+- **Trash fixes from the 1.5.0 to 1.6.0 compatibility check (2026-10-15,
+  D113).** `SILO_TRASH_ENABLED` read `!== "false"`, so `0`, `no` and `False`
+  left the trash on; it now takes `true` or `false` in any case
+  (`TrashDefaults.parseEnabled`) and any other value stops the start with an
+  error naming the variable, since guessing either way loses something. An
+  unset variable and a `silo.toml` with no `[trash]` table still mean on, so
+  an upgrade from any earlier version keeps the trash on; a test pins that.
+  The hourly sweep moved out of `ServeCommand` into `TrashSweepTimer` and now
+  logs a warning with the count when a receipt fails to purge, which it
+  previously never logged. `silo media reconcile` counts the blob keys of
+  parked trash assets as claimed (`TrashStore.parkedBlobKeys`), so it no
+  longer reports a trashed asset as an orphan or adopts a trashed pre-D23 key
+  as a second live asset. `TrashSweeper.resumePending` rolls a `parking`
+  receipt back (drops its items, then the receipt, and no blob) instead of
+  marking it `parked`: every delete path commits its capture before it
+  erases, so a `parking` receipt always stands over content that is still
+  live, and the old comment describing a roll-forward predated copy-only
+  capture. Each fix has a regression test that fails on the previous code;
+  the trash ones run on SQLite, fs and Postgres.
 - **Trash and transfer P2 review fixes (2026-10-15, D111, D113).** A
   restored entry is validated against its collection's current schema, which
   can change once the collection is empty (D70); a mismatch is a `409` naming

@@ -117,7 +117,7 @@ describe.each(kinds)("trash on %s (D113)", (kind) => {
     ["collection", "before", false], ["collection", "after", false], ["collection", "before", true],
     ["environment", "before", false], ["project", "before", false],
   ] as const)(
-    "an interrupted %s restore retries safely (failure=%s, edited=%s)", async (subject, timing, edited) => {
+    "an interrupted %s restore retries safely (failure=%s, edited=%p)", async (subject, timing, edited) => {
     await seedCollection();
     const entries = [];
     const count = kind === "sqlite" && subject === "collection" && timing === "after" ? 1002 : 3;
@@ -151,7 +151,11 @@ describe.each(kinds)("trash on %s (D113)", (kind) => {
     service = new SiloService(store, { mediaDir: path.join(tempDir, "media") });
     await service.trash.resumePending();
     if (edited) {
-      const current = await service.entries.get(destination, collection, entries[0]!.id);
+      // Whichever entry the interrupted restore wrote, not `entries[0]`:
+      // entries replay in id order, and ids minted in one millisecond are unordered.
+      const written = await service.entries.list(destination, collection, { limit: 10, offset: 0 });
+      expect(written.total).toBe(1);
+      const current = written.items[0]!;
       await service.entries.update(destination, collection, current.id, { title: "edited after interruption" }, current.rev);
       await expect(service.trash.restore(receipt.id)).rejects.toThrow("already exists");
       expect((await service.entries.get(destination, collection, current.id)).data).toEqual({ title: "edited after interruption" });
@@ -210,6 +214,43 @@ describe.each(kinds)("trash on %s (D113)", (kind) => {
     expect((await service.trash.list()).total).toBe(0);
   });
 
+  test.each(["collection", "asset"] as const)(
+    "a %s delete interrupted before its capture commits is rolled back at the next start", async (subject) => {
+    await seedCollection();
+    for (const title of ["one", "two", "three"]) await service.entries.create(Scope.Default, "posts", { title });
+    const asset = await service.media.save("hero.png", new TextEncoder().encode("bytes"));
+    // Every record is copied, then the receipt's second write, the one that
+    // marks it `parked`, fails. Capture runs before the erase, so the content
+    // is still live under a `parking` receipt.
+    const originalPut = store.put.bind(store);
+    let receiptWrites = 0;
+    store.put = async (entry, derived) => {
+      if (entry.collection === SystemCollections.Trash && ++receiptWrites === 2) throw new Error("interrupted capture");
+      return originalPut(entry, derived);
+    };
+    try {
+      const deleting = subject === "collection"
+        ? service.collections.delete(Scope.Default, "posts", true)
+        : service.media.delete(asset.id);
+      await expect(deleting).rejects.toThrow("interrupted capture");
+    } finally {
+      store.put = originalPut;
+    }
+    const parkedItems = async () =>
+      (await store.list(Scope.System, SystemCollections.TrashItems, { limit: 1, offset: 0 })).total;
+    // The collection record and its three entries, or the asset's one record.
+    expect(await parkedItems()).toBe(subject === "collection" ? 4 : 1);
+
+    service = new SiloService(store, { mediaDir: path.join(tempDir, "media") });
+    expect(await service.trash.resumePending()).toEqual({ finished: 1, failed: 0 });
+
+    expect((await service.trash.list()).total).toBe(0);
+    expect(await parkedItems()).toBe(0);
+    expect((await service.entries.list(Scope.Default, "posts", { limit: 10, offset: 0 })).total).toBe(3);
+    expect((await service.media.get(asset.id)).filename).toBe("hero.png");
+    expect(await service.blobStorage.exists(asset.blob_key)).toBe(true);
+  });
+
   test("a trashed media asset keeps its bytes, and a purge takes them", async () => {
     const asset = await service.media.save("hero.png", new TextEncoder().encode("bytes"));
 
@@ -240,6 +281,22 @@ describe.each(kinds)("trash on %s (D113)", (kind) => {
     expect((await service.media.get(asset.id)).filename).toBe("hero.png");
     expect(await service.blobStorage.exists(asset.blob_key)).toBe(true);
     expect((await service.trash.list()).total).toBe(0);
+  });
+
+  test("media reconcile neither reports nor adopts the bytes of a trashed asset", async () => {
+    const bytes = new TextEncoder().encode("bytes");
+    const current = await service.media.save("hero.png", bytes);
+    // A pre-D23 blob, adopted into the catalog the way an upgraded instance's is.
+    const legacyKey = "abc123_legacy.png";
+    await service.blobStorage.put(legacyKey, bytes);
+    expect((await service.media.reconcile()).adopted).toBe(1);
+    const legacy = (await service.media.list()).items.find((asset) => asset.blob_key === legacyKey)!;
+
+    await service.media.delete(current.id);
+    await service.media.delete(legacy.id);
+
+    const result = await service.media.reconcile();
+    expect({ adopted: result.adopted, orphans: result.orphans }).toEqual({ adopted: 0, orphans: [] });
   });
 
   test("a folder delete is one receipt that restores the folder and its files", async () => {

@@ -235,7 +235,12 @@ Pre-D23 entries hold `/media/<blobKey>`; those are **dual-read** into the token
 `blob:<blobKey>` and counted as usages, so a partially backfilled instance
 still refuses to delete a referenced file. `silo media reconcile` backfills
 catalog records for blobs uploaded before D23, rebuilds usages from entries,
-and reports orphan blobs.
+and reports orphan blobs. A blob a trashed asset holds (D113) is neither
+adopted nor reported: the asset has no `_media` row while it is in the trash,
+but its bytes are kept for a restore, so its key counts as claimed. Without
+that, reconcile reported every trashed asset as an orphan and adopted a
+trashed pre-D23 `<sha256>_<name>` key as a second live asset over the same
+bytes.
 
 **Deletion** is a saga in `Service`, under `writeMu`, because the catalog and a
 remote object store cannot share a transaction:
@@ -1203,8 +1208,16 @@ and a broken image on a live site is the same problem either way.
 
 **Crash safety reuses the staging D23 and D49 already have.** A receipt carries
 a `state`: it opens `parking`, becomes `parked` when the copy is complete, and
-passes through `restoring` or `purging`. `TrashSweeper.resumePending` finishes
-or rolls back anything else at the next start, beside the two media resumes.
+passes through `restoring` or `purging`. `TrashSweeper.resumePending` settles
+anything else at the next start, beside the two media resumes. A `parking`
+receipt is **rolled back**: every delete path finishes its capture, receipt
+included, before it erases anything, so the live content is still whole and
+the parked half is a partial duplicate. Its items and the receipt are dropped,
+items first so an interrupted rollback is found again, and no blob is touched,
+since the bytes belong to the live record. The delete simply did not happen.
+Marking it `parked` instead, as the first version did, left a visible receipt
+for content that was still live, which a restore could only refuse. A
+`purging` receipt finishes, and a `restoring` one returns to `parked`.
 
 A restore writes an intent into each parked item before its live write. On
 retry, a matching container id or an unchanged entry written under that intent

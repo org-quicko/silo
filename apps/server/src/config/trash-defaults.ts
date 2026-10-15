@@ -1,5 +1,6 @@
 /** What `[trash]` means when a file does not say (D113). */
 export class TrashDefaults {
+  /** On, so an instance upgraded with an older `silo.toml` keeps deletes recoverable. */
   static readonly Enabled = true;
 
   /** Thirty days, the window Drive, Dropbox and Figma all settled on. Long
@@ -15,5 +16,17 @@ export class TrashDefaults {
   static days(value: number, fallback: number): number {
     if (!Number.isFinite(value) || value < 0) return fallback;
     return Math.floor(value);
+  }
+
+  /**
+   * `SILO_TRASH_ENABLED`: `true` or `false` in any case. Anything else throws,
+   * because reading it as off would make deletes permanent on a typo, and
+   * reading it as on would ignore an operator who meant off.
+   */
+  static parseEnabled(raw: string): boolean {
+    const value = raw.trim().toLowerCase();
+    if (value === "true") return true;
+    if (value === "false") return false;
+    throw new Error(`config: SILO_TRASH_ENABLED must be "true" or "false", not "${raw}"`);
   }
 }

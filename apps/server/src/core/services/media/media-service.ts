@@ -72,7 +72,7 @@ export class MediaService {
     this.folders = new MediaFolderService(context, catalog);
     this.folderMove = new MediaFolderMoveService(context, catalog);
     this.deletion = new MediaDeletionService(context, catalog);
-    this.reconciler = new MediaReconciler(context, catalog, this.deletion);
+    this.reconciler = new MediaReconciler(context, catalog, this.deletion, trash);
     this.rekeyer = new MediaRekeyer(context, catalog);
     this.referenceGuard = new MediaReferenceGuard(catalog);
     this.linkResolver = new MediaLinkResolver(context, catalog);

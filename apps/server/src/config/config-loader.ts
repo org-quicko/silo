@@ -357,7 +357,7 @@ export class ConfigLoader {
       );
     }
     if (process.env.SILO_TRASH_ENABLED) {
-      config.trash.enabled = process.env.SILO_TRASH_ENABLED !== "false";
+      config.trash.enabled = TrashDefaults.parseEnabled(process.env.SILO_TRASH_ENABLED);
     }
     if (process.env.SILO_TRASH_RETENTION_DAYS) {
       config.trash.retention_days = TrashDefaults.days(

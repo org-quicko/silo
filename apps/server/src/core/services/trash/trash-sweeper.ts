@@ -43,12 +43,12 @@ export class TrashSweeper {
   }
 
   /**
-   * Finishes the two states a crash can strand, at startup.
+   * Settles the states a crash can strand, at startup.
    *
-   * `parking` is rolled forward to a purge rather than back: the live records
-   * were already being removed as they were copied, so the parked half is the
-   * only complete copy and the receipt that named it is incomplete. A `purging`
-   * receipt simply finishes.
+   * `parking` is rolled back: capture is copy-only and is committed before the
+   * delete erases anything, so the live content is still whole and the parked
+   * half is a partial duplicate. The delete simply did not happen. A `purging`
+   * receipt finishes.
    */
   async resumePending(): Promise<{ finished: number; failed: number }> {
     let finished = 0;
@@ -58,9 +58,7 @@ export class TrashSweeper {
       if (receipt.state === "parked") continue;
       try {
         if (receipt.state === "parking") {
-          await this.context.withWriteLock(() =>
-            this.store.putReceipt(entry.id, { ...receipt, state: "parked" })
-          );
+          await this.context.withWriteLock(() => this.rollBack(entry.id));
         } else if (receipt.state === "purging") {
           await this.context.withWriteLock(() => this.purger.purge(entry.id));
         } else {
@@ -76,5 +74,13 @@ export class TrashSweeper {
       }
     }
     return { finished, failed };
+  }
+
+  /** Drops a partial capture without touching a blob, whose bytes still belong
+   *  to the live record. Items first, so an interrupted rollback leaves a
+   *  `parking` receipt the next start finds again. */
+  private async rollBack(id: string): Promise<void> {
+    await this.store.deleteItems(id);
+    await this.store.deleteReceipt(id);
   }
 }

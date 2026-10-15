@@ -313,7 +313,20 @@ rather than by traffic, and an instance nobody is using is exactly the one whose
 trash should still empty. It runs hourly beside the run-file heartbeat and is
 `unref`'d for the same reason, so a shutdown is not held open by the next sweep.
 Retention is measured in days, so an hour is fine grained and costs one filtered
-list of a collection bounded by that retention.
+list of a collection bounded by that retention. A sweep counts a receipt it
+could not purge instead of throwing, so `TrashSweepTimer` logs a warning with
+that count; before, only a purged count or a thrown sweep reached the log, and
+a receipt stuck in `purging` was silent until the next start finished it.
+
+**An upgrade keeps the trash on, and `SILO_TRASH_ENABLED` does not guess.** A
+`silo.toml` written before D113 has no `[trash]` table, so `TrashDefaults.Enabled`
+(true) applies. The variable takes `true` or `false` in any case
+(`TrashDefaults.parseEnabled`), and any other value stops the start with an
+error naming it. The other boolean `SILO_*` variables read `=== "true"`, and
+this one first read `!== "false"`; both are guesses. For this switch, a guess
+of off turns a typo such as `ture` into permanent deletes, and a guess of on
+ignores an operator who wrote `0` or `no` and meant off. Refusing to start is the one answer that loses nothing,
+and costs no compatibility, since the variable is new with the trash.
 
 `[trash]` is a `ConfigSections` table like `[transfer]`, so it is read and
 written through `GET /api/settings` and `PUT /api/settings/trash` (D47) and
