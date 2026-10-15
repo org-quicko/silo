@@ -4,6 +4,24 @@
 > The *current* state is [CONTEXT.md](../../CONTEXT.md); this is how it got
 > there.
 
+- **Code scanning: two real findings fixed, four left as false positives
+  (2026-10-15).** CodeQL's six open alerts on `main` were checked one by one.
+  The Strapi import panel's `text()` helper only turned a value into a string
+  and did not escape it, yet the panel put labels, table names, notes and file
+  names from an uploaded Strapi database into `innerHTML` through it. A
+  database or a file name with markup in it could run script in the panel
+  (alerts 17 and 18). `text()` now escapes `& < > " '`, and the drop zone's
+  "Reading…" and "Uploading…" lines are set with `textContent`. The admin's
+  font URL put the typed font name into the Google Fonts query unencoded, so a
+  `&` or `#` cut the family short and rewrote the rest of the URL (alert 5;
+  the host is fixed, so not a script risk). Each word is now
+  `encodeURIComponent`ed, and a `theme-manager.test.ts` case covers it. Left
+  as they are: alert 4 (`KeyUtils.hashKey` uses SHA-256) because every key is
+  32 random bytes, so a slow password hash would only add cost to each
+  request; and alerts 2 and 3 (`App.tsx` keeps saved servers and their keys in
+  `localStorage`) because that is the design of the server manager (D15,
+  `resources/design/http-api.md`), and the plugin-panel sandbox (D41) and the
+  media CSP (D83) exist to keep that store out of reach.
 - **The Trash page looks like the rest of the admin (2026-10-15, D113).** It
   now sits in the same frame as Media Library: the top search bar, the
   breadcrumb and the page head. The name filter is the shared `ColumnSearch`

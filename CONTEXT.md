@@ -124,7 +124,11 @@ one); `docs/` is the public Mintlify site.
   are in [milestones.md](resources/design/milestones.md) §12.
   [IDEAS.md](IDEAS.md) holds loose ideas.
 
-**Most recent changes:** `feature/trash` is merged in: deletes go to the
+**Most recent changes:** two CodeQL findings are fixed: the Strapi import
+panel now escapes the names it renders from an uploaded database, and the
+admin encodes a typed font name in the Google Fonts URL (the other four open
+alerts are false positives, with the reasons in the changelog);
+`feature/trash` is merged in: deletes go to the
 trash, with `/api/trash`, a Trash page and undo toast in the admin, and
 `silo.trash` on the TypeScript, Dart and Java clients (D113; built on 1.4.0
 as D91 and renumbered here, since D91 is the Dart client), and since then a

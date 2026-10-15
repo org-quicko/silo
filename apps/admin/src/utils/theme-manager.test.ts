@@ -73,6 +73,19 @@ describe('ThemeManager', () => {
     expect(ThemeManager.getSettings().mode).toBe('dark')
   })
 
+  test('setFont keeps a typed name inside the family parameter of the font URL', () => {
+    const appended: { href: string }[] = []
+    ;(globalThis as any).document.head.appendChild = (node: { href: string }) => appended.push(node)
+
+    ThemeManager.setFont('Noto Sans & More#1')
+
+    const url = new URL(appended[0].href)
+    expect(url.origin).toBe('https://fonts.googleapis.com')
+    expect(url.searchParams.getAll('family')).toEqual(['Noto Sans & More#1:wght@300;400;500;600;700'])
+    expect(url.searchParams.get('display')).toBe('swap')
+    expect(url.hash).toBe('')
+  })
+
   test('switching to light mode applies data-theme and parchment light sidebar', () => {
     ThemeManager.setMode('light')
     expect(attrs['data-theme']).toBe('light')

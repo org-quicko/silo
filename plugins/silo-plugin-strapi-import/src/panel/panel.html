@@ -255,7 +255,14 @@
 
 <script>
   const $ = (id) => document.getElementById(id)
-  const text = (value) => String(value == null ? '' : value)
+
+  const HTML_ESCAPES = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }
+
+  /** A value made safe to concatenate into the `innerHTML` strings below.
+   *  Labels, table names, notes and file names all come out of an uploaded
+   *  database, so none of them may be read as markup. */
+  const text = (value) =>
+    String(value == null ? '' : value).replace(/[&<>"']/g, (char) => HTML_ESCAPES[char])
 
   /** One place to render a failure, so no path fails silently. */
   function alert_(message, kind) {
@@ -301,15 +308,23 @@
     if (file) upload(file)
   })
 
+  /** The drop zone's one line of progress, set as text and never as markup. */
+  function progress(message) {
+    const line = document.createElement('div')
+    line.className = 'muted'
+    line.textContent = message
+    $('drop').replaceChildren(line)
+  }
+
   async function upload(file) {
     alert_('')
-    $('drop').innerHTML = '<div class="muted">Reading ' + text(file.name) + '…</div>'
+    progress('Reading ' + file.name + '…')
     try {
       // The bytes go over postMessage as an ArrayBuffer and reach the route as
       // `request.bytes`, because the manifest declares that route as taking
       // bytes. Nothing here base64s anything.
       const buffer = await file.arrayBuffer()
-      $('drop').innerHTML = '<div class="muted">Uploading ' + bytes(buffer.byteLength) + '…</div>'
+      progress('Uploading ' + bytes(buffer.byteLength) + '…')
       const answer = await silo.fetch('/source?name=' + encodeURIComponent(file.name), {
         method: 'POST',
         headers: { 'content-type': 'application/octet-stream' },

@@ -278,7 +278,9 @@ export class ThemeManager {
 
     // Inject Google Font link if it is not a system fallback or already built-in
     const link = ThemeManager.getOrCreateFontLink()
-    const formattedFamily = fontName.trim().replace(/\s+/g, '+')
+    // Typed by the user, so each word is encoded: a `&` or `#` would otherwise
+    // end the family and rewrite the rest of the query.
+    const formattedFamily = fontName.trim().split(/\s+/).map(encodeURIComponent).join('+')
     link.href = `https://fonts.googleapis.com/css2?family=${formattedFamily}:wght@300;400;500;600;700&display=swap`
 
     document.documentElement.style.setProperty(
