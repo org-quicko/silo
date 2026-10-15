@@ -7,6 +7,7 @@ import { CollectionSchemas } from "../../schema/collection-schemas";
 import { SchemaChangeGuard } from "../../schema/schema-change-guard";
 import { SchemaValidator } from "../../schema/schema-validator";
 import { ImportRules } from "../import-rules";
+import { TransferDestination } from "./transfer-destination";
 import type { PackagedEntry } from "../package/packaged-entry";
 import { TransferMediaPlanner } from "./transfer-media-planner";
 import { TransferPlanBaseline } from "./transfer-plan-baseline";
@@ -36,6 +37,7 @@ export class TransferPlanner {
   private readonly collections = new Map<string, TransferPlanCollection>();
   private readonly media: TransferMediaPlanner;
   private plannedAt = "";
+  private destination: TransferReview["destination"] = { project_id: "", env_id: "" };
   private lineCount = 0;
 
   constructor(store: Storage, input: TransferPlanInput) {
@@ -48,6 +50,9 @@ export class TransferPlanner {
   /** The plan, one line at a time: each collection's package entries, then what replace removes. */
   async *lines(): AsyncGenerator<TransferPlanLine> {
     this.plannedAt = new Date().toISOString();
+    const destination = await TransferDestination.ids(this.store, this.input.to);
+    if (!destination) throw new NotFoundError(`environment "${this.input.to.key()}" not found`);
+    this.destination = destination;
     const localInstance = (await this.store.meta()).instance_id;
     const schemas = CollectionSchemas.map(await this.store.listCollections(this.input.to));
     for (const collection of this.input.collections) await this.planSchema(collection, schemas);
@@ -85,6 +90,7 @@ export class TransferPlanner {
       skipped: sum("skipped"),
       rejected: sum("rejected"),
       lines: this.lineCount,
+      destination: this.destination,
       collections,
       media: this.media.review(),
     };

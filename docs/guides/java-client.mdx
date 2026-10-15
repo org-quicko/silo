@@ -255,7 +255,7 @@ Silo silo = new Silo(SiloOptions.of(url, key)
 
 `@Cache(ttl = 30, maxSize = 1024)` decorates the entry read methods. Both values are optional in the annotation — what a read states wins, and what it leaves out is taken from `CacheOptions`. A number neither side names is refused rather than invented.
 
-Only entry reads are cached. Successful writes (`create`, `replace`, `delete`, rename, schema delete) invalidate the affected collection's cached responses. Schemas, searches, variables, and media always reach the server. Each `Silo` instance owns its own cache; `withKey()` and `withUrl()` start empty.
+Only entry reads are cached. Successful writes (`create`, `replace`, `delete`, rename, schema delete) invalidate the affected collection's cached responses. A successful `trash().restore` invalidates every cached entry read, because a chain restore can bring entries back to any collection. Schemas, searches, variables, and media always reach the server. Each `Silo` instance owns its own cache; `withKey()` and `withUrl()` start empty.
 
 ```java
 silo.cache().clear();                 // after a write made somewhere else

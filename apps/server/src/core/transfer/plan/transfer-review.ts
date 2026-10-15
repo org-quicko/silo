@@ -13,6 +13,8 @@ export interface TransferReview {
   skipped: number;
   rejected: number;
   lines: number;
+  /** The ids of the environment planned against, which Apply checks. Never shown. */
+  destination: { project_id: string; env_id: string };
   collections: TransferPlanCollection[];
   media: TransferMediaReview;
 }

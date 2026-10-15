@@ -605,6 +605,8 @@ the key of a read carrying one more parameter.
 
 Every write this client makes to a collection drops that collection's rows and
 pages. The path stays the prefix of every key, so one sweep catches both. A
+`trash().restore` drops every collection's rows and pages, because a chain
+restore can bring entries back anywhere. A
 write made anywhere else is not something the client can be told about, which is
 what the ttl is for, and `cache().clear()` when you know better.
 

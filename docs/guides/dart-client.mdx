@@ -306,7 +306,7 @@ silo.cache.statistics.hitRate;
 silo.cache.clear();
 ```
 
-The cache is off by default. Only `get` and `list` are cached. A write through this client drops that collection's cached entries. Clients created with `withKey()` or `withUrl()` start with an empty cache.
+The cache is off by default. Only `get` and `list` are cached. A write through this client drops that collection's cached entries. A `trash.restore` drops every collection's cached entries, because a chain restore can bring entries back to any collection. Clients created with `withKey()` or `withUrl()` start with an empty cache.
 
 ## Source and releases
 

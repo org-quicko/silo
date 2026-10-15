@@ -60,6 +60,33 @@ void main() {
     expect(stub.requests, hasLength(4));
   });
 
+  test('a trash restore drops every collection, since a chain can reach any', () async {
+    stub
+      ..json(row('01A'))
+      ..json(row('01B'))
+      ..json({
+        'restored': ['01E', '01T'],
+        'projects': 0,
+        'environments': 0,
+        'collections': 1,
+        'entries': 1,
+        'assets': 0,
+        'broken_media_refs': <String>[],
+      })
+      ..json(row('01A'))
+      ..json(row('01B'));
+    final silo = stub.silo(cache: on);
+    final notes = silo.scope('other', 'prod').collection('notes');
+
+    await posts(silo).get('01A');
+    await notes.get('01B');
+    await silo.trash.restore('01T', const TrashRestoreOptions(chain: true));
+    await posts(silo).get('01A');
+    await notes.get('01B');
+
+    expect(stub.requests, hasLength(5));
+  });
+
   test('a response expires after its ttl', () async {
     var now = DateTime.utc(2026, 9, 23);
     await withClock(Clock(() => now), () async {

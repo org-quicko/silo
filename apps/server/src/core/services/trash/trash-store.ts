@@ -83,6 +83,32 @@ export class TrashStore {
     return this.context.store.list(this.scope, SystemCollections.Trash, query);
   }
 
+  /**
+   * Every receipt, newest first, read before the caller acts on any: a sweep
+   * that purged while it paged would shift the rows under its offset. A
+   * receipt written meanwhile shifts them the other way, hence the dedupe.
+   */
+  async allReceipts(): Promise<Entry[]> {
+    const seen = new Map<string, Entry>();
+    for (let offset = 0; ; ) {
+      const page = await this.listReceipts({ limit: TrashStore.PageSize, offset });
+      for (const entry of page.items) if (!seen.has(entry.id)) seen.set(entry.id, entry);
+      offset += page.items.length;
+      if (page.items.length === 0 || offset >= page.total) return [...seen.values()];
+    }
+  }
+
+  /** The newest receipt that would bring back `subjectId`, or null. */
+  async receiptFor(subjectId: string): Promise<string | null> {
+    const { items } = await this.context.store.list(this.scope, SystemCollections.Trash, {
+      filter: { op: "eq", path: "$.data.subject_id", value: subjectId },
+      sort: [{ path: JsonPath.Id, desc: true }],
+      limit: 1,
+      offset: 0,
+    });
+    return items[0]?.id ?? null;
+  }
+
   async deleteReceipt(id: string): Promise<void> {
     try {
       await this.context.store.delete(this.scope, SystemCollections.Trash, id);

@@ -25,7 +25,7 @@ export interface PreparedTransferView {
   prefer?: "local" | "remote";
   media: MediaMode;
   package?: TransferPackageSummary;
-  review?: Omit<TransferReview, "lines" | "collections" | "media"> & {
+  review?: Omit<TransferReview, "lines" | "destination" | "collections" | "media"> & {
     collections: Omit<TransferPlanCollection, "baseline">[];
     media: Omit<TransferMediaReview, "resolved">;
   };

@@ -4,6 +4,25 @@
 > The *current* state is [CONTEXT.md](../../CONTEXT.md); this is how it got
 > there.
 
+- **Trash and transfer P2 review fixes (2026-10-15, D111, D113).** A
+  restored entry is validated against its collection's current schema, which
+  can change once the collection is empty (D70); a mismatch is a `409` naming
+  the entry, and the receipt stays parked. A prepared transfer's review
+  records the destination's project and environment ids
+  (`TransferDestination`), and Apply refuses with `stale_preview` when the
+  environment was deleted or recreated since, instead of recreating it. The
+  trash list, the sweep and startup recovery read every receipt rather than
+  the newest thousand (`TrashStore.allReceipts`), a blocker's receipt is
+  looked up by subject id, and `GET /api/trash` applies the caller's
+  visibility before it pages, so `total` and the pages agree. The admin
+  Trash page has the shared pager. The TypeScript, Java and Dart clients
+  evict every cached entry read after a restore, reversing the documented
+  "call `clear()`" advice. On Windows, a staged package's rename into place
+  failed with `EPERM` about one time in 25: a stress loop showed the hold is
+  outside silo (awaiting the spool's close and the extractor's source made no
+  difference) and clears within about 10 ms, so `FsFiles.rename` retries for
+  up to five seconds on Windows only, for the adopt and for `writeAtomic`.
+  Each fix has a regression test that fails on the previous code.
 - **Trash P1 review fixes (2026-10-15, D113).** Reading a container receipt's
   contents now requires `entries:read` over that container as well as the
   `schema:read` that permits its metadata. A purge checks the live media

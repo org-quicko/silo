@@ -36,7 +36,7 @@ Hono web framework on Bun. JSON everywhere. Admin UI served at `/`; API under `/
 | POST | `/api/projects/{project}/envs/{env}/transfers` | prepares a transfer from another instance (`{source: {url, api_key}, from: {project, env}, selection, mode, prefer, media}`; `transfer:copy`, the env copy's write claims on each selected collection at this env, the replace claims in `replace` mode, `media:create` unless `media` is `none`). Pulls the source's package, verifies it exactly, plans it against this env by the importer's rules with entries checked against the effective schema (a merge that changes a populated collection's schema is the D70 `409`), and keeps it for 60 minutes, at most 4 open per instance (§7.10, §7.11, D109, D110). Refusals that need no source come first: claims, a missing env, a store with no atomic commit (`409 atomic_commit_unsupported`), no slot (`429 too_many_transfers`). `201` with the transfer, or the progress stream, whose first line names it |
 | GET / DELETE | `/api/projects/{project}/envs/{env}/transfers/{id}` | the transfer, its `review` totals and one page of its plan (`detail_offset`, `detail_limit` up to 100): per line the action, the packaged `rev`, and, for a key with the env copy's read claims on that collection here, the destination row and the ids `replace` removes / cancel it, stopping a running pull. `transfer:copy`, and only the key that prepared it, under this env: anyone else gets a `404` |
 | GET | `/api/projects/{project}/envs/{env}/transfers/{id}/entries/{collection}/{entry}` | one packaged entry, raw, as Apply will write it. Same binding |
-| POST | `/api/projects/{project}/envs/{env}/transfers/{id}/apply` | writes the plan as one `AtomicStorage.commit` with its `_transfers` ledger row, or nothing (§7.12, D111). Same binding; asks again for prepare's write claims, as the key holds them now. `200` with the applied transfer, and the same again for an applied one; `409 stale_preview` when anything the plan read has moved (the transfer becomes `stale`), `409 transfer_in_progress` while it applies, `transfer_cancelled`, `transfer_expired`. The new assets' files are written first under free keys saved in the record, and taken back when the commit does not land; `silo serve` settles an apply a stop interrupted. NDJSON progress (`media`, `commit`) on request |
+| POST | `/api/projects/{project}/envs/{env}/transfers/{id}/apply` | writes the plan as one `AtomicStorage.commit` with its `_transfers` ledger row, or nothing (§7.12, D111). Same binding; asks again for prepare's write claims, as the key holds them now. `200` with the applied transfer, and the same again for an applied one; `409 stale_preview` when anything the plan read has moved, the destination environment's id included (the transfer becomes `stale`), `409 transfer_in_progress` while it applies, `transfer_cancelled`, `transfer_expired`. The new assets' files are written first under free keys saved in the record, and taken back when the commit does not land; `silo serve` settles an apply a stop interrupted. NDJSON progress (`media`, `commit`) on request |
 | GET / POST | `/api/keys` | list (`keys:read`) / create (`keys:create`); create returns the secret exactly once |
 | PATCH | `/api/keys/{id}` | edit a key's label and/or claims (`keys:create`, **and** the authority to have minted both what it holds and what it is being given — D63) |
 | DELETE | `/api/keys/{id}` | revoke a key (`keys:revoke`, **and** the authority to have minted it — D37) |
@@ -1214,6 +1214,21 @@ checked by restore authorization again. Journal fields are internal and are
 removed from receipt and contents responses. Item pagination uses ids so
 journal updates cannot shift items between pages. This is resumable replay on
 every adapter, rather than a transaction that the filesystem cannot provide.
+
+A restored entry is validated against its collection's schema as it stands
+at the restore, not the one it was deleted under. A collection's schema can
+change shape once it is empty (D70), which is exactly the state deleting its
+last entry leaves, and the restore's raw store write would otherwise land data
+no other write path accepts. A refusal is a `409` naming the entry, written
+before that entry's journal mark, so the receipt goes back to `parked` intact.
+
+The list, the sweep and startup recovery read every receipt, not one store
+page of them: a trash past a thousand receipts otherwise showed none older
+and never expired them. The receipts are read whole before a sweep purges
+any, so purging cannot shift the rows under an offset. The caller's
+visibility check runs before the page is cut, so a page and `total` describe
+only what that key may see. A blocker's `trash_id` is looked up by subject id
+rather than from a page of receipts.
 
 Purging checks whether a live catalog row still owns each media blob before
 deleting it: an import may have revived an asset while its old receipt remains.

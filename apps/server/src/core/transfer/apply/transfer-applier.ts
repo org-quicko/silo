@@ -5,6 +5,7 @@ import { TransferUnsettledError } from "../../errors/transfer-unsettled-error";
 import { MediaCatalog } from "../../media/media-catalog";
 import type { AtomicStorage } from "../../ports/atomic-storage";
 import type { ServiceContext } from "../../services/support/service-context";
+import { TransferDestination } from "../plan/transfer-destination";
 import type { PreparedTransferRecord } from "../prepared/prepared-transfer-record";
 import type { PreparedTransferStore } from "../prepared/prepared-transfer-store";
 import { TransferBlobs } from "./transfer-blobs";
@@ -36,6 +37,7 @@ export class TransferApplier {
   /** The applied record, or a `stale_preview` conflict when anything the plan read has moved. */
   async apply(record: PreparedTransferRecord, report?: (phase: "media" | "commit") => void): Promise<PreparedTransferRecord> {
     const store = this.context.store as AtomicStorage;
+    await this.assertSameDestination(record);
     const appliedAt = new Date();
     const built = await TransferChangeSet.build(store, record, this.files.lines(record.id), this.files.package(record), appliedAt);
     await this.assertStillFree(built);
@@ -72,6 +74,18 @@ export class TransferApplier {
     if (cause !== undefined) throw cause;
     const { blob_intents: _intents, ...rest } = record;
     return { ...rest, state: "prepared", updated_at: new Date().toISOString(), last_error: TransferApplier.Interrupted };
+  }
+
+  /** Absence preconditions hold in an environment recreated under the same
+   *  name, and the schema writes would recreate a deleted one, so the ids are
+   *  checked here. */
+  private async assertSameDestination(record: PreparedTransferRecord): Promise<void> {
+    const to = Scope.of(record.to.project, record.to.env);
+    const current = await TransferDestination.ids(this.context.store, to);
+    const planned = record.review?.destination;
+    if (!current || current.project_id !== planned?.project_id || current.env_id !== planned?.env_id) {
+      throw TransferApplier.stale(`environment "${to.key()}" was deleted or replaced`);
+    }
   }
 
   private async assertStillFree(built: TransferChanges): Promise<void> {

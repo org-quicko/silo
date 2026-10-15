@@ -22,6 +22,7 @@ import in.org.quicko.silo.client.support.Post;
 import in.org.quicko.silo.client.support.StubHttp;
 import in.org.quicko.silo.client.transport.Transport;
 import in.org.quicko.silo.client.transport.TransportOptions;
+import in.org.quicko.silo.client.trash.TrashRestoreOptions;
 import in.org.quicko.silo.client.transport.TransportRequest;
 import java.lang.reflect.Method;
 import java.time.Duration;
@@ -130,6 +131,24 @@ class CacheTest {
     posts.get("01ABC");
 
     assertEquals(3, server.requestCount(), "a read after a write must not answer from before it");
+  }
+
+  @Test
+  void dropsEveryCollectionWhenATrashRestoreBringsEntriesBack() {
+    String restored = "{\"restored\":[\"t0\",\"t1\"],\"projects\":0,\"environments\":0,"
+        + "\"collections\":1,\"entries\":1,\"assets\":0,\"broken_media_refs\":[]}";
+    server.enqueueJson(Row).enqueueJson(Row).enqueueJson(restored).enqueueJson(Row).enqueueJson(Row);
+    Silo silo = server.caching(CacheOptions.on(Ttl, MaxSize));
+    CollectionHandle<Post> posts = posts(silo);
+    CollectionHandle<Post> notes = silo.scope("other", "prod").collection("notes", Post.class);
+
+    posts.get("01ABC");
+    notes.get("01ABC");
+    silo.trash().restore("t1", TrashRestoreOptions.none().chain(true));
+    posts.get("01ABC");
+    notes.get("01ABC");
+
+    assertEquals(5, server.requestCount(), "a chain restore can bring entries back to any collection");
   }
 
   @Test

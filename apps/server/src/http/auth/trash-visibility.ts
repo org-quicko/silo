@@ -2,6 +2,7 @@ import type { Context } from "hono";
 import { Claims } from "@silo/shared/claims";
 import type { AuthenticatedKey } from "../../core/keys/authenticated-key";
 import type { CollectionPermission } from "@silo/shared/collection-permission";
+import type { TrashReceipt } from "../../core/trash/trash-receipt";
 import type { TrashView } from "../../core/trash/trash-view";
 
 /**
@@ -17,10 +18,10 @@ import type { TrashView } from "../../core/trash/trash-view";
  * needed no claim since D58 retired `media:read`.
  */
 export class TrashVisibility {
-  static filter(c: Context, views: readonly TrashView[]): TrashView[] {
+  /** The caller's check, for `TrashService.list` to apply before it pages. */
+  static predicate(c: Context): (receipt: TrashReceipt) => boolean {
     const key = c.get("keyInfo") as AuthenticatedKey | undefined;
-    if (!key) return [];
-    return views.filter((view) => TrashVisibility.visible(key, view));
+    return (receipt) => (key ? TrashVisibility.visible(key, receipt) : false);
   }
 
   static canSee(c: Context, view: TrashView): boolean {
@@ -28,7 +29,7 @@ export class TrashVisibility {
     return key ? TrashVisibility.visible(key, view) : false;
   }
 
-  private static visible(key: AuthenticatedKey, view: TrashView): boolean {
+  private static visible(key: AuthenticatedKey, view: TrashReceipt): boolean {
     const { project_name, env_name, collection_name } = view.origin;
     switch (view.kind) {
       case "media":

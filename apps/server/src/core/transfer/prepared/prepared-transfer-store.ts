@@ -75,7 +75,7 @@ export class PreparedTransferStore {
 
   /** Moves a staged package into place as this transfer's `package/`. */
   async adopt(id: string, staged: string): Promise<void> {
-    await fs.rename(staged, this.packageDirectory(id));
+    await FsFiles.rename(staged, this.packageDirectory(id));
   }
 
   /** Saves the plan as the planner yields it, a batch of lines at a time. */

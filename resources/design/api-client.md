@@ -374,7 +374,8 @@ from Caffeine's policy. `silo.cache().statistics()` returns hits, misses, evicti
 size, requests() and hitRate(); clear and explicit invalidation preserve counters.
 
 Collection create, replace, delete, rename and schema deletion declare
-`.evicts(collectionPath)`. Transport applies it after HTTP success, before body
+`.evicts(collectionPath)`; a trash restore declares `/api/projects`, every
+entry read, since a chain restore can land in any collection. Transport applies it after HTTP success, before body
 decoding, matching Java. Invalidation removes every cached entry/page at that path
 across policy buckets and distinguishes sibling names such as posts-archive.
 Other writes, including variable and scope changes, do not invalidate collection

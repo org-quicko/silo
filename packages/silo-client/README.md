@@ -72,8 +72,10 @@ used directly; treat them as immutable for the client's lifetime. A custom
 `fetch` must keep its routing and authentication stable for that client.
 
 Successful collection `create()`, `replace()`, `delete()`, `rename()` and
-`schema.delete()` invalidate the affected collection's entries and pages. Failed
-writes preserve cached data. Other writes, including variable, project and
+`schema.delete()` invalidate the affected collection's entries and pages. A
+successful `trash.restore()` invalidates every cached entry and page, because a
+chain restore can bring entries back to any collection. Failed writes preserve
+cached data. Other writes, including variable, project and
 environment changes, do not trigger automatic invalidation. Use `clear()` after
 those changes when a fresh collection read is needed. Clearing and invalidation
 do not reset statistics; `evictions` counts expiry and capacity removal only.

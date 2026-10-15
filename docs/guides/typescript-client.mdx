@@ -363,7 +363,7 @@ console.log(stats.hits, stats.misses, stats.hitRate())
 silo.cache().clear()
 ```
 
-Only collection entry reads are cached — `get()` and `list()`; `all()` and `pages()` reuse `list()`. Schemas, searches, variables, media, and writes are never cached. Successful collection writes (`create`, `replace`, `delete`) automatically invalidate that collection's cached entries. Use `clear()` after variable or media changes when a fresh read is needed.
+Only collection entry reads are cached — `get()` and `list()`; `all()` and `pages()` reuse `list()`. Schemas, searches, variables, media, and writes are never cached. Successful collection writes (`create`, `replace`, `delete`) automatically invalidate that collection's cached entries. A successful `trash.restore()` invalidates every cached entry, because a chain restore can bring entries back to any collection. Use `clear()` after variable or media changes when a fresh read is needed.
 
 <Info>
   Caching is local to one process, worker, or browser tab. Clients created with `withKey()` or `withUrl()` have independent caches.

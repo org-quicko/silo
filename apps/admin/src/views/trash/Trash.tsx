@@ -6,6 +6,7 @@ import type { ScopeRef } from '../../api/types/scope-ref'
 import type { TrashItem } from '../../api/types/trash-item'
 import { ColumnSearch } from '../../components/browser/ColumnSearch'
 import { Button } from '../../components/buttons/Button'
+import { Pagination } from '../../components/data/Pagination'
 import { LoadingState } from '../../components/feedback/LoadingState'
 import { DangerConfirm } from '../../components/modal/DangerConfirm'
 import { Breadcrumb } from '../../components/navigation/Breadcrumb'
@@ -128,6 +129,14 @@ export function Trash({
                 onPurge={() => setConfirmPurge(item)}
               />
             ))}
+            <Pagination
+              bordered={false}
+              page={Math.floor(trash.offset / trash.pageSize) + 1}
+              pageSize={trash.pageSize}
+              total={trash.total}
+              onPageChange={(page) => trash.setOffset((page - 1) * trash.pageSize)}
+              onPageSizeChange={trash.setPageSize}
+            />
           </div>
         )}
 

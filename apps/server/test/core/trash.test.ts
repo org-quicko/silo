@@ -1,4 +1,4 @@
-import { describe, test, expect, beforeEach, afterEach } from "bun:test";
+import { describe, test, expect, beforeEach, afterEach, setSystemTime } from "bun:test";
 import fs from "fs/promises";
 import path from "path";
 import os from "os";
@@ -362,6 +362,27 @@ describe.each(kinds)("trash on %s (D113)", (kind) => {
     expect((await service.trash.list()).total).toBe(1);
   });
 
+  // One driver is enough to pass the store's page size; the paging is the trash's own.
+  test.skipIf(kind !== "sqlite")("lists and sweeps past the first thousand receipts", async () => {
+    await seedCollection();
+    const trashOne = async (title: string) => {
+      const entry = await service.entries.create(Scope.Default, "posts", { title });
+      await service.entries.delete(Scope.Default, "posts", entry.id, entry.rev);
+    };
+    setSystemTime(new Date(Date.now() - 40 * 86_400_000));
+    try {
+      await trashOne("oldest");
+    } finally {
+      setSystemTime();
+    }
+    for (let index = 0; index < 1000; index++) await trashOne(`newer ${index}`);
+
+    const last = await service.trash.list({ offset: 1000 });
+    expect([last.items.map((item) => item.subject_name), last.total]).toEqual([["oldest"], 1001]);
+    expect(await service.trash.sweep()).toEqual({ purged: 1, failed: 0 });
+    expect((await service.trash.list({ q: "oldest" })).total).toBe(0);
+  }, 60_000);
+
   test("emptying the trash destroys every receipt", async () => {
     await seedCollection();
     for (const title of ["a", "b"]) {
@@ -411,5 +432,25 @@ describe.each(kinds)("trash on %s (D113)", (kind) => {
     const restored = await service.entries.get(Scope.Default, "articles", entry.id);
     expect(restored.data.title).toBe("anchored");
     expect(collection).toBeTruthy();
+  });
+
+  test("a restore is held to the collection's current schema, and the receipt survives a refusal", async () => {
+    await seedCollection();
+    const entry = await service.entries.create(Scope.Default, "posts", { title: "old string" });
+    await service.entries.delete(Scope.Default, "posts", entry.id, entry.rev);
+    // Empty now, so the schema may change shape (D70).
+    await service.collections.putSchema(Scope.Default, "posts", {
+      type: "object",
+      properties: { title: { type: "number" } },
+    });
+
+    const receipt = (await service.trash.list()).items[0];
+    await expect(service.trash.restore(receipt.id)).rejects.toThrow("does not match the current schema");
+    await expect(service.entries.get(Scope.Default, "posts", entry.id)).rejects.toThrow(NotFoundError);
+    expect((await service.trash.get(receipt.id)).state).toBe("parked");
+
+    await seedCollection();
+    await service.trash.restore(receipt.id);
+    expect((await service.entries.get(Scope.Default, "posts", entry.id)).data.title).toBe("old string");
   });
 });

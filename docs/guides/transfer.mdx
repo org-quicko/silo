@@ -223,7 +223,7 @@ A copy between instances runs in three steps on the destination:
     Page through the plan: every entry and media file the copy adds, updates, skips or deletes, and the packaged copy of any entry.
   </Step>
   <Step title="Apply">
-    The destination writes the plan as one change. If anything the plan read has changed since, it writes nothing and answers `409 stale_preview`. Prepare again.
+    The destination writes the plan as one change. If anything the plan read has changed since, it writes nothing and answers `409 stale_preview`. Prepare again. That includes the environment itself: if someone deleted it, or deleted it and made a new one with the same name, Apply refuses and does not make it again.
   </Step>
 </Steps>
 

@@ -353,6 +353,9 @@ project's receipt as an entry's, and a restore anchored on the wrong kind
 writes to the wrong place. A new kind is a client change, which is what
 `RouteInventory` already assumes of a new route.
 
-A restore evicts nothing from §15.8's cache. It can write into any scope and
-its result names receipts, not paths, so with the cache on, `cache().clear()`
-is the call after a restore. The TypeScript client behaves the same way.
+A restore evicts every entry read from §15.8's cache: `.evicts("/api/projects")`,
+the prefix of every cached path. It can write into any scope, a `chain` restore
+into several, and its result names receipts, not paths, so nothing narrower is
+known when it lands. Leaving the cache alone and documenting `cache().clear()`
+was the first version, and a caller who missed the note read an empty list
+after a successful restore. The TypeScript and Dart clients do the same.

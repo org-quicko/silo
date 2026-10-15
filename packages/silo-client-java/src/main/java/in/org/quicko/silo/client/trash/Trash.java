@@ -65,7 +65,9 @@ public final class Trash {
   }
 
   /** Puts the content back. Needs the write claims at the destination; a
-   *  blocked or colliding restore raises {@code ConflictException}. */
+   *  blocked or colliding restore raises {@code ConflictException}. A restore
+   *  can bring entries back to any collection, so it drops every cached entry
+   *  read. */
   public TrashRestoreResult restore(String id, TrashRestoreOptions options) {
     Map<String, Object> body = new LinkedHashMap<>();
     if (options.rename() != null) body.put("rename", options.rename());
@@ -74,6 +76,7 @@ public final class Trash {
         TransportRequest.post(ApiPath.trashRestore(id))
             .body(body)
             .options(options.request())
+            .evicts(ApiPath.projects())
             .build()));
   }
 

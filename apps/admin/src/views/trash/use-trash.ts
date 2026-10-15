@@ -4,12 +4,17 @@ import type { TrashQuery } from '../../api/clients/trash-api'
 import type { TrashItem } from '../../api/types/trash-item'
 import { ToastManager } from '../../utils/toast-manager'
 
+/** The server's own default page. */
+const DefaultPageSize = 50
+
 /** Everything the trash page needs: the page, the filters, and the three
  *  actions a row offers. */
 export function useTrash(api: SiloApi, url: string, apiKey: string) {
   const [items, setItems] = useState<TrashItem[]>([])
   const [total, setTotal] = useState(0)
-  const [query, setQuery] = useState<TrashQuery>({})
+  const [query, setFilters] = useState<TrashQuery>({})
+  const [offset, setOffset] = useState(0)
+  const [pageSize, setPageSizeState] = useState(DefaultPageSize)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState<string | null>(null)
@@ -17,7 +22,12 @@ export function useTrash(api: SiloApi, url: string, apiKey: string) {
   const load = useCallback(async () => {
     setLoading(true)
     try {
-      const page = await api.trash.list(url, apiKey, query)
+      const page = await api.trash.list(url, apiKey, { ...query, limit: pageSize, offset })
+      // A restore or a purge can empty the last page; show the one before it.
+      if (page.items.length === 0 && offset > 0 && page.total > 0) {
+        setOffset(Math.floor((page.total - 1) / pageSize) * pageSize)
+        return
+      }
       setItems(page.items)
       setTotal(page.total)
       setError(null)
@@ -26,7 +36,17 @@ export function useTrash(api: SiloApi, url: string, apiKey: string) {
     } finally {
       setLoading(false)
     }
-  }, [api, url, apiKey, query])
+  }, [api, url, apiKey, query, offset, pageSize])
+
+  const setQuery = (next: TrashQuery) => {
+    setFilters(next)
+    setOffset(0)
+  }
+
+  const setPageSize = (next: number) => {
+    setPageSizeState(next)
+    setOffset(0)
+  }
 
   useEffect(() => {
     void load()
@@ -83,6 +103,10 @@ export function useTrash(api: SiloApi, url: string, apiKey: string) {
     total,
     query,
     setQuery,
+    offset,
+    setOffset,
+    pageSize,
+    setPageSize,
     loading,
     error,
     busy,

@@ -49,7 +49,7 @@ export class PreparedTransferViews {
   }
 
   private static review(review: TransferReview): NonNullable<PreparedTransferView["review"]> {
-    const { lines: _lines, collections, media, ...totals } = review;
+    const { lines: _lines, destination: _destination, collections, media, ...totals } = review;
     const { resolved: _resolved, ...shown } = media;
     return {
       ...totals,

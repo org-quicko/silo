@@ -112,7 +112,8 @@ silo.cache.clear();
 ```
 
 The cache is off by default. Only `get` and `list` are cached. A write through
-this client drops that collection. `withKey` and `withUrl` start empty.
+this client drops that collection. A `trash.restore` drops every collection,
+because a chain restore can bring entries back anywhere. `withKey` and `withUrl` start empty.
 
 ## Your own HTTP client
 

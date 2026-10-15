@@ -250,6 +250,8 @@ curl http://localhost:8090/api/trash \
 
 Narrow the list with `?kind=`, `?project=`, `?env=`, `?collection=`, `?q=`,
 `?deleted_after=` and `?deleted_before=`. Page it with `?limit=` and `?offset=`.
+The pages include only the items that your key can see, and `total` counts
+only those items.
 
 There is no `trash:read` claim. The server shows you each item only if you can
 read the content it came from. A key with `entries:read` on `default/prod/posts`
@@ -300,7 +302,7 @@ The content goes back to the same place, addressed by record id. If someone
 renamed the project, the environment or the collection while the content was in
 the trash, the restore still finds it.
 
-Two things can stop a restore:
+Three things can stop a restore:
 
 - **The container is gone.** You cannot restore an entry into a collection that
   no longer exists. The item says so in `blocked_by`, and `restorable` is
@@ -312,6 +314,10 @@ Two things can stop a restore:
   so someone can create a new `posts` while the old one is in the trash. The
   restore then answers `409` instead of writing over the new one. Send
   `{"rename": "posts-restored"}` to bring it back under a different name.
+- **The schema changed.** You can change the schema of a collection that has
+  no entries. A restored entry must agree with the schema that its collection
+  has now. If it does not, the restore answers `409` and the item stays in the
+  trash. Change the schema back, then restore again.
 
 A restore reports what it could not repair. If a media asset was deleted while
 an entry that references it sat in the trash, the entry comes back and

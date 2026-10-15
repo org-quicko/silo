@@ -1,5 +1,6 @@
 import { isDeepStrictEqual } from "node:util";
 import { MediaRef } from "@silo/shared/media-ref";
+import { ValidationError } from "@silo/shared/validation-error";
 import type { CollectionRecord } from "../../domain/collection-record";
 import type { EnvironmentRecord } from "../../domain/environment-record";
 import type { ProjectRecord } from "../../domain/project-record";
@@ -151,6 +152,7 @@ export class TrashRestorer {
       into.entries += 1;
       return;
     }
+    await this.assertFitsSchema(scope, collection, record);
 
     let schema: unknown;
     try {
@@ -176,6 +178,19 @@ export class TrashRestorer {
       search: SearchText.extract(record.data, schema),
     });
     into.entries += 1;
+  }
+
+  /** The collection's schema may have changed once it was empty (D70); a
+   *  restore is a write and is held to it like any other. */
+  private async assertFitsSchema(scope: Scope, collection: string, record: TrashedEntry): Promise<void> {
+    try {
+      await this.context.schemaRegistry.validateEntry(scope, collection, record.data);
+    } catch (caught) {
+      if (!ValidationError.is(caught)) throw caught;
+      throw new ConflictError(
+        `entry "${record.id}" does not match the current schema of "${collection}": ${caught.message}`
+      );
+    }
   }
 
   private async writeAsset(record: TrashedAsset, into: TrashRestoreResult, retry: boolean, start: () => Promise<void>): Promise<void> {

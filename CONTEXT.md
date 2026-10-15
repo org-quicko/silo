@@ -125,7 +125,13 @@ one); `docs/` is the public Mintlify site.
   are in [milestones.md](resources/design/milestones.md) §12.
   [IDEAS.md](IDEAS.md) holds loose ideas.
 
-**Most recent changes:** the pre-PR trash review's P1 issues are fixed:
+**Most recent changes:** the pre-PR review's P2 issues are fixed: a restore
+is held to the collection's current schema, Apply refuses a destination
+environment deleted or recreated since its plan, the trash lists, sweeps and
+pages past a thousand receipts with visibility applied before the page is cut,
+the admin Trash page pages, the three clients evict cached entry reads after a
+restore, and a staged package's rename retries briefly on Windows. The P1
+issues before them are fixed too:
 container contents require entry-read authority, purging preserves files still
 owned by the live media catalog, restore journals survive an interruption and
 retain their chosen destination, and Empty trash explicitly includes filtered

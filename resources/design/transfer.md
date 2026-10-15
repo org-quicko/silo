@@ -451,7 +451,10 @@ see a change made since.
   rejected line is part of it too, so anything the review described that has
   moved makes the transfer stale. Planning reads row by row rather than from
   one snapshot, and that is enough: Apply checks every observation in one
-  transaction, so it commits only when all of them hold at once.
+  transaction, so it commits only when all of them hold at once. The review
+  also records the destination's project and environment ids
+  (`review.destination`, never shown), because every other observation is
+  relative to a scope name.
 - **What a reader sees.** A page answers each line without its `seq`. What
   only the destination holds, the id on a `deleted` line and any line's
   destination `rev` and time, is shown only to a key holding the env copy's
@@ -495,10 +498,16 @@ was prepared.
   ledger row. A precondition that no longer holds is `409 stale_preview`: the
   transfer becomes `stale` and loses its package, and this server is exactly
   as it was.
-- **Two checks the commit cannot state**, made under the same write lock just
-  before it, which every other write also waits for: no folder now exists at a
-  path the plan adds, and no file at a key it writes. Either is
-  `stale_preview`.
+- **Three checks the commit cannot state**, made under the same write lock
+  just before it, which every other write also waits for: the destination's
+  project and environment still have the ids the plan recorded, no folder now
+  exists at a path the plan adds, and no file at a key it writes. Any is
+  `stale_preview`. The first exists because a plan into an environment whose
+  selected collections were all absent has only absence preconditions, which
+  hold just as well after the environment is deleted, or deleted and made
+  again under its name; the schema writes would then recreate the scope with a
+  new id. Checking the ids refuses both, and a deleted environment is never
+  recreated by an apply.
 - **Files outside the transaction.** A blob store cannot join a database
   commit, so the new assets' files go first, each under a key that was free,
   and the keys are saved in `record.json` (`blob_intents`) before the first

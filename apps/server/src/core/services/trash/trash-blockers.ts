@@ -14,17 +14,25 @@ import type { TrashLocator } from "./trash-locator";
  */
 export class TrashBlockers {
   private readonly locator: TrashLocator;
-  /** Receipt id by the subject id it would bring back, so a blocker can point
+  /** The receipt that would bring a container back, so a blocker can point
    *  at the receipt that unblocks it. */
-  private readonly bySubject: Map<string, string>;
+  private readonly receiptFor: (subjectId: string) => Promise<string | null>;
 
   /** `locator` is shared with the caller's name lookups, so one list reads
    *  each container table once. */
-  constructor(locator: TrashLocator, receipts: readonly Entry[]) {
+  constructor(locator: TrashLocator, receiptFor: (subjectId: string) => Promise<string | null>) {
     this.locator = locator;
-    this.bySubject = new Map(
-      receipts.map((entry) => [(entry.data as TrashReceipt).subject_id, entry.id])
-    );
+    this.receiptFor = receiptFor;
+  }
+
+  /** A lookup over receipts already read, newest first, so the newest wins. */
+  static bySubject(receipts: readonly Entry[]): (subjectId: string) => Promise<string | null> {
+    const ids = new Map<string, string>();
+    for (const entry of receipts) {
+      const subject = (entry.data as TrashReceipt).subject_id;
+      if (!ids.has(subject)) ids.set(subject, entry.id);
+    }
+    return async (subjectId) => ids.get(subjectId) ?? null;
   }
 
   async blockerFor(receipt: TrashReceipt): Promise<TrashBlocker | undefined> {
@@ -48,11 +56,11 @@ export class TrashBlockers {
     return undefined;
   }
 
-  private blocker(
+  private async blocker(
     kind: TrashBlocker["kind"],
     name: string | undefined,
     id: string
-  ): TrashBlocker {
-    return { kind, name: name ?? id, trash_id: this.bySubject.get(id) ?? null };
+  ): Promise<TrashBlocker> {
+    return { kind, name: name ?? id, trash_id: await this.receiptFor(id) };
   }
 }

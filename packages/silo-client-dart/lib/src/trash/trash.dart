@@ -44,7 +44,8 @@ final class Trash {
   );
 
   /// Puts the content back. Needs the write claims at the destination; a
-  /// blocked or colliding restore is a `ConflictException`.
+  /// blocked or colliding restore is a `ConflictException`. A restore can bring
+  /// entries back to any collection, so it drops every cached entry read.
   Future<TrashRestoreResult> restore(String id, [TrashRestoreOptions options = const TrashRestoreOptions()]) async =>
       TrashRestoreResult.fromJson(
         await _transport.json(
@@ -53,6 +54,7 @@ final class Trash {
             ApiPath.trashRestore(id),
             body: {'rename': ?options.rename, 'chain': options.chain},
             options: options,
+            evicts: ApiPath.projects(),
           ),
         ),
       );

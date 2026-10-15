@@ -358,7 +358,9 @@ The copy has three steps:
    copy adds, updates, skips or deletes.
 3. **Apply.** The destination writes the plan as one change. If the
    destination changed after the plan was made, it writes nothing, and the
-   transfer becomes `stale`. Prepare it again.
+   transfer becomes `stale`. Prepare it again. A deleted environment is a
+   change. So is an environment that someone deleted and made again with the
+   same name. Apply does not make the environment again.
 
 The review and Apply use the saved package. They do not read the source
 again, so changes on the source after Prepare do not move the plan.

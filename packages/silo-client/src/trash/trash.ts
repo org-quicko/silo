@@ -52,7 +52,9 @@ export class Trash {
    * Puts the content back, asking for the write claims at the destination.
    *
    * `chain` restores the containers blocking this one first; `rename` applies
-   * to the subject alone, for when the freed name was taken meanwhile.
+   * to the subject alone, for when the freed name was taken meanwhile. A
+   * restore can bring entries back to any collection, so it drops every
+   * cached entry read.
    */
   restore(
     id: string,
@@ -63,6 +65,7 @@ export class Trash {
       method: "POST",
       path: ApiPath.trashRestore(id),
       body: restore,
+      evicts: ApiPath.projects(),
       signal: options?.signal,
       timeoutMilliseconds: options?.timeoutMilliseconds,
     });

@@ -22,6 +22,8 @@ export class TrashRoutes {
   static register(app: any, service: SiloService) {
     app.get("/api/trash", async (c: Context) => {
       RouteAuth.requireKey(c);
+      // Narrowed to what this key may see before the page is cut, so `total`
+      // counts those alone: a total beyond them would disclose by arithmetic.
       const page = await service.trash.list({
         kind: TrashRoutes.kind(c.req.query("kind")),
         project: c.req.query("project") || undefined,
@@ -32,11 +34,8 @@ export class TrashRoutes {
         q: c.req.query("q") || undefined,
         limit: TrashRoutes.number(c.req.query("limit"), "limit"),
         offset: TrashRoutes.number(c.req.query("offset"), "offset"),
-      });
-      const items = TrashVisibility.filter(c, page.items);
-      // `total` counts what this caller may see, not what the trash holds: a
-      // page of four with a total of nine would be a disclosure by arithmetic.
-      return c.json({ ...page, items, total: page.total - (page.items.length - items.length) });
+      }, TrashVisibility.predicate(c));
+      return c.json(page);
     });
 
     // Before `/api/trash/:id`, so "purge" is never read as a receipt id.

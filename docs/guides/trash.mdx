@@ -61,7 +61,7 @@ Each item tells you where the content was, what came with it, who deleted it, an
 
 ## Who can see and restore what
 
-There is no `trash:read` claim. Silo shows you an item only if your key can read the content it came from. Two keys can see two different trashes. `total` counts only the items your key can see. An item your key cannot see answers `404`, not `403`.
+There is no `trash:read` claim. Silo shows you an item only if your key can read the content it came from. Two keys can see two different trashes. `total` counts only the items your key can see, and `limit` and `offset` page through those items alone. An item your key cannot see answers `404`, not `403`.
 
 | Operation | Claim needed |
 |---|---|
@@ -106,7 +106,7 @@ The response says what came back:
 }
 ```
 
-Two things can stop a restore. Both answer `409 conflict`.
+Three things can stop a restore. All three answer `409 conflict`.
 
 <Steps>
   <Step title="The container is gone">
@@ -131,6 +131,10 @@ Two things can stop a restore. Both answer `409 conflict`.
     ```
 
     The response then carries `renamed_to`. An entry keeps its id, so `rename` does not help an entry whose id exists again.
+  </Step>
+
+  <Step title="The schema changed">
+    You can change the schema of a collection that has no entries, so a collection can change shape after its last entry goes to the trash. A restored entry must agree with the schema the collection has now. If it does not, the restore refuses, names the entry, and leaves the item in the trash. Change the schema back, then restore again.
   </Step>
 </Steps>
 
@@ -209,7 +213,7 @@ Send that id to `POST /api/trash/{id}/restore` to undo the delete. The header is
 
 ## In the admin
 
-- **Trash** in the sidebar lists the items your key can see. Filter the list by type or by name.
+- **Trash** in the sidebar lists the items your key can see, a page at a time. Filter the list by type or by name.
 - Expand an item to see the records it holds.
 - **Restore** puts an item back. **Restore both** appears when the item's container is in the trash too.
 - **Delete permanently** and **Empty trash** need `trash:purge`. The admin hides them from a key without it. **Delete permanently** asks you to confirm. **Empty trash** asks you to type `empty`.

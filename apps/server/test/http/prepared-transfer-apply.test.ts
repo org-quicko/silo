@@ -97,6 +97,22 @@ describe("applying a prepared transfer", () => {
     }
   });
 
+  test("refuses an environment deleted or recreated since the plan, and never recreates it", async () => {
+    const { scopes, store } = pair.destinationService;
+    for (const recreated of [false, true]) {
+      const view = await prepared();
+      const planned = (await store.findEnvironment("acme", "uat"))!.id;
+      await scopes.deleteEnvironment("acme", "uat", true);
+      if (recreated) await scopes.createEnvironment("acme", "uat");
+      const refused = await pair.apply(view.id);
+      expect([recreated, refused.status, (await read(refused)).error.code]).toEqual([recreated, 409, "stale_preview"]);
+      const now = await store.findEnvironment("acme", "uat");
+      expect([recreated, now === null, now?.id === planned]).toEqual([recreated, !recreated, false]);
+      if (now) expect(await store.listCollections(uat)).toEqual([]);
+      else await scopes.createEnvironment("acme", "uat");
+    }
+  });
+
   test("keeps every asset this server already has, as it is", async () => {
     const { asset } = pair.seeded;
     const { store, blobStorage } = pair.destinationService;

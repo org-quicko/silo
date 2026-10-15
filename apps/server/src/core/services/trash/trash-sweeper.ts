@@ -2,7 +2,7 @@ import { EntryUtils } from "../../domain/entry-utils";
 import type { TrashReceipt } from "../../trash/trash-receipt";
 import type { ServiceContext } from "../support/service-context";
 import type { TrashPurger } from "./trash-purger";
-import { TrashStore } from "./trash-store";
+import type { TrashStore } from "./trash-store";
 
 /**
  * Purges receipts past their `expires_at`, and finishes anything a crash left
@@ -27,14 +27,9 @@ export class TrashSweeper {
    *  runs on a timer with nobody watching. */
   async sweep(): Promise<{ purged: number; failed: number }> {
     const now = EntryUtils.now().toISOString();
-    const { items } = await this.store.listReceipts({
-      limit: TrashStore.PageSize,
-      offset: 0,
-    });
-
     let purged = 0;
     let failed = 0;
-    for (const entry of items) {
+    for (const entry of await this.store.allReceipts()) {
       const receipt = entry.data as TrashReceipt;
       if (!receipt.expires_at || receipt.expires_at > now) continue;
       try {
@@ -56,14 +51,9 @@ export class TrashSweeper {
    * receipt simply finishes.
    */
   async resumePending(): Promise<{ finished: number; failed: number }> {
-    const { items } = await this.store.listReceipts({
-      limit: TrashStore.PageSize,
-      offset: 0,
-    });
-
     let finished = 0;
     let failed = 0;
-    for (const entry of items) {
+    for (const entry of await this.store.allReceipts()) {
       const receipt = entry.data as TrashReceipt;
       if (receipt.state === "parked") continue;
       try {

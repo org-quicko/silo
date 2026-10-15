@@ -86,6 +86,12 @@ describe("trash API (D113)", () => {
     // `total` counts what this caller may see; reporting two would disclose the
     // other deletion by arithmetic.
     expect(body.total).toBe(1);
+
+    // Narrowed before the page is cut: the newest receipt is the hidden one,
+    // and a page of one still holds the receipt this key can see.
+    const first = await app.request("/api/trash?limit=1", { headers: auth(narrow) });
+    const page = (await first.json()) as TrashPageBody;
+    expect([page.items.map((item) => item.origin.collection_name), page.total]).toEqual([["posts"], 1]);
   });
 
   test("a key that can read nothing sees an empty trash, not a 403", async () => {
