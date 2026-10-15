@@ -1,42 +1,91 @@
-.page { padding: 20px 24px; }
-
-.header {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 16px;
-  margin-bottom: 4px;
-}
-
-.title { margin: 0; font-size: 18px; }
-
-.lede {
-  margin: 0 0 16px;
-  color: var(--text-3);
-  font-size: 13px;
-}
-
-.filters {
+.toolbar {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 8px;
-  margin-bottom: 16px;
+  gap: 10px;
+  margin-bottom: 12px;
 }
 
-.filters select,
-.filters input {
+/* ColumnSearch, placed in a page toolbar rather than inside a column. Scoped
+   under .toolbar so it outranks ColumnSearch's own margin and input height
+   whatever order the two stylesheets load in, and sits level with the chip. */
+.toolbar .search {
+  flex: 0 1 300px;
+  min-width: 200px;
+  margin: 0;
+  border-color: var(--line-2);
+  background: var(--panel);
+}
+
+.toolbar .search input { height: 28px; }
+
+.error { margin-bottom: 12px; cursor: pointer; }
+
+.filterWrap { position: relative; }
+
+.filterTrigger {
+  display: inline-flex;
   height: 30px;
-  font-size: 13px;
+  align-items: center;
+  gap: 6px;
+  padding: 0 10px;
+  border: 1px solid var(--line-2);
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text-2);
+  cursor: pointer;
+  font-family: var(--font-ui);
+  font-size: 12px;
 }
 
-.search { flex: 1 1 200px; min-width: 160px; }
+.filterTrigger:hover { border-color: var(--accent); color: var(--text); }
 
+.filterTriggerActive {
+  border-color: color-mix(in oklab, var(--accent) 40%, transparent);
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+
+.filterClear { border-radius: 50%; padding: 1px; }
+.filterClear:hover { background: color-mix(in oklab, var(--accent) 22%, transparent); }
+
+.filterMenu {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  z-index: 20;
+  min-width: 170px;
+  padding: 4px;
+  border: 1px solid var(--line-2);
+  border-radius: var(--radius-sm);
+  background: var(--panel-2);
+  box-shadow: var(--shadow-modal);
+}
+
+.filterOption {
+  display: flex;
+  width: 100%;
+  align-items: center;
+  padding: 7px 9px;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: inherit;
+  font-family: var(--font-ui);
+  font-size: 13px;
+  text-align: left;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.filterOption:hover { background: color-mix(in oklab, var(--panel-3) 70%, transparent); }
+.filterOptionActive { color: var(--accent); font-weight: 600; }
+
+/* No overflow clipping here: a row's menu has to be free to leave the list. */
 .list {
   border: 1px solid var(--line);
-  border-radius: var(--radius-sm);
-  background: var(--panel);
-  overflow: hidden;
+  border-radius: var(--radius);
+  background: var(--bg);
 }
 
 .row {
@@ -48,7 +97,10 @@
   border-bottom: 1px solid var(--line);
 }
 
-.row:last-child { border-bottom: none; }
+.row:first-child { border-radius: var(--radius) var(--radius) 0 0; }
+.row:last-child { border-bottom: none; border-radius: 0 0 var(--radius) var(--radius); }
+.row:only-child { border-radius: var(--radius); }
+.row:hover { background: color-mix(in oklab, var(--panel-2) 45%, transparent); }
 
 .disclosure {
   display: flex;
@@ -58,7 +110,7 @@
   height: 24px;
   padding: 0;
   border: none;
-  border-radius: var(--radius-xs);
+  border-radius: var(--r-1);
   background: none;
   color: var(--text-3);
   cursor: pointer;
@@ -106,7 +158,7 @@
   gap: 8px;
   margin-top: 8px;
   padding: 8px 10px;
-  border-radius: var(--radius-xs);
+  border-radius: var(--r-1);
   background: var(--panel-2);
   color: var(--text-2);
   font-size: 12.5px;
@@ -126,7 +178,7 @@
   top: calc(100% + 6px);
   right: 0;
   z-index: 20;
-  min-width: 180px;
+  min-width: 190px;
   padding: 4px;
   border: 1px solid var(--line-2);
   border-radius: var(--radius-sm);
@@ -134,29 +186,38 @@
   box-shadow: var(--shadow-modal);
 }
 
+/* Near the bottom of the page the menu opens above its button instead. */
+.menuUp { top: auto; bottom: calc(100% + 6px); }
+
 .menuItem {
-  display: block;
+  display: flex;
   width: 100%;
-  padding: 7px 10px;
-  border: none;
-  border-radius: var(--radius-xs);
-  background: none;
+  align-items: center;
+  gap: 10px;
+  padding: 7px 9px;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
   color: var(--text);
+  font-family: var(--font-ui);
   font-size: 13px;
   text-align: left;
+  white-space: nowrap;
   cursor: pointer;
 }
 
-.menuItem:hover { background: var(--panel); }
-.menuItemDanger { color: var(--danger); }
+.menuItem:hover { background: color-mix(in oklab, var(--panel-3) 70%, transparent); }
+.menuItemDanger { color: var(--bad); }
+.menuItemQuiet { color: var(--text-3); cursor: default; }
+.menuItemQuiet:hover { background: transparent; }
 
 .contents {
   grid-column: 2 / -1;
   margin-top: 10px;
   padding: 10px 12px;
   border: 1px solid var(--line);
-  border-radius: var(--radius-xs);
-  background: var(--bg);
+  border-radius: var(--r-1);
+  background: var(--panel);
 }
 
 .contentsList {
@@ -189,7 +250,7 @@
 .emptyTitle { color: var(--text-2); font-size: 14px; }
 
 @media (max-width: 720px) {
-  .page { padding: 16px; }
+  .toolbar .search { flex: 1 1 100%; }
   .row { grid-template-columns: 24px minmax(0, 1fr); }
   .actions { grid-column: 2 / -1; margin-top: 8px; }
 }

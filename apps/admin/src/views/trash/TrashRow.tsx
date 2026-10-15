@@ -1,18 +1,10 @@
-import { useState } from 'react'
-import {
-  ChevronDown,
-  ChevronRight,
-  FileText,
-  Folder,
-  Image,
-  Layers,
-  MoreHorizontal,
-  Package,
-} from 'lucide-react'
+import { ChevronDown, ChevronRight } from 'lucide-react'
 import type { TrashItem, TrashKind } from '../../api/types/trash-item'
 import { Button } from '../../components/buttons/Button'
 import { Pill } from '../../components/feedback/Pill'
 import { TrashLabels } from './trash-labels'
+import { TrashKindIcon } from './TrashKindIcon'
+import { TrashRowMenu } from './TrashRowMenu'
 import styles from './Trash.module.css'
 
 /**
@@ -40,7 +32,6 @@ export function TrashRow({
   onRestore: (options: { rename?: string; chain?: boolean }) => void
   onPurge: () => void
 }) {
-  const [menuOpen, setMenuOpen] = useState(false)
   // A leaf has no contents to disclose but itself, so it gets no triangle.
   const expandable =
     item.kind !== 'entry' &&
@@ -67,7 +58,7 @@ export function TrashRow({
 
       <div className={styles.body}>
         <div className={styles.name}>
-          <KindIcon kind={item.kind} />
+          <TrashKindIcon kind={item.kind} />
           <span className={styles.nameText} title={item.subject_name}>
             {item.subject_name}
           </span>
@@ -124,35 +115,7 @@ export function TrashRow({
         >
           Restore
         </Button>
-        <div className={styles.menuWrap}>
-          <Button
-            size="sm"
-            className={styles.menuButton}
-            aria-label="More actions"
-            onClick={() => setMenuOpen((open) => !open)}
-          >
-            <MoreHorizontal size={14} />
-          </Button>
-          {menuOpen && (
-            <div className={styles.menu} onMouseLeave={() => setMenuOpen(false)}>
-              {/* Hidden rather than disabled without `trash:purge`: an
-                  affordance the server will refuse is worse than none. */}
-              {canPurge && (
-                <button
-                  type="button"
-                  className={`${styles.menuItem} ${styles.menuItemDanger}`}
-                  onClick={() => {
-                    setMenuOpen(false)
-                    onPurge()
-                  }}
-                >
-                  Delete permanently
-                </button>
-              )}
-              {!canPurge && <span className={styles.menuItem}>No other actions</span>}
-            </div>
-          )}
-        </div>
+        <TrashRowMenu canPurge={canPurge} onPurge={onPurge} />
       </div>
     </div>
   )
@@ -210,14 +173,4 @@ function describe(record: unknown): string {
     }
   }
   return typeof fields.id === 'string' ? fields.id : 'record'
-}
-
-function KindIcon({ kind }: { kind: TrashKind }) {
-  const size = 14
-  if (kind === 'project') return <Package size={size} />
-  if (kind === 'environment') return <Layers size={size} />
-  if (kind === 'collection') return <Layers size={size} />
-  if (kind === 'media') return <Image size={size} />
-  if (kind === 'media_folder') return <Folder size={size} />
-  return <FileText size={size} />
 }

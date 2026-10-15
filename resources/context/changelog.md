@@ -4,6 +4,22 @@
 > The *current* state is [CONTEXT.md](../../CONTEXT.md); this is how it got
 > there.
 
+- **The Trash page looks like the rest of the admin (2026-10-15, D113).** It
+  now sits in the same frame as Media Library: the top search bar, the
+  breadcrumb and the page head. The name filter is the shared `ColumnSearch`
+  box (which gained a `className` for a host outside a column), and the type
+  filter is a "Type" chip with the media library's menu (D55), in place of the
+  browser's own `<select>` and text field. A row's menu (`TrashRowMenu`) closes
+  on an outside click or Escape and opens upward near the bottom of the page.
+  Before, the list clipped it with `overflow: hidden`, so the last row's
+  "Delete permanently" was cut off. "Delete permanently" now asks first, in a
+  plain confirm (`PurgeTrashItemDialog`) that names the item, where it was and
+  what is in it; typing a word back stays with "Empty trash". The search box
+  is scoped under `.toolbar` so it outranks `ColumnSearch`'s own margin and
+  input height in either stylesheet order, which had left it 8px off the Type
+  chip in a built admin. The page's CSS also used two tokens the design system
+  does not have (`--radius-xs`, `--danger`) and an error banner class that
+  does not exist; they are now `--r-1`, `--bad` and `banner banner-bad`.
 - **A media folder is one trash item, and the trash checks today's names
   (2026-10-15, D113).** Two gaps from `feature/trash`, where the D113 row
   promised more than the code did. First, `DELETE /api/media/folders` sent each

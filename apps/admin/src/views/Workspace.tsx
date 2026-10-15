@@ -168,7 +168,15 @@ export function Workspace({
         )}
 
         {route.view === 'trash' && (
-          <Trash api={api} url={url} apiKey={apiKey} claims={claims} />
+          <Trash
+            api={api}
+            serverId={serverId}
+            scope={scope}
+            collections={smartCollections}
+            url={url}
+            apiKey={apiKey}
+            claims={claims}
+          />
         )}
 
         {route.view === 'schema' && route.collection !== null && !activeCollection && (

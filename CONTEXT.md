@@ -129,8 +129,10 @@ trash, with `/api/trash`, a Trash page and undo toast in the admin, and
 `silo.trash` on the TypeScript, Dart and Java clients (D113; built on 1.4.0
 as D91 and renumbered here, since D91 is the Dart client), and since then a
 media folder delete is one trash receipt and the trash checks claims at
-today's names, not the ones saved at delete time; the server-wide *Copy from
-silo* tab checks its pasted source key before it reads the source tree, so a wrong key no longer
+today's names, not the ones saved at delete time, and the Trash page uses the
+admin's own page frame, Type chip and search box, with a row menu that is no
+longer cut off on the last row and a confirm before a permanent delete; the server-wide *Copy from silo* tab checks its
+pasted source key before it reads the source tree, so a wrong key no longer
 logs the admin out, an edited key is checked again on both copy pages, and a
 narrowed copy waits for its tree instead of going out as the whole source; the
 first six steps of moving selected content

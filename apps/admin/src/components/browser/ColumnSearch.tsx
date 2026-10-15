@@ -7,10 +7,12 @@ interface Props {
   value: string
   onChange: (value: string) => void
   disabled?: boolean
+  /** Placement for a host outside a column, such as a page toolbar. */
+  className?: string
 }
 
-/** A filter for the items in one scope column. */
-export function ColumnSearch({ label, value, onChange, disabled }: Props) {
+/** A filter for the items in one scope column, or one list on a page. */
+export function ColumnSearch({ label, value, onChange, disabled, className }: Props) {
   const inputRef = useRef<HTMLInputElement>(null)
 
   const clear = () => {
@@ -19,7 +21,7 @@ export function ColumnSearch({ label, value, onChange, disabled }: Props) {
   }
 
   return (
-    <div className={styles.columnSearch}>
+    <div className={className ? `${styles.columnSearch} ${className}` : styles.columnSearch}>
       <Search size={13} aria-hidden="true" />
       <input
         ref={inputRef}
