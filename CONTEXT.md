@@ -121,17 +121,14 @@ one); `docs/` is the public Mintlify site.
 - A media folder delete sends each file to the trash on its own and destroys
   the folder records; `TrashCapture.folder` exists but nothing calls it, so the
   one-receipt-per-folder the D113 row describes is not wired yet.
-- The Dart and Java clients have no trash yet (D113), so their route inventory
-  drift tests no longer match the TypeScript list. They already differed on
-  the media stats and archive routes (D106).
 - Roadmap items (sync, drafts/publish, durable webhooks, enforced relations)
   are in [milestones.md](resources/design/milestones.md) §12.
   [IDEAS.md](IDEAS.md) holds loose ideas.
 
 **Most recent changes:** `feature/trash` is merged in: deletes go to the
 trash, with `/api/trash`, a Trash page and undo toast in the admin, and
-`silo.trash` on the TypeScript client (D113; built on 1.4.0 as D91 and
-renumbered here, since D91 is the Dart client); the server-wide *Copy from
+`silo.trash` on the TypeScript, Dart and Java clients (D113; built on 1.4.0
+as D91 and renumbered here, since D91 is the Dart client); the server-wide *Copy from
 silo* tab checks its pasted source key before it reads the source tree, so a wrong key no longer
 logs the admin out, an edited key is checked again on both copy pages, and a
 narrowed copy waits for its tree instead of going out as the whole source; the

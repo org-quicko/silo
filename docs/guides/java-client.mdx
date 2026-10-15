@@ -72,8 +72,8 @@ Entry<Movie> created = movies.create(new Movie("Arrival", 2016, "draft", List.of
 movies.replace(created.id(), created.rev(),
     new Movie("Arrival", 2016, "published", List.of("sci-fi", "drama")));
 
-// Delete
-movies.delete(created.id(), created.rev());
+// Delete. Returns the trash item's id, or an empty Optional when nothing was kept.
+Optional<String> trashId = movies.delete(created.id(), created.rev());
 
 // Read — pass EntryReadOptions.raw() when you plan to edit
 Entry<Movie> entry = movies.get(entryId);
@@ -81,7 +81,7 @@ Entry<Movie> draft = movies.get(entryId, EntryReadOptions.raw());
 ```
 
 <Note>
-  A delete moves the entry or asset to the [trash](/guides/trash). This client has no trash methods. Restore from the admin's **Trash** page or with `POST /api/trash/{id}/restore`.
+  A delete moves the entry or asset to the [trash](/guides/trash). To get it back, see [Trash](#trash) below.
 </Note>
 
 ### Reading raw before editing
@@ -210,6 +210,7 @@ asset.setTags(List.of("poster"));   // replaces the list
 asset.replace(MediaReplace.of(Path.of("arrival-hd.jpg")));
 
 // Refused while an entry references it, unless forced.
+// Returns the trash item's id, or an empty Optional when nothing was kept.
 asset.delete();
 asset.delete(DeleteOptions.forced());
 
@@ -218,6 +219,30 @@ MediaUsagePage usages = asset.usages();
 usages.total();    // the true referrer count
 usages.visible();  // how many this key may see
 ```
+
+## Trash
+
+A delete moves its subject to the trash. `silo.trash()` reads the trash, restores from it, and empties it. Like media, it takes no scope.
+
+```java
+Optional<String> trashId = movies.delete(id, rev);  // the trash item's id, or empty
+trashId.ifPresent(silo.trash()::restore);           // undo
+
+TrashPage page = silo.trash().list(TrashQuery.all().kind(TrashKind.ENTRY).project("moviespace"));
+for (TrashRecord item : page.items()) {
+  System.out.println(item.subjectName() + " " + item.expiresAt() + " " + item.restorable());
+}
+
+TrashRecord item = page.items().get(0);
+silo.trash().get(item.id());
+silo.trash().contents(item.id(), TrashContentsQuery.all().limit(25), RequestOptions.none()); // the records it holds
+silo.trash().restore(item.id(), TrashRestoreOptions.none().chain(true));         // restore its container first
+silo.trash().restore(item.id(), TrashRestoreOptions.none().rename("movies-2"));  // when the name was taken
+silo.trash().purge(item.id());                                                   // needs trash:purge
+silo.trash().empty();                                                            // needs trash:purge
+```
+
+`TrashQuery` takes `kind`, `project`, `environment`, `collection`, `deletedAfter`, `deletedBefore`, `text`, `limit`, and `offset`. `list` returns a page with `next()` and `previous()`. Your key sees only the items whose content it can read. A restore needs the write claims at the destination. A blocked or colliding restore throws `ConflictException`. Where the TypeScript client returns `null`, this client returns an empty `Optional`. See [Trash](/guides/trash).
 
 ## Optional Caffeine caching
 

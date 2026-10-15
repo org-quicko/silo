@@ -224,7 +224,7 @@ const page = await silo.trash.list({ kind: "entry", project: "moviespace" })
 await silo.trash.restore(page.items[0].id, { chain: true })
 ```
 
-See [TypeScript SDK](/guides/typescript-client#trash). The Dart and Java clients have no trash methods.
+See [TypeScript SDK](/guides/typescript-client#trash). The [Dart](/guides/dart-client#trash) and [Java](/guides/java-client#trash) clients have the same methods. In Java, `delete()` returns an empty `Optional` instead of `null`.
 
 ## Exports, imports, and transfers
 

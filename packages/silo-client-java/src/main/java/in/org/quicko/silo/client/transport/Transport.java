@@ -18,6 +18,7 @@ import java.net.SocketTimeoutException;
 import java.time.Duration;
 import java.util.Map;
 import okhttp3.Call;
+import okhttp3.Headers;
 import okhttp3.MediaType;
 import okhttp3.OkHttpClient;
 import okhttp3.Request;
@@ -99,9 +100,16 @@ public final class Transport {
 
   /** For a route that answers 204: sends it, and discards the result. */
   public void empty(TransportRequest request) {
+    emptyWithHeaders(request);
+  }
+
+  /** {@link #empty}, answering the response headers: for a 204 that carries its
+   *  result in one, which is how a delete reports its trash receipt (D113). */
+  public Headers emptyWithHeaders(TransportRequest request) {
     RawResponse response = execute(request, null);
     ResponseDecoder.decode(
         response.status(), response.contentType(), response.body(), request, codec, false);
+    return response.headers();
   }
 
   /** Multipart upload. The body carries its own content type, boundary included. */
@@ -148,7 +156,8 @@ public final class Transport {
             response.code(), request.method(), request.path(), raw, codec);
       }
       cache.invalidate(request.evicts());
-      return new RawResponse(response.code(), response.header("content-type"), raw);
+      return new RawResponse(
+          response.code(), response.header("content-type"), raw, response.headers());
     } catch (IOException caught) {
       throw transportFailure(request, signal, deadline, client, caught);
     }
@@ -225,5 +234,5 @@ public final class Transport {
   }
 
   /** What a caller of execute needs, with the OkHttp response already closed. */
-  private record RawResponse(int status, String contentType, String body) { }
+  private record RawResponse(int status, String contentType, String body, Headers headers) { }
 }

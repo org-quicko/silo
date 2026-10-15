@@ -8,7 +8,8 @@
 `packages/silo-client-java`, published to Maven Central as
 `in.org.quicko.silo:client`. The same surface §14 describes, for the data half
 of the API: projects, environments, collections, schemas, entries, queries,
-variables, search and media. Java 25, OkHttp and Jackson, and nothing else.
+variables, search, media and the trash. Java 25, OkHttp and Jackson, and
+nothing else.
 
 It is flat under `packages/` because §14 said the second language client would
 be, and because the Bun workspace globs `packages/*` — a directory with no
@@ -180,7 +181,8 @@ supported surface.
 
 The same list as §14.9, for the same reasons: keys, claims, plugins, transfer,
 settings, audit, observability, session introspection, search reindex, media
-purge and media reconcile. There is no generic `request()` escape hatch, so a
+purge, media reconcile, and the media stats and archive routes the admin's
+library view uses (D106). There is no generic `request()` escape hatch, so a
 route this client does not cover is a client change, which is the point of
 `RouteInventory`.
 
@@ -332,3 +334,25 @@ holding a response it already fetched, on the other side of the wire.
 Caffeine's `Ticker` is on `CacheOptions` for the reason `OkHttpClient` is on
 `SiloOptions` — the alternative is a suite that sleeps for thirty seconds to
 prove a ttl expires.
+
+### 15.9 The trash (D113)
+
+`silo.trash()` covers the six trash routes the way §14's client does, one
+class per file under `trash/`. Two things are Java's own.
+
+**A delete answers `Optional<String>`.** The TypeScript `delete` returns the
+`X-Silo-Trash-Id` receipt or `null`; here `TrashHeader` reads it into an
+`Optional`, for the reason `Variable.value` is one: an absent receipt is an
+answer (the delete was permanent, or the trash is off), not a missing field.
+`Transport.emptyWithHeaders` is the one new transport method, because a 204
+otherwise discards everything but its status.
+
+**`TrashKind.of` throws on a kind it does not know**, where `MediaState.of`
+falls back to `ACTIVE`. There is no safe default kind: guessing would draw a
+project's receipt as an entry's, and a restore anchored on the wrong kind
+writes to the wrong place. A new kind is a client change, which is what
+`RouteInventory` already assumes of a new route.
+
+A restore evicts nothing from §15.8's cache. It can write into any scope and
+its result names receipts, not paths, so with the cache on, `cache().clear()`
+is the call after a restore. The TypeScript client behaves the same way.

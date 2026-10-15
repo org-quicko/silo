@@ -429,6 +429,20 @@ report.failed().forEach(failure ->
     System.out.printf("%s: %s (%s)%n", failure.id(), failure.message(), failure.code()));
 ```
 
+## Trash
+
+A delete moves its subject to the trash. `delete` returns the trash item's id,
+or an empty `Optional` when nothing was kept, so an undo is one call:
+
+```java
+Optional<String> trashId = posts.delete(id, rev);
+trashId.ifPresent(silo.trash()::restore);
+
+TrashPage page = silo.trash().list(TrashQuery.all().kind(TrashKind.ENTRY).project("acme"));
+silo.trash().restore(page.items().get(0).id(), TrashRestoreOptions.none().chain(true));
+silo.trash().purge(page.items().get(0).id());   // needs trash:purge
+```
+
 ## Failures
 
 `SiloException` is the base for everything silo answered and refused, with one

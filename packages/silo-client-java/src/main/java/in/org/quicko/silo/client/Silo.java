@@ -14,6 +14,7 @@ import in.org.quicko.silo.client.transport.ApiPath;
 import in.org.quicko.silo.client.transport.Transport;
 import in.org.quicko.silo.client.transport.TransportOptions;
 import in.org.quicko.silo.client.transport.TransportRequest;
+import in.org.quicko.silo.client.trash.Trash;
 
 /**
  * One silo instance. Navigate it the way the API is shaped:
@@ -34,6 +35,7 @@ public final class Silo {
   private final Transport transport;
   private final Projects projects;
   private final Media media;
+  private final Trash trash;
 
   public Silo(SiloOptions options) {
     this.options = options;
@@ -47,6 +49,7 @@ public final class Silo {
         options.cache()));
     this.projects = new Projects(transport);
     this.media = new Media(transport);
+    this.trash = new Trash(transport);
   }
 
   /** An anonymous client against one instance. */
@@ -66,6 +69,11 @@ public final class Silo {
   /** The media catalog. Media is instance-global, so it takes no scope. */
   public Media media() {
     return media;
+  }
+
+  /** What a delete left behind (D113). Instance-global, like the media catalog. */
+  public Trash trash() {
+    return trash;
   }
 
   /**

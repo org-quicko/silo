@@ -62,7 +62,7 @@ public final class StubHttp implements Interceptor {
   }
 
   public StubHttp enqueue(int status, String contentType, String body) {
-    responses.add(new Canned(status, contentType, body, null));
+    responses.add(new Canned(status, contentType, body, Map.of(), null));
     return this;
   }
 
@@ -74,10 +74,17 @@ public final class StubHttp implements Interceptor {
     return enqueue(204, null, null);
   }
 
+  /** A 204 that carries its result in headers, the way a delete reports its
+   *  trash receipt. */
+  public StubHttp enqueueNoContent(Map<String, String> headers) {
+    responses.add(new Canned(204, null, null, Map.copyOf(headers), null));
+    return this;
+  }
+
   /** The call fails the way the runtime would fail it, so the mapping from an
    *  {@link IOException} to the client's own three failures can be exercised. */
   public StubHttp enqueueFailure(IOException failure) {
-    responses.add(new Canned(0, null, null, failure));
+    responses.add(new Canned(0, null, null, Map.of(), failure));
     return this;
   }
 
@@ -103,7 +110,7 @@ public final class StubHttp implements Interceptor {
 
     Canned canned = responses.isEmpty()
         ? new Canned(500, "application/json",
-            "{\"error\":{\"code\":\"internal\",\"message\":\"no response was queued\"}}", null)
+            "{\"error\":{\"code\":\"internal\",\"message\":\"no response was queued\"}}", Map.of(), null)
         : responses.remove();
 
     if (canned.failure() != null) throw canned.failure();
@@ -120,6 +127,7 @@ public final class StubHttp implements Interceptor {
         .message("stubbed")
         .body(body);
     if (contentType != null) response.header("Content-Type", contentType);
+    canned.headers().forEach(response::header);
     return response.build();
   }
 
@@ -150,5 +158,6 @@ public final class StubHttp implements Interceptor {
     }
   }
 
-  private record Canned(int status, String contentType, String body, IOException failure) {}
+  private record Canned(
+      int status, String contentType, String body, Map<String, String> headers, IOException failure) {}
 }

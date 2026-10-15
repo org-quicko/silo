@@ -71,6 +71,19 @@ final logo = await silo.media.upload(MediaUpload(bytes: bytes, filename: 'logo.p
 fields['hero'] = logo.reference; // silo://media/<id>. Do not store logo.url.
 ```
 
+## Trash
+
+A delete moves its subject to the trash and returns the trash item's id, or `null` when nothing was kept.
+
+```dart
+final trashId = await posts.delete(id, rev);
+if (trashId != null) await silo.trash.restore(trashId);
+
+final page = await silo.trash.list(const TrashQuery(kind: TrashKind.entry, project: 'acme'));
+await silo.trash.restore(page.items.first.id, const TrashRestoreOptions(chain: true));
+await silo.trash.purge(page.items.first.id); // needs trash:purge
+```
+
 ## Failures
 
 ```dart

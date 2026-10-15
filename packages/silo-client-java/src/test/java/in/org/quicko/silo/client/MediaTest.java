@@ -19,6 +19,8 @@ import in.org.quicko.silo.client.support.StubHttp;
 import java.nio.charset.StandardCharsets;
 import java.time.Instant;
 import java.util.List;
+import java.util.Map;
+import java.util.Optional;
 import java.util.OptionalInt;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -131,6 +133,16 @@ class MediaTest {
     assertEquals(OptionalInt.of(1), usages.pageCount(), "the count derives from what is visible");
     assertFalse(usages.hasMore());
     assertEquals("prod", usages.usages().get(0).environment());
+  }
+
+  @Test
+  void answersTheTrashReceiptItsDeleteLeft() {
+    server.enqueueJson(Asset);
+    MediaAsset asset = silo().media().get("m1");
+
+    server.enqueueNoContent(Map.of("X-Silo-Trash-Id", "t1"));
+    assertEquals(Optional.of("t1"), asset.delete());
+    assertEquals("DELETE", server.lastRequest().method());
   }
 
   @Test

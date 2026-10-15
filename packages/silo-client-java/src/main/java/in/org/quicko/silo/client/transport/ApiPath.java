@@ -89,6 +89,26 @@ public final class ApiPath {
     return "/api/search";
   }
 
+  public static String trash() {
+    return "/api/trash";
+  }
+
+  public static String trashItem(String id) {
+    return "/api/trash/" + segment(id);
+  }
+
+  public static String trashItemContents(String id) {
+    return trashItem(id) + "/items";
+  }
+
+  public static String trashRestore(String id) {
+    return trashItem(id) + "/restore";
+  }
+
+  public static String trashPurge() {
+    return "/api/trash/purge";
+  }
+
   public static String media() {
     return "/api/media";
   }

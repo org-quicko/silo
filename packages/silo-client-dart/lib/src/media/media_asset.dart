@@ -1,5 +1,6 @@
 import '../request_options.dart';
 import '../scope/delete_options.dart';
+import '../trash_header.dart';
 import '../transport/api_path.dart';
 import '../transport/transport.dart';
 import '../transport/transport_request.dart';
@@ -62,9 +63,12 @@ final class MediaAsset {
     return this;
   }
 
-  /// Refused while an entry references it, unless forced.
-  Future<void> delete([DeleteOptions options = const DeleteOptions()]) => _transport.empty(
-    TransportRequest('DELETE', ApiPath.mediaAsset(id), query: {if (options.force) 'force': true}, options: options),
+  /// Refused while an entry references it, unless forced. Answers the trash
+  /// receipt's id, or null when nothing was kept (D113).
+  Future<String?> delete([DeleteOptions options = const DeleteOptions()]) async => TrashHeader.read(
+    await _transport.emptyWithHeaders(
+      TransportRequest('DELETE', ApiPath.mediaAsset(id), query: {if (options.force) 'force': true}, options: options),
+    ),
   );
 
   Future<MediaUsagePage> usages([

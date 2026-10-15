@@ -3,6 +3,7 @@ package in.org.quicko.silo.client.collections;
 import com.fasterxml.jackson.databind.JavaType;
 import com.fasterxml.jackson.databind.JsonNode;
 import in.org.quicko.silo.client.RequestOptions;
+import in.org.quicko.silo.client.TrashHeader;
 import in.org.quicko.silo.client.entries.Entry;
 import in.org.quicko.silo.client.entries.EntryListQuery;
 import in.org.quicko.silo.client.entries.EntryMapper;
@@ -21,6 +22,7 @@ import in.org.quicko.silo.client.search.SearchReach;
 import in.org.quicko.silo.client.transport.ApiPath;
 import in.org.quicko.silo.client.transport.TransportRequest;
 import java.util.Map;
+import java.util.Optional;
 
 /**
  * One collection, typed to its fields: {@code environment.collection("posts",
@@ -127,17 +129,19 @@ public final class CollectionHandle<F> {
     return write("PUT", ApiPath.entry(scope.project(), scope.environment(), name, id), fields, rev, options);
   }
 
-  public void delete(String id, long rev) {
-    delete(id, rev, RequestOptions.none());
+  public Optional<String> delete(String id, long rev) {
+    return delete(id, rev, RequestOptions.none());
   }
 
-  public void delete(String id, long rev, RequestOptions options) {
-    scope.transport().empty(
+  /** Answers the trash receipt's id, or empty when the delete was permanent or
+   *  the instance keeps no trash (D113). */
+  public Optional<String> delete(String id, long rev, RequestOptions options) {
+    return TrashHeader.read(scope.transport().emptyWithHeaders(
         TransportRequest.delete(ApiPath.entry(scope.project(), scope.environment(), name, id))
             .query("rev", rev)
             .options(options)
             .evicts(entries())
-            .build());
+            .build()));
   }
 
   public SearchPage search(SearchQuery query) {

@@ -51,6 +51,12 @@ public final class RouteInventory {
       "GET /api/projects/:project/envs/:env/collections/:name/search",
       "GET /api/projects/:project/envs/:env/search",
       "GET /api/search",
+      "GET /api/trash",
+      "GET /api/trash/:id",
+      "GET /api/trash/:id/items",
+      "POST /api/trash/:id/restore",
+      "DELETE /api/trash/:id",
+      "POST /api/trash/purge",
       "GET /api/media",
       "POST /api/media",
       "GET /api/media/extensions",
@@ -104,6 +110,9 @@ public final class RouteInventory {
     reasons.put("PUT /api/media/storage", "media configuration is an operator surface");
     reasons.put("GET /api/media/settings", "media configuration is an operator surface");
     reasons.put("PUT /api/media/settings", "media configuration is an operator surface");
+    reasons.put("GET /api/media/stats", "library totals for the admin's stats view");
+    reasons.put("POST /api/media/archives", "a browser download the admin prepares; content is read per asset");
+    reasons.put("GET /api/media/archives/:ticket/:part", "a browser URL, not a call: the prepared part's url");
     reasons.put("GET /api/plugins", "plugins are an operator surface");
     reasons.put("GET /api/plugins/:name", "plugins are an operator surface");
     reasons.put("GET /api/plugins/:name/ui", "a plugin's admin panel, rendered by the admin UI");

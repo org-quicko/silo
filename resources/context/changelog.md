@@ -4,6 +4,21 @@
 > The *current* state is [CONTEXT.md](../../CONTEXT.md); this is how it got
 > there.
 
+- **The Dart and Java clients have the trash (2026-10-15, D113).** `silo.trash`
+  in Dart and `silo.trash()` in Java cover the six `/api/trash` routes: a paged
+  list filtered by kind, project, environment, collection, delete time and
+  name, then get, contents, restore (with `rename` and `chain`), purge and
+  empty, one class per file under `trash/`. An entry or asset delete now
+  answers its `X-Silo-Trash-Id` receipt, `String?` in Dart and
+  `Optional<String>` in Java, through a new `emptyWithHeaders` on each
+  transport (java-client.md §15.9 says why `Optional`). Both route inventories
+  add the trash routes as covered and `GET /api/media/stats`,
+  `POST /api/media/archives` and `GET /api/media/archives/:ticket/:part` as out
+  of scope (D106), so both drift tests pass again. `TrashKind.of` throws on a
+  kind it does not know. The test stubs can answer a 204 with headers, and the
+  Dart `asset()` fixture moved to `test/support/stub_http.dart`. The Java
+  `delete` methods no longer return `void`, which callers' source survives but
+  compiled callers do not; neither package's version moved.
 - **`feature/trash` merged in (2026-10-15, D113).** The trash below was built
   on 1.4.0 as D91. D91 is the Dart client here, so the trash is D113, and every
   `(D91)` it wrote in code and docs now says D113. Both sides are kept:

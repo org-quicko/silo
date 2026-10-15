@@ -10,6 +10,7 @@ import 'search/search_page.dart';
 import 'search/search_query.dart';
 import 'search/search_reach.dart';
 import 'silo_options.dart';
+import 'trash/trash.dart';
 import 'transport/api_path.dart';
 import 'transport/transport.dart';
 import 'transport/transport_request.dart';
@@ -25,7 +26,8 @@ final class Silo {
   Silo._(this._options, Transport transport)
     : _transport = transport,
       projects = Projects(transport),
-      media = Media(transport);
+      media = Media(transport),
+      trash = Trash(transport);
 
   final SiloOptions _options;
   final Transport _transport;
@@ -33,6 +35,9 @@ final class Silo {
 
   /// Instance-global, so it takes no scope.
   final Media media;
+
+  /// What a delete left behind (D113). Instance-global, like [media].
+  final Trash trash;
 
   ResponseCache get cache => _transport.cache;
 
