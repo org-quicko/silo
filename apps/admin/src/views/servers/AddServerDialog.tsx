@@ -12,6 +12,8 @@ interface Props {
   /** Shown from the first paint, for an edit opened because the server failed. */
   initialError?: string
   onSave: (server: Server) => void
+  /** Removes the edited server from this browser. Offered only when editing. */
+  onForget?: () => void
   onClose: () => void
 }
 
@@ -19,9 +21,12 @@ interface Props {
  * Connection details for a running silo, verified before they are remembered.
  *
  * Given a `server`, the same form edits it: the picker opens it this way when
- * the saved key is refused, so the key can be replaced where it failed.
+ * the saved key is refused, so the key can be replaced where it failed, or the
+ * server forgotten without fixing it first. Forgetting asks once, in the
+ * actions row, as Settings' Forget server does: it destroys nothing on the
+ * instance, but the saved key goes with it.
  */
-export function AddServerDialog({ server, initialError = '', onSave, onClose }: Props) {
+export function AddServerDialog({ server, initialError = '', onSave, onForget, onClose }: Props) {
   const editing = server !== undefined
   const [name, setName] = useState(server?.name ?? '')
   const [url, setUrl] = useState(server?.url ?? '')
@@ -29,6 +34,7 @@ export function AddServerDialog({ server, initialError = '', onSave, onClose }: 
   const [showKey, setShowKey] = useState(false)
   const [error, setError] = useState(initialError)
   const [connecting, setConnecting] = useState(false)
+  const [confirmingForget, setConfirmingForget] = useState(false)
   const keyInput = useRef<HTMLInputElement>(null)
 
   // An edit is almost always a new key, so the old one is selected and the
@@ -158,14 +164,37 @@ export function AddServerDialog({ server, initialError = '', onSave, onClose }: 
             </div>
           )}
 
-          <div className={styles.modalActions}>
-            <Button type="button" variant="secondary" onClick={onClose} disabled={connecting}>
-              Cancel
-            </Button>
-            <Button type="submit" variant="primary" disabled={connecting}>
-              {connecting ? 'Connecting...' : editing ? 'Save' : 'Add Server'}
-            </Button>
-          </div>
+          {confirmingForget ? (
+            <div className={styles.modalActions}>
+              <span className={styles.modalConfirm}>Remove from this browser only?</span>
+              <Button type="button" variant="secondary" onClick={() => setConfirmingForget(false)}>
+                Keep
+              </Button>
+              <Button type="button" variant="danger" onClick={onForget}>
+                Forget server
+              </Button>
+            </div>
+          ) : (
+            <div className={styles.modalActions}>
+              {editing && onForget && (
+                <Button
+                  type="button"
+                  variant="dangerGhost"
+                  className={styles.modalActionsLead}
+                  onClick={() => setConfirmingForget(true)}
+                  disabled={connecting}
+                >
+                  Forget server
+                </Button>
+              )}
+              <Button type="button" variant="secondary" onClick={onClose} disabled={connecting}>
+                Cancel
+              </Button>
+              <Button type="submit" variant="primary" disabled={connecting}>
+                {connecting ? 'Connecting...' : editing ? 'Save' : 'Add Server'}
+              </Button>
+            </div>
+          )}
         </form>
       </div>
     </div>

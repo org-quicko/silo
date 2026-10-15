@@ -4,6 +4,19 @@
 > The *current* state is [CONTEXT.md](../../CONTEXT.md); this is how it got
 > there.
 
+- **The refused-key dialog can forget the server (2026-10-15).** The edit
+  dialog a refused key opens had only Cancel and Save, so a server that was
+  gone for good could only be fixed or left in the list: its settings gear
+  sends the same refused key and ends at the gate. `AddServerDialog` now
+  takes `onForget` and, when editing, shows Forget server at the left of its
+  actions. One click turns the row into "Remove from this browser only?"
+  with Keep and Forget server, the same single confirm Settings' Connection
+  page asks. `App.forgetServer` is the one removal both paths call (the
+  server list, the remembered active id, `ScopeMemory`), and `Workspace`
+  passes it to the picker it opens. Checked in the browser against a running
+  server with a made-up key: the button shows, Keep backs out, Forget removes
+  only that server, and the Add dialog has no button. Admin only, no route
+  change.
 - **A chain restore checks every item it brings back (2026-10-15, D113).**
   `POST /api/trash/{id}/restore` with `{"chain": true}` replays the trashed
   containers that block the item first, but the claim check ran only on the

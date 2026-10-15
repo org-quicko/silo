@@ -38,6 +38,7 @@ interface Props {
   onApiKeyChange: (apiKey: string) => void
   onAddServer: (server: Server) => void
   onUpdateServer: (server: Server) => void
+  onForgetServer: (serverId: string) => void
 }
 
 /** The connected two-pane shell. Mounted per server (keyed on id by App). */
@@ -49,6 +50,7 @@ export function Workspace({
   onApiKeyChange: _onApiKeyChange,
   onAddServer,
   onUpdateServer,
+  onForgetServer,
 }: Props) {
   const { id: serverId, url, apiKey } = server
   const scope: ScopeRef = 'project' in route
@@ -320,6 +322,7 @@ export function Workspace({
           }}
           onAddServer={onAddServer}
           onUpdateServer={onUpdateServer}
+          onForgetServer={onForgetServer}
           onOpenStatus={(id) => {
             setShowServerBrowser(false)
             router.navigate(Routes.serverSettings(id, 'connection'))

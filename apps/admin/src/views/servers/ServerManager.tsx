@@ -18,6 +18,8 @@ interface Props {
   onAddServer: (server: Server) => void
   /** A saved server's details changed, replacing the entry with its id. */
   onUpdateServer: (server: Server) => void
+  /** A saved server was removed from this browser. */
+  onForgetServer: (serverId: string) => void
   onOpenStatus: (serverId: string) => void
   /** The per-row settings affordance, one per column. Three callbacks rather
    *  than one, because each scope is addressed by a different number of names
@@ -38,14 +40,15 @@ interface Props {
  *
  * Three columns walked left to right, with the loading and creation of each
  * held by `useScopeBrowser` so this file stays layout. A server that refuses
- * its saved key opens in the server dialog, so the key is fixed where it
- * failed.
+ * its saved key opens in the server dialog, so the key is fixed, or the server
+ * forgotten, where it failed.
  */
 export function ServerManager({
   servers,
   onConnect,
   onAddServer,
   onUpdateServer,
+  onForgetServer,
   onOpenStatus,
   onOpenProjectSettings,
   onOpenEnvSettings,
@@ -60,7 +63,8 @@ export function ServerManager({
     env: initialEnv ?? null,
   })
   const [addingServer, setAddingServer] = useState(false)
-  const dialogOpen = addingServer || browser.refusedServer !== null
+  const refused = browser.refusedServer
+  const dialogOpen = addingServer || refused !== null
 
   useEffect(() => {
     if (!onClose) return
@@ -199,14 +203,18 @@ export function ServerManager({
         />
       )}
 
-      {browser.refusedServer && (
+      {refused && (
         <AddServerDialog
-          key={browser.refusedServer.id}
-          server={browser.refusedServer}
+          key={refused.id}
+          server={refused}
           initialError="This server refused the saved API key. Enter a new one."
           onSave={(server) => {
             onUpdateServer(server)
             browser.recheckServer()
+          }}
+          onForget={() => {
+            onForgetServer(refused.id)
+            browser.dismissRefusedServer()
           }}
           onClose={browser.dismissRefusedServer}
         />

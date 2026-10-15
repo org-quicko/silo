@@ -150,7 +150,8 @@ against the schemas it leaves in place (D110), and Apply, which writes that
 plan as one commit or nothing, with media rules and crash recovery (D111), and
 the env Data Transfer page's other-server source that drives all of it (D112); a server
 whose saved key is refused opens in an edit dialog from the server picker,
-instead of a banner that needed `localStorage` cleared; the internal docs moved
+instead of a banner that needed `localStorage` cleared, and that dialog can
+also forget the server without fixing it; the internal docs moved
 from `docs/` to `resources/`, and every link to them now points there. Read the
 top of the [changelog](resources/context/changelog.md) for more.
 

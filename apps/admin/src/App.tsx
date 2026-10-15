@@ -86,12 +86,20 @@ export default function App() {
     if (server) updateServer({ ...server, ...patch })
   }
 
+  /** Drops a saved connection from this browser; nothing on the instance changes. */
+  const forgetServer = (id: string) => {
+    saveServers(servers.filter((item) => item.id !== id))
+    if (localStorage.getItem(ACTIVE_KEY) === id) localStorage.removeItem(ACTIVE_KEY)
+    ScopeMemory.forget(id)
+  }
+
   const content = !route || route.view === 'servers' || !server ? (
     <ServerManager
       servers={servers}
       onConnect={(id, project, env) => router.navigate(Routes.collections(id, project, env))}
       onAddServer={(s) => saveServers([...servers, s])}
       onUpdateServer={updateServer}
+      onForgetServer={forgetServer}
       onOpenStatus={(id) => router.navigate(Routes.serverSettings(id, 'connection'))}
       onOpenProjectSettings={(id, project) =>
         router.navigate(Routes.projectSettings(id, project, 'general'))
@@ -107,9 +115,7 @@ export default function App() {
       route={route}
       onUpdateServer={patchServer}
       onDeleteServer={() => {
-        saveServers(servers.filter((s) => s.id !== server.id))
-        if (localStorage.getItem(ACTIVE_KEY) === server.id) localStorage.removeItem(ACTIVE_KEY)
-        ScopeMemory.forget(server.id)
+        forgetServer(server.id)
         router.navigate(Routes.servers())
       }}
       onBack={() => router.navigate(Routes.servers())}
@@ -124,6 +130,7 @@ export default function App() {
       onApiKeyChange={(apiKey) => patchServer({ apiKey })}
       onAddServer={(s) => saveServers([...servers, s])}
       onUpdateServer={updateServer}
+      onForgetServer={forgetServer}
     />
   )
 
