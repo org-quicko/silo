@@ -81,6 +81,10 @@ silo import backup.tar.gz --dry-run           # report changes, write nothing
 </Note>
 
 <Note>
+  **A `replace` does not use the trash.** What it removes is gone, and you cannot restore it from the [trash](/guides/trash). No archive carries the trash either.
+</Note>
+
+<Note>
   **An import is not atomic.** A failure partway leaves earlier writes in place. Treat a failed import as unknown state. A `replace` that stops partway never leaves a collection empty — it writes first and removes after — so the worst case is extra entries. Run the import again to remove them.
 </Note>
 
@@ -335,7 +339,7 @@ An archive can carry Silo's own records under `_system`. A selection cannot name
 | `_media`, `_media_folders`, `_media_folder_moves` | `media:create` (even with `media=none`); `media:delete` too when `replace` would empty them |
 | `_variables` for a project | `create` and `entries:update` on `<project>/*/*` |
 | `_audit`, `_plugins`, `_transfers` | Only by `silo import` on the host, from an archive made with `silo export --instance`. Over HTTP the request is a `403` |
-| `_scope_renames`, any other `_` name | Never imported. The request is a `400` |
+| `_scope_renames`, `_trash`, `_trash_items`, any other `_` name | Never imported. The request is a `400` |
 
 A missing claim is a `403` that names the records and the claim. The check reads rows, not empty collections, so exporting an empty library loads with content permissions alone. The `silo import` CLI on the host is trusted and loads all of it.
 

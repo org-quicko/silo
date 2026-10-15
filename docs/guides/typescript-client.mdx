@@ -72,8 +72,9 @@ With a type parameter, filter field names are checked at compile time and return
     ```
   </Step>
   <Step title="Delete an entry">
+    The entry goes to the [trash](/guides/trash). `delete` returns the trash item's id, or `null` when nothing was kept.
     ```ts
-    await movies.delete(id, rev)
+    const trashId = await movies.delete(id, rev)
     ```
   </Step>
   <Step title="Read a single entry">
@@ -215,7 +216,7 @@ await poster.rename("arrival-2016.jpg")
 await poster.moveTo("posters/2016")
 await poster.setTags(["poster"])        // replaces the whole list
 await poster.replace(file)              // new bytes, same id and URL
-await poster.delete()                   // refused while an entry refers to it
+await poster.delete()                   // refused while an entry refers to it; returns the trash item's id
 await poster.delete({ force: true })
 
 const usage = await poster.usages()
@@ -238,6 +239,30 @@ const report = await silo.media.deleteMany(ids, { force: true })
 report.deleted
 report.failed
 ```
+
+## Trash
+
+A delete moves its subject to the trash. `silo.trash` reads it, restores from it, and empties it. Like media, it takes no scope.
+
+```ts
+const trashId = await movies.delete(id, rev)   // the trash item's id, or null
+if (trashId) await silo.trash.restore(trashId)  // undo
+
+const page = await silo.trash.list({ kind: "entry", project: "moviespace" })
+for (const item of page.items) {
+  console.log(item.subject_name, item.expires_at, item.restorable)
+}
+
+const item = page.items[0]
+await silo.trash.get(item.id)
+await silo.trash.contents(item.id, { limit: 25 })            // the records it holds
+await silo.trash.restore(item.id, { chain: true })           // restore its container first
+await silo.trash.restore(item.id, { rename: "movies-2" })    // when the name was taken
+await silo.trash.purge(item.id)                              // needs trash:purge
+await silo.trash.empty()                                     // needs trash:purge
+```
+
+`list` takes `kind`, `project`, `env`, `collection`, `deletedAfter`, `deletedBefore`, `q`, `limit`, and `offset`. It returns a page with `next()` and `previous()`. Your key sees only the items whose content it can read. A restore needs the write claims at the destination, and a blocked or colliding restore raises `ConflictError`. See [Trash](/guides/trash).
 
 ## Variables
 

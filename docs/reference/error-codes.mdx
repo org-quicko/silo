@@ -23,9 +23,9 @@ Every error Silo returns — whether a bad request, a missing resource, or an un
 | `400` | `validation_failed` | Request body failed JSON Schema validation. The `details` array carries JSON Pointer paths pointing to each invalid field |
 | `401` | `unauthorized` | No key was presented, or the key was not found |
 | `403` | `forbidden` | A key was present but lacks the required claim for this operation |
-| `404` | `not_found` | The requested resource does not exist |
+| `404` | `not_found` | The requested resource does not exist, or it is a trash item the key may not see |
 | `405` | `method_not_allowed` | Only returned by `GET` or `DELETE` on `/api/mcp`, which only accepts `POST` |
-| `409` | `conflict` | Revision mismatch on `PUT`/`DELETE`, or a schema change attempted while entries exist |
+| `409` | `conflict` | Revision mismatch on `PUT`/`DELETE`, a schema change attempted while entries exist, or a trash restore that is blocked |
 | `413` | `payload_too_large` | Request body exceeds `[http] max_json_body_size_mb` (default 4 MB) |
 | `413` | `archive_too_large` | Import archive exceeds `[transfer] max_archive_size_mb` or would unpack beyond `[transfer] max_extracted_size_mb` |
 | `500` | `internal` | Unexpected server error |
@@ -103,6 +103,15 @@ try {
   }
 }
 ```
+
+## Trash restore (409 conflict)
+
+`POST /api/trash/{id}/restore` returns `409 conflict` in two cases. The `message` says which.
+
+- **The container is gone.** The collection, environment, or project the content came from no longer exists. The trash item names it in `blocked_by`. If the container is in the trash too, send `{"chain": true}` to restore it first.
+- **The name or the id is taken.** Something new was created under the same name or id. Send `{"rename": "<new name>"}` to restore a project, an environment, or a collection under a different name.
+
+See [Trash](/guides/trash#restore).
 
 ## 503 busy — entry queue full
 

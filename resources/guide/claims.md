@@ -36,6 +36,7 @@ keys:read         keys:create       keys:revoke
 keys:export       keys:import
 plugins:read      plugins:grant     plugins:enable     plugins:configure
 audit:read        http:route        settings:configure  observability:read
+trash:purge
 transfer:export   transfer:import   transfer:copy
 ```
 
@@ -65,6 +66,22 @@ library, which is a different job from managing the files you uploaded. Only
 the `root` preset carries it, and the route asks for both claims together, so a
 key holding `media:purge` alone still purges nothing. The admin hides **Purge
 library** from a key that does not hold both.
+
+**`trash:purge` is the only claim the trash adds.** A delete moves its subject
+to the trash, and that delete asks for exactly what it always asked for, so no
+key changed meaning when the trash arrived. Reading the trash asks for nothing
+either: the server shows you an item only if you can read the content it came
+from, so a key with `entries:read` on one collection sees deletions from that
+collection and no others. Restoring asks for the **write** claims where the
+content lands, because putting an entry back into `prod` is writing to `prod`.
+
+What does need a claim is destroying something for good. `trash:purge` covers
+deleting one item from the trash, emptying the trash, and `?permanent=true` on
+any delete route. Only the `root` preset carries it. The reason is the one
+behind `media:purge`: whoever deleted the content already used their delete
+claim, and ending it forever is a second decision, usually by someone else and
+later. The admin hides **Delete permanently** and **Empty trash** from a key
+that does not hold it.
 
 **`media:replace` is not part of `media:create`.** `media:create` uploads a
 new file. `media:replace` changes the file behind an asset that is already in

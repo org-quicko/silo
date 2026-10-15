@@ -4,6 +4,108 @@
 > The *current* state is [CONTEXT.md](../../CONTEXT.md); this is how it got
 > there.
 
+- **`feature/trash` merged in (2026-10-15, D113).** The trash below was built
+  on 1.4.0 as D91. D91 is the Dart client here, so the trash is D113, and every
+  `(D91)` it wrote in code and docs now says D113. Both sides are kept:
+  `_transfers` and the two trash collections make eleven system collections,
+  which all three adapters seed (Postgres too) with no DDL change. `serve`
+  resumes pending trash work, then settles interrupted transfer applies.
+  `/api/*` CORS exposes `X-Silo-Trash-Id`, and `/media/*` keeps its read-only
+  CORS (D101). The sidebar gains Trash under Media and keeps the theme toggle
+  beside Settings. Imports, transfer applies (D111) and `silo export --instance`
+  (D97) neither capture nor carry the trash; the D113 row says why. The full
+  decision row moved to `resources/design/decisions.md`, with a one-line index
+  entry in `IMPLEMENTATION.md`. `test/core/trash.test.ts` now runs on Postgres
+  as well as SQLite when `SILO_TEST_PG_URL` is set. Only the TypeScript client
+  has `silo.trash`; the Dart and Java clients do not yet, so their route
+  inventory drift tests no longer match the TypeScript list.
+- **A delete goes to the trash, and one new claim takes it out for good
+  (2026-09-22, D113; D91 when it was built).** Deleting a project, an
+  environment, a collection, an entry, a media asset or a media folder no
+  longer destroys it. The content leaves the live tables and is parked in two
+  new system collections in `Scope.System` — `_trash`, one small receipt per
+  **explicitly** deleted thing, and `_trash_items`, the records themselves, read
+  only on a restore. That is
+  D12's trick for `_keys` and D23's for `_media` again, which is what gives the
+  trash every storage adapter, the conformance suite and the query layer for
+  free; it also means adding it is two entries in `SystemCollections.All`, so
+  **no DDL changed and `FormatVersion` did not move**. An instance upgraded in
+  place keeps working and starts with an empty trash.
+  - **One receipt per thing you deleted on purpose.** A collection deleted with
+    300 entries under it produces one item saying "300 entries", not 301, and
+    restoring it brings all 300 back. This is the rule the FreeDesktop trash
+    specification states for directories and the one Google Drive encodes as
+    `explicitlyTrashed` beside `trashed`. The list is therefore flat and
+    newest-first, with the project/environment/collection hierarchy as a
+    *filter* over it rather than a tree drawn through it — a trash tree is
+    mostly empty nodes, and an entry whose collection was deleted afterwards has
+    no node to hang under at all. The hierarchy reappears inside a receipt,
+    through `GET /api/trash/{id}/items`, which is the one place it is never
+    empty.
+  - **Capture is copy-only and runs before the erase it belongs to.**
+    `TrashCapture` reads what is about to go and writes it into `_trash_items`;
+    every existing delete path then runs exactly as it did, with its own
+    ordering, counts and hooks, so none of the four had to be rewritten. A
+    collection's entries are read twice, which is the price. Media is the one
+    exception, handled by `MediaTrashService`: the D23 saga exists to make the
+    blob and the catalog record agree, and the trash needs the opposite — the
+    record goes, the bytes stay, and only a purge takes them.
+  - **A receipt anchors on ids and draws with names.** `origin` carries both,
+    and `TrashLocator` turns each id back into the name the `Storage` port
+    addresses by at the moment of the restore, so a project renamed between the
+    delete and the restore does not misfile the content. A missing container
+    **blocks** the restore and says which one is in the way rather than orphaning
+    the content the way Drive does; `{"chain": true}` restores the ancestors
+    first when they are in the trash too. A name or id taken in the meantime is
+    refused with a 409 and an offer to restore under another name, because
+    parking frees a name at once and restoring one thing by destroying another
+    is not a restore.
+  - **Six routes, and reading them needs no claim.** `GET /api/trash`,
+    `/{id}`, `/{id}/items`, `POST /{id}/restore`, `DELETE /{id}` and
+    `POST /api/trash/purge`. A global `trash:read` is the opposite of D58's
+    retired `media:read` — the catalog was an index of an open shelf, the trash
+    is content removed from view — so `TrashVisibility` gates each receipt on the
+    read claim its origin already required instead. The trash is therefore **per
+    key**: `total` counts only what the caller may see, and `GET /api/trash/{id}`
+    answers 404 rather than 403 for the rest, because "forbidden" would confirm
+    that something was deleted there.
+  - **Restoring asks for the write claims at the destination**
+    (`TrashRestoreAuthority`), not a claim of its own: restoring an entry into
+    `prod` is writing to `prod`. A `trash:restore` claim would let a key place
+    content into a scope it cannot otherwise write to, which is the escalation
+    D37 measured for `keys:import`. Sending something to the trash asks for
+    nothing new either, so no existing key changed meaning on upgrade.
+  - **`trash:purge` is the only claim added**, on `media:purge`'s argument
+    (D65): whoever deleted the content already spent their delete claim, and
+    ending it forever is a second decision. It gates `DELETE /api/trash/{id}`,
+    the `{"confirm": "empty"}` purge, and `?permanent=true` on any delete route.
+    No preset but `root` carries it. It is deliberately *not* in
+    `PluginForbiddenClaims`, which is for claims that let a plugin escape its own
+    grant.
+  - **`[trash] enabled` and `retention_days = 30`**, swept hourly beside the
+    run-file heartbeat. The expiry is stamped per receipt at delete time rather
+    than compared against the live setting, so shortening the window never
+    retroactively destroys content somebody was counting on. `enabled = false`
+    restores silo's pre-D113 behaviour exactly, which is what a CI instance wants.
+    `GET /api/session` now answers `{enabled, retention_days}`, because every
+    delete dialog has to say whether the delete can be undone.
+  - **`DELETE` on an entry or an asset answers `X-Silo-Trash-Id`**, exposed
+    through CORS — a header rather than a body, so the 204 contract does not move
+    and an older client sees what it always saw. The admin hangs its undo toast
+    off it, which is where most of the value is collected: mistakes are usually
+    noticed within seconds, and `ToastManager` already keeps a toast with an
+    action on screen until it is acted on, so it needed no new infrastructure.
+  - **The admin has a Trash page** at `/servers/:sid/trash`, beside Media in the
+    sidebar for the same reason: both are instance-global. One row per receipt
+    with its type, origin breadcrumb, contents, who deleted it, when, and when it
+    expires; a blocked row says what is in the way and offers "Restore both".
+    Every delete dialog now says whether the delete can be undone, and "Empty
+    trash" takes the typed confirmation `DangerConfirm` already provides.
+  - **The client SDK gained `silo.trash`** — `list`, `get`, `contents`,
+    `restore`, `purge`, `empty` — and `CollectionHandle.delete` and
+    `MediaAsset.delete` now answer the receipt's id or null. `_trash` rides no
+    export, and an import **never** accepts it: a crafted `_trash_items`
+    document is a way to plant content a later restore writes into any scope.
 - **Docs and the release note for copying between instances (2026-10-14).**
   The seventh step, for 1.6.0. `resources/guide/transfer.md` gains *Copying an
   environment from another instance*: the three steps, the two keys, the admin

@@ -8,7 +8,9 @@ import type { MediaQuery } from "../../media/media-query";
 import type { MediaReconcileResult } from "../../media/media-reconcile-result";
 import type { MediaRekeyResult } from "../../media/media-rekey-result";
 import type { MediaUsage } from "../../media/media-usage";
+import type { DeleteOptions } from "../../trash/delete-options";
 import type { ServiceContext } from "../support/service-context";
+import type { TrashService } from "../trash/trash-service";
 import type { MediaAssetPatchInput } from "./media-asset-patch";
 import type { MediaArchivePart } from "../../media/media-archive-plan";
 import type { MediaStats } from "../../media/media-stats";
@@ -33,6 +35,7 @@ import { MediaPurgeService } from "./media-purge-service";
 import { MediaReconciler } from "./media-reconciler";
 import { MediaRekeyer } from "./media-rekeyer";
 import { MediaReferenceGuard } from "./media-reference-guard";
+import { MediaTrashService } from "./media-trash-service";
 import { MediaUsageCounter } from "./media-usage-counter";
 
 /**
@@ -55,11 +58,12 @@ export class MediaService {
   private readonly purgeService: MediaPurgeService;
   private readonly archives: MediaArchiveService;
   private readonly statsCounter: MediaStatsCounter;
+  private readonly trashService: MediaTrashService;
 
   /** The entry write path checks new references through this (§8.1). */
   readonly referenceGuard: MediaReferenceGuard;
 
-  constructor(context: ServiceContext) {
+  constructor(context: ServiceContext, trash: TrashService) {
     const catalog = new MediaCatalogStore(context);
 
     this.assets = new MediaAssetService(context, catalog, new MediaUsageCounter(context));
@@ -75,6 +79,7 @@ export class MediaService {
     this.purgeService = new MediaPurgeService(context, catalog);
     this.archives = new MediaArchiveService(context, catalog, this.delivery);
     this.statsCounter = new MediaStatsCounter(catalog);
+    this.trashService = new MediaTrashService(context, catalog, trash);
   }
 
   /**
@@ -157,9 +162,21 @@ export class MediaService {
     return this.delivery.open(idOrKey, range);
   }
 
-  /** `force` skips the usage check and deletes over a live reference (D48). */
-  delete(id: string, options?: { force?: boolean }): Promise<void> {
-    return this.deletion.delete(id, options);
+  /**
+   * `force` skips the usage check and deletes over a live reference (D48).
+   * Unless `permanent`, this moves the asset to the trash instead of running
+   * the deletion saga, so its bytes survive until a purge (D113). Answers the
+   * receipt's id when it did, so the caller can offer an undo.
+   */
+  async delete(
+    id: string,
+    options?: { force?: boolean } & DeleteOptions
+  ): Promise<string | null> {
+    if (this.trashService.handles(options)) {
+      return this.trashService.moveToTrash(id, options ?? {});
+    }
+    await this.deletion.delete(id, options);
+    return null;
   }
 
   /** Finishes any folder move the process died partway through (D49). */

@@ -147,6 +147,8 @@ Folders are plain path strings. Create them explicitly or let an upload create t
     curl -X DELETE "http://localhost:8090/api/media/folders?path=artwork&recursive=true" \
       -H "Authorization: Bearer $SILO_KEY"
     ```
+
+    A recursive delete moves each file in the folder to the [trash](/guides/trash) as its own item. The folder comes back when you restore a file that was in it.
   </Step>
 </Steps>
 
@@ -184,6 +186,8 @@ Folders are plain path strings. Create them explicitly or let an upload create t
     curl -X DELETE "http://localhost:8090/api/media/01J9AB3ZK60T72CNPCM222E3Z?force=true" \
       -H "Authorization: Bearer $SILO_KEY"
     ```
+
+    The asset goes to the [trash](/guides/trash), and the `X-Silo-Trash-Id` response header names the trash item. The file stays in storage until the item is purged. Add `?permanent=true` to skip the trash. That needs `trash:purge`.
   </Step>
 </Steps>
 
@@ -210,6 +214,8 @@ curl -X POST http://localhost:8090/api/media/purge \
 </CodeGroup>
 
 Both endpoints always return `200` with a `deleted` / `failed` breakdown. The purge endpoint additionally reports the number of folders removed. Purge requires both the `media:delete` and `media:purge` claims.
+
+A bulk delete moves each asset to the [trash](/guides/trash) as its own item. A purge does not use the trash. It destroys every file at once.
 
 ## Usage tracking
 

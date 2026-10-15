@@ -1,5 +1,6 @@
 import { Hono } from "hono";
 import { cors } from "hono/cors";
+import { TrashHeader } from "./routes/trash-header";
 import type { SiloService } from "../core/services/silo-service";
 import { RouteManager } from "./routes/route-manager";
 import { LoggingMiddleware } from "./middleware/logging-middleware";
@@ -154,8 +155,10 @@ export class SiloServer {
     // be switched from the settings API without a restart (D47).
     app.use("*", LoggingMiddleware.create(this.logger, this.observability));
 
-    // Enable CORS
-    app.use("/api/*", cors());
+    // Enable CORS. `exposeHeaders` names the trash receipt id (D113): a
+    // cross-origin admin cannot read a response header it is not told about,
+    // and without it every delete would lose its undo.
+    app.use("/api/*", cors({ exposeHeaders: [TrashHeader.Name] }));
     // Read-only and to any origin (D101): an admin on another origin reads a
     // text asset with `fetch` for its preview. The bytes are public (D58), and
     // `GET /api/media` already lists them to any origin.

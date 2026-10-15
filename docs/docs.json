@@ -41,6 +41,7 @@
             "pages": [
               "guides/collections-and-entries",
               "guides/media-library",
+              "guides/trash",
               "guides/search",
               "guides/variables"
             ]

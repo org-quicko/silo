@@ -1,4 +1,5 @@
 import type { MediaAsset } from '../../api/types/media-asset'
+import type { SessionInfo } from '../../api/types/session-info'
 import { AssetInUseDialog } from './AssetInUseDialog'
 import { DeleteAssetDialog } from './DeleteAssetDialog'
 import { DownloadArchiveDialog } from './DownloadArchiveDialog'
@@ -27,6 +28,8 @@ interface Props {
   onCloseStats: () => void
   downloadFlow: ReturnType<typeof useMediaDownloadFlow>
   claims: string[]
+  /** Read by the delete dialog for whether a delete is recoverable (D113). */
+  session: SessionInfo | null
   baseUrl: string
   assets: MediaAsset[]
   editing: MediaAsset | null
@@ -72,6 +75,7 @@ export function MediaDialogs({
   onCloseStats,
   downloadFlow,
   claims,
+  session,
   baseUrl,
   assets,
   editing,
@@ -210,6 +214,7 @@ export function MediaDialogs({
         <DeleteAssetDialog
           subject={deleteFlow.subject}
           busy={deleteFlow.busy}
+          session={session}
           onConfirm={deleteFlow.confirm}
           onClose={deleteFlow.cancel}
         />

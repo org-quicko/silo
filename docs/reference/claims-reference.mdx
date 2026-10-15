@@ -28,6 +28,7 @@ keys:read         keys:create       keys:revoke
 keys:export       keys:import
 plugins:read      plugins:grant     plugins:enable     plugins:configure
 audit:read        http:route        settings:configure  observability:read
+trash:purge
 transfer:export   transfer:import   transfer:copy
 ```
 
@@ -52,6 +53,12 @@ transfer:export   transfer:import   transfer:copy
 ### media:replace
 
 `media:replace` is not part of `media:create`. `media:create` uploads a new file. `media:replace` changes the file behind an asset that is already in the library, keeping its id, name, and URL. Every entry that refers to that asset then shows the new file. The **Read & write** preset does not carry it; the **Manage** preset does. The route also requires `entries:update` on each project, environment, and collection that refers to the asset — the same rule a forced delete obeys. The new file must keep the same file type; to change a `.png` to a `.webp`, upload a new asset.
+
+### trash:purge
+
+`trash:purge` is the only claim the [trash](/guides/trash) adds. It covers deleting one item from the trash, emptying the trash, and `?permanent=true` on any delete route. Only the `root` preset carries it. A plugin may be granted it. The admin hides **Delete permanently** and **Empty trash** from a key that does not hold it.
+
+A delete that moves content to the trash asks for the same claim it always asked for. Reading the trash has no claim: a key sees an item only if it can read the content the item came from. Restoring asks for the write claims where the content goes back, such as `entries:create`.
 
 ### settings:configure
 

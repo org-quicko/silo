@@ -42,7 +42,7 @@ Beyond creating a collection, Silo provides endpoints to list, rename, and delet
 | `GET` | `/api/projects/{project}/envs/{env}/collections` | List all collections |
 | `POST` | `/api/projects/{project}/envs/{env}/collections` | Create a collection with `{name, schema}` |
 | `PATCH` | `/api/projects/{project}/envs/{env}/collections/{name}` | Rename a collection (`?dry_run=true` available) |
-| `DELETE` | `/api/projects/{project}/envs/{env}/collections/{name}` | Delete a collection and all its entries (`?force=true`) |
+| `DELETE` | `/api/projects/{project}/envs/{env}/collections/{name}/schema` | Delete a collection. Refused while it holds entries, unless `?force=true`. The collection and its entries go to the [trash](/guides/trash) |
 
 ## Managing a collection's schema
 
@@ -52,7 +52,7 @@ After a collection is created, you can read, replace, or delete its schema throu
 |--------|------|-------------|
 | `GET` | `/api/projects/{project}/envs/{env}/collections/{name}/schema` | Fetch the current schema |
 | `PUT` | `/api/projects/{project}/envs/{env}/collections/{name}/schema` | Replace the schema |
-| `DELETE` | `/api/projects/{project}/envs/{env}/collections/{name}/schema` | Remove the schema |
+| `DELETE` | `/api/projects/{project}/envs/{env}/collections/{name}/schema` | Delete the collection, as above |
 
 <Note>
   `PUT` returns `409` if the collection holds entries and the new schema changes which entries are valid. See [Schema validation](#schema-validation) for the full rules on what can and cannot change.
@@ -108,6 +108,8 @@ Every entry gets a ULID `id` assigned at creation time. Use that `id` — along 
       -H "Authorization: Bearer $SILO_KEY" \
       -H 'If-Match: "2"'
     ```
+
+    The entry goes to the [trash](/guides/trash). The `X-Silo-Trash-Id` response header names the trash item, so you can restore it. Add `?permanent=true` to skip the trash. That needs `trash:purge`.
   </Step>
 </Steps>
 

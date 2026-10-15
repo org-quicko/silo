@@ -48,6 +48,13 @@ export class RouteInventory {
     "GET /api/projects/:project/envs/:env/search",
     "GET /api/search",
 
+    "GET /api/trash",
+    "GET /api/trash/:id",
+    "GET /api/trash/:id/items",
+    "POST /api/trash/:id/restore",
+    "DELETE /api/trash/:id",
+    "POST /api/trash/purge",
+
     "GET /api/media",
     "POST /api/media",
     "GET /api/media/extensions",

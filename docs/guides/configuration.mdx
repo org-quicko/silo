@@ -26,6 +26,10 @@ max_json_body_size_mb = 4     # every other route: an entry, a schema, a list of
 max_archive_size_mb   = 1024  # an import upload, or the export a copy pulls
 max_extracted_size_mb = 4096  # what it may unpack to on disk, checked before anything is written
 
+[trash]
+enabled        = true   # off makes every delete permanent
+retention_days = 30     # days a deleted item stays restorable; 0 keeps it until purged
+
 [storage]
 driver = "sqlite"       # "sqlite" | "fs"
 path   = "./silo_data"  # data dir; the sqlite file lives at <path>/silo.db
@@ -95,6 +99,7 @@ Every key in `silo.toml` has a corresponding `SILO_*` variable. Use them in cont
 | `SILO_HTTP_IDLE_TIMEOUT` | `[http] idle_timeout` |
 | `SILO_HTTP_MAX_BODY_SIZE_MB`, `SILO_HTTP_MAX_JSON_BODY_SIZE_MB` | `[http] max_body_size_mb`, `[http] max_json_body_size_mb` |
 | `SILO_TRANSFER_MAX_ARCHIVE_SIZE_MB`, `SILO_TRANSFER_MAX_EXTRACTED_SIZE_MB` | `[transfer] max_archive_size_mb`, `[transfer] max_extracted_size_mb` |
+| `SILO_TRASH_ENABLED`, `SILO_TRASH_RETENTION_DAYS` | `[trash] enabled`, `[trash] retention_days` |
 | `SILO_STORAGE_DRIVER`, `SILO_STORAGE_PATH` | `[storage]` |
 | `SILO_BLOB_DRIVER`, `SILO_BLOB_PATH` | `[blob_storage]` |
 | `SILO_BLOB_S3_BUCKET`, `SILO_BLOB_S3_REGION`, `SILO_BLOB_S3_ENDPOINT` | `[blob_storage]` S3 settings |
@@ -194,6 +199,28 @@ Set `base_url` to Silo's own public address when running behind a reverse proxy 
 </Warning>
 
 If your bucket is private, turn off **Serve files from the bucket** in the admin. Silo then streams each file at `/media/<id>` using its own credentials, the same way it serves local files.
+
+## How long a delete can be undone
+
+A delete moves its subject to the [trash](/guides/trash) instead of destroying it. `[trash]` decides whether that happens and for how long.
+
+```toml
+[trash]
+enabled        = true
+retention_days = 30
+```
+
+Set `enabled = false` to make every delete permanent. Use that for a CI instance that creates and removes scopes all day, where a trash only fills the disk.
+
+`retention_days` is how long an item stays before Silo deletes it for good. The default is 30. Silo checks once an hour. Set it to `0` to keep items until someone purges them.
+
+The expiry date is stamped on each item when you delete it. If you shorten `retention_days` later, items already in the trash keep the date they were given.
+
+Both fields take effect at the next restart. They are also on **Settings > Configuration > Trash**, behind the `settings:configure` claim.
+
+<Note>
+  Content in the trash still uses disk. A trashed media asset keeps its file until the item is purged, and a trashed project keeps a copy of every entry it held.
+</Note>
 
 ## Running as a service
 

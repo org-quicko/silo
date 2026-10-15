@@ -1,5 +1,6 @@
 import type { Silo } from '@org-quicko/silo-client'
 import { AuditApi } from './clients/audit-api'
+import { TrashApi } from './clients/trash-api'
 import { CollectionsApi } from './clients/collections-api'
 import { EntriesApi } from './clients/entries-api'
 import { KeysApi } from './clients/keys-api'
@@ -36,6 +37,8 @@ export class SiloApi {
   readonly preparedTransfers = new PreparedTransferApi(this.transport)
   readonly plugins = new PluginsApi(this.transport)
   readonly audit = new AuditApi(this.transport)
+  /** What a delete left behind, and the two ways out of it (D113). */
+  readonly trash = new TrashApi(this.transport)
   readonly settings = new SettingsApi(this.transport)
   readonly variables = new VariablesApi(this.transport)
 

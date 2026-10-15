@@ -39,7 +39,7 @@ curl http://localhost:8090/api/projects/default/envs/prod/collections/posts \
 | Method | Path | Description |
 |--------|------|-------------|
 | `GET` | `/api/health` | Liveness and version — never authenticated |
-| `GET` | `/api/session` | Current key label, prefix, and effective claims |
+| `GET` | `/api/session` | Current key label, prefix, effective claims, and whether the instance keeps a trash (`trash: {enabled, retention_days}`) |
 
 ### MCP
 
@@ -53,10 +53,10 @@ curl http://localhost:8090/api/projects/default/envs/prod/collections/posts \
 |--------|------|-------------|
 | `GET` / `POST` | `/api/projects` | List projects visible to the key / create `{id}` |
 | `PATCH` | `/api/projects/{project}` | Rename a project, with claim rewrite (`?dry_run=true`) |
-| `DELETE` | `/api/projects/{project}` | Delete a project, its environments, and their collections (`?force=true`) |
+| `DELETE` | `/api/projects/{project}` | Delete a project, its environments, and their collections (`?force=true`, `?permanent=true`) |
 | `GET` / `POST` | `/api/projects/{project}/envs` | List environments / create `{id}` |
 | `PATCH` | `/api/projects/{project}/envs/{env}` | Rename an environment (`?dry_run=true`) |
-| `DELETE` | `/api/projects/{project}/envs/{env}` | Delete an environment and its collections (`?force=true`) |
+| `DELETE` | `/api/projects/{project}/envs/{env}` | Delete an environment and its collections (`?force=true`, `?permanent=true`) |
 | `POST` | `/api/projects/{project}/envs/{env}/copy` | Copy another environment of this instance into it |
 
 <Tip>
@@ -82,14 +82,14 @@ curl http://localhost:8090/api/projects/default/envs/prod/collections/posts \
 |--------|------|-------------|
 | `GET` / `POST` | `/api/projects/{project}/envs/{env}/collections` | List / create `{name, schema}` |
 | `PATCH` | `/api/projects/{project}/envs/{env}/collections/{name}` | Rename a collection (`?dry_run=true`) |
-| `GET` / `PUT` / `DELETE` | `/api/projects/{project}/envs/{env}/collections/{name}/schema` | Fetch / update / delete a collection's JSON Schema |
+| `GET` / `PUT` / `DELETE` | `/api/projects/{project}/envs/{env}/collections/{name}/schema` | Fetch / update a collection's JSON Schema / delete the collection (`?force=true`, `?permanent=true`) |
 
 ### Entries
 
 | Method | Path | Description |
 |--------|------|-------------|
 | `GET` / `POST` | `/api/projects/{project}/envs/{env}/collections/{name}` | List entries (filter, sort, paginate) / create an entry |
-| `GET` / `PUT` / `DELETE` | `/api/projects/{project}/envs/{env}/collections/{name}/{id}` | Read / full replace / delete an entry |
+| `GET` / `PUT` / `DELETE` | `/api/projects/{project}/envs/{env}/collections/{name}/{id}` | Read / full replace / delete an entry (`?permanent=true`) |
 
 <Warning>
   `PUT` and `DELETE` on an entry require the revision you last read, supplied as `If-Match: "<rev>"` or `?rev=<n>`. A mismatch returns `409 conflict`. See [Optimistic concurrency](#optimistic-concurrency) below.
@@ -175,22 +175,39 @@ The `engine` field is `fts5` when SQLite's full-text index answered, or `scan` w
 | `GET` | `/api/media/{id}/usages` | Entries that reference this asset — answers `total`, `visible`, and `visible_capped` |
 | `PATCH` | `/api/media/{id}` | Rename, move, or retag one asset (`{filename, folder, tags}`) |
 | `POST` | `/api/media/{id}/content` | Replace the file behind an asset (multipart `file`). Keeps the id and URL so every referencing entry shows the new file. Must keep the same file type |
-| `DELETE` | `/api/media/{id}` | Delete a media asset. Refused while an entry still references it, unless `?force=true` |
-| `POST` | `/api/media/delete` | Delete up to 100 assets at once (`{ids, force}`). Always `200` with a `deleted`/`failed` body |
-| `POST` | `/api/media/purge` | Empty the whole library (`{confirm: "purge", force?}`). Always `200` with a `deleted`/`failed` body plus a folder count. Requires `media:delete` and `media:purge` |
+| `DELETE` | `/api/media/{id}` | Delete a media asset. Refused while an entry still references it, unless `?force=true` (`?permanent=true`) |
+| `POST` | `/api/media/delete` | Delete up to 100 assets at once (`{ids, force}`, `?permanent=true`). Always `200` with a `deleted`/`failed` body |
+| `POST` | `/api/media/purge` | Empty the whole library (`{confirm: "purge", force?}`). Always `200` with a `deleted`/`failed` body plus a folder count. Requires `media:delete` and `media:purge`. Does not use the trash |
 | `GET` | `/api/media/folders` | All folders present in the library |
 | `POST` | `/api/media/folders` | Create a folder (`{path}`) |
 | `PATCH` | `/api/media/folders` | Rename or move a folder (`{from, to}`) — updates every asset and descendant folder within |
-| `DELETE` | `/api/media/folders` | Delete a folder (empty only by default, or everything inside with `?recursive=true`) |
+| `DELETE` | `/api/media/folders` | Delete a folder (empty only by default, or everything inside with `?recursive=true`; `?permanent=true`) |
 | `GET` / `PUT` | `/api/media/storage` | Read / change where the library keeps its bytes |
 | `GET` / `PUT` | `/api/media/settings` | Read / change media URL origin and upload constraints |
+
+### Trash
+
+A delete moves its subject to the trash instead of destroying it. See [Trash](/guides/trash).
+
+| Method | Path | Description |
+|--------|------|-------------|
+| `GET` | `/api/trash` | List the deleted items this key can see, newest first (`?kind=&project=&env=&collection=&q=&deleted_after=&deleted_before=&limit=&offset=`) |
+| `GET` | `/api/trash/{id}` | One trash item. An item this key cannot see answers `404` |
+| `GET` | `/api/trash/{id}/items` | The records one item holds. Read-only |
+| `POST` | `/api/trash/{id}/restore` | Put an item back (`{rename?, chain?}`). Requires the write claims at the destination |
+| `DELETE` | `/api/trash/{id}` | Destroy one item for good. Requires `trash:purge` |
+| `POST` | `/api/trash/purge` | Empty the trash (`{confirm: "empty"}`). Answers `{purged}`. Requires `trash:purge` |
+
+<Note>
+  Add `?permanent=true` to a delete route to skip the trash. It requires `trash:purge` on top of the delete claim. `DELETE` on an entry or a media asset returns the trash item's id in the `X-Silo-Trash-Id` header, exposed through CORS. The header is absent when nothing was kept.
+</Note>
 
 ### Settings & Observability
 
 | Method | Path | Description |
 |--------|------|-------------|
 | `GET` | `/api/settings` | The rest of `silo.toml` — shows what is in force and what a restart is owed for |
-| `PUT` | `/api/settings/{table}` | Rewrite one of `log`, `search`, `schema`, or `auth` |
+| `PUT` | `/api/settings/{table}` | Rewrite one of `log`, `search`, `schema`, `auth`, or `trash` |
 | `GET` | `/api/audit` | Authority change log — who changed what claims, and when |
 | `GET` | `/api/observability` | Aggregate API traffic, errors, latency, and process resources |
 

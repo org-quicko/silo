@@ -3,6 +3,7 @@ import { MediaDeleteStalledError } from "../../core/errors/media-delete-stalled-
 import { MediaInUseError } from "../../core/errors/media-in-use-error";
 import { NotFoundError } from "../../core/errors/not-found-error";
 import type { SiloService } from "../../core/services/silo-service";
+import type { DeleteOptions } from "../../core/trash/delete-options";
 
 /** The body shape `POST /api/media/delete` answers with — shared by every
  *  route that deletes many assets at once, so a recursive folder delete and a
@@ -26,14 +27,15 @@ export class MediaDeleteBatch {
     service: SiloService,
     ids: readonly string[],
     force: boolean,
-    inUseDetails: (id: string, caught: MediaInUseError) => Promise<Record<string, unknown>>
+    inUseDetails: (id: string, caught: MediaInUseError) => Promise<Record<string, unknown>>,
+    options: DeleteOptions = {}
   ): Promise<MediaDeleteBatchResult> {
     const deleted: string[] = [];
     const failed: Array<Record<string, unknown>> = [];
 
     for (const id of ids) {
       try {
-        await service.media.delete(id, { force });
+        await service.media.delete(id, { force, ...options });
         deleted.push(id);
       } catch (caught) {
         if (caught instanceof MediaInUseError) {

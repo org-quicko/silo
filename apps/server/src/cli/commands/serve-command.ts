@@ -1,5 +1,6 @@
 import type { Config } from "../../config/config";
 import { HttpDefaults } from "../../config/http-defaults";
+import { TrashDefaults } from "../../config/trash-defaults";
 import { SiloServer } from "../../http/server";
 import { SiloRuntime } from "../runtime/silo-runtime";
 import { BootId } from "../../runtime/boot-id";
@@ -86,6 +87,17 @@ export class ServeCommand {
         'media deletions could not be completed — the blob store rejected the delete. Run "silo media reconcile" to retry, or to return the asset to active if the delete keeps failing.',
         { count: resumed.pending }
       );
+    }
+
+    // The trash's own resume, for the same reason the two above have one: a
+    // capture, a restore or a purge spans more records than any adapter can
+    // write atomically, so it is staged and finished here (D113).
+    const trash = await service.resumePendingTrash();
+    if (trash.finished > 0 || trash.failed > 0) {
+      logger.info("finished pending trash operations", {
+        finished: trash.finished,
+        failed: trash.failed,
+      });
     }
 
     // A transfer whose apply the process died in is settled before any request
@@ -187,6 +199,26 @@ export class ServeCommand {
     }, RunFile.HeartbeatMs);
     heartbeat.unref?.();
 
+    // Retention, on a timer rather than on each request: a receipt expires by
+    // wall clock, not by traffic, and an instance nobody is using is exactly
+    // the one whose trash should still empty (D113). `unref`, like the
+    // heartbeat, so a shutdown is not held open by the next sweep.
+    const sweep = setInterval(() => {
+      service.trash
+        .sweep()
+        .then((result) => {
+          if (result.purged > 0) {
+            logger.info("purged expired trash", { count: result.purged });
+          }
+        })
+        .catch((caught: unknown) => {
+          logger.warn("trash sweep failed", {
+            message: caught instanceof Error ? caught.message : String(caught),
+          });
+        });
+    }, TrashDefaults.SweepIntervalMs);
+    sweep.unref?.();
+
     logger.info("listening", {
       version,
       listen: config.listen,
@@ -206,6 +238,7 @@ export class ServeCommand {
       // must not turn a crash into a server that is neither up nor gone.
       setTimeout(() => process.exit(code), ServeCommand.ShutdownGraceMs).unref?.();
       clearInterval(heartbeat);
+      clearInterval(sweep);
       try {
         logger.info("shutting down");
         server.stop();

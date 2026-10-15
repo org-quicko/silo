@@ -141,6 +141,7 @@ one line here.
 | D110 | Transfer plan: `ImportRules` shared by `Importer` and `TransferPlanner`; entries checked against the effective schema; `plan.ndjson` lines with the baseline Apply will check; destination details only for readers |
 | D111 | Apply: `POST …/transfers/{id}/apply` writes the plan as one commit with a `_transfers` ledger row, or nothing (`409 stale_preview`); files first under saved free keys, taken back on failure; startup settles interrupted applies; existing assets never changed |
 | D112 | Admin env Data Transfer can read another saved server with a pasted, never-stored key checked against its `/api/session` first; Preview prepares, Apply applies, and a preparation is cancelled on any way out |
+| D113 | A delete goes to the trash: `_trash` receipts and `_trash_items` records in `Scope.System`, six `/api/trash` routes, `[trash] enabled` / `retention_days` (on, 30 days); reading follows the origin's read claim, restoring asks for write claims at the destination, and `trash:purge` is the one new claim |
 
 ## 3. Scope
 

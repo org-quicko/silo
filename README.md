@@ -154,6 +154,10 @@ engine handle them with no special code.
 - **A media library.** Local disk, or any S3-compatible bucket. Folders, tags, a
   type filter, and a check that refuses to delete an asset an entry still
   references. Where the library keeps its bytes is configurable from the admin.
+- **A trash.** A deleted project, environment, collection, entry or media file
+  goes to the trash for 30 days, and one click restores it to where it was. The
+  admin offers undo right after you delete an entry. Deleting for good takes its
+  own claim.
 - **Per-environment values.** A variable holds the one string that has to differ
   between `staging` and `prod`. Declare the name once in the project, value it
   in each environment, and silo puts the value into each `{{NAME}}` on the way

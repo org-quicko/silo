@@ -23,7 +23,9 @@ export type SystemCollection =
   | "_audit"
   | "_scope_renames"
   | "_transfers"
-  | "_variables";
+  | "_variables"
+  | "_trash"
+  | "_trash_items";
 
 export class SystemCollections {
   static readonly Keys = "_keys" as const;
@@ -38,6 +40,10 @@ export class SystemCollections {
   static readonly Transfers = "_transfers" as const;
   /** Variable declarations and their per-environment values (D57). */
   static readonly Variables = "_variables" as const;
+  /** One receipt per explicitly deleted thing (D113) — what the trash lists. */
+  static readonly Trash = "_trash" as const;
+  /** The records a receipt parked, replayed on restore and never listed. */
+  static readonly TrashItems = "_trash_items" as const;
 
   /** What every system collection's row holds in place of a schema. */
   static readonly Schema: Readonly<Record<string, unknown>> = { "x-silo-system": true };
@@ -52,6 +58,8 @@ export class SystemCollections {
     SystemCollections.Plugins,
     SystemCollections.ScopeRenames,
     SystemCollections.Transfers,
+    SystemCollections.Trash,
+    SystemCollections.TrashItems,
     SystemCollections.Variables,
   ];
 
@@ -70,11 +78,13 @@ export class SystemCollections {
     _plugins: true,
     _scope_renames: true,
     _transfers: true,
+    _trash: true,
+    _trash_items: true,
     _variables: true,
   };
 
   /**
-   * Whether this is one of silo's own nine.
+   * Whether this is one of silo's own eleven.
    *
    * Deliberately **not** the same question as
    * `EntryUtils.isSystemCollection`, which asks whether a name is

@@ -96,6 +96,10 @@ await movies.delete(created.id, created.rev);
 final draft = await movies.get(entryId, const EntryReadOptions.raw());
 ```
 
+<Note>
+  A delete moves the entry or asset to the [trash](/guides/trash). This client has no trash methods. Restore from the admin's **Trash** page or with `POST /api/trash/{id}/restore`.
+</Note>
+
 ### Reading raw before editing
 
 Silo resolves `{{VARIABLE}}` references in content on the way out. Pass `const EntryReadOptions.raw()` when you intend to edit an entry, to avoid writing a resolved value back over a template reference.

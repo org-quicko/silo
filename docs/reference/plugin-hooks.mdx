@@ -144,6 +144,9 @@ silo plugin grant silo-plugin-slug --claims hooks:blog/prod/posts:entry.beforeVa
   <Step title="Import and scope copy are excluded">
     Hooks do not fire for `silo import` or a scope copy. An import reproduces an archive faithfully; a hook rewriting data mid-import would make export-then-import non-idempotent.
   </Step>
+  <Step title="Trash restores are excluded">
+    A delete fires the same hooks whether its content goes to the [trash](/guides/trash) or not. A restore from the trash fires no hooks. A plugin that mirrors entries elsewhere does not hear about a restore.
+  </Step>
 </Steps>
 
 ### collection.afterDelete and forced deletes

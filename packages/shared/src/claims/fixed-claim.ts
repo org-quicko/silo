@@ -18,6 +18,7 @@ export type FixedClaim =
   | "plugins:configure"
   | "plugins:grant"
   | "plugins:enable"
+  | "trash:purge"
   | "audit:read"
   | "observability:read"
   | "http:route";

@@ -65,8 +65,12 @@ export class MediaFolderRoutes {
         await RouteAuth.requireMediaContentAuthority(c, "recursive folder delete with force", service.media, ids);
       }
 
-      const batch = await MediaDeleteBatch.run(service, ids, force, (id, caught) =>
-        MediaInUseDetails.build(c, service, id, caught)
+      const batch = await MediaDeleteBatch.run(
+        service,
+        ids,
+        force,
+        (id, caught) => MediaInUseDetails.build(c, service, id, caught),
+        RouteAuth.getDeleteOptions(c)
       );
       // An asset a delete could not remove means the folder is not actually
       // gone — `not_found` is the one outcome that doesn't, since the asset
