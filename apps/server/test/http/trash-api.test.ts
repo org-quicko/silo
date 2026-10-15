@@ -108,6 +108,32 @@ describe("trash API (D113)", () => {
     expect(response.status).toBe(404);
   });
 
+  test.each(["collection", "environment", "project"] as const)(
+    "%s contents require entry-read authority as well as receipt visibility",
+    async (kind) => {
+      await seed();
+      await service.entries.create(Scope.Default, "posts", { title: "confidential" });
+      if (kind === "collection") await service.collections.delete(Scope.Default, "posts", true);
+      else if (kind === "environment") await service.scopes.deleteEnvironment("default", "prod", true);
+      else await service.scopes.deleteProject("default", true);
+      const receipt = (await service.trash.list()).items[0];
+      const reach = kind === "collection" ? ["default", "prod", "posts"] :
+        kind === "environment" ? ["default", "prod", "*"] : ["default", "*", "*"];
+      const schemaClaim = Claims.collection(reach[0]!, reach[1]!, reach[2]!, Claims.CollectionSchemaRead);
+      const schemaOnly = await mint([schemaClaim]);
+      expect((await app.request(`/api/trash/${receipt.id}`, { headers: auth(schemaOnly) })).status).toBe(200);
+      expect((await app.request(`/api/trash/${receipt.id}/items`, { headers: auth(schemaOnly) })).status).toBe(403);
+
+      const reader = await mint([schemaClaim,
+        Claims.collection(reach[0]!, reach[1]!, reach[2]!, Claims.CollectionEntriesRead)]);
+      const response = await app.request(`/api/trash/${receipt.id}/items`, { headers: auth(reader) });
+      expect(response.status).toBe(200);
+      const body = await response.json() as { items: Array<{ kind: string; record: { data?: unknown } }> };
+      expect(body.items.filter((item) => item.kind === "entry").map((item) => item.record.data))
+        .toEqual([{ title: "confidential" }]);
+    }
+  );
+
   test("restoring asks for the write claim at the destination, not a claim of its own", async () => {
     await seed();
     const entry = await trashAnEntry();
@@ -187,6 +213,34 @@ describe("trash API (D113)", () => {
 
     expect((await restore("elsewhere")).status).toBe(403);
     expect((await restore()).status).toBe(200);
+  });
+
+  test("retrying a renamed restore authorizes its saved destination", async () => {
+    await seed();
+    const entry = await service.entries.create(Scope.Default, "posts", { title: "retry" });
+    await service.collections.delete(Scope.Default, "posts", true);
+    const receipt = (await service.trash.list()).items[0];
+    const originalPut = store.put.bind(store);
+    store.put = async (row, derived) => {
+      if (row.collection === "restored") throw new Error("restore interrupted");
+      return originalPut(row, derived);
+    };
+    try {
+      await expect(service.trash.restore(receipt.id, { rename: "restored" })).rejects.toThrow("restore interrupted");
+    } finally {
+      store.put = originalPut;
+    }
+    const schema = Claims.collection("default", "prod", "posts", Claims.CollectionSchemaRead);
+    const writer = async (collection: string) => mint([schema,
+      Claims.collection("default", "prod", collection, Claims.CollectionCreate),
+      Claims.collection("default", "prod", collection, Claims.CollectionEntriesCreate),
+    ]);
+    const retry = (key: string) => app.request(`/api/trash/${receipt.id}/restore`, {
+      method: "POST", headers: auth(key),
+    });
+    expect((await retry(await writer("posts"))).status).toBe(403);
+    expect((await retry(await writer("restored"))).status).toBe(200);
+    expect((await service.entries.get(Scope.Default, "restored", entry.id)).data).toEqual({ title: "retry" });
   });
 
   test("a chain restore asks for the claims of every item it brings back", async () => {

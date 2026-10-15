@@ -1,6 +1,8 @@
 import type { TrashedAsset, TrashItem } from "../../trash/trash-item";
 import type { TrashReceipt } from "../../trash/trash-receipt";
 import type { ServiceContext } from "../support/service-context";
+import { Scope } from "../../domain/scope";
+import { MediaCatalog } from "../../media/media-catalog";
 import { TrashStore } from "./trash-store";
 
 /**
@@ -57,6 +59,12 @@ export class TrashPurger {
         if (item.kind !== "media") continue;
         const key = (item.record as TrashedAsset).blob_key;
         if (!key) continue;
+        const live = await this.context.store.list(Scope.System, MediaCatalog.Collection, {
+          filter: { op: "eq", path: "$.data.blob_key", value: key },
+          limit: 1,
+          offset: 0,
+        });
+        if (live.total > 0) continue;
         try {
           await this.context.blobStorage.delete(key);
         } catch {

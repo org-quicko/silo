@@ -36,4 +36,6 @@ export interface TrashReceipt {
    */
   media_refs: string[];
   state: TrashState;
+  /** Keeps a renamed restore's destination available while its replay journal is being removed. */
+  restore_rename?: string;
 }

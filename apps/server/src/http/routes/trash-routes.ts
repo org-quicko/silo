@@ -6,6 +6,7 @@ import type { SiloService } from "../../core/services/silo-service";
 import { TrashKinds } from "../../core/trash/trash-kind";
 import type { TrashView } from "../../core/trash/trash-view";
 import { RouteAuth } from "../auth/route-auth";
+import { TrashContentsAuthority } from "../auth/trash-contents-authority";
 import { TrashRestoreAuthority } from "../auth/trash-restore-authority";
 import { TrashVisibility } from "../auth/trash-visibility";
 
@@ -53,7 +54,8 @@ export class TrashRoutes {
     });
 
     app.get("/api/trash/:id/items", async (c: Context) => {
-      await TrashRoutes.visible(c, service);
+      const view = await TrashRoutes.visible(c, service);
+      TrashContentsAuthority.require(c, view);
       const page = await service.trash.items(c.req.param("id") || "", {
         limit: TrashRoutes.number(c.req.query("limit"), "limit"),
         offset: TrashRoutes.number(c.req.query("offset"), "offset"),
@@ -65,9 +67,8 @@ export class TrashRoutes {
       const view = await TrashRoutes.visible(c, service);
       const body = await c.req.json().catch(() => null);
       const rename = typeof body?.rename === "string" ? body.rename : undefined;
-      // Checked here too, so a key without the claims hears 403 before a
-      // blocked receipt's 409.
-      TrashRestoreAuthority.require(c, view, rename);
+      // The service resolves a previous attempt's destination before checking
+      // this receipt's authority, then checks ancestors before any writes.
       const result = await service.trash.restore(view.id, {
         rename,
         chain: body?.chain === true,

@@ -1206,6 +1206,21 @@ a `state`: it opens `parking`, becomes `parked` when the copy is complete, and
 passes through `restoring` or `purging`. `TrashSweeper.resumePending` finishes
 or rolls back anything else at the next start, beside the two media resumes.
 
+A restore writes an intent into each parked item before its live write. On
+retry, a matching container id or an unchanged entry written under that intent
+is recognized without overwriting it. Entries with different data, revision or
+timestamps still conflict. The chosen subject name is retained for retries and
+checked by restore authorization again. Journal fields are internal and are
+removed from receipt and contents responses. Item pagination uses ids so
+journal updates cannot shift items between pages. This is resumable replay on
+every adapter, rather than a transaction that the filesystem cannot provide.
+
+Purging checks whether a live catalog row still owns each media blob before
+deleting it: an import may have revived an asset while its old receipt remains.
+The filesystem usage scanner excludes parked trash, as indexed adapters already
+do. The admin confirms emptying the entire server's trash, including items
+hidden by the current search and filters.
+
 #### Claims
 
 The feature adds **one** claim, and that is the whole of its authority story.
@@ -1224,6 +1239,12 @@ could have seen the content of, `total` counts only those, and
 "forbidden" would confirm that something was deleted there. The behaviour to
 design around is that the trash is **per key**: two keys see two different
 trashes, and the count badge differs between them.
+
+Receipt visibility does not grant access to its descendants' bodies.
+`GET /api/trash/{id}/items` additionally requires `entries:read` for the
+collection, for `project/environment/*` on an environment, or for
+`project/*/*` on a project. A visible receipt without this content authority
+answers `403`; media contents remain readable by any authenticated key.
 
 **Sending something to the trash asks for nothing new.** It is the delete that
 already existed — `entries:delete`, `collection:delete`, `media:delete`, and

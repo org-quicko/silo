@@ -4,6 +4,19 @@
 > The *current* state is [CONTEXT.md](../../CONTEXT.md); this is how it got
 > there.
 
+- **Trash P1 review fixes (2026-10-15, D113).** Reading a container receipt's
+  contents now requires `entries:read` over that container as well as the
+  `schema:read` that permits its metadata. A purge checks the live media
+  catalog before deleting a parked blob, so importing an asset back does not
+  leave it vulnerable to an old receipt's purge or expiry. Restore records an
+  intent in each parked item before writing it and can recognize its own
+  unchanged writes after failure or restart; a renamed destination is retained
+  and authorized again on retry. Changes made to a restored entry still cause
+  a conflict. Journal pagination uses immutable item ids and journal fields
+  stay out of HTTP responses. The admin's Empty trash dialog explicitly names
+  the entire server's trash, including items hidden by filters. Running the
+  trash suite on fs as well as SQLite and Postgres also exposed and repaired
+  the fs usage scanner counting parked trash as live media references.
 - **The refused-key dialog can forget the server (2026-10-15).** The edit
   dialog a refused key opens had only Cancel and Save, so a server that was
   gone for good could only be fixed or left in the list: its settings gear

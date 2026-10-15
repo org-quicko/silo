@@ -5,6 +5,7 @@ import { EntryUtils } from "../../domain/entry-utils";
 import { Scope } from "../../domain/scope";
 import { SystemCollections } from "../../domain/system-collections";
 import { NotFoundError } from "../../errors/not-found-error";
+import { ConflictError } from "../../errors/conflict-error";
 import type { Query } from "../../query/query";
 import type { TrashItem } from "../../trash/trash-item";
 import type { TrashReceipt } from "../../trash/trash-receipt";
@@ -97,6 +98,36 @@ export class TrashStore {
     return id;
   }
 
+  /** Records an intent before its live write; the marker survives failures and restarts. */
+  async startRestore(entry: Entry, name?: string): Promise<void> {
+    const item = entry.data as TrashItem;
+    if (item.restore_started) return;
+    await this.put(SystemCollections.TrashItems, entry.id, {
+      ...item, restore_started: true, ...(name === undefined ? {} : { restore_name: name }),
+    }, entry.rev + 1, entry.created_at, EntryUtils.now());
+  }
+
+  /** Retries keep the destination chosen before the first subject write. */
+  async restoreRename(trashId: string, subjectId: string, subjectName: string, requested?: string): Promise<string | undefined> {
+    const receipt = (await this.receipt(trashId)).data as TrashReceipt;
+    let saved = receipt.restore_rename;
+    for (let offset = 0; saved === undefined; ) {
+      const page = await this.listItems(trashId, { offset });
+      if (page.items.length === 0) break;
+      for (const entry of page.items) {
+        const item = entry.data as TrashItem;
+        if ((item.record as { id?: string }).id === subjectId && item.restore_started) saved = item.restore_name;
+      }
+      offset += page.items.length;
+      if (offset >= page.total) break;
+    }
+    if (saved === undefined) return requested;
+    if (requested && requested !== saved) {
+      throw new ConflictError(`this restore already started as "${saved}"; retry at that destination`);
+    }
+    return saved === subjectName ? undefined : saved;
+  }
+
   /** One receipt's parked records, a page at a time. */
   async listItems(
     trashId: string,
@@ -104,6 +135,7 @@ export class TrashStore {
   ): Promise<{ items: Entry[]; total: number }> {
     return this.context.store.list(this.scope, SystemCollections.TrashItems, {
       filter: { op: "eq", path: "$.data.trash_id", value: trashId },
+      sort: [{ path: JsonPath.Id, desc: false }],
       limit: page.limit ?? TrashStore.PageSize,
       offset: page.offset ?? 0,
     });

@@ -4,10 +4,12 @@ import path from "path";
 import os from "os";
 import { MediaRef } from "@silo/shared/media-ref";
 import { SqliteStore } from "../../src/adapters/storage/sqlite/sqlite-store";
+import { FsStore } from "../../src/adapters/storage/fs/fs-store";
 import { PgStore } from "../../src/adapters/storage/postgres/pg-store";
 import { SiloService } from "../../src/core/services/silo-service";
 import { Scope } from "../../src/core/domain/scope";
 import { MediaCatalog } from "../../src/core/media/media-catalog";
+import { SystemCollections } from "../../src/core/domain/system-collections";
 import { ConflictError } from "../../src/core/errors/conflict-error";
 import { NotFoundError } from "../../src/core/errors/not-found-error";
 import { PgTestDatabase } from "../adapters/support/pg-test-database";
@@ -17,19 +19,21 @@ import { PgTestDatabase } from "../adapters/support/pg-test-database";
 // (D92) could make the two drivers disagree.
 const postgres = PgTestDatabase.url() !== undefined;
 if (!postgres) PgTestDatabase.skipping("SILO_TEST_PG_URL is not set");
-const kinds = postgres ? (["sqlite", "postgres"] as const) : (["sqlite"] as const);
+const kinds = postgres ? (["sqlite", "fs", "postgres"] as const) : (["sqlite", "fs"] as const);
 
 describe.each(kinds)("trash on %s (D113)", (kind) => {
   let tempDir: string;
-  let store: SqliteStore | PgStore;
+  let store: SqliteStore | PgStore | FsStore;
   let service: SiloService;
+
+  const openStore = (schema?: string) => kind === "sqlite"
+    ? SqliteStore.open(path.join(tempDir, "test.db"))
+    : kind === "fs" ? FsStore.open(path.join(tempDir, "data"))
+    : PgStore.open({ url: PgTestDatabase.url()!, schema: schema ?? PgTestDatabase.freshSchema() });
 
   beforeEach(async () => {
     tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "silo-trash-test-"));
-    store =
-      kind === "sqlite"
-        ? await SqliteStore.open(path.join(tempDir, "test.db"))
-        : await PgStore.open({ url: PgTestDatabase.url()!, schema: PgTestDatabase.freshSchema() });
+    store = await openStore();
     service = new SiloService(store, { mediaDir: path.join(tempDir, "media") });
   });
 
@@ -109,6 +113,61 @@ describe.each(kinds)("trash on %s (D113)", (kind) => {
     expect(await service.collections.get(Scope.Default, "posts-restored")).toBeTruthy();
   });
 
+  test.each([
+    ["collection", "before", false], ["collection", "after", false], ["collection", "before", true],
+    ["environment", "before", false], ["project", "before", false],
+  ] as const)(
+    "an interrupted %s restore retries safely (failure=%s, edited=%s)", async (subject, timing, edited) => {
+    await seedCollection();
+    const entries = [];
+    const count = kind === "sqlite" && subject === "collection" && timing === "after" ? 1002 : 3;
+    for (let index = 0; index < count; index++) {
+      entries.push(await service.entries.create(Scope.Default, "posts", { title: `entry ${index}` }));
+    }
+    if (subject === "collection") await service.collections.delete(Scope.Default, "posts", true);
+    else if (subject === "environment") await service.scopes.deleteEnvironment("default", "prod", true);
+    else await service.scopes.deleteProject("default", true);
+    const destination = subject === "project" ? Scope.of("restored", "prod") :
+      subject === "environment" ? Scope.of("default", "restored") : Scope.Default;
+    const collection = subject === "collection" ? "restored" : "posts";
+    const receipt = (await service.trash.list()).items[0];
+    const originalPut = store.put.bind(store);
+    let writes = 0;
+    store.put = async (entry, derived) => {
+      if (entry.project === destination.project && entry.env === destination.env && entry.collection === collection && ++writes === 2) {
+        if (timing === "after") await originalPut(entry, derived);
+        throw new Error("interrupted restore write");
+      }
+      return originalPut(entry, derived);
+    };
+    try {
+      await expect(service.trash.restore(receipt.id, { rename: "restored" })).rejects.toThrow("interrupted restore write");
+    } finally {
+      store.put = originalPut;
+    }
+    const schema = store instanceof PgStore ? store.schema : undefined;
+    await store.close();
+    store = await openStore(schema);
+    service = new SiloService(store, { mediaDir: path.join(tempDir, "media") });
+    await service.trash.resumePending();
+    if (edited) {
+      const current = await service.entries.get(destination, collection, entries[0]!.id);
+      await service.entries.update(destination, collection, current.id, { title: "edited after interruption" }, current.rev);
+      await expect(service.trash.restore(receipt.id)).rejects.toThrow("already exists");
+      expect((await service.entries.get(destination, collection, current.id)).data).toEqual({ title: "edited after interruption" });
+      return;
+    }
+    const result = await service.trash.restore(receipt.id);
+    expect(result.entries).toBe(entries.length);
+    const restoredIds: string[] = [];
+    for (let offset = 0; offset < entries.length; offset += 500) {
+      const restored = await service.entries.list(destination, collection, { limit: 500, offset });
+      restoredIds.push(...restored.items.map((entry) => entry.id));
+    }
+    expect(restoredIds.sort()).toEqual(entries.map((entry) => entry.id).sort());
+    expect((await service.trash.list()).total).toBe(0);
+  });
+
   test("an entry whose collection went too is blocked, and a chain restores both", async () => {
     await seedCollection();
     const entry = await service.entries.create(Scope.Default, "posts", { title: "orphan" });
@@ -128,6 +187,29 @@ describe.each(kinds)("trash on %s (D113)", (kind) => {
     expect(await service.entries.get(Scope.Default, "posts", entry.id)).toBeTruthy();
   });
 
+  test("an interrupted journal cleanup can finish a renamed restore", async () => {
+    await seedCollection();
+    for (const title of ["one", "two", "three"]) await service.entries.create(Scope.Default, "posts", { title });
+    await service.collections.delete(Scope.Default, "posts", true);
+    const receipt = (await service.trash.list()).items[0];
+    const originalDelete = store.delete.bind(store);
+    let deleted = 0;
+    store.delete = async (scope, collection, id) => {
+      await originalDelete(scope, collection, id);
+      if (collection === SystemCollections.TrashItems && ++deleted === 2) throw new Error("cleanup interrupted");
+    };
+    try {
+      await expect(service.trash.restore(receipt.id, { rename: "restored" })).rejects.toThrow("cleanup interrupted");
+    } finally {
+      store.delete = originalDelete;
+    }
+    service = new SiloService(store, { mediaDir: path.join(tempDir, "media") });
+    await service.trash.resumePending();
+    await service.trash.restore(receipt.id);
+    expect((await service.entries.list(Scope.Default, "restored", { limit: 10, offset: 0 })).total).toBe(3);
+    expect((await service.trash.list()).total).toBe(0);
+  });
+
   test("a trashed media asset keeps its bytes, and a purge takes them", async () => {
     const asset = await service.media.save("hero.png", new TextEncoder().encode("bytes"));
 
@@ -145,6 +227,19 @@ describe.each(kinds)("trash on %s (D113)", (kind) => {
     await service.media.delete(asset.id);
     await service.trash.purge((await service.trash.list()).items[0].id);
     expect(await service.blobStorage.exists(asset.blob_key)).toBe(false);
+  });
+
+  test("purging a receipt preserves a file revived by an import", async () => {
+    const asset = await service.media.save("hero.png", new TextEncoder().encode("keep me"));
+    const archive = path.join(tempDir, "archive");
+    await service.transfer.exportDir(archive, {});
+    await service.media.delete(asset.id);
+    const receipt = (await service.trash.list()).items[0];
+    await service.transfer.importDir(archive, { mode: "merge" });
+    await service.trash.purge(receipt.id);
+    expect((await service.media.get(asset.id)).filename).toBe("hero.png");
+    expect(await service.blobStorage.exists(asset.blob_key)).toBe(true);
+    expect((await service.trash.list()).total).toBe(0);
   });
 
   test("a folder delete is one receipt that restores the folder and its files", async () => {

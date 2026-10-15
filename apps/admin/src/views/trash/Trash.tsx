@@ -154,7 +154,8 @@ export function Trash({
               void trash.empty()
             }}
           >
-            Permanently deletes {trash.total} items. There is no undo.
+            Permanently deletes every item in this server’s trash, including items hidden by the current
+            search and filters. There is no undo.
           </DangerConfirm>
         )}
       </div>

@@ -1,5 +1,7 @@
 import path from "path";
 import { MediaRefs } from "../../../core/media/media-refs";
+import { Scope } from "../../../core/domain/scope";
+import { SystemCollections } from "../../../core/domain/system-collections";
 import type { MediaUsage } from "../../../core/media/media-usage";
 import { CodepointOrder } from "../../../core/query/codepoint-order";
 import { FsFiles } from "./fs-files";
@@ -10,9 +12,8 @@ import { FsLayout } from "./fs-layout";
  *
  * Every entry file in the tree is read once and run through the one shared
  * extractor, so this adapter and SQLite cannot disagree about what counts as a
- * reference. System collections are included: `_keys` holds no media, but an
- * entry is an entry, and excluding a collection here would be a silent hole in
- * the delete guard.
+ * reference. Parked trash records are excluded because their references are
+ * no longer live; other system collections are still included.
  */
 export class FsMediaUsageScanner {
   /** Matches the default page size the media routes ask for. */
@@ -56,6 +57,8 @@ export class FsMediaUsageScanner {
         const contentDir = path.join(projectsDir, project, env, "content");
 
         for (const collection of await FsFiles.readSubdirs(contentDir, true)) {
+          if (project === Scope.System.project && env === Scope.System.env &&
+            (collection === SystemCollections.Trash || collection === SystemCollections.TrashItems)) continue;
           await FsMediaUsageScanner.scanCollection(
             path.join(contentDir, collection),
             { project, env, collection },

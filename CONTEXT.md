@@ -125,7 +125,12 @@ one); `docs/` is the public Mintlify site.
   are in [milestones.md](resources/design/milestones.md) §12.
   [IDEAS.md](IDEAS.md) holds loose ideas.
 
-**Most recent changes:** two CodeQL findings are fixed: the Strapi import
+**Most recent changes:** the pre-PR trash review's P1 issues are fixed:
+container contents require entry-read authority, purging preserves files still
+owned by the live media catalog, restore journals survive an interruption and
+retain their chosen destination, and Empty trash explicitly includes filtered
+items. Filesystem media usage ignores parked trash records.
+Two CodeQL findings are fixed: the Strapi import
 panel now escapes the names it renders from an uploaded database, and the
 admin encodes a typed font name in the Google Fonts URL (the other four open
 alerts are false positives, with the reasons in the changelog);

@@ -5,6 +5,7 @@ import { EntryUtils } from "../../domain/entry-utils";
 import type { Scope } from "../../domain/scope";
 import { ConflictError } from "../../errors/conflict-error";
 import type { TrashReceipt } from "../../trash/trash-receipt";
+import type { TrashItem } from "../../trash/trash-item";
 import type { TrashView } from "../../trash/trash-view";
 import type { ServiceContext } from "../support/service-context";
 import { TrashBlockers } from "./trash-blockers";
@@ -124,7 +125,13 @@ export class TrashService {
   ): Promise<{ items: unknown[]; total: number }> {
     await this.store.receipt(id);
     const found = await this.store.listItems(id, page);
-    return { items: found.items.map((entry) => entry.data), total: found.total };
+    return {
+      items: found.items.map((entry) => {
+        const { restore_started: _started, restore_name: _name, ...item } = entry.data as TrashItem;
+        return item;
+      }),
+      total: found.total,
+    };
   }
 
   /**
@@ -153,11 +160,19 @@ export class TrashService {
       broken_media_refs: [],
     };
 
-    const chain = await this.chainFor(id, options.chain === true);
-    const renameOf = (view: TrashView) => (view.id === id ? options.rename : undefined);
-    for (const view of chain) options.authorize?.(view, renameOf(view));
+    const subject = await this.get(id);
+    const rename = await this.store.restoreRename(id, subject.subject_id, subject.subject_name, options.rename);
+    options.authorize?.(subject, rename);
+    const chain = await this.chainFor(subject, options.chain === true);
+    const renames = new Map<string, string | undefined>([[id, rename]]);
     for (const view of chain) {
-      await this.replay(view.id, renameOf(view), result);
+      if (view.id === id) continue;
+      const ancestorRename = await this.store.restoreRename(view.id, view.subject_id, view.subject_name);
+      renames.set(view.id, ancestorRename);
+      options.authorize?.(view, ancestorRename);
+    }
+    for (const view of chain) {
+      await this.replay(view.id, renames.get(view.id), result);
       result.restored.push(view.id);
     }
     return result;
@@ -199,34 +214,35 @@ export class TrashService {
     rename: string | undefined,
     into: TrashRestoreResult
   ): Promise<void> {
-    const entry = await this.store.receipt(id);
-    const receipt = entry.data as TrashReceipt;
-    if (receipt.state !== "parked") {
-      throw new ConflictError(`trash item "${id}" is ${receipt.state}; try again shortly`);
-    }
-
     await this.context.withWriteLock(async () => {
+      const entry = await this.store.receipt(id);
+      const receipt = entry.data as TrashReceipt;
+      if (receipt.state !== "parked") {
+        throw new ConflictError(`trash item "${id}" is ${receipt.state}; try again shortly`);
+      }
       await this.store.putReceipt(id, { ...receipt, state: "restoring" }, entry.created_at as Date);
       try {
         await this.restorer.replay(id, receipt.subject_id, rename, into);
+        await this.store.putReceipt(id, { ...receipt, state: "restoring", ...(rename ? { restore_rename: rename } : {}) }, entry.created_at);
+        await this.store.deleteItems(id);
+        await this.store.deleteReceipt(id);
       } catch (error) {
-        await this.store.putReceipt(id, { ...receipt, state: "parked" }, entry.created_at as Date);
+        const current = await this.store.findReceipt(id);
+        if (current) await this.store.putReceipt(id, { ...current.data as TrashReceipt, state: "parked" }, entry.created_at);
         throw error;
       }
-      await this.store.deleteItems(id);
-      await this.store.deleteReceipt(id);
     });
   }
 
   /** The receipts to replay, ancestors first. One unless `chain`. */
-  private async chainFor(id: string, chain: boolean): Promise<TrashView[]> {
+  private async chainFor(subject: TrashView, chain: boolean): Promise<TrashView[]> {
     const order: TrashView[] = [];
-    let current: string | null = id;
+    let current: string | null = subject.id;
     const seen = new Set<string>();
 
     while (current && !seen.has(current)) {
       seen.add(current);
-      const view: TrashView = await this.get(current);
+      const view: TrashView = current === subject.id ? subject : await this.get(current);
       order.unshift(view);
       if (!view.blocked_by) break;
       if (!chain || !view.blocked_by.trash_id) {
@@ -245,11 +261,16 @@ export class TrashService {
   private async toView(id: string, receipt: TrashReceipt, blockers: TrashBlockers): Promise<TrashView> {
     const blocker = await blockers.blockerFor(receipt);
     return {
-      ...receipt,
+      ...TrashService.publicReceipt(receipt),
       id,
       restorable: !blocker && receipt.state === "parked",
       ...(blocker ? { blocked_by: blocker } : {}),
     };
+  }
+
+  private static publicReceipt(receipt: TrashReceipt): Omit<TrashReceipt, "restore_rename"> {
+    const { restore_rename: _rename, ...view } = receipt;
+    return view;
   }
 
   /** The receipt as every reader of the trash sees it: who may read it, who

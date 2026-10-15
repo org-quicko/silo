@@ -33,6 +33,10 @@ export interface TrashItem {
   trash_id: string;
   kind: TrashKind;
   record: unknown;
+  /** Written before replaying this record, so a retry can recognize its own writes. Internal only. */
+  restore_started?: boolean;
+  /** The container name chosen by the first attempt. Internal only. */
+  restore_name?: string;
 }
 
 export class TrashItemUtils {

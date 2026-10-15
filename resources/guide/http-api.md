@@ -256,6 +256,11 @@ read the content it came from. A key with `entries:read` on `default/prod/posts`
 sees entries deleted from that collection, and no others. Two keys see two
 different trashes.
 
+`GET /api/trash/{id}/items` reads the parked records. For a collection,
+environment or project, seeing the receipt with `schema:read` is not enough:
+you also need `entries:read` over that container (`project/environment/*` for
+an environment, `project/*/*` for a project). Otherwise this route returns `403`.
+
 The names in `origin` are the names that the project, the environment and the
 collection have now. If someone renames the collection, the item shows the new
 name. The read check and the filters use the new name too. An item keeps the
@@ -312,6 +317,13 @@ A restore reports what it could not repair. If a media asset was deleted while
 an entry that references it sat in the trash, the entry comes back and
 `broken_media_refs` names the reference that no longer resolves.
 
+If a restore fails partway through, retry the same receipt. The server records
+progress before each write and recognizes unchanged records it already restored,
+including after a restart. A renamed restore keeps its original destination
+when you retry without `rename`, and checks your claims there again. A live
+entry changed since the partial restore still causes `409` rather than being
+overwritten.
+
 ### Delete for good
 
 ```sh
@@ -327,6 +339,10 @@ curl -X POST http://localhost:8090/api/trash/purge \
 Both need `trash:purge`. No preset carries it except `root`. Whoever deleted the
 content already used their delete claim. Destroying it forever is a second
 decision.
+
+Purging preserves a file still owned by a live media asset, including one
+revived by an import while its old receipt remains in the trash. Emptying the
+trash applies to the whole server, including items hidden by UI filters.
 
 To skip the trash on the way in, add `?permanent=true` to any delete route. That
 also needs `trash:purge`.
