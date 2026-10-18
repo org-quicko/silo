@@ -7,14 +7,11 @@ import styles from './SchemaEditor.module.css'
 
 interface Props {
   field: SchemaField
-  /** Entries exist, so every keyword here is read-only: each one decides
-   *  whether an entry already stored is still valid (D70). */
-  locked: boolean
   onChange: (constraints: SchemaFieldConstraints) => void
 }
 
 /** What a field accepts beyond its type, drawn for the kind that carries it. */
-export function FieldConstraints({ field, locked, onChange }: Props) {
+export function FieldConstraints({ field, onChange }: Props) {
   const group = SchemaConstraints.groupFor(field.kind)
   // An advanced construct is edited in Code view whole. Its kind is this
   // builder's reading of a subtree it never writes back, so controls here would
@@ -32,7 +29,6 @@ export function FieldConstraints({ field, locked, onChange }: Props) {
           minimum={constraints.minimum}
           maximum={constraints.maximum}
           step={field.kind === 'integer' ? 1 : 'any'}
-          locked={locked}
           onMinimum={(minimum) => set({ minimum })}
           onMaximum={(maximum) => set({ maximum })}
         />
@@ -42,7 +38,6 @@ export function FieldConstraints({ field, locked, onChange }: Props) {
             label="Any"
             value={constraints.multipleOf}
             step="any"
-            locked={locked}
             onChange={(multipleOf) => set({ multipleOf })}
           />
           <span className={styles.hint}>Values must be a multiple of this.</span>
@@ -60,7 +55,6 @@ export function FieldConstraints({ field, locked, onChange }: Props) {
           maximum={constraints.maxItems}
           minimumAllowed={0}
           step={1}
-          locked={locked}
           onMinimum={(minItems) => set({ minItems })}
           onMaximum={(maxItems) => set({ maxItems })}
         />
@@ -69,7 +63,6 @@ export function FieldConstraints({ field, locked, onChange }: Props) {
           <Toggle
             size="sm"
             on={constraints.uniqueItems}
-            disabled={locked}
             onChange={(uniqueItems) => set({ uniqueItems })}
           />
         </div>
@@ -86,7 +79,6 @@ export function FieldConstraints({ field, locked, onChange }: Props) {
         <select
           className={`input ${styles.compactInput}`}
           value={constraints.format}
-          disabled={locked}
           onChange={(event) => set({ format: event.target.value })}
         >
           <option value="">No format</option>
@@ -105,7 +97,6 @@ export function FieldConstraints({ field, locked, onChange }: Props) {
         maximum={constraints.maxLength}
         minimumAllowed={0}
         step={1}
-        locked={locked}
         onMinimum={(minLength) => set({ minLength })}
         onMaximum={(maxLength) => set({ maxLength })}
       />
@@ -116,8 +107,6 @@ export function FieldConstraints({ field, locked, onChange }: Props) {
           className={`input mono ${styles.compactInput}`}
           placeholder="^[a-z0-9-]+$"
           value={constraints.pattern}
-          readOnly={locked}
-          disabled={locked}
           onChange={(event) => set({ pattern: event.target.value })}
         />
         <span className={`${styles.hint} ${badPattern ? styles.badHint : ''}`}>

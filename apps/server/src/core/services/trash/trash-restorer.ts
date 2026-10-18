@@ -180,8 +180,8 @@ export class TrashRestorer {
     into.entries += 1;
   }
 
-  /** The collection's schema may have changed once it was empty (D70); a
-   *  restore is a write and is held to it like any other. */
+  /** The collection's schema may have changed while the entry was in the
+   *  trash (D70); a restore is a write and is held to it like any other. */
   private async assertFitsSchema(scope: Scope, collection: string, record: TrashedEntry): Promise<void> {
     try {
       await this.context.schemaRegistry.validateEntry(scope, collection, record.data);

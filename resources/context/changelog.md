@@ -4,6 +4,35 @@
 > The *current* state is [CONTEXT.md](../../CONTEXT.md); this is how it got
 > there.
 
+- **A populated collection's schema can change to one its entries satisfy
+  (2026-10-19, D70 rewritten in place).** A save used to be refused whenever
+  the collection held an entry and the validating shape changed. Now
+  `CollectionService.putSchema` calls `SchemaChangeGuard.assertEntriesFit`,
+  which validates each stored entry against the incoming bundled schema under
+  the write lock, 500 a page, and stops at the first that fails with a `409`
+  naming only the collection. It compiles a fresh `SchemaValidator` each time,
+  because the validator caches by collection name and a shared one would
+  judge a retry with the refused schema. Imports and transfer plans still
+  call `SchemaChangeGuard.assert` and refuse any change of shape over entries.
+  The admin's schema editor is no longer read-only on a populated collection:
+  `frozen`, its banner and the `locked` prop through `FieldList`, `FieldRow`,
+  `FieldEditor`, `FieldConstraints`, `ConstraintBounds` and `ConstraintNumber`
+  are gone, so `x-silo-search` is editable from the admin again.
+  `schema-freeze.test.ts` covers an accepted change, a refusal, the early
+  exit and the full scan (by counting `list` calls), a retry after a refusal,
+  and deleting the entry that failed. `openapi.json` now lists the `409` on
+  `PUT …/schema`, which it never did, and the MCP `update_schema` tool's
+  description, which agents read, states the new rule.
+- **A saved schema shows in the admin without a reload (2026-10-19).** After
+  a save, the editor, the entries table's columns and the entry form kept the
+  old schema until a full reload. `Workspace` reads the open collection's
+  schema with `useCollectionSchema`, whose key a save does not change, and the
+  save handler refreshed only the collection list. It now calls
+  `store.refresh` on that key, which loads at once, rather than `invalidate`,
+  which a reader already mounted never acts on; it also invalidates the
+  scope's `schemas` key that search reads. The bug predates the change above,
+  which made it common by letting a live collection's schema be edited.
+  `resources/design/admin-ui.md` §9.1 records when `refresh` is needed.
 - **The 1.6.0 release note is features and fixes (2026-10-15).** A release
   note describes what is new and what was fixed; upgrade checks and rollback
   steps belong in one only for a breaking or major change. The note drops

@@ -25,7 +25,7 @@ Every error Silo returns — whether a bad request, a missing resource, or an un
 | `403` | `forbidden` | A key was present but lacks the required claim for this operation |
 | `404` | `not_found` | The requested resource does not exist, or it is a trash item the key may not see |
 | `405` | `method_not_allowed` | Only returned by `GET` or `DELETE` on `/api/mcp`, which only accepts `POST` |
-| `409` | `conflict` | Revision mismatch on `PUT`/`DELETE`, a schema change attempted while entries exist, or a trash restore that is blocked |
+| `409` | `conflict` | Revision mismatch on `PUT`/`DELETE`, a schema change that an existing entry does not satisfy, or a trash restore that is blocked |
 | `413` | `payload_too_large` | Request body exceeds `[http] max_json_body_size_mb` (default 4 MB) |
 | `413` | `archive_too_large` | Import archive exceeds `[transfer] max_archive_size_mb` or would unpack beyond `[transfer] max_extracted_size_mb` |
 | `500` | `internal` | Unexpected server error |
@@ -121,11 +121,13 @@ Entry list and search operations that apply a filter or sort over entry data run
   Do not spin in a tight loop on a `503`. Implement exponential backoff: wait 1 second on the first retry, 2 seconds on the second, 4 on the third, and so on. Back-pressure from a full queue usually resolves in under a second for small instances.
 </Warning>
 
-## Schema frozen (409 conflict)
+## Schema change refused (409 conflict)
 
-`PUT /api/projects/{project}/envs/{env}/collections/{name}/schema` returns `409 conflict` when the collection holds entries and the new schema would change which entries are valid. The `message` includes the collection name and the entry count.
+`PUT /api/projects/{project}/envs/{env}/collections/{name}/schema` returns `409 conflict` when an entry the collection holds does not satisfy the new schema. Nothing is saved. Silo stops checking at the first entry that fails, so the `message` names the collection but not the entry, and gives no count.
 
-The constraint is limited to the **validating shape** of the schema. The following properties are always editable even when entries exist, because they do not affect entry validity:
+An import or copy in merge mode returns `409 conflict` for any change to which entries are valid while the destination collection holds entries. That `message` includes the entry count.
+
+The check covers only the **validating shape** of the schema. The following properties are always editable, because they do not affect entry validity:
 
 - `x-silo-auth` — access control
 - `x-silo-search` — search field configuration

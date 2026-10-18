@@ -1805,7 +1805,7 @@
                     "Collections"
                 ],
                 "summary": "Replace a collection's schema",
-                "description": "Claim: `collections:...:schema:update`. Turning `x-silo-auth` on or off\nadditionally requires `collections:...:access:update`.\n",
+                "description": "Claim: `collections:...:schema:update`. Turning `x-silo-auth` on or off\nadditionally requires `collections:...:access:update`.\n\nA schema that changes which entries are valid is checked against every\nentry the collection holds, under the write lock, and refused with a `409`\nat the first entry it does not admit (D70). `x-silo-auth`, `x-silo-search`,\n`title`, `description`, `$comment` and `$schema` do not change what is\nvalid, so a change to them alone is never refused this way.\n",
                 "operationId": "putCollectionSchema",
                 "requestBody": {
                     "required": true,
@@ -1836,6 +1836,16 @@
                     },
                     "404": {
                         "$ref": "#/components/responses/NotFound"
+                    },
+                    "409": {
+                        "description": "An entry the collection holds does not satisfy the new schema, so nothing\nwas saved. The message names the collection only: the check stops at the\nfirst such entry, so it has no entry id or count to give.\n",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/Error"
+                                }
+                            }
+                        }
                     },
                     "413": {
                         "$ref": "#/components/responses/PayloadTooLarge"

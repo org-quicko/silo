@@ -202,7 +202,15 @@ export function Workspace({
               backTo={backTo}
               entryCount={activeSummary ? activeSummary.entries : null}
               onSaved={(name) => {
-                session.refreshCollections().then(() => goToEntries(name))
+                // `refresh`, not `invalidate`: the schema is read above, by a
+                // hook whose key a save does not change, so a value only marked
+                // stale is never asked for again until a reload.
+                const schema = store.refresh(StoreKeys.schema(serverId, scope, name), () =>
+                  api.collections.get(url, apiKey, scope, name),
+                )
+                // Search reads this when it next switches on, and asks again then.
+                store.invalidate(StoreKeys.schemas(serverId, scope))
+                Promise.all([schema, session.refreshCollections()]).then(() => goToEntries(name))
               }}
               onCancel={() => router.navigate(backTo)}
               onDeleted={() => {

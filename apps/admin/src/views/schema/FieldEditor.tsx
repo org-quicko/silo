@@ -13,18 +13,12 @@ interface Props {
   /** Ref targets: names only — choosing one writes a `silo://` URL, and
    *  nothing here reads the target's schema. */
   collections: readonly { name: string }[]
-  /**
-   * Entries exist, so everything that decides whether one of them is still
-   * valid is read-only (D70). The description is not one of those things, so it
-   * stays live — it is the only reason this panel opens at all when locked.
-   */
-  locked: boolean
   onChange: (patch: Partial<SchemaField>) => void
   onRemove: () => void
 }
 
 /** The expanded panel under a field row: everything about one property. */
-export function FieldEditor({ field, collections, locked, onChange, onRemove }: Props) {
+export function FieldEditor({ field, collections, onChange, onRemove }: Props) {
   const isReference = field.kind === 'ref' || field.kind === 'ref-array'
 
   return (
@@ -35,8 +29,6 @@ export function FieldEditor({ field, collections, locked, onChange, onRemove }: 
           <input
             className={`input mono ${styles.compactInput}`}
             value={field.name}
-            readOnly={locked}
-            disabled={locked}
             onChange={(event) =>
               onChange({ name: event.target.value.replace(/[^a-zA-Z0-9_-]/g, '') })
             }
@@ -47,7 +39,6 @@ export function FieldEditor({ field, collections, locked, onChange, onRemove }: 
           <FieldKindSelect
             kind={field.kind}
             construct={field.construct}
-            disabled={locked}
             onChange={(kind) => onChange({ kind })}
           />
         </div>
@@ -58,7 +49,6 @@ export function FieldEditor({ field, collections, locked, onChange, onRemove }: 
           <span className={styles.fieldEditorLabel}>Allowed values</span>
           <EnumValues
             values={field.enumValues}
-            disabled={locked}
             onChange={(enumValues) => onChange({ enumValues })}
           />
         </div>
@@ -69,7 +59,6 @@ export function FieldEditor({ field, collections, locked, onChange, onRemove }: 
           target={field.refTarget}
           collections={collections}
           isArray={field.kind === 'ref-array'}
-          disabled={locked}
           onChange={(refTarget) => onChange({ refTarget })}
         />
       )}
@@ -79,7 +68,6 @@ export function FieldEditor({ field, collections, locked, onChange, onRemove }: 
           still statements about the value rather than prose about it. */}
       <FieldConstraints
         field={field}
-        locked={locked}
         onChange={(constraints) => onChange({ constraints })}
       />
 
@@ -98,21 +86,18 @@ export function FieldEditor({ field, collections, locked, onChange, onRemove }: 
         <Toggle
           size="sm"
           on={field.required}
-          disabled={locked}
           onChange={(required) => onChange({ required })}
         />
       </div>
 
-      {!locked && (
-        <Button
-          className={styles.removeField}
-          variant="dangerGhost"
-          size="sm"
-          onClick={onRemove}
-        >
-          <Trash2 size={13} /> Remove field
-        </Button>
-      )}
+      <Button
+        className={styles.removeField}
+        variant="dangerGhost"
+        size="sm"
+        onClick={onRemove}
+      >
+        <Trash2 size={13} /> Remove field
+      </Button>
     </div>
   )
 }

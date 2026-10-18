@@ -140,7 +140,7 @@ Three things can stop a restore. All three answer `409 conflict`.
   </Step>
 
   <Step title="The schema changed">
-    You can change the schema of a collection that has no entries, so a collection can change shape after its last entry goes to the trash. A restored entry must agree with the schema the collection has now. If it does not, the restore refuses, names the entry, and leaves the item in the trash. Change the schema back, then restore again.
+    A collection's schema can change while an entry is in the trash, because a schema change is checked only against the entries still in the collection. A restored entry must agree with the schema the collection has now. If it does not, the restore refuses, names the entry, and leaves the item in the trash. Change the schema back, then restore again.
   </Step>
 </Steps>
 

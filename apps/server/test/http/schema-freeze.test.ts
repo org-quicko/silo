@@ -11,11 +11,11 @@ import { SiloServer } from "../../src/http/server";
 import { Logger } from "../../src/logging/logger";
 
 /**
- * A collection's constraints are frozen while it holds entries (D70).
+ * A collection's entries always satisfy its schema (D70): a save that changes
+ * what validates is refused when a stored entry fails the new schema.
  *
  * The rule is about what *validates*, so the keywords that configure silo
- * rather than judge data stay editable — otherwise publishing a populated
- * collection would mean emptying it first.
+ * rather than judge data stay editable whatever the entries hold.
  */
 describe("schema freeze", () => {
   let tempDir: string;
@@ -67,29 +67,84 @@ describe("schema freeze", () => {
     });
   });
 
-  test("one entry freezes the fields", async () => {
+  const refusal = {
+    error: {
+      code: "conflict",
+      message: 'collection "posts" has entries that do not match the new schema, so it was not saved. ' +
+        "Access, search fields and labels can still be edited.",
+    },
+  };
+
+  /** Counts `list` calls on posts from here on, to see where the scan stopped. */
+  const countPostsLists = () => {
+    const list = store.list.bind(store);
+    const calls = { count: 0 };
+    store.list = async (listScope, collection, query) => {
+      if (collection === "posts") calls.count++;
+      return list(listScope, collection, query);
+    };
+    return calls;
+  };
+
+  test("a change every entry satisfies is saved", async () => {
     await service.entries.create(scope, "posts", { title: "first" });
 
     const response = await putSchema({
-      type: "object",
-      properties: { title: { type: "string" }, body: { type: "string" } },
+      ...posts,
+      properties: { ...posts.properties, body: { type: "string" } },
     });
-    expect(response.status).toBe(409);
-    expect(await response.json()).toMatchObject({
-      error: { code: "conflict", message: expect.stringContaining('collection "posts" has 1 entry') },
+    expect(response.status).toBe(200);
+    expect((await service.collections.get(scope, "posts")).schema).toMatchObject({
+      properties: { body: { type: "string" } },
     });
-    // Refused, not partly applied.
-    expect((await service.collections.get(scope, "posts")).schema).toMatchObject(posts);
   });
 
-  test("the count in the message is the real one", async () => {
-    await service.entries.create(scope, "posts", { title: "first" });
-    await service.entries.create(scope, "posts", { title: "second" });
+  test("a change one entry fails is refused, naming no entry", async () => {
+    await service.entries.create(scope, "posts", { title: "short" });
+    await service.entries.create(scope, "posts", { title: "far too long" });
 
-    const response = await putSchema({ type: "object", properties: {} });
-    expect(await response.json()).toMatchObject({
-      error: { message: expect.stringContaining('collection "posts" has 2 entries') },
-    });
+    const response = await putSchema({ ...posts, properties: { title: { type: "string", maxLength: 5 } } });
+    expect(response.status).toBe(409);
+    expect(await response.json()).toMatchObject(refusal);
+    // Refused, not partly applied.
+    const saved = (await service.collections.get(scope, "posts")).schema;
+    expect(saved).toMatchObject(posts);
+    expect(saved.properties.title.maxLength).toBeUndefined();
+  });
+
+  test("the scan stops at the first page holding an entry that fails", async () => {
+    // 500 of 600 fail, so whatever order the store lists them in, the first
+    // page of 500 holds one: a scan that stops there lists once.
+    for (let index = 0; index < 600; index++) {
+      await service.entries.create(scope, "posts", { title: index < 500 ? "far too long" : "short" });
+    }
+    const calls = countPostsLists();
+
+    const response = await putSchema({ ...posts, properties: { title: { type: "string", maxLength: 5 } } });
+    expect(response.status).toBe(409);
+    expect(calls.count).toBe(1);
+  });
+
+  test("a change every entry satisfies reads them all, past the first page", async () => {
+    for (let index = 0; index < 600; index++) {
+      await service.entries.create(scope, "posts", { title: "short" });
+    }
+    const calls = countPostsLists();
+
+    const response = await putSchema({ ...posts, properties: { title: { type: "string", maxLength: 5 } } });
+    expect(response.status).toBe(200);
+    expect(calls.count).toBe(2);
+  });
+
+  test("a refused schema does not judge the next attempt", async () => {
+    await service.entries.create(scope, "posts", { title: "far too long" });
+
+    const refused = await putSchema({ ...posts, properties: { title: { type: "string", maxLength: 5 } } });
+    expect(refused.status).toBe(409);
+    // Admits the entry the first attempt refused; a validator cached from that
+    // attempt would refuse it again.
+    const accepted = await putSchema({ ...posts, properties: { title: { type: "string", maxLength: 50 } } });
+    expect(accepted.status).toBe(200);
   });
 
   test("re-saving the same schema is allowed, whatever the key order", async () => {
@@ -125,12 +180,15 @@ describe("schema freeze", () => {
     expect(saved.schema).toMatchObject({ required: ["title"] });
   });
 
-  test("deleting the entries thaws it again", async () => {
+  test("deleting the entry that fails lets the change through", async () => {
     const entry = await service.entries.create(scope, "posts", { title: "first" });
-    expect((await putSchema({ type: "object", properties: {} })).status).toBe(409);
+    const strict = { ...posts, properties: { title: { type: "integer" } } };
+    expect((await putSchema(strict)).status).toBe(409);
 
+    // Into the trash, out of the collection: a restore is held to the schema
+    // the collection has then, so the scan need not read the trash.
     await service.entries.delete(scope, "posts", entry.id, entry.rev);
-    expect((await putSchema({ type: "object", properties: {} })).status).toBe(200);
+    expect((await putSchema(strict)).status).toBe(200);
   });
 
   test("a rename still repoints refs into a populated collection", async () => {
@@ -152,7 +210,7 @@ describe("schema freeze", () => {
     });
   });
 
-  test("creating a collection is never frozen by another one's entries", async () => {
+  test("creating a collection is never refused for another one's entries", async () => {
     await service.entries.create(scope, "posts", { title: "first" });
     expect((await putSchema({ type: "object" }, "notes")).status).toBe(404);
 

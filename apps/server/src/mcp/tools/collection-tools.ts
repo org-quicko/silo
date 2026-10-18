@@ -62,7 +62,7 @@ export class CollectionTools {
       name: "update_schema",
       title: "Update schema",
       description:
-        "Replace a collection's schema. While the collection holds entries only titles, descriptions, x-silo-auth and x-silo-search may change; anything that alters which entries are valid is refused with 409. Needs collections:...:schema:update, plus access:update when x-silo-auth flips.",
+        "Replace a collection's schema. A schema that a stored entry does not satisfy is refused with 409 and not saved; titles, descriptions, $comment, $schema, x-silo-auth and x-silo-search never cause that. Needs collections:...:schema:update, plus access:update when x-silo-auth flips.",
       inputSchema: ToolSchemas.scoped(
         { collection: ToolSchemas.Collection, schema: ToolSchemas.Schema },
         ["collection", "schema"]
