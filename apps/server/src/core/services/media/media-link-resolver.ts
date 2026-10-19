@@ -21,8 +21,8 @@ import type { MediaCatalogStore } from "./media-catalog-store";
  * `JSON.parse`s every document in `_media` before filtering — its own doc
  * comment states the O(n)-per-query character §6.3 commits that adapter to —
  * so one query would cost the *entire catalog* per response holding even a
- * single reference, and on SQLite it is two statements, since `list` always
- * runs a `SELECT COUNT(*)` first that this caller has no use for. A loop of
+ * single reference, and on SQLite `list` always counts the matching rows
+ * beside the page, a count this caller has no use for. A loop of
  * point reads is bounded by the payload's distinct ids and by
  * {@link MediaLinkResolver.MaxLookups}, never by catalog size, and is a
  * point read — not a scan — on both adapters. The lookup still happens once

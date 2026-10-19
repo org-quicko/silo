@@ -4,6 +4,28 @@
 > The *current* state is [CONTEXT.md](../../CONTEXT.md); this is how it got
 > there.
 
+- **A SQLite list is one statement, and the admin loads folder counts six at
+  a time (2026-10-19).** On prod (1.4.0, SQLite), opening a media folder with
+  52 subfolders sent 52 count requests at once. Every request lists `_keys` to
+  check its key, and on SQLite a list was two statements on the read thread
+  (D81), so 32 requests filled its 64-slot queue and 18 were refused. 1.4.0's
+  auth middleware answered that refusal as `401 invalid API key`. Since 1.5.0
+  it is `503 busy` (D102), which still left those folders without counts.
+  Postgres, with one statement per list behind a gate of `pool_size - 2`
+  running and 64 waiting, would have taken the same burst.
+  - `SqliteEntryStore.list` puts the count in a subquery beside the page, as
+    `PgEntryStore.list` does, and counts again on its own only for an empty
+    page past the offset. The read thread now holds 64 lists at once. New
+    cases in `sqlite-read-worker.test.ts`: a full queue of lists is answered
+    (the old code answered 32 of 64), and a page past the end keeps its total
+    on the worker, a path the conformance suite cannot reach under `bun test`.
+  - `use-folder-counts.ts` loads through `MediaFolderCounts` (new, tested):
+    at most six requests out, and none started once the folder changes. It
+    asks for `limit: 1`. The server reads `limit: 0` as its default page of
+    50, so each "count-only" request had been reading and returning up to 50
+    assets with their usage counts.
+  - `storage.md` (D81), `http-api.md` and `MediaLinkResolver`'s comment no
+    longer say a list is two statements; `repo-map.md` describes the counts.
 - **The 1.6.0 release note is features and fixes (2026-10-15).** A release
   note describes what is new and what was fixed; upgrade checks and rollback
   steps belong in one only for a breaking or major change. The note drops

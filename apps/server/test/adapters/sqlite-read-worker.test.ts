@@ -17,7 +17,8 @@ import type { Entry } from "../../src/core/domain/entry";
  * 2026-09-18 audit measured one `contains` over 200,000 rows at 0.6 s and a
  * 49-way `or` at 12 s, both synchronous; these cases pin that the loop keeps
  * turning while such a read runs, that a flood is shed rather than queued
- * without end, and that the worker's connection cannot write.
+ * without end, that a list costs the queue one slot, and that the worker's
+ * connection cannot write.
  */
 describe("SQLite read worker", () => {
   let tempDir: string;
@@ -120,6 +121,57 @@ describe("SQLite read worker", () => {
     } finally {
       await reads.close();
     }
+  });
+
+  // Every request lists `_keys` to check its key, so a list's cost in slots is
+  // how many requests the queue holds at once. Two statements per list shed a
+  // burst of 52 admin requests on prod at about half the queue.
+  test("a list takes one slot, so a full queue of lists is answered", async () => {
+    await seed(5);
+    const settled = await Promise.allSettled(
+      Array.from({ length: SqliteReadWorker.MaxPending + 1 }, () =>
+        store.list(scope, "posts", QueryUtils.normalizeQuery({ limit: 2 }))
+      )
+    );
+
+    const answered = settled.filter((result) => result.status === "fulfilled");
+    const refused = settled.filter((result) => result.status === "rejected");
+    expect(answered).toHaveLength(SqliteReadWorker.MaxPending);
+    expect(refused).toHaveLength(1);
+    expect((refused[0] as PromiseRejectedResult).reason).toBeInstanceOf(StorageBusyError);
+    for (const result of answered) {
+      const page = (result as PromiseFulfilledResult<{ items: Entry[]; total: number }>).value;
+      expect(page.total).toBe(5);
+      expect(page.items).toHaveLength(2);
+    }
+  });
+
+  // The conformance suite pins this on the main connection; here it is the
+  // worker that answers, and the recount is the one second statement a list
+  // still sends.
+  test("a page past the end keeps its total on the worker", async () => {
+    await seed(5);
+    const past = await store.list(scope, "posts", QueryUtils.normalizeQuery({ limit: 10, offset: 10 }));
+    expect(past).toEqual({ items: [], total: 5 });
+
+    const filtered = await store.list(
+      scope,
+      "posts",
+      QueryUtils.normalizeQuery({
+        filter: { op: "contains", path: "$.data.title", value: "post 1" },
+        sort: [{ path: "$.data.title", desc: true }],
+        limit: 10,
+        offset: 10,
+      })
+    );
+    expect(filtered).toEqual({ items: [], total: 1 });
+
+    const empty = await store.list(
+      scope,
+      "posts",
+      QueryUtils.normalizeQuery({ filter: { op: "eq", path: "$.data.title", value: "nothing" } })
+    );
+    expect(empty).toEqual({ items: [], total: 0 });
   });
 
   test("the worker's connection refuses to write", async () => {
