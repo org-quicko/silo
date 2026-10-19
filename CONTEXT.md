@@ -16,7 +16,7 @@ and every decision (D1–D113) are indexed in [IMPLEMENTATION.md](IMPLEMENTATION
 
 ## Where things stand
 
-*Last updated: 2026-10-15. Version 1.6.0 (root `package.json`, D28).*
+*Last updated: 2026-10-19. Version 1.6.0 (root `package.json`, D28).*
 
 **Stack.** Bun + TypeScript in one workspace: `apps/server` (CLI, Hono HTTP
 API, core, adapters), `apps/admin` (React, embedded in the executable),
@@ -125,7 +125,11 @@ one); `docs/` is the public Mintlify site.
   are in [milestones.md](resources/design/milestones.md) §12.
   [IDEAS.md](IDEAS.md) holds loose ideas.
 
-**Most recent changes:** every version reads 1.6.0: silo's five manifests
+**Most recent changes:** a SQLite list is one statement, its count a
+subquery beside the page as on Postgres, so the read thread's 64-slot queue
+holds 64 requests at once rather than 32, and the admin loads subfolder counts
+six at a time with `limit: 1`. On prod, 1.4.0 had answered those refused
+counts as `401 invalid API key`. Before that, every version reads 1.6.0: silo's five manifests
 through `set-version`, and by hand the three clients (from TypeScript 1.1.2,
 Java 1.1.0 and Dart 1.0.0), both first-party plugins (from 1.0.0), `bun.lock`,
 the client install snippets and `openapi.json`'s `info.version`. The 1.6.0

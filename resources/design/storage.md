@@ -258,9 +258,10 @@ indexes), and the scan held the one JS thread — 0.6 s for one `contains` over
 `/api/health` included, waited. Any public collection made that anonymous.
 `SqliteReadWorker` is a store's handle on `SqliteReadThread`, one `Worker`
 per process holding one connection per database path, which WAL lets read
-while the main connection writes; `SqliteEntryStore.list` and
-`SqliteSearcher.search` post their two statements to it and await the rows, so
-the main thread is free for the duration. One thread rather than one per store
+while the main connection writes; `SqliteEntryStore.list` posts one statement
+to it (the page, with its count as a subquery beside it, as on Postgres) and
+`SqliteSearcher.search` posts two, and each awaits the rows, so the main thread
+is free for the duration. One thread rather than one per store
 because a `Worker` is not cheap to come and go: the first cut spawned one per
 store, the test suite opens hundreds, and a single run spawned 539 workers,
 took the runtime to 11 GB and crashed it — terminated workers are not fully
@@ -284,7 +285,16 @@ the answer — a fire-and-forget close or a `terminate` returns first, and on
 Windows the directory is then still undeletable, the same `EBUSY` the
 statement cache exists to prevent. Reads queue up to `MaxPending` (64) and the next is refused
 as `503 busy` with `Retry-After: 1`: a flood of slow scans degrades listing and
-search, and nothing else. An in-memory database gets no worker and reads on
+search, and nothing else. The cap counts statements, not requests, and every
+request spends one on its key lookup, which is a list of `_keys`. Until
+2026-10-19 a list was two statements, a count and then the page, so 32
+requests at once filled the queue. On prod, a media folder whose 52 subfolder
+counts the admin sent together had 18 of them refused, and 1.4.0 answered each
+refusal as `401 invalid API key` (since 1.5.0 it is `503`). One statement per
+list holds 64 requests, the depth `PgScanGate` queues on Postgres, and the
+admin now sends those counts six at a time (`MediaFolderCounts`). A page past
+the end has no row to carry the count, so only then does a list send a second
+statement. An in-memory database gets no worker and reads on
 the main connection as before, and so does every store opened under `bun test`
 unless it asks (`SqliteStore.readThreadDefault`, `SILO_READ_THREAD=on|off` to
 force either): the runner's `expect(...).rejects` wait does not deliver a

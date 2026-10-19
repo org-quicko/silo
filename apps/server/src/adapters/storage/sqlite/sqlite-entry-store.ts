@@ -143,9 +143,12 @@ export class SqliteEntryStore {
   }
 
   /**
-   * A page, with its total. The two statements run on the read worker where
-   * there is one (D81): a filter or a sort over `data` scans the collection,
-   * and that scan must not hold the thread every other request runs on.
+   * A page, with its total, in one statement: the count is a subquery beside
+   * the page, as on Postgres. It runs on the read worker where there is one
+   * (D81), since a filter or a sort over `data` scans the collection. One
+   * statement is one slot in the worker's queue, and every request spends one
+   * on its key lookup. A page past the end has no row to carry the total, so
+   * only then is the count run again on its own.
    */
   async list(
     scope: Scope,
@@ -169,29 +172,29 @@ export class SqliteEntryStore {
     const limit = query.limit > 0 ? query.limit : SqliteEntryStore.FallbackLimit;
     const offset = Math.max(query.offset, 0);
 
-    const countSql = `SELECT COUNT(*) as total FROM entries WHERE ${where}`;
-    const pageSql = `SELECT ${SqliteEntryStore.Columns} FROM entries
+    const countSql = `SELECT COUNT(*) AS total FROM entries WHERE ${where}`;
+    const pageSql = `SELECT (${countSql}) AS total, ${SqliteEntryStore.Columns} FROM entries
          WHERE ${where}
          ORDER BY ${order}
          LIMIT ? OFFSET ?`;
-    const pageArgs = [...whereArgs, ...orderArgs, limit, offset];
+    const pageArgs = [...whereArgs, ...whereArgs, ...orderArgs, limit, offset];
 
-    let countRows: any[];
-    let rows: any[];
-    if (this.reads) {
-      [countRows, rows] = await Promise.all([
-        this.reads.all(countSql, whereArgs),
-        this.reads.all(pageSql, pageArgs),
-      ]);
-    } else {
-      countRows = this.database.once(countSql, (statement) => statement.all(...whereArgs)) as any[];
-      rows = this.database.once(pageSql, (statement) => statement.all(...pageArgs)) as any[];
+    const rows = await this.read(pageSql, pageArgs);
+    let total = rows.length > 0 ? Number(rows[0].total) : 0;
+    if (rows.length === 0 && offset > 0) {
+      total = Number((await this.read(countSql, whereArgs))[0]?.total ?? 0);
     }
 
     return {
       items: rows.map((row) => SqliteRowMapper.toScopedEntry(row, scope, collection)),
-      total: countRows[0]?.total ?? 0,
+      total,
     };
+  }
+
+  /** Every row of `sql`, on the read worker where there is one (D81). */
+  private async read(sql: string, args: readonly unknown[]): Promise<any[]> {
+    if (this.reads) return this.reads.all(sql, args);
+    return this.database.once(sql, (statement) => statement.all(...(args as any[]))) as any[];
   }
 
   /** Collection **names**, so the join to `collections` is what answers. */
