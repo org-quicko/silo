@@ -110,7 +110,10 @@ one); `docs/` is the public Mintlify site.
   store (D53). A saved server whose key is refused opens prefilled in the
   server dialog, so the key is replaced there. A source key pasted for a copy
   is checked against the source's `/api/session` before any read, so a refused
-  one is a message under the field, not a logout.
+  one is a message under the field, not a logout. Deployed on its own to
+  Vercel, `apps/admin/public/vercel.json` (copied into `dist/` by the build)
+  gives it the fallback to `index.html` that silo's server has, so a deep link
+  loads.
 - **Distribution.** Compiled executables, signed checksums, a Homebrew tap, a
   dnf repository, and a multi-arch image on Docker Hub and GHCR (D26–D28, D90).
   Only `vX.Y.Z` tags release. `packaging/compose/` runs silo beside Postgres.
