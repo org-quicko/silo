@@ -26,6 +26,10 @@
     assets with their usage counts.
   - `storage.md` (D81), `http-api.md` and `MediaLinkResolver`'s comment no
     longer say a list is two statements; `repo-map.md` describes the counts.
+  - Filed as [#59](https://github.com/org-quicko/silo/issues/59). Its release
+    note is `resources/release-notes/1.6.1.md`, a file of its own because
+    `release.yml` reads `<version>.md` for the tag it cuts. The versions still
+    read 1.6.0.
 - **The 1.6.0 release note is features and fixes (2026-10-15).** A release
   note describes what is new and what was fixed; upgrade checks and rollback
   steps belong in one only for a breaking or major change. The note drops

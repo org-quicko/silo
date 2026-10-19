@@ -1,7 +1,7 @@
 {
   "name": "@silo/admin",
   "private": true,
-  "version": "1.6.0",
+  "version": "1.6.1",
   "type": "module",
   "scripts": {
     "dev": "vite",
@@ -18,7 +18,7 @@
     "@rjsf/validator-ajv8": "^6.11.0",
     "@silo/shared": "workspace:*",
     "@uiw/react-codemirror": "^4.25.12",
-    "lucide-react": "^1.57.0",
+    "lucide-react": "^1.59.0",
     "react": "^19.3.1",
     "react-dom": "^19.3.1",
     "@org-quicko/silo-client": "workspace:*"

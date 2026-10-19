@@ -129,7 +129,10 @@ one); `docs/` is the public Mintlify site.
 subquery beside the page as on Postgres, so the read thread's 64-slot queue
 holds 64 requests at once rather than 32, and the admin loads subfolder counts
 six at a time with `limit: 1`. On prod, 1.4.0 had answered those refused
-counts as `401 invalid API key`. Before that, every version reads 1.6.0: silo's five manifests
+counts as `401 invalid API key`
+([#59](https://github.com/org-quicko/silo/issues/59)); the fix's release note
+is [resources/release-notes/1.6.1.md](resources/release-notes/1.6.1.md).
+Before that, every version reads 1.6.0: silo's five manifests
 through `set-version`, and by hand the three clients (from TypeScript 1.1.2,
 Java 1.1.0 and Dart 1.0.0), both first-party plugins (from 1.0.0), `bun.lock`,
 the client install snippets and `openapi.json`'s `info.version`. The 1.6.0
