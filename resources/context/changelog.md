@@ -4,6 +4,20 @@
 > The *current* state is [CONTEXT.md](../../CONTEXT.md); this is how it got
 > there.
 
+- **The admin can be deployed to Vercel on its own (2026-10-19).** A reload or
+  a shared link to any page but `/` was a 404 there: the router uses the
+  History API, and a static host looks for a file at the path before the app
+  has loaded. `apps/admin/public/vercel.json` rewrites every path to
+  `/index.html`, as silo's server already does; Vercel still serves files that
+  exist first. It is in `public/` so the build copies it to the root of `dist/`,
+  which is what gets deployed and where Vercel reads it; the binary carries it
+  too, so silo serves it at `/vercel.json`. No change inside the app could fix
+  it, because the 404 comes before the app runs; the alternatives were hash
+  URLs, which change every link, or a `404.html` copy of the shell, which
+  answers every deep link with status 404. `apps/admin/README.md` has a
+  "Hosting it on its own" section, `repo-map.md` names the file, and
+  `CONTEXT.md` says it in one line.
+
 - **A SQLite list is one statement, and the admin loads folder counts six at
   a time (2026-10-19).** On prod (1.4.0, SQLite), opening a media folder with
   52 subfolders sent 52 count requests at once. Every request lists `_keys` to

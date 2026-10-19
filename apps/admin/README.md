@@ -46,6 +46,23 @@ saved absolute URL.
 stage, and the release build puts it inside the binary, so neither needs a local
 `dist`.
 
+## Hosting it on its own
+
+The build is static files, so any static host can serve `dist`. The router uses
+the History API, so the host must answer every path that is not a file with
+`index.html`. Without that, a reload or a shared link to a page such as
+`/servers/<id>/settings/transfer` is a 404, because the host looks for a file at
+that path before the app has loaded. silo's own server already does this.
+
+`public/vercel.json` does it on Vercel. The build copies it to the root of
+`dist`, which is where Vercel reads it when `dist` is what you deploy. It
+rewrites every path to `/index.html`, and Vercel serves a file that exists, such
+as `/assets/*`, before it applies a rewrite. On another host, turn on its own
+setting for a single-page app.
+
+Everything in `dist` is also built into the silo binary, so silo serves this
+file at `/vercel.json` too. It holds only the rewrite rule.
+
 ## Layout
 
 ```
