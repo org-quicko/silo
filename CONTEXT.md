@@ -134,14 +134,9 @@ one); `docs/` is the public Mintlify site.
 one every entry satisfies: a save checks the entries under the write lock and
 stops at the first that fails with a generic `409`, and the admin's schema
 editor is no longer read-only (D70, rewritten in place). A saved schema also
-shows in the admin without a reload. Before that, a SQLite list became one
-statement, its count a subquery beside the page as on Postgres, so the read
-thread's 64-slot queue holds 64 requests at once rather than 32, and the admin
-loads subfolder counts six at a time with `limit: 1`. On prod, 1.4.0 had
-answered those refused counts as `401 invalid API key`
-([#59](https://github.com/org-quicko/silo/issues/59)); the fix's release note
-is [resources/release-notes/1.6.1.md](resources/release-notes/1.6.1.md).
-Before that, every version reads 1.6.0: silo's five manifests
+shows in the admin without a reload. The release note is
+[resources/release-notes/1.6.2.md](resources/release-notes/1.6.2.md).
+Version numbers: silo's five manifests
 through `set-version`, and by hand the three clients (from TypeScript 1.1.2,
 Java 1.1.0 and Dart 1.0.0), both first-party plugins (from 1.0.0), `bun.lock`,
 the client install snippets and `openapi.json`'s `info.version`. The 1.6.0
