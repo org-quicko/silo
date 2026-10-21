@@ -33,6 +33,47 @@
   scope's `schemas` key that search reads. The bug predates the change above,
   which made it common by letting a live collection's schema be edited.
   `resources/design/admin-ui.md` §9.1 records when `refresh` is needed.
+
+- **The admin can be deployed to Vercel on its own (2026-10-19).** A reload or
+  a shared link to any page but `/` was a 404 there: the router uses the
+  History API, and a static host looks for a file at the path before the app
+  has loaded. `apps/admin/public/vercel.json` rewrites every path to
+  `/index.html`, as silo's server already does; Vercel still serves files that
+  exist first. It is in `public/` so the build copies it to the root of `dist/`,
+  which is what gets deployed and where Vercel reads it; the binary carries it
+  too, so silo serves it at `/vercel.json`. No change inside the app could fix
+  it, because the 404 comes before the app runs; the alternatives were hash
+  URLs, which change every link, or a `404.html` copy of the shell, which
+  answers every deep link with status 404. `apps/admin/README.md` has a
+  "Hosting it on its own" section, `repo-map.md` names the file, and
+  `CONTEXT.md` says it in one line.
+
+- **A SQLite list is one statement, and the admin loads folder counts six at
+  a time (2026-10-19).** On prod (1.4.0, SQLite), opening a media folder with
+  52 subfolders sent 52 count requests at once. Every request lists `_keys` to
+  check its key, and on SQLite a list was two statements on the read thread
+  (D81), so 32 requests filled its 64-slot queue and 18 were refused. 1.4.0's
+  auth middleware answered that refusal as `401 invalid API key`. Since 1.5.0
+  it is `503 busy` (D102), which still left those folders without counts.
+  Postgres, with one statement per list behind a gate of `pool_size - 2`
+  running and 64 waiting, would have taken the same burst.
+  - `SqliteEntryStore.list` puts the count in a subquery beside the page, as
+    `PgEntryStore.list` does, and counts again on its own only for an empty
+    page past the offset. The read thread now holds 64 lists at once. New
+    cases in `sqlite-read-worker.test.ts`: a full queue of lists is answered
+    (the old code answered 32 of 64), and a page past the end keeps its total
+    on the worker, a path the conformance suite cannot reach under `bun test`.
+  - `use-folder-counts.ts` loads through `MediaFolderCounts` (new, tested):
+    at most six requests out, and none started once the folder changes. It
+    asks for `limit: 1`. The server reads `limit: 0` as its default page of
+    50, so each "count-only" request had been reading and returning up to 50
+    assets with their usage counts.
+  - `storage.md` (D81), `http-api.md` and `MediaLinkResolver`'s comment no
+    longer say a list is two statements; `repo-map.md` describes the counts.
+  - Filed as [#59](https://github.com/org-quicko/silo/issues/59). Its release
+    note is `resources/release-notes/1.6.1.md`, a file of its own because
+    `release.yml` reads `<version>.md` for the tag it cuts. The versions still
+    read 1.6.0.
 - **The 1.6.0 release note is features and fixes (2026-10-15).** A release
   note describes what is new and what was fixed; upgrade checks and rollback
   steps belong in one only for a breaking or major change. The note drops

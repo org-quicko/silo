@@ -696,8 +696,8 @@ whole catalog. That query shape was tried and reverted: `FsEntryStore.list`
 reads and parses every document in `_media` before filtering anything, which
 is the O(n)-per-query character §6.3 commits the fs adapter to by design, so a
 single `in` lookup over `$.id` would cost the entire catalog on every response
-holding even one reference; on SQLite it is two statements, because `list`
-always runs a `SELECT COUNT(*)` the caller never uses. A reference the catalog
+holding even one reference; on SQLite `list` always counts the matching rows
+beside the page, a count the caller never uses. A reference the catalog
 no longer holds answers `null`, in place: a single field is `null`, and an
 element of a media array is `null` in that slot rather than removed, so an
 array's length never depends on whether every reference in it still resolves.
