@@ -133,7 +133,7 @@ project, environment and collection the call names.
 | `list_collections` | collections in one environment, with entry counts | `collections:<p>/<e>/<c>:schema:read` per collection |
 | `get_schema` | one collection's JSON Schema, references bundled | `collections:<p>/<e>/<c>:schema:read` |
 | `create_collection` | create a collection from a schema | `collections:<p>/<e>/<c>:create` |
-| `update_schema` | replace a schema (frozen while entries exist) | `collections:<p>/<e>/<c>:schema:update` |
+| `update_schema` | replace a schema (refused if an entry fails the new one) | `collections:<p>/<e>/<c>:schema:update` |
 | `delete_collection` | delete a collection, `force` erases its entries | `collections:<p>/<e>/<c>:delete`, plus `entries:delete` with `force` |
 | `list_entries` | a filtered, sorted page of entries | `collections:<p>/<e>/<c>:entries:read` |
 | `get_entry` | one entry, with its `rev` | `collections:<p>/<e>/<c>:entries:read` |

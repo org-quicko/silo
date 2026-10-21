@@ -98,7 +98,7 @@ one line here.
 | D67 | Replace an asset's bytes in place (`media:replace`) |
 | D68 | Strapi importer: one session per caller |
 | D69 | Java client `in.org.quicko.silo:client` (§15) |
-| D70 | Schema is enforced on every write path; a schema with entries is frozen |
+| D70 | Schema is enforced on every write path; a schema with entries changes only to one they all satisfy |
 | D71 | Opt-in collection GET caching in the TS client |
 | D72 | `[http] idle_timeout`, default 120 s |
 | D73 | Export streams the archive as it walks (own `TarWriter`) |

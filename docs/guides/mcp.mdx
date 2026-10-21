@@ -100,7 +100,7 @@ Every key sees the same tool list. What differs is which calls succeed. The clai
 | `list_collections` | Collections with entry counts | `collections:<p>/<e>/<c>:schema:read` per collection |
 | `get_schema` | One collection's JSON Schema, references bundled | `collections:<p>/<e>/<c>:schema:read` |
 | `create_collection` | Create a collection from a schema | `collections:<p>/<e>/<c>:create` |
-| `update_schema` | Replace a schema (frozen while entries exist) | `collections:<p>/<e>/<c>:schema:update` |
+| `update_schema` | Replace a schema (refused if an existing entry fails the new one) | `collections:<p>/<e>/<c>:schema:update` |
 | `delete_collection` | Delete a collection; `force` takes its entries too. Both go to the [trash](/guides/trash) | `collections:<p>/<e>/<c>:delete`, plus `entries:delete` with `force` |
 | `list_entries` | Filtered, sorted page of entries | `collections:<p>/<e>/<c>:entries:read` |
 | `get_entry` | One entry with its `rev` | `collections:<p>/<e>/<c>:entries:read` |

@@ -426,15 +426,20 @@ more than `[transfer] max_extracted_size_mb`. The message names the setting.
 
 Every write is validated against the collection's schema. A read is not.
 
-A `PUT` to `/collections/{name}/schema` answers `409` if the collection holds
-entries and the new schema changes which entries are valid. The message gives
-the collection name and the entry count. A change to `x-silo-auth`,
-`x-silo-search`, `title`, `description`, `$comment` or `$schema` is always
-permitted, because those do not change what is valid.
+A `PUT` to `/collections/{name}/schema` that changes which entries are valid
+checks every entry the collection holds against the new schema. If one fails,
+the answer is `409` and nothing is saved. The check stops at the first entry
+that fails, so the message names the collection only: no entry and no count.
+A change to `x-silo-auth`, `x-silo-search`, `title`, `description`,
+`$comment` or `$schema` is always permitted, because those do not change what
+is valid, and skips the check.
 
-The admin UI makes the schema read-only while entries exist. It keeps the field
-descriptions and the privacy toggle editable. To change `x-silo-search` on such
-a collection, use this endpoint.
+An import or copy in merge mode is stricter: it refuses any change to which
+entries are valid while the collection holds entries, and its `409` gives the
+entry count.
+
+The admin UI's schema editor stays editable on a populated collection, and
+shows the `409`'s message when a save is refused.
 
 Two failures have codes of their own, because they are neither a refusal nor a
 bug and a caller can act on them: `media_delete_stalled` (500) and

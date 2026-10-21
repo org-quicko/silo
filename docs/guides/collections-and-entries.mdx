@@ -160,13 +160,19 @@ curl -X DELETE ".../posts/01J8XYZ...?rev=3"
 
 Every write — create and update alike — is validated against the collection's schema. Reads are never validated, so stored data that pre-dates a schema change is always readable.
 
-The schema itself is **frozen while entries exist**. Attempting to `PUT` a new schema that changes which entries are valid returns `409`. The error message names the collection and the entry count.
+You can change the schema of a collection that already holds entries, as long as **every existing entry is valid under the new schema**. When you `PUT` a schema that changes which entries are valid, Silo checks the stored entries against it. If any entry fails, the request returns `409` and the schema is not saved. The check stops at the first entry that fails, so the error message names the collection but not the entry.
+
+To make such a change, first fix or delete the entries that don't fit, or export them, create a new collection, and import them back.
 
 <Note>
-  The following schema keywords are **always** editable, even while entries exist, because they do not affect entry validity: `x-silo-auth`, `x-silo-search`, `title`, `description`, `$comment`, and `$schema`.
+  The following schema keywords are **always** editable, because they do not affect entry validity: `x-silo-auth`, `x-silo-search`, `title`, `description`, `$comment`, and `$schema`.
 </Note>
 
-The admin UI enforces this by making the validating shape read-only while a collection holds entries. Field descriptions and the privacy toggle remain editable.
+The admin UI's schema editor works the same way: every field stays editable, and a save that an existing entry fails shows the error in the editor.
+
+<Note>
+  Imports and copies in merge mode are stricter. They refuse any change to which entries are valid while the destination collection holds entries.
+</Note>
 
 ## x-silo-* schema keywords
 
@@ -199,7 +205,7 @@ Silo extends JSON Schema with vendor keywords that control access and indexing. 
 </ResponseField>
 
 <Tip>
-  Labels (`title`, `description`, `$comment`) and search fields (`x-silo-search`) are always editable — even when the validating shape is frozen. To change which fields are indexed on a live collection, update the schema via `PUT /api/projects/{project}/envs/{env}/collections/{name}/schema`.
+  Labels (`title`, `description`, `$comment`) and search fields (`x-silo-search`) are always editable, whatever the collection's entries hold. To change which fields are indexed on a live collection, update the schema via `PUT /api/projects/{project}/envs/{env}/collections/{name}/schema`.
 </Tip>
 
 ## Collection references

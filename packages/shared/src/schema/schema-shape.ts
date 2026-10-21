@@ -7,18 +7,18 @@
  * Schema's own annotations — configures silo or labels the form, and changing
  * it cannot make a stored entry stop validating.
  *
- * Only the first kind is frozen once a collection holds entries, because only
- * the first kind can invalidate what is already stored. Making a populated
+ * Only a change to the first kind is checked against a collection's entries
+ * (D70), because only the first kind can invalidate what is already stored. Making a populated
  * collection public, correcting a search path or fixing a field's label stays
  * an ordinary edit; without that split the only way to publish a collection
  * would be to empty it first.
  *
  * The list is **closed**, not "annotations we could think of". A keyword left
- * off it is frozen, which is the safe direction: the worst case is an edit
- * refused that need not have been, and the author is told which collection and
- * how many entries stand in the way. The opposite default would let a keyword
- * nobody classified change what validates, under a collection the operator
- * believes is frozen.
+ * off it is checked, which is the safe direction: the worst case is an edit
+ * refused that need not have been, and the author is told which collection
+ * stands in the way. The opposite default would let a keyword nobody
+ * classified change what validates, under a collection the operator believes
+ * is checked.
  */
 export class SchemaShape {
   /**
@@ -41,7 +41,7 @@ export class SchemaShape {
    * `default` is deliberately **not** here. It annotates in the spec, but the
    * admin's form seeds a new entry from it, so changing it changes what gets
    * written — and `examples` is not here because it is not worth a special
-   * case when it costs nothing to freeze.
+   * case when it costs nothing to check.
    */
   static readonly Annotations: readonly string[] = [
     "x-silo-auth",
@@ -69,7 +69,7 @@ export class SchemaShape {
    * `properties` is a field called "title"; `title` anywhere a keyword is
    * expected is a label. Stripping without the difference would drop a field
    * named `title`, `description` or `$comment` out of the comparison — and a
-   * field silently outside the frozen shape is a field that could be retyped
+   * field silently outside the checked shape is a field that could be retyped
    * or removed under a collection that already holds entries.
    *
    * `dependentRequired` is here although its values are string arrays rather

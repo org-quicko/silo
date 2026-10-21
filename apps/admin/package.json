@@ -1,7 +1,7 @@
 {
   "name": "@silo/admin",
   "private": true,
-  "version": "1.6.1",
+  "version": "1.6.2",
   "type": "module",
   "scripts": {
     "dev": "vite",
@@ -18,7 +18,7 @@
     "@rjsf/validator-ajv8": "^6.11.0",
     "@silo/shared": "workspace:*",
     "@uiw/react-codemirror": "^4.25.12",
-    "lucide-react": "^1.59.0",
+    "lucide-react": "^1.61.0",
     "react": "^19.3.1",
     "react-dom": "^19.3.1",
     "@org-quicko/silo-client": "workspace:*"
@@ -29,9 +29,9 @@
     "@types/react": "^19.3.0",
     "@types/react-dom": "^19.3.0",
     "@vitejs/plugin-react": "^6.1.2",
-    "oxlint": "^1.88.0",
+    "oxlint": "^1.89.0",
     "stylelint": "^17.16.0",
     "typescript": "~6.0.3",
-    "vite": "^8.3.4"
+    "vite": "^8.3.5"
   }
 }

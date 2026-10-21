@@ -9,8 +9,6 @@ interface Props {
    *  negative. Absent leaves the range open, which is what a number field is. */
   minimumAllowed?: number
   step: number | 'any'
-  /** Entries exist, so both keywords are read-only (D70). */
-  locked: boolean
   onMinimum: (value: string) => void
   onMaximum: (value: string) => void
 }
@@ -23,7 +21,6 @@ export function ConstraintBounds({
   maximum,
   minimumAllowed,
   step,
-  locked,
   onMinimum,
   onMaximum,
 }: Props) {
@@ -36,7 +33,6 @@ export function ConstraintBounds({
           value={minimum}
           minimum={minimumAllowed}
           step={step}
-          locked={locked}
           onChange={onMinimum}
         />
         <ConstraintNumber
@@ -44,7 +40,6 @@ export function ConstraintBounds({
           value={maximum}
           minimum={minimumAllowed}
           step={step}
-          locked={locked}
           onChange={onMaximum}
         />
       </div>

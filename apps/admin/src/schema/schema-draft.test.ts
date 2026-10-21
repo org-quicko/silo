@@ -149,9 +149,9 @@ describe('SchemaDraft', () => {
     /**
      * A bare `enum` is already a complete constraint, so adding `type` to one
      * that never declared it narrows the schema on a save made for some other
-     * reason. Since D70 that matters: a collection's shape is frozen once it
-     * holds entries, and a builder that cannot hand a document back unchanged
-     * cannot edit its descriptions either.
+     * reason. Since D70 that matters: a change of shape on a populated
+     * collection is checked against every entry, so a description edit could
+     * be refused for a keyword the author never touched.
      */
     test('an enum with no declared type does not acquire one', () => {
       const { properties } = save({ status: { enum: ['draft', 'live'] } }, (fields) => {

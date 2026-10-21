@@ -7,13 +7,11 @@ interface Props {
   value: string
   minimum?: number
   step: number | 'any'
-  /** Entries exist, so the keyword this writes is read-only (D70). */
-  locked: boolean
   onChange: (value: string) => void
 }
 
 /** One optional number of a field's constraints, empty when it declares none. */
-export function ConstraintNumber({ label, value, minimum, step, locked, onChange }: Props) {
+export function ConstraintNumber({ label, value, minimum, step, onChange }: Props) {
   return (
     <input
       className={`input ${styles.compactInput}`}
@@ -23,8 +21,6 @@ export function ConstraintNumber({ label, value, minimum, step, locked, onChange
       value={value}
       min={minimum}
       step={step}
-      readOnly={locked}
-      disabled={locked}
       onChange={(event) => onChange(event.target.value)}
     />
   )

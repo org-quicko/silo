@@ -6,8 +6,6 @@ import styles from './SchemaEditor.module.css'
 interface Props {
   field: SchemaField
   expanded: boolean
-  /** Entries exist, so the field cannot be reordered out of its place. */
-  locked: boolean
   /** This row is the one being dragged, so it fades out of the list under it. */
   dragging: boolean
   onToggle: () => void
@@ -18,7 +16,7 @@ interface Props {
 }
 
 /** One collapsed row of the visual builder: what the field is, at a glance. */
-export function FieldRow({ field, expanded, locked, dragging, onToggle, onDragStart, onDragEnd, onDragOverRow }: Props) {
+export function FieldRow({ field, expanded, dragging, onToggle, onDragStart, onDragEnd, onDragOverRow }: Props) {
   // One line, whatever the field holds: a seventeen-value enum otherwise wrapped
   // the row to ten lines, and a single unbreakable value ran under the badges.
   const summary = SchemaFieldSummary.describe(field)
@@ -30,7 +28,7 @@ export function FieldRow({ field, expanded, locked, dragging, onToggle, onDragSt
       role="button"
       tabIndex={0}
       aria-expanded={expanded}
-      draggable={!locked}
+      draggable
       onDragStart={(event) => {
         event.dataTransfer.effectAllowed = 'move'
         onDragStart()
@@ -50,13 +48,9 @@ export function FieldRow({ field, expanded, locked, dragging, onToggle, onDragSt
         onToggle()
       }}
     >
-      {/* A handle on a row that cannot move is a promise the row will not
-          keep, so it goes rather than greys out. */}
-      {!locked && (
-        <span className={styles.grip}>
-          <GripVertical size={15} />
-        </span>
-      )}
+      <span className={styles.grip}>
+        <GripVertical size={15} />
+      </span>
       <div className={styles.fieldSummary}>
         <span className={styles.fieldName}>
           {field.name || <span className="muted">unnamed</span>}

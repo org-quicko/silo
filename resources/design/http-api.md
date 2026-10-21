@@ -1230,9 +1230,9 @@ every adapter, rather than a transaction that the filesystem cannot provide.
 
 A restored entry is validated against its collection's schema as it stands
 at the restore, not the one it was deleted under. A collection's schema can
-change shape once it is empty (D70), which is exactly the state deleting its
-last entry leaves, and the restore's raw store write would otherwise land data
-no other write path accepts. A refusal is a `409` naming the entry, written
+change shape once no entry it holds fails the new one (D70), which is exactly
+the state deleting the entry that failed leaves, and the restore's raw store
+write would otherwise land data no other write path accepts. A refusal is a `409` naming the entry, written
 before that entry's journal mark, so the receipt goes back to `parked` intact.
 
 The list, the sweep and startup recovery read every receipt, not one store

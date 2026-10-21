@@ -33,8 +33,9 @@ one); `docs/` is the public Mintlify site.
   addressed by project / environment / collection. Projects, environments and
   collections are ULID-keyed records that can be renamed (D51); a collection
   name may have 128 characters, a project or environment 64 (D104). The schema is
-  enforced on every write path, and a collection's schema is frozen while it
-  holds entries (D70). Filters use a JSONPath subset (D29). Environment
+  enforced on every write path, and a populated collection's schema can
+  change only to one every entry satisfies (D70); imports and transfers in
+  merge mode still refuse any change of shape over entries. Filters use a JSONPath subset (D29). Environment
   variables are substituted as `{{NAME}}` on read (D57).
 - **Storage.** SQLite (default; scans run on a read worker, D81), plain files
   (whose layout *is* the export format, D5) and Postgres (D93–D96: pool,
@@ -122,20 +123,20 @@ one); `docs/` is the public Mintlify site.
 
 - Security audit of 2026-09-18: C1–C5 and H1–H6 are fixed (D79–D85). H7–H15
   and the medium findings are still open. The report is not in the repo.
-- Changing a schema over existing entries is deferred until a migration plan
-  exists (D70).
+- A schema change that existing entries do not fit has no in-place path, and
+  imports and transfers in merge mode still refuse any change of shape over
+  entries (D70).
 - Roadmap items (sync, drafts/publish, durable webhooks, enforced relations)
   are in [milestones.md](resources/design/milestones.md) §12.
   [IDEAS.md](IDEAS.md) holds loose ideas.
 
-**Most recent changes:** a SQLite list is one statement, its count a
-subquery beside the page as on Postgres, so the read thread's 64-slot queue
-holds 64 requests at once rather than 32, and the admin loads subfolder counts
-six at a time with `limit: 1`. On prod, 1.4.0 had answered those refused
-counts as `401 invalid API key`
-([#59](https://github.com/org-quicko/silo/issues/59)); the fix's release note
-is [resources/release-notes/1.6.1.md](resources/release-notes/1.6.1.md).
-Before that, every version reads 1.6.0: silo's five manifests
+**Most recent changes:** a populated collection's schema can now change to
+one every entry satisfies: a save checks the entries under the write lock and
+stops at the first that fails with a generic `409`, and the admin's schema
+editor is no longer read-only (D70, rewritten in place). A saved schema also
+shows in the admin without a reload. The release note is
+[resources/release-notes/1.6.2.md](resources/release-notes/1.6.2.md).
+Version numbers: silo's five manifests
 through `set-version`, and by hand the three clients (from TypeScript 1.1.2,
 Java 1.1.0 and Dart 1.0.0), both first-party plugins (from 1.0.0), `bun.lock`,
 the client install snippets and `openapi.json`'s `info.version`. The 1.6.0

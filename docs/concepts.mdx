@@ -91,11 +91,11 @@ Key rules about collections and schema:
 
 - **Every write is validated.** There is no way to bypass schema validation on create or update.
 - **Reads are never validated.** A schema change cannot make existing entries unreadable.
-- **The schema is frozen while entries exist.** To change the fields that determine validity, you must delete the entries first — or export them, create a new collection, and import them back.
-- **Some schema fields stay editable at any time.** `x-silo-auth`, `x-silo-search`, `title`, `description`, `$comment`, and `$schema` do not change which entries are valid, so they can always be edited even when the collection holds entries.
+- **A schema can change only to one its entries satisfy.** Silo checks the stored entries against the new schema. If one fails, fix or delete it first, or export the entries, create a new collection, and import them back.
+- **Some schema fields stay editable at any time.** `x-silo-auth`, `x-silo-search`, `title`, `description`, `$comment`, and `$schema` do not change which entries are valid, so they can always be edited.
 
 <Warning>
-  Attempting to update a schema in a way that would invalidate existing entries returns `409 Conflict`. The message names the collection and the entry count. The admin UI makes the schema read-only while entries exist.
+  Updating a schema in a way that an existing entry does not satisfy returns `409 Conflict`, and the schema is not saved. The check stops at the first entry that fails, so the message names the collection but not the entry.
 </Warning>
 
 ### `x-silo-*` schema keywords

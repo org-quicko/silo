@@ -138,10 +138,16 @@ export class CollectionService {
     await this.context.schemaRegistry.checkSchemaDoc(scope, name, bundledSchema);
 
     return this.context.withWriteLock(async () => {
-      // Under the lock, and immediately before the write: the guard counts
+      // Under the lock, and immediately before the write: the guard reads the
       // entries and then replaces the schema, so a create that won the race
       // outside it would be filed under a schema that never judged it (D70).
-      await SchemaChangeGuard.assert(this.context.store, scope, name, bundledSchema);
+      await SchemaChangeGuard.assertEntriesFit(
+        this.context.store,
+        scope,
+        name,
+        bundledSchema,
+        this.context.schemaRegistry.allowRemoteRefs
+      );
 
       const record = await this.context.store.putSchema(scope, name, bundledSchema);
       this.context.schemaRegistry.invalidate();
