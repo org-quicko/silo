@@ -398,8 +398,18 @@ await movies.get(id, { timeoutMilliseconds: 2_000 })
 ```
 
 `abort()` raises `RequestAbortedError`, and the deadline raises `TimeoutError`.
-Nothing is retried for you. A retried `POST` creates a second entry, and only
-the caller knows whether a call was safe to repeat.
+The same deadline applies across attempts and response reads. The SDK checks
+cancellation before each attempt.
+
+## Read retries
+
+GET requests make up to three attempts for recognized temporary connection
+failures or HTTP status `500` and above. Retries wait 200 ms and 400 ms using
+ordinary timers. Other methods make one attempt.
+
+After receiving the response, the SDK maps HTTP errors through its error
+factory and decodes successful responses. Successfully decoded JSON enters
+the existing response cache.
 
 ## Anonymous reads
 

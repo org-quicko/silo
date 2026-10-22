@@ -29,6 +29,10 @@ export interface TransportOptions {
  * apart.
  */
 export class Transport {
+  private static readonly RETRYABLE_NETWORK_CODES = [
+    "UND_ERR_SOCKET", "ECONNRESET", "ECONNREFUSED", "EPIPE", "EAI_AGAIN", "ETIMEDOUT",
+    "UND_ERR_CONNECT_TIMEOUT", "UND_ERR_HEADERS_TIMEOUT", "UND_ERR_BODY_TIMEOUT",
+  ];
   readonly cache: ResponseCache;
   private readonly url: string;
   private readonly fetchFunction: FetchFunction;
@@ -47,34 +51,33 @@ export class Transport {
   }
 
   private async fetchJson<T>(request: TransportRequest): Promise<T> {
-    const response = await this.execute(request);
-    return (await ResponseDecoder.decode(response, request, true)) as T;
+    return this.execute(request, async (response) => (await ResponseDecoder.decode(response, request, true)) as T);
   }
 
   /** For a `204` response: decodes it, and discards the result. */
   async empty(request: TransportRequest): Promise<void> {
-    const response = await this.execute(request);
-    await ResponseDecoder.decode(response, request, false);
+    await this.execute(request, async (response) => {
+      await ResponseDecoder.decode(response, request, false);
+    });
   }
 
   /** `empty`, but answering the response headers — for a 204 that carries its
    *  result in one, which is how a delete reports its trash receipt (D113). */
   async emptyWithHeaders(request: TransportRequest): Promise<Headers> {
-    const response = await this.execute(request);
-    await ResponseDecoder.decode(response, request, false);
-    return response.headers;
+    return this.execute(request, async (response) => {
+      await ResponseDecoder.decode(response, request, false);
+      return response.headers;
+    });
   }
 
   async stream(request: TransportRequest): Promise<ReadableStream<Uint8Array> | null> {
-    const response = await this.execute(request);
-    return response.body;
+    return this.execute(request, async (response) => response.body);
   }
 
   /** Multipart upload. Never sets `Content-Type` by hand — the runtime sets
    * it, boundary included, from the `FormData` body. */
   async upload<T>(request: TransportRequest, form: FormData): Promise<T> {
-    const response = await this.execute(request, form);
-    return (await ResponseDecoder.decode(response, request, true)) as T;
+    return this.execute(request, async (response) => (await ResponseDecoder.decode(response, request, true)) as T, form);
   }
 
   /** A new `Transport` reading a different key, sharing everything else. */
@@ -88,47 +91,64 @@ export class Transport {
     return new Transport({ ...this.options, url });
   }
 
-  private async execute(request: TransportRequest, form?: FormData): Promise<Response> {
+  private async execute<T>(request: TransportRequest, readResponse: (response: Response) => Promise<T>, form?: FormData): Promise<T> {
     const abortSignals = new AbortSignals(request.signal, request.timeoutMilliseconds ?? this.options.timeoutMilliseconds);
+    try {
+      const response = await this.fetchWithRetries(request, abortSignals.signal, form);
+      if (!response.ok) {
+        throw ErrorFactory.fromResponseBody(response.status, request.method, request.path, await response.text());
+      }
+      this.cache.invalidate(request.evicts);
+      return await readResponse(response);
+    } catch (caught) {
+      if (abortSignals.signal.aborted) throw this.createCancellationError(request, abortSignals);
+      throw caught;
+    } finally {
+      abortSignals.dispose();
+    }
+  }
+
+  private async fetchWithRetries(request: TransportRequest, signal: AbortSignal, form?: FormData, retryCount = 0): Promise<Response> {
     const url = `${this.url}${request.path}${QueryString.build(request.query)}`;
+    const canRetry = request.method === "GET" && retryCount < 2;
+    let response: Response | undefined;
 
     // Read into a local so the call carries no receiver. `this.fetchFunction(...)`
     // is a method call, which would hand the `Transport` to `fetch` as its
     // `this` — a browser rejects that outright ("Illegal invocation").
     const sendRequest = this.fetchFunction;
 
-    let response: Response;
+    signal.throwIfAborted();
     try {
       response = await sendRequest(url, {
         method: request.method,
         headers: this.buildHeaders(request, Boolean(form)),
         body: form ?? (request.body === undefined ? undefined : JSON.stringify(request.body)),
-        signal: abortSignals.signal,
+        signal,
       });
     } catch (caught) {
-      throw this.transportFailure(request, abortSignals, caught);
-    } finally {
-      abortSignals.dispose();
+      if (!canRetry || signal.aborted || !Transport.isRetryableNetworkFailure(caught)) {
+        throw new NetworkError(request.method, request.path, caught);
+      }
     }
-
-    if (!response.ok) {
-      throw ErrorFactory.fromResponseBody(response.status, request.method, request.path, await response.text());
-    }
-    this.cache.invalidate(request.evicts);
-    return response;
+    if (response && (response.status < 500 || !canRetry)) return response;
+    await response?.body?.cancel();
+    await new Promise<void>((resolve) => setTimeout(resolve, 200 * 2 ** retryCount));
+    return this.fetchWithRetries(request, signal, form, retryCount + 1);
   }
 
-  /** Distinguishes why `fetch` itself failed: the deadline, the caller's own
-   * signal, or the request never landing at all. */
-  private transportFailure(request: TransportRequest, abortSignals: AbortSignals, caught: unknown): Error {
-    const firedBy = abortSignals.firedBy();
-    if (firedBy === "timeout") {
+  private static isRetryableNetworkFailure(caught: unknown): boolean {
+    const cause = caught instanceof Error ? caught.cause ?? caught : caught;
+    if (cause === null || typeof cause !== "object") return false;
+    if (!("code" in cause) || typeof cause.code !== "string") return false;
+    return Transport.RETRYABLE_NETWORK_CODES.includes(cause.code);
+  }
+
+  private createCancellationError(request: TransportRequest, abortSignals: AbortSignals): Error {
+    if (abortSignals.firedBy() === "timeout") {
       return new TimeoutError(request.method, request.path, request.timeoutMilliseconds ?? this.options.timeoutMilliseconds ?? 0);
     }
-    if (firedBy === "caller") {
-      return new RequestAbortedError(request.method, request.path);
-    }
-    return new NetworkError(request.method, request.path, caught);
+    return new RequestAbortedError(request.method, request.path);
   }
 
   private buildHeaders(request: TransportRequest, isUpload: boolean): Record<string, string> {

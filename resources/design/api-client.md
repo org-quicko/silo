@@ -200,12 +200,19 @@ unreachable host needs the composed signal to remember which source fired,
 which is what `AbortSignals` is for; `AbortSignal.any` would have done it and
 Node 18 does not have it.
 
-Nothing is retried. A retried `POST` to a collection is a duplicate entry and
-a retried `409` is wrong by definition, so retry policy belongs to the only
-layer that knows whether a call was idempotent. For the same reason a
-`NetworkError` on a write does not claim the write failed: the request never
-landed, which is not evidence about what the server did, and the message says
-to reconcile rather than to retry.
+`fetchWithRetries` makes one HTTP attempt per call. A GET can retry twice for
+recognized temporary connection failures and HTTP status 500 and above.
+It waits 200 ms, then 400 ms, and calls itself with the next retry count.
+Other methods make one attempt. The fetch catch throws `NetworkError` when
+the failure ends the request. HTTP status handling uses the received response
+directly.
+
+`execute` processes the response after fetching: HTTP errors go through
+`ErrorFactory`, successful responses invalidate the declared cache entries
+and pass to the response decoder. The existing response cache stores
+successfully decoded JSON. One cancellation signal and deadline apply across
+attempts and response reading. Cancellation is checked before each attempt;
+the request timer is disposed when processing settles.
 
 The `fetch` the transport calls is **bound at construction and called without a
 receiver.** `options.fetch ?? fetch` held in a field and invoked as
@@ -216,7 +223,7 @@ undici does not. The client therefore failed *every* request in a browser
 unless the caller passed a fetch of their own, and nothing could see it: the
 server side runs on undici, every unit test passes `StubFetch`, and the admin
 UI passes a wrapper that watches for a 401. The default is now
-`globalThis.fetch` bound to the global, and `execute` reads the field into a
+`globalThis.fetch` bound to the global, and `fetchWithRetries` reads the field into a
 local before calling it — belt and braces, but the second half is the invariant
 worth stating, since `FetchTransport` is never a legitimate receiver for a
 caller's function either and an unbound `window.fetch` handed over as
@@ -317,8 +324,9 @@ is also no generic `request()` escape hatch: without one, a route the client
 does not cover is a client change, which is the point of `RouteInventory`.
 
 An enveloped entry response — the thing that would let a field be named `rev`
-— is a server change and is not attempted here. Retries and framework adapters
-remain outside the client. Optional read caching is described in §14.10.
+— is a server change and is not attempted here. Framework adapters and write
+retries remain outside the client. Bounded GET retries are described in §14.7,
+and optional read caching in §14.10.
 
 The admin UI keeps its own `src/api/` for now. The client is shaped so
 `apps/admin` can adopt it, and §14.2's split is what would make that swap

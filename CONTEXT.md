@@ -121,6 +121,14 @@ one); `docs/` is the public Mintlify site.
 
 **Open work:**
 
+The TypeScript client on `feature/silo-client-retries` is `1.7.0-alpha.0`.
+`fetchWithRetries` makes one attempt per call. A GET can call it again twice
+for temporary connection failures and HTTP 5xx, after 200 ms and 400 ms.
+Other methods make one attempt. `execute` then handles HTTP errors and decodes
+the response under the shared cancellation signal and deadline. The existing
+response cache stores successfully decoded JSON.
+See [the client design](resources/design/api-client.md#147-four-kinds-of-failure-and-what-a-writes-outcome-is-not).
+
 - Security audit of 2026-09-18: C1–C5 and H1–H6 are fixed (D79–D85). H7–H15
   and the medium findings are still open. The report is not in the repo.
 - A schema change that existing entries do not fit has no in-place path, and
