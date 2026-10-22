@@ -93,8 +93,25 @@ export class Transport {
 
   private async execute<T>(request: TransportRequest, readResponse: (response: Response) => Promise<T>, form?: FormData): Promise<T> {
     const abortSignals = new AbortSignals(request.signal, request.timeoutMilliseconds ?? this.options.timeoutMilliseconds);
+    try {
+      const response = await this.fetchWithRetries(request, abortSignals, form);
+      if (!response.ok) {
+        throw ErrorFactory.fromResponseBody(response.status, request.method, request.path, await response.text());
+      }
+      this.cache.invalidate(request.evicts);
+      return await readResponse(response);
+    } catch (caught) {
+      if (abortSignals.signal.aborted) throw this.createCancellationError(request, abortSignals);
+      throw caught;
+    } finally {
+      abortSignals.dispose();
+    }
+  }
+
+  private async fetchWithRetries(request: TransportRequest, abortSignals: AbortSignals, form?: FormData): Promise<Response> {
     const url = `${this.url}${request.path}${QueryString.build(request.query)}`;
     const maxAttempts = request.method === "GET" ? 3 : 1;
+    let lastResponse: Response | undefined;
     let lastFailure: unknown;
 
     // Read into a local so the call carries no receiver. `this.fetchFunction(...)`
@@ -102,41 +119,30 @@ export class Transport {
     // `this` — a browser rejects that outright ("Illegal invocation").
     const sendRequest = this.fetchFunction;
 
-    try {
-      for (let attempt = 0; attempt < maxAttempts; attempt++) {
-        let response: Response | undefined;
-        try {
-          abortSignals.signal.throwIfAborted();
-          response = await sendRequest(url, {
-            method: request.method,
-            headers: this.buildHeaders(request, Boolean(form)),
-            body: form ?? (request.body === undefined ? undefined : JSON.stringify(request.body)),
-            signal: abortSignals.signal,
-          });
-          if (!response.ok) {
-            throw ErrorFactory.fromResponseBody(response.status, request.method, request.path, await response.text());
-          }
-          this.cache.invalidate(request.evicts);
-          return await readResponse(response);
-        } catch (caught) {
-          if (abortSignals.signal.aborted) throw this.transportFailure(request, abortSignals, caught);
-          const isRetryableNetworkFailure = Transport.isRetryableNetworkFailure(caught);
-          lastFailure = response && !isRetryableNetworkFailure
-            ? caught
-            : new NetworkError(request.method, request.path, caught);
-          const isRetryableFailure = response && !response.ok
-            ? response.status >= 500
-            : isRetryableNetworkFailure;
-          if (!isRetryableFailure) throw lastFailure;
-        }
-        if (attempt + 1 < maxAttempts) {
-          await new Promise<void>((resolve) => setTimeout(resolve, 200 * 2 ** attempt));
+    for (let attempt = 0; attempt < maxAttempts; attempt++) {
+      try {
+        abortSignals.signal.throwIfAborted();
+        lastResponse = await sendRequest(url, {
+          method: request.method,
+          headers: this.buildHeaders(request, Boolean(form)),
+          body: form ?? (request.body === undefined ? undefined : JSON.stringify(request.body)),
+          signal: abortSignals.signal,
+        });
+        if (lastResponse.status < 500) return lastResponse;
+      } catch (caught) {
+        lastResponse = undefined;
+        lastFailure = new NetworkError(request.method, request.path, caught);
+        if (abortSignals.signal.aborted || !Transport.isRetryableNetworkFailure(caught)) {
+          throw lastFailure;
         }
       }
-      throw lastFailure;
-    } finally {
-      abortSignals.dispose();
+      if (attempt + 1 < maxAttempts) {
+        await lastResponse?.body?.cancel();
+        await new Promise<void>((resolve) => setTimeout(resolve, 200 * 2 ** attempt));
+      }
     }
+    if (lastResponse) return lastResponse;
+    throw lastFailure;
   }
 
   private static isRetryableNetworkFailure(caught: unknown): boolean {
@@ -146,17 +152,11 @@ export class Transport {
     return Transport.RETRYABLE_NETWORK_CODES.includes(cause.code);
   }
 
-  /** Distinguishes why `fetch` itself failed: the deadline, the caller's own
-   * signal, or the request never landing at all. */
-  private transportFailure(request: TransportRequest, abortSignals: AbortSignals, caught: unknown): Error {
-    const firedBy = abortSignals.firedBy();
-    if (firedBy === "timeout") {
+  private createCancellationError(request: TransportRequest, abortSignals: AbortSignals): Error {
+    if (abortSignals.firedBy() === "timeout") {
       return new TimeoutError(request.method, request.path, request.timeoutMilliseconds ?? this.options.timeoutMilliseconds ?? 0);
     }
-    if (firedBy === "caller") {
-      return new RequestAbortedError(request.method, request.path);
-    }
-    return new NetworkError(request.method, request.path, caught);
+    return new RequestAbortedError(request.method, request.path);
   }
 
   private buildHeaders(request: TransportRequest, isUpload: boolean): Record<string, string> {

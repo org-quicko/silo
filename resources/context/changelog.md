@@ -5,17 +5,11 @@
 > there.
 
 - **TypeScript client GET retries (2026-10-22).** Client `1.7.0-alpha.0`
-  retries recognized temporary network failures and HTTP 5xx twice, after
-  200 ms and 400 ms. Backoff uses ordinary timers, without Retry-After or a
-  cancellable-wait helper. Cancellation and the shared deadline prevent the
-  next attempt, but let a pending delay finish. The loop is bounded to three
-  attempts for GET and one for other methods. One catch classifies failures;
-  exhaustion throws the last failure after the loop. Backoff only happens
-  between attempts, without a first-attempt special case or an attempt-count
-  gate in the catch. Finally disposes the request timer.
-  Writes, HTTP 4xx and invalid JSON are not retried. The response
-  cache remains the only client cache. No server or application deployment
-  is part of this change.
+  makes up to three GET attempts for temporary connection failures and HTTP
+  5xx, with ordinary 200 ms and 400 ms backoff timers. Other methods make one
+  attempt. `fetchWithRetries` handles fetching; `execute` maps HTTP errors
+  and decodes the response under the shared cancellation signal and deadline.
+  The existing response cache stores successfully decoded JSON.
 
 - **A populated collection's schema can change to one its entries satisfy
   (2026-10-19, D70 rewritten in place).** A save used to be refused whenever

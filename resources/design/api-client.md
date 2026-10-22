@@ -200,29 +200,19 @@ unreachable host needs the composed signal to remember which source fired,
 which is what `AbortSignals` is for; `AbortSignal.any` would have done it and
 Node 18 does not have it.
 
-GET requests retry at most twice, after 200 ms and 400 ms, for recognized
-temporary network failures and HTTP status 500 and above. The
-transport keeps one deadline across attempts and response decoding. Backoff
-uses ordinary timers, not a cancellable wait helper. Cancellation and timeout
-are checked before each attempt; if either occurs during backoff, the call
-rejects after the current delay, up to 400 ms later, without another request.
-The loop is bounded to three attempts for GET and one for other methods.
-One catch maps each failure and decides whether it is retryable, without
-checking the attempt count. Non-retryable failures propagate immediately;
-exhaustion throws the last failure after the loop. Backoff happens after a
-failed attempt, only when another attempt remains. HTTP error bodies are read
-through the existing error factory. The outer finally disposes the request
-timer. Delays do not use Retry-After.
-Only a completely decoded success reaches the existing
-cache. Streaming reads can retry before returning the stream, never after it
-has been handed to the caller.
+`fetchWithRetries` owns the HTTP attempt loop. GET requests make up to three
+attempts for recognized temporary connection failures and HTTP status 500 and
+above. Other methods make one attempt. Backoff uses ordinary timers, with
+200 ms and 400 ms delays between attempts. The catch translates fetch failures
+and checks their retry eligibility. HTTP status handling uses the received
+response directly.
 
-Writes and other HTTP methods are never retried. A retried POST can create a
-duplicate entry, and a revision-sensitive write can have committed despite a
-lost response. A NetworkError on a write therefore still says to reconcile.
-HTTP 4xx responses, invalid JSON and unknown programming failures are not
-retryable. This changes the original no-retry policy for GET only, without
-adding a retry framework, dependency, cache layer or application-specific hook.
+`execute` processes the response after fetching: HTTP errors go through
+`ErrorFactory`, successful responses invalidate the declared cache entries
+and pass to the response decoder. The existing response cache stores
+successfully decoded JSON. One cancellation signal and deadline apply across
+attempts and response reading. Cancellation is checked before each attempt;
+the request timer is disposed when processing settles.
 
 The `fetch` the transport calls is **bound at construction and called without a
 receiver.** `options.fetch ?? fetch` held in a field and invoked as
@@ -233,7 +223,7 @@ undici does not. The client therefore failed *every* request in a browser
 unless the caller passed a fetch of their own, and nothing could see it: the
 server side runs on undici, every unit test passes `StubFetch`, and the admin
 UI passes a wrapper that watches for a 401. The default is now
-`globalThis.fetch` bound to the global, and `execute` reads the field into a
+`globalThis.fetch` bound to the global, and `fetchWithRetries` reads the field into a
 local before calling it — belt and braces, but the second half is the invariant
 worth stating, since `FetchTransport` is never a legitimate receiver for a
 caller's function either and an unbound `window.fetch` handed over as

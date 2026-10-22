@@ -57,8 +57,9 @@ describe("Silo collection read retries", () => {
     expect((await posts.get("first")).title).toBe("Recovered");
   });
 
-  test("retries an interrupted JSON download without caching the partial response", async () => {
+  test("reports an interrupted JSON download and allows a fresh read", async () => {
     let interrupted = true;
+    const failure = new TypeError("terminated", { cause: { code: "UND_ERR_SOCKET" } });
     const posts = new Silo({
       url: server.url.toString(), cache: { enabled: true, ttl: 60_000, maxSize: 10 },
       fetch: async (input, init) => {
@@ -67,14 +68,13 @@ describe("Silo collection read retries", () => {
         return new Response(new ReadableStream({
           start(controller) {
             controller.enqueue(new TextEncoder().encode('{"id":"first",'));
-            controller.error(new TypeError("terminated", { cause: { code: "UND_ERR_SOCKET" } }));
+            controller.error(failure);
           },
         }), { headers: { "content-type": "application/json" } });
       },
     }).scope("acme", "dev").collection("posts");
 
-    expect((await posts.get("first")).title).toBe("Recovered");
-    respond = () => new Response("No new read should be needed", { status: 503 });
+    await expect(posts.get("first")).rejects.toBe(failure);
     expect((await posts.get("first")).title).toBe("Recovered");
   });
 

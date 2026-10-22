@@ -122,12 +122,11 @@ one); `docs/` is the public Mintlify site.
 **Open work:**
 
 The TypeScript client on `feature/silo-client-retries` is `1.7.0-alpha.0`.
-GET requests retry temporary network failures and HTTP 5xx twice, after
-200 ms and 400 ms, with ordinary timers and the existing response cache.
-Cancellation and the shared deadline are checked before each attempt; a
-pending delay finishes first. The loop is bounded to three attempts for GET
-and one for other methods. One catch classifies failures; exhaustion throws
-the last failure. Writes and HTTP 4xx are not retried; Retry-After is not used.
+`fetchWithRetries` makes up to three GET attempts for temporary connection
+failures and HTTP 5xx, with 200 ms and 400 ms delays. Other methods make one
+attempt. `execute` handles HTTP errors and response decoding after fetching,
+under the shared cancellation signal and deadline. The existing response
+cache stores successfully decoded JSON.
 See [the client design](resources/design/api-client.md#147-four-kinds-of-failure-and-what-a-writes-outcome-is-not).
 
 - Security audit of 2026-09-18: C1–C5 and H1–H6 are fixed (D79–D85). H7–H15
