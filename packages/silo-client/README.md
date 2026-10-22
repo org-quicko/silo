@@ -403,14 +403,14 @@ The same deadline covers the request, response body and any retry delays.
 ## Read retries
 
 GET requests retry at most twice, after 200 ms and 400 ms, for recognized
-temporary connection failures or HTTP `408`, `429`, `500`, `502`, `503` and
-`504`. A valid `Retry-After` header can extend the delay. Cancellation or an
-expired deadline stops retries and pending waits. Successful JSON reads enter
-the existing cache; failed attempts do not.
+temporary connection failures or HTTP status `500` and above. These fixed
+delays do not use `Retry-After`. Cancellation or an expired deadline stops
+retries and pending waits. Successful JSON reads enter the existing cache;
+failed attempts do not.
 
 Writes are never retried. A `NetworkError` on a write does not prove that the
-write failed. Authentication, validation and malformed JSON errors are not
-retried. A stream is not restarted after it has been handed to the caller.
+write failed. HTTP 4xx responses and malformed JSON errors are not retried.
+A stream is not restarted after it has been handed to the caller.
 
 ## Anonymous reads
 

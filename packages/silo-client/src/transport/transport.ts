@@ -29,7 +29,6 @@ export interface TransportOptions {
  * apart.
  */
 export class Transport {
-  private static readonly RETRYABLE_HTTP_STATUSES = [408, 429, 500, 502, 503, 504];
   private static readonly RETRYABLE_NETWORK_CODES = [
     "UND_ERR_SOCKET", "ECONNRESET", "ECONNREFUSED", "EPIPE", "EAI_AGAIN", "ETIMEDOUT",
     "UND_ERR_CONNECT_TIMEOUT", "UND_ERR_HEADERS_TIMEOUT", "UND_ERR_BODY_TIMEOUT",
@@ -118,29 +117,22 @@ export class Transport {
           this.cache.invalidate(request.evicts);
           return await readResponse(response);
         } catch (caught) {
-          if (abortSignals.signal.aborted) throw this.transportFailure(request, abortSignals, caught);
           const isRetryableNetworkFailure = Transport.isRetryableNetworkFailure(caught);
-          const failure = response && !isRetryableNetworkFailure ? caught : this.transportFailure(request, abortSignals, caught);
-          const shouldRetry = request.method === "GET" && retryCount < 2 && (
-            (isRetryableNetworkFailure && (!response || response.ok)) ||
-            (response !== undefined && Transport.RETRYABLE_HTTP_STATUSES.includes(response.status))
-          );
-          if (!shouldRetry) throw failure;
-
-          const retryAfterHeader = response?.headers.get("retry-after");
-          const retryAfterMilliseconds = retryAfterHeader
-            ? (/^\d+$/.test(retryAfterHeader.trim()) ? Number(retryAfterHeader) * 1000 : Date.parse(retryAfterHeader) - Date.now())
-            : 0;
-          const retryDelayMilliseconds = Math.max(200 * 2 ** retryCount, Number.isNaN(retryAfterMilliseconds) ? 0 : retryAfterMilliseconds);
-          // Oversized setTimeout values run almost immediately instead of waiting.
-          if (retryDelayMilliseconds > 2_147_483_647) throw failure;
-          try {
-            await abortSignals.wait(retryDelayMilliseconds);
-          } catch (caught) {
-            throw this.transportFailure(request, abortSignals, caught);
+          const isRetryableFailure = response && !response.ok
+            ? response.status >= 500
+            : isRetryableNetworkFailure;
+          if (request.method !== "GET" || retryCount >= 2 || !isRetryableFailure) {
+            if (!response || isRetryableNetworkFailure) {
+              throw this.transportFailure(request, abortSignals, caught);
+            }
+            throw caught;
           }
         }
+        await abortSignals.wait(200 * 2 ** retryCount);
       }
+    } catch (caught) {
+      if (abortSignals.signal.aborted) throw this.transportFailure(request, abortSignals, caught);
+      throw caught;
     } finally {
       abortSignals.dispose();
     }

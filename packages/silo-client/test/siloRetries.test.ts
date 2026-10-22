@@ -45,6 +45,18 @@ describe("Silo collection read retries", () => {
     expect((await posts.get("first")).title).toBe("Recovered");
   });
 
+  test("retries any server error, including a 501 response", async () => {
+    let unavailable = true;
+    respond = () => {
+      if (!unavailable) return Response.json({ id: "first", rev: 1, title: "Recovered" });
+      unavailable = false;
+      return new Response("Server failure", { status: 501 });
+    };
+    const posts = new Silo({ url: server.url.toString() }).scope("acme", "dev").collection("posts");
+
+    expect((await posts.get("first")).title).toBe("Recovered");
+  });
+
   test("retries an interrupted JSON download without caching the partial response", async () => {
     let interrupted = true;
     const posts = new Silo({
@@ -119,6 +131,19 @@ describe("Silo collection read retries", () => {
     expect((await posts.get("first")).title).toBe("Recovered");
   });
 
+  test("returns a rate-limit error without retrying", async () => {
+    let limited = true;
+    respond = () => {
+      if (!limited) return Response.json({ id: "first", rev: 1, title: "Recovered" });
+      limited = false;
+      return new Response("Rate limited", { status: 429 });
+    };
+    const posts = new Silo({ url: server.url.toString() }).scope("acme", "dev").collection("posts");
+
+    await expect(posts.get("first")).rejects.toMatchObject({ status: 429, message: "Rate limited" });
+    expect((await posts.get("first")).title).toBe("Recovered");
+  });
+
   test("does not retry invalid JSON", async () => {
     let malformed = true;
     respond = () => {
@@ -142,27 +167,11 @@ describe("Silo collection read retries", () => {
     expect(requests).toBe(1);
   });
 
-  test.each([
-    { format: "seconds", header: () => "1" },
-    { format: "HTTP date", header: () => new Date(Date.now() + 3000).toUTCString() },
-  ])("respects Retry-After as $format within the original deadline", async ({ header }) => {
-    let limited = true;
-    respond = () => {
-      if (!limited) return Response.json({ id: "first", rev: 1, title: "Too early" });
-      limited = false;
-      return new Response("Rate limited", { status: 429, headers: { "retry-after": header() } });
-    };
-    const posts = new Silo({ url: server.url.toString(), timeoutMilliseconds: 350 })
-      .scope("acme", "dev").collection("posts");
-
-    await expect(posts.get("first")).rejects.toBeInstanceOf(TimeoutError);
-  });
-
-  test("caller cancellation interrupts a long retry wait", async () => {
+  test("caller cancellation interrupts backoff", async () => {
     const controller = new AbortController();
     respond = () => {
       setTimeout(() => controller.abort(), 25);
-      return new Response("Unavailable", { status: 503, headers: { "retry-after": "60" } });
+      return new Response("Unavailable", { status: 503 });
     };
     const posts = new Silo({ url: server.url.toString() }).scope("acme", "dev").collection("posts");
 
@@ -182,15 +191,4 @@ describe("Silo collection read retries", () => {
     await expect(posts.get("first")).rejects.toBeInstanceOf(TimeoutError);
   });
 
-  test("does not retry early when Retry-After cannot fit in a timer", async () => {
-    let unavailable = true;
-    respond = () => {
-      if (!unavailable) return Response.json({ id: "first", rev: 1, title: "Too early" });
-      unavailable = false;
-      return new Response("Unavailable", { status: 503, headers: { "retry-after": "9".repeat(400) } });
-    };
-    const posts = new Silo({ url: server.url.toString() }).scope("acme", "dev").collection("posts");
-
-    await expect(posts.get("first")).rejects.toBeInstanceOf(SiloError);
-  });
 });

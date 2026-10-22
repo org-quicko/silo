@@ -201,19 +201,18 @@ which is what `AbortSignals` is for; `AbortSignal.any` would have done it and
 Node 18 does not have it.
 
 GET requests retry at most twice, after 200 ms and 400 ms, for recognized
-temporary network failures and HTTP 408, 429, 500, 502, 503 and 504. The
+temporary network failures and HTTP status 500 and above. The
 transport keeps one deadline across attempts, response decoding and waits;
-caller cancellation also interrupts the wait. Retry-After accepts seconds or
-an HTTP date and can extend the wait. An unrepresentable timer delay is refused
-rather than shortened. Only a completely decoded success reaches the existing
+caller cancellation also interrupts the wait. Delays are fixed and do not use
+Retry-After. Only a completely decoded success reaches the existing
 cache. Streaming reads can retry before returning the stream, never after it
 has been handed to the caller.
 
 Writes and other HTTP methods are never retried. A retried POST can create a
 duplicate entry, and a revision-sensitive write can have committed despite a
 lost response. A NetworkError on a write therefore still says to reconcile.
-Authentication, validation, invalid JSON and unknown programming failures are
-not retryable. This changes the original no-retry policy for GET only, without
+HTTP 4xx responses, invalid JSON and unknown programming failures are not
+retryable. This changes the original no-retry policy for GET only, without
 adding a retry framework, dependency, cache layer or application-specific hook.
 
 The `fetch` the transport calls is **bound at construction and called without a

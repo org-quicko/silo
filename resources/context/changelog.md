@@ -5,10 +5,10 @@
 > there.
 
 - **TypeScript client GET retries (2026-10-22).** Client `1.7.0-alpha.0`
-  retries recognized temporary network failures and HTTP 408, 429, 500, 502,
-  503 and 504 twice, after 200 ms and 400 ms. Retry-After can extend the wait;
-  the original deadline and caller cancellation cover attempts and delays.
-  Writes, invalid JSON and permanent errors are not retried. The response
+  retries recognized temporary network failures and HTTP 5xx twice, after
+  200 ms and 400 ms. Delays do not use Retry-After. The original deadline and
+  caller cancellation cover attempts and delays in one place.
+  Writes, HTTP 4xx and invalid JSON are not retried. The response
   cache remains the only client cache. No server or application deployment
   is part of this change.
 
