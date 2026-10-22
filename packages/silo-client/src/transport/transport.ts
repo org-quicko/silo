@@ -102,41 +102,40 @@ export class Transport {
 
     try {
       for (let retryCount = 0; ; retryCount++) {
-        abortSignals.signal.throwIfAborted();
         const canRetry = request.method === "GET" && retryCount < 2;
         let response: Response | undefined;
         try {
+          if (retryCount > 0) {
+            await new Promise<void>((resolve) => setTimeout(resolve, 200 * 2 ** (retryCount - 1)));
+          }
+          abortSignals.signal.throwIfAborted();
           response = await sendRequest(url, {
             method: request.method,
             headers: this.buildHeaders(request, Boolean(form)),
             body: form ?? (request.body === undefined ? undefined : JSON.stringify(request.body)),
             signal: abortSignals.signal,
           });
-          if (response.ok) {
-            this.cache.invalidate(request.evicts);
-            return await readResponse(response);
-          }
-        } catch (caught) {
-          const isRetryableNetworkFailure = Transport.isRetryableNetworkFailure(caught);
-          if (response && !isRetryableNetworkFailure) throw caught;
-          if (!canRetry || !isRetryableNetworkFailure) {
-            throw new NetworkError(request.method, request.path, caught);
-          }
-        }
-
-        if (response && !response.ok) {
-          if (!canRetry || response.status < 500) {
+          if (!response.ok) {
+            if (canRetry && response.status >= 500) {
+              await response.body?.cancel();
+              continue;
+            }
             throw ErrorFactory.fromResponseBody(response.status, request.method, request.path, await response.text());
           }
-          await response.body?.cancel();
+          this.cache.invalidate(request.evicts);
+          return await readResponse(response);
+        } catch (caught) {
+          if (abortSignals.signal.aborted) throw this.transportFailure(request, abortSignals, caught);
+          const isRetryableNetworkFailure = Transport.isRetryableNetworkFailure(caught);
+          if (canRetry && isRetryableNetworkFailure && (!response || response.ok)) {
+            continue;
+          }
+          if (!response || isRetryableNetworkFailure) {
+            throw new NetworkError(request.method, request.path, caught);
+          }
+          throw caught;
         }
-        await new Promise<void>((resolve) => setTimeout(resolve, 200 * 2 ** retryCount));
       }
-    } catch (caught) {
-      if (abortSignals.signal.aborted || Transport.isRetryableNetworkFailure(caught)) {
-        throw this.transportFailure(request, abortSignals, caught);
-      }
-      throw caught;
     } finally {
       abortSignals.dispose();
     }

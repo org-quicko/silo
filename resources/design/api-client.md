@@ -206,8 +206,10 @@ transport keeps one deadline across attempts and response decoding. Backoff
 uses ordinary timers, not a cancellable wait helper. Cancellation and timeout
 are checked before each attempt; if either occurs during backoff, the call
 rejects after the current delay, up to 400 ms later, without another request.
-HTTP status handling is outside the network/decoding catch. Intermediate 5xx
-response bodies are cancelled before retrying. Delays do not use Retry-After.
+HTTP 5xx retries are handled directly in the response path. One catch handles
+cancellation, retryable connection failures and final error propagation; the
+outer finally only disposes the request timer. Intermediate 5xx response
+bodies are cancelled before retrying. Delays do not use Retry-After.
 Only a completely decoded success reaches the existing
 cache. Streaming reads can retry before returning the stream, never after it
 has been handed to the caller.

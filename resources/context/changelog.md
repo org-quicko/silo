@@ -8,8 +8,9 @@
   retries recognized temporary network failures and HTTP 5xx twice, after
   200 ms and 400 ms. Backoff uses ordinary timers, without Retry-After or a
   cancellable-wait helper. Cancellation and the shared deadline prevent the
-  next attempt, but let a pending delay finish. HTTP status handling is
-  separate from the network/decoding catch.
+  next attempt, but let a pending delay finish. HTTP 5xx retries are handled
+  in the response path, with one catch for failures and a finally for timer
+  cleanup. There is no outer error-classification catch.
   Writes, HTTP 4xx and invalid JSON are not retried. The response
   cache remains the only client cache. No server or application deployment
   is part of this change.
