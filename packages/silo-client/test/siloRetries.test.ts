@@ -118,6 +118,32 @@ describe("Silo collection read retries", () => {
     expect((await posts.list()).entries).toHaveLength(1);
   });
 
+  test("does not repeat a write when its response is lost after creating the entry", async () => {
+    const stored: Array<{ id: string; rev: number; title: string }> = [];
+    respond = (request) => {
+      if (request.method === "POST") {
+        const entry = { id: String(stored.length + 1), rev: 1, title: "Created once" };
+        stored.push(entry);
+        return Response.json(entry);
+      }
+      return Response.json({ data: stored, total: stored.length, limit: 50, offset: 0 });
+    };
+    const posts = new Silo({
+      url: server.url.toString(),
+      fetch: async (input, init) => {
+        const response = await fetch(input, init);
+        if (init?.method === "POST") {
+          await response.body?.cancel();
+          throw new TypeError("fetch failed", { cause: { code: "ECONNRESET" } });
+        }
+        return response;
+      },
+    }).scope("acme", "dev").collection("posts");
+
+    await expect(posts.create({ title: "Create once" })).rejects.toBeInstanceOf(NetworkError);
+    expect((await posts.list()).entries).toHaveLength(1);
+  });
+
   test("does not retry authentication failures or cache the refusal", async () => {
     let forbidden = true;
     respond = () => {

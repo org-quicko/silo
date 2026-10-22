@@ -94,6 +94,8 @@ export class Transport {
   private async execute<T>(request: TransportRequest, readResponse: (response: Response) => Promise<T>, form?: FormData): Promise<T> {
     const abortSignals = new AbortSignals(request.signal, request.timeoutMilliseconds ?? this.options.timeoutMilliseconds);
     const url = `${this.url}${request.path}${QueryString.build(request.query)}`;
+    const maxAttempts = request.method === "GET" ? 3 : 1;
+    let lastFailure: unknown;
 
     // Read into a local so the call carries no receiver. `this.fetchFunction(...)`
     // is a method call, which would hand the `Transport` to `fetch` as its
@@ -101,13 +103,9 @@ export class Transport {
     const sendRequest = this.fetchFunction;
 
     try {
-      for (let retryCount = 0; ; retryCount++) {
-        const canRetry = request.method === "GET" && retryCount < 2;
+      for (let attempt = 0; attempt < maxAttempts; attempt++) {
         let response: Response | undefined;
         try {
-          if (retryCount > 0) {
-            await new Promise<void>((resolve) => setTimeout(resolve, 200 * 2 ** (retryCount - 1)));
-          }
           abortSignals.signal.throwIfAborted();
           response = await sendRequest(url, {
             method: request.method,
@@ -116,10 +114,6 @@ export class Transport {
             signal: abortSignals.signal,
           });
           if (!response.ok) {
-            if (canRetry && response.status >= 500) {
-              await response.body?.cancel();
-              continue;
-            }
             throw ErrorFactory.fromResponseBody(response.status, request.method, request.path, await response.text());
           }
           this.cache.invalidate(request.evicts);
@@ -127,15 +121,19 @@ export class Transport {
         } catch (caught) {
           if (abortSignals.signal.aborted) throw this.transportFailure(request, abortSignals, caught);
           const isRetryableNetworkFailure = Transport.isRetryableNetworkFailure(caught);
-          if (canRetry && isRetryableNetworkFailure && (!response || response.ok)) {
-            continue;
-          }
-          if (!response || isRetryableNetworkFailure) {
-            throw new NetworkError(request.method, request.path, caught);
-          }
-          throw caught;
+          lastFailure = response && !isRetryableNetworkFailure
+            ? caught
+            : new NetworkError(request.method, request.path, caught);
+          const isRetryableFailure = response && !response.ok
+            ? response.status >= 500
+            : isRetryableNetworkFailure;
+          if (!isRetryableFailure) throw lastFailure;
+        }
+        if (attempt + 1 < maxAttempts) {
+          await new Promise<void>((resolve) => setTimeout(resolve, 200 * 2 ** attempt));
         }
       }
+      throw lastFailure;
     } finally {
       abortSignals.dispose();
     }
