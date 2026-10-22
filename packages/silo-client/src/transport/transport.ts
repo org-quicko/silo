@@ -94,7 +94,7 @@ export class Transport {
   private async execute<T>(request: TransportRequest, readResponse: (response: Response) => Promise<T>, form?: FormData): Promise<T> {
     const abortSignals = new AbortSignals(request.signal, request.timeoutMilliseconds ?? this.options.timeoutMilliseconds);
     try {
-      const response = await this.fetchWithRetries(request, abortSignals, form);
+      const response = await this.fetchWithRetries(request, abortSignals.signal, form);
       if (!response.ok) {
         throw ErrorFactory.fromResponseBody(response.status, request.method, request.path, await response.text());
       }
@@ -108,41 +108,33 @@ export class Transport {
     }
   }
 
-  private async fetchWithRetries(request: TransportRequest, abortSignals: AbortSignals, form?: FormData): Promise<Response> {
+  private async fetchWithRetries(request: TransportRequest, signal: AbortSignal, form?: FormData, retryCount = 0): Promise<Response> {
     const url = `${this.url}${request.path}${QueryString.build(request.query)}`;
-    const maxAttempts = request.method === "GET" ? 3 : 1;
-    let lastResponse: Response | undefined;
-    let lastFailure: unknown;
+    const canRetry = request.method === "GET" && retryCount < 2;
+    let response: Response | undefined;
 
     // Read into a local so the call carries no receiver. `this.fetchFunction(...)`
     // is a method call, which would hand the `Transport` to `fetch` as its
     // `this` — a browser rejects that outright ("Illegal invocation").
     const sendRequest = this.fetchFunction;
 
-    for (let attempt = 0; attempt < maxAttempts; attempt++) {
-      try {
-        abortSignals.signal.throwIfAborted();
-        lastResponse = await sendRequest(url, {
-          method: request.method,
-          headers: this.buildHeaders(request, Boolean(form)),
-          body: form ?? (request.body === undefined ? undefined : JSON.stringify(request.body)),
-          signal: abortSignals.signal,
-        });
-        if (lastResponse.status < 500) return lastResponse;
-      } catch (caught) {
-        lastResponse = undefined;
-        lastFailure = new NetworkError(request.method, request.path, caught);
-        if (abortSignals.signal.aborted || !Transport.isRetryableNetworkFailure(caught)) {
-          throw lastFailure;
-        }
-      }
-      if (attempt + 1 < maxAttempts) {
-        await lastResponse?.body?.cancel();
-        await new Promise<void>((resolve) => setTimeout(resolve, 200 * 2 ** attempt));
+    signal.throwIfAborted();
+    try {
+      response = await sendRequest(url, {
+        method: request.method,
+        headers: this.buildHeaders(request, Boolean(form)),
+        body: form ?? (request.body === undefined ? undefined : JSON.stringify(request.body)),
+        signal,
+      });
+    } catch (caught) {
+      if (!canRetry || signal.aborted || !Transport.isRetryableNetworkFailure(caught)) {
+        throw new NetworkError(request.method, request.path, caught);
       }
     }
-    if (lastResponse) return lastResponse;
-    throw lastFailure;
+    if (response && (response.status < 500 || !canRetry)) return response;
+    await response?.body?.cancel();
+    await new Promise<void>((resolve) => setTimeout(resolve, 200 * 2 ** retryCount));
+    return this.fetchWithRetries(request, signal, form, retryCount + 1);
   }
 
   private static isRetryableNetworkFailure(caught: unknown): boolean {

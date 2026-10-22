@@ -200,12 +200,12 @@ unreachable host needs the composed signal to remember which source fired,
 which is what `AbortSignals` is for; `AbortSignal.any` would have done it and
 Node 18 does not have it.
 
-`fetchWithRetries` owns the HTTP attempt loop. GET requests make up to three
-attempts for recognized temporary connection failures and HTTP status 500 and
-above. Other methods make one attempt. Backoff uses ordinary timers, with
-200 ms and 400 ms delays between attempts. The catch translates fetch failures
-and checks their retry eligibility. HTTP status handling uses the received
-response directly.
+`fetchWithRetries` makes one HTTP attempt per call. A GET can retry twice for
+recognized temporary connection failures and HTTP status 500 and above.
+It waits 200 ms, then 400 ms, and calls itself with the next retry count.
+Other methods make one attempt. The fetch catch throws `NetworkError` when
+the failure ends the request. HTTP status handling uses the received response
+directly.
 
 `execute` processes the response after fetching: HTTP errors go through
 `ErrorFactory`, successful responses invalidate the declared cache entries

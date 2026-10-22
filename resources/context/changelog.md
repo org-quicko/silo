@@ -7,8 +7,9 @@
 - **TypeScript client GET retries (2026-10-22).** Client `1.7.0-alpha.0`
   makes up to three GET attempts for temporary connection failures and HTTP
   5xx, with ordinary 200 ms and 400 ms backoff timers. Other methods make one
-  attempt. `fetchWithRetries` handles fetching; `execute` maps HTTP errors
-  and decodes the response under the shared cancellation signal and deadline.
+  attempt. `fetchWithRetries` makes one attempt per call and passes the retry
+  count to its next call; `execute` maps HTTP errors and decodes the response
+  under the shared cancellation signal and deadline.
   The existing response cache stores successfully decoded JSON.
 
 - **A populated collection's schema can change to one its entries satisfy
