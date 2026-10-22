@@ -200,12 +200,21 @@ unreachable host needs the composed signal to remember which source fired,
 which is what `AbortSignals` is for; `AbortSignal.any` would have done it and
 Node 18 does not have it.
 
-Nothing is retried. A retried `POST` to a collection is a duplicate entry and
-a retried `409` is wrong by definition, so retry policy belongs to the only
-layer that knows whether a call was idempotent. For the same reason a
-`NetworkError` on a write does not claim the write failed: the request never
-landed, which is not evidence about what the server did, and the message says
-to reconcile rather than to retry.
+GET requests retry at most twice, after 200 ms and 400 ms, for recognized
+temporary network failures and HTTP 408, 429, 500, 502, 503 and 504. The
+transport keeps one deadline across attempts, response decoding and waits;
+caller cancellation also interrupts the wait. Retry-After accepts seconds or
+an HTTP date and can extend the wait. An unrepresentable timer delay is refused
+rather than shortened. Only a completely decoded success reaches the existing
+cache. Streaming reads can retry before returning the stream, never after it
+has been handed to the caller.
+
+Writes and other HTTP methods are never retried. A retried POST can create a
+duplicate entry, and a revision-sensitive write can have committed despite a
+lost response. A NetworkError on a write therefore still says to reconcile.
+Authentication, validation, invalid JSON and unknown programming failures are
+not retryable. This changes the original no-retry policy for GET only, without
+adding a retry framework, dependency, cache layer or application-specific hook.
 
 The `fetch` the transport calls is **bound at construction and called without a
 receiver.** `options.fetch ?? fetch` held in a field and invoked as
@@ -317,8 +326,9 @@ is also no generic `request()` escape hatch: without one, a route the client
 does not cover is a client change, which is the point of `RouteInventory`.
 
 An enveloped entry response — the thing that would let a field be named `rev`
-— is a server change and is not attempted here. Retries and framework adapters
-remain outside the client. Optional read caching is described in §14.10.
+— is a server change and is not attempted here. Framework adapters and write
+retries remain outside the client. Bounded GET retries are described in §14.7,
+and optional read caching in §14.10.
 
 The admin UI keeps its own `src/api/` for now. The client is shaped so
 `apps/admin` can adopt it, and §14.2's split is what would make that swap

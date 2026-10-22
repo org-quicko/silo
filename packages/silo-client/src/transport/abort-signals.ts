@@ -48,6 +48,22 @@ export class AbortSignals {
     return this.reason;
   }
 
+  /** Waits within this request's existing cancellation and timeout budget. */
+  wait(milliseconds: number): Promise<void> {
+    this.signal.throwIfAborted();
+    return new Promise((resolve, reject) => {
+      const onAbort = (): void => {
+        clearTimeout(timer);
+        reject(this.signal.reason);
+      };
+      const timer = setTimeout(() => {
+        this.signal.removeEventListener("abort", onAbort);
+        resolve();
+      }, milliseconds);
+      this.signal.addEventListener("abort", onAbort, { once: true });
+    });
+  }
+
   /** Removes the listeners and clears the timer. Idempotent. */
   dispose(): void {
     for (const cleanup of this.cleanups.splice(0)) cleanup();

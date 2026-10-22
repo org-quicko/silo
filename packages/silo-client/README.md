@@ -398,8 +398,19 @@ await movies.get(id, { timeoutMilliseconds: 2_000 })
 ```
 
 `abort()` raises `RequestAbortedError`, and the deadline raises `TimeoutError`.
-Nothing is retried for you. A retried `POST` creates a second entry, and only
-the caller knows whether a call was safe to repeat.
+The same deadline covers the request, response body and any retry delays.
+
+## Read retries
+
+GET requests retry at most twice, after 200 ms and 400 ms, for recognized
+temporary connection failures or HTTP `408`, `429`, `500`, `502`, `503` and
+`504`. A valid `Retry-After` header can extend the delay. Cancellation or an
+expired deadline stops retries and pending waits. Successful JSON reads enter
+the existing cache; failed attempts do not.
+
+Writes are never retried. A `NetworkError` on a write does not prove that the
+write failed. Authentication, validation and malformed JSON errors are not
+retried. A stream is not restarted after it has been handed to the caller.
 
 ## Anonymous reads
 

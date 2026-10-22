@@ -29,6 +29,11 @@ export interface TransportOptions {
  * apart.
  */
 export class Transport {
+  private static readonly RETRYABLE_HTTP_STATUSES = [408, 429, 500, 502, 503, 504];
+  private static readonly RETRYABLE_NETWORK_CODES = [
+    "UND_ERR_SOCKET", "ECONNRESET", "ECONNREFUSED", "EPIPE", "EAI_AGAIN", "ETIMEDOUT",
+    "UND_ERR_CONNECT_TIMEOUT", "UND_ERR_HEADERS_TIMEOUT", "UND_ERR_BODY_TIMEOUT",
+  ];
   readonly cache: ResponseCache;
   private readonly url: string;
   private readonly fetchFunction: FetchFunction;
@@ -47,34 +52,33 @@ export class Transport {
   }
 
   private async fetchJson<T>(request: TransportRequest): Promise<T> {
-    const response = await this.execute(request);
-    return (await ResponseDecoder.decode(response, request, true)) as T;
+    return this.execute(request, async (response) => (await ResponseDecoder.decode(response, request, true)) as T);
   }
 
   /** For a `204` response: decodes it, and discards the result. */
   async empty(request: TransportRequest): Promise<void> {
-    const response = await this.execute(request);
-    await ResponseDecoder.decode(response, request, false);
+    await this.execute(request, async (response) => {
+      await ResponseDecoder.decode(response, request, false);
+    });
   }
 
   /** `empty`, but answering the response headers — for a 204 that carries its
    *  result in one, which is how a delete reports its trash receipt (D113). */
   async emptyWithHeaders(request: TransportRequest): Promise<Headers> {
-    const response = await this.execute(request);
-    await ResponseDecoder.decode(response, request, false);
-    return response.headers;
+    return this.execute(request, async (response) => {
+      await ResponseDecoder.decode(response, request, false);
+      return response.headers;
+    });
   }
 
   async stream(request: TransportRequest): Promise<ReadableStream<Uint8Array> | null> {
-    const response = await this.execute(request);
-    return response.body;
+    return this.execute(request, async (response) => response.body);
   }
 
   /** Multipart upload. Never sets `Content-Type` by hand — the runtime sets
    * it, boundary included, from the `FormData` body. */
   async upload<T>(request: TransportRequest, form: FormData): Promise<T> {
-    const response = await this.execute(request, form);
-    return (await ResponseDecoder.decode(response, request, true)) as T;
+    return this.execute(request, async (response) => (await ResponseDecoder.decode(response, request, true)) as T, form);
   }
 
   /** A new `Transport` reading a different key, sharing everything else. */
@@ -88,7 +92,7 @@ export class Transport {
     return new Transport({ ...this.options, url });
   }
 
-  private async execute(request: TransportRequest, form?: FormData): Promise<Response> {
+  private async execute<T>(request: TransportRequest, readResponse: (response: Response) => Promise<T>, form?: FormData): Promise<T> {
     const abortSignals = new AbortSignals(request.signal, request.timeoutMilliseconds ?? this.options.timeoutMilliseconds);
     const url = `${this.url}${request.path}${QueryString.build(request.query)}`;
 
@@ -97,25 +101,55 @@ export class Transport {
     // `this` — a browser rejects that outright ("Illegal invocation").
     const sendRequest = this.fetchFunction;
 
-    let response: Response;
     try {
-      response = await sendRequest(url, {
-        method: request.method,
-        headers: this.buildHeaders(request, Boolean(form)),
-        body: form ?? (request.body === undefined ? undefined : JSON.stringify(request.body)),
-        signal: abortSignals.signal,
-      });
-    } catch (caught) {
-      throw this.transportFailure(request, abortSignals, caught);
+      for (let retryCount = 0; ; retryCount++) {
+        let response: Response | undefined;
+        try {
+          abortSignals.signal.throwIfAborted();
+          response = await sendRequest(url, {
+            method: request.method,
+            headers: this.buildHeaders(request, Boolean(form)),
+            body: form ?? (request.body === undefined ? undefined : JSON.stringify(request.body)),
+            signal: abortSignals.signal,
+          });
+          if (!response.ok) {
+            throw ErrorFactory.fromResponseBody(response.status, request.method, request.path, await response.text());
+          }
+          this.cache.invalidate(request.evicts);
+          return await readResponse(response);
+        } catch (caught) {
+          if (abortSignals.signal.aborted) throw this.transportFailure(request, abortSignals, caught);
+          const isRetryableNetworkFailure = Transport.isRetryableNetworkFailure(caught);
+          const failure = response && !isRetryableNetworkFailure ? caught : this.transportFailure(request, abortSignals, caught);
+          const shouldRetry = request.method === "GET" && retryCount < 2 && (
+            (isRetryableNetworkFailure && (!response || response.ok)) ||
+            (response !== undefined && Transport.RETRYABLE_HTTP_STATUSES.includes(response.status))
+          );
+          if (!shouldRetry) throw failure;
+
+          const retryAfterHeader = response?.headers.get("retry-after");
+          const retryAfterMilliseconds = retryAfterHeader
+            ? (/^\d+$/.test(retryAfterHeader.trim()) ? Number(retryAfterHeader) * 1000 : Date.parse(retryAfterHeader) - Date.now())
+            : 0;
+          const retryDelayMilliseconds = Math.max(200 * 2 ** retryCount, Number.isNaN(retryAfterMilliseconds) ? 0 : retryAfterMilliseconds);
+          // Oversized setTimeout values run almost immediately instead of waiting.
+          if (retryDelayMilliseconds > 2_147_483_647) throw failure;
+          try {
+            await abortSignals.wait(retryDelayMilliseconds);
+          } catch (caught) {
+            throw this.transportFailure(request, abortSignals, caught);
+          }
+        }
+      }
     } finally {
       abortSignals.dispose();
     }
+  }
 
-    if (!response.ok) {
-      throw ErrorFactory.fromResponseBody(response.status, request.method, request.path, await response.text());
-    }
-    this.cache.invalidate(request.evicts);
-    return response;
+  private static isRetryableNetworkFailure(caught: unknown): boolean {
+    const cause = caught instanceof Error && caught.cause !== undefined ? caught.cause : caught;
+    return cause !== null && typeof cause === "object" && "code" in cause &&
+      typeof cause.code === "string" && Transport.RETRYABLE_NETWORK_CODES.includes(cause.code);
   }
 
   /** Distinguishes why `fetch` itself failed: the deadline, the caller's own

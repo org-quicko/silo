@@ -4,6 +4,14 @@
 > The *current* state is [CONTEXT.md](../../CONTEXT.md); this is how it got
 > there.
 
+- **TypeScript client GET retries (2026-10-22).** Client `1.7.0-alpha.0`
+  retries recognized temporary network failures and HTTP 408, 429, 500, 502,
+  503 and 504 twice, after 200 ms and 400 ms. Retry-After can extend the wait;
+  the original deadline and caller cancellation cover attempts and delays.
+  Writes, invalid JSON and permanent errors are not retried. The response
+  cache remains the only client cache. No server or application deployment
+  is part of this change.
+
 - **A populated collection's schema can change to one its entries satisfy
   (2026-10-19, D70 rewritten in place).** A save used to be refused whenever
   the collection held an entry and the validating shape changed. Now
