@@ -398,15 +398,17 @@ await movies.get(id, { timeoutMilliseconds: 2_000 })
 ```
 
 `abort()` raises `RequestAbortedError`, and the deadline raises `TimeoutError`.
-The same deadline covers the request, response body and any retry delays.
+The same deadline applies across attempts and response reads. Cancellation or
+timeout during backoff is reported after the current delay, up to 400 ms later.
+No further request is sent.
 
 ## Read retries
 
 GET requests retry at most twice, after 200 ms and 400 ms, for recognized
 temporary connection failures or HTTP status `500` and above. These fixed
-delays do not use `Retry-After`. Cancellation or an expired deadline stops
-retries and pending waits. Successful JSON reads enter the existing cache;
-failed attempts do not.
+delays use ordinary timers and do not use `Retry-After`. Cancellation and the
+deadline are checked before each attempt. Successful JSON reads enter the
+existing cache; failed attempts do not.
 
 Writes are never retried. A `NetworkError` on a write does not prove that the
 write failed. HTTP 4xx responses and malformed JSON errors are not retried.

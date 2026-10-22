@@ -6,8 +6,10 @@
 
 - **TypeScript client GET retries (2026-10-22).** Client `1.7.0-alpha.0`
   retries recognized temporary network failures and HTTP 5xx twice, after
-  200 ms and 400 ms. Delays do not use Retry-After. The original deadline and
-  caller cancellation cover attempts and delays in one place.
+  200 ms and 400 ms. Backoff uses ordinary timers, without Retry-After or a
+  cancellable-wait helper. Cancellation and the shared deadline prevent the
+  next attempt, but let a pending delay finish. HTTP status handling is
+  separate from the network/decoding catch.
   Writes, HTTP 4xx and invalid JSON are not retried. The response
   cache remains the only client cache. No server or application deployment
   is part of this change.

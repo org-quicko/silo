@@ -102,36 +102,40 @@ export class Transport {
 
     try {
       for (let retryCount = 0; ; retryCount++) {
+        abortSignals.signal.throwIfAborted();
+        const canRetry = request.method === "GET" && retryCount < 2;
         let response: Response | undefined;
         try {
-          abortSignals.signal.throwIfAborted();
           response = await sendRequest(url, {
             method: request.method,
             headers: this.buildHeaders(request, Boolean(form)),
             body: form ?? (request.body === undefined ? undefined : JSON.stringify(request.body)),
             signal: abortSignals.signal,
           });
-          if (!response.ok) {
-            throw ErrorFactory.fromResponseBody(response.status, request.method, request.path, await response.text());
+          if (response.ok) {
+            this.cache.invalidate(request.evicts);
+            return await readResponse(response);
           }
-          this.cache.invalidate(request.evicts);
-          return await readResponse(response);
         } catch (caught) {
           const isRetryableNetworkFailure = Transport.isRetryableNetworkFailure(caught);
-          const isRetryableFailure = response && !response.ok
-            ? response.status >= 500
-            : isRetryableNetworkFailure;
-          if (request.method !== "GET" || retryCount >= 2 || !isRetryableFailure) {
-            if (!response || isRetryableNetworkFailure) {
-              throw this.transportFailure(request, abortSignals, caught);
-            }
-            throw caught;
+          if (response && !isRetryableNetworkFailure) throw caught;
+          if (!canRetry || !isRetryableNetworkFailure) {
+            throw new NetworkError(request.method, request.path, caught);
           }
         }
-        await abortSignals.wait(200 * 2 ** retryCount);
+
+        if (response && !response.ok) {
+          if (!canRetry || response.status < 500) {
+            throw ErrorFactory.fromResponseBody(response.status, request.method, request.path, await response.text());
+          }
+          await response.body?.cancel();
+        }
+        await new Promise<void>((resolve) => setTimeout(resolve, 200 * 2 ** retryCount));
       }
     } catch (caught) {
-      if (abortSignals.signal.aborted) throw this.transportFailure(request, abortSignals, caught);
+      if (abortSignals.signal.aborted || Transport.isRetryableNetworkFailure(caught)) {
+        throw this.transportFailure(request, abortSignals, caught);
+      }
       throw caught;
     } finally {
       abortSignals.dispose();
@@ -139,9 +143,10 @@ export class Transport {
   }
 
   private static isRetryableNetworkFailure(caught: unknown): boolean {
-    const cause = caught instanceof Error && caught.cause !== undefined ? caught.cause : caught;
-    return cause !== null && typeof cause === "object" && "code" in cause &&
-      typeof cause.code === "string" && Transport.RETRYABLE_NETWORK_CODES.includes(cause.code);
+    const cause = caught instanceof Error ? caught.cause ?? caught : caught;
+    if (cause === null || typeof cause !== "object") return false;
+    if (!("code" in cause) || typeof cause.code !== "string") return false;
+    return Transport.RETRYABLE_NETWORK_CODES.includes(cause.code);
   }
 
   /** Distinguishes why `fetch` itself failed: the deadline, the caller's own

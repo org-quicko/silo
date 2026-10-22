@@ -202,9 +202,13 @@ Node 18 does not have it.
 
 GET requests retry at most twice, after 200 ms and 400 ms, for recognized
 temporary network failures and HTTP status 500 and above. The
-transport keeps one deadline across attempts, response decoding and waits;
-caller cancellation also interrupts the wait. Delays are fixed and do not use
-Retry-After. Only a completely decoded success reaches the existing
+transport keeps one deadline across attempts and response decoding. Backoff
+uses ordinary timers, not a cancellable wait helper. Cancellation and timeout
+are checked before each attempt; if either occurs during backoff, the call
+rejects after the current delay, up to 400 ms later, without another request.
+HTTP status handling is outside the network/decoding catch. Intermediate 5xx
+response bodies are cancelled before retrying. Delays do not use Retry-After.
+Only a completely decoded success reaches the existing
 cache. Streaming reads can retry before returning the stream, never after it
 has been handed to the caller.
 

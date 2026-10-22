@@ -157,7 +157,7 @@ describe("Silo collection read retries", () => {
     expect((await posts.get("first")).title).toBe("Recovered");
   });
 
-  test("the original deadline interrupts backoff before another request is sent", async () => {
+  test("does not send another request when the deadline expires during backoff", async () => {
     let requests = 0;
     respond = () => { requests++; return new Response("Unavailable", { status: 503 }); };
     const posts = new Silo({ url: server.url.toString(), timeoutMilliseconds: 50 })
@@ -167,15 +167,18 @@ describe("Silo collection read retries", () => {
     expect(requests).toBe(1);
   });
 
-  test("caller cancellation interrupts backoff", async () => {
+  test("does not send another request when the caller cancels during backoff", async () => {
     const controller = new AbortController();
+    let requests = 0;
     respond = () => {
+      requests++;
       setTimeout(() => controller.abort(), 25);
       return new Response("Unavailable", { status: 503 });
     };
     const posts = new Silo({ url: server.url.toString() }).scope("acme", "dev").collection("posts");
 
     await expect(posts.get("first", { signal: controller.signal })).rejects.toBeInstanceOf(RequestAbortedError);
+    expect(requests).toBe(1);
   }, 2000);
 
   test("the deadline remains active while reading the response body", async () => {
