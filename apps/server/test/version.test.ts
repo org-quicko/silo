@@ -3,12 +3,13 @@ import path from "path";
 import { SiloVersion, PackageVersion } from "../src/version";
 
 /**
- * The version is written down in four manifests and read by five things, and
- * nothing about a stale copy is visible at runtime — a binary reporting last
- * release's number looks exactly like one reporting this release's.
+ * The version is written down in five manifests and `openapi.json`'s
+ * `info.version`, and read by five things, and nothing about a stale copy is
+ * visible at runtime — a binary reporting last release's number looks exactly
+ * like one reporting this release's.
  *
- * These are the assertions `scripts/set-version.ts` exists to keep true, and
- * the reason it rewrites every manifest rather than only the root one.
+ * These are the assertions `tools/set-version.ts` exists to keep true, and
+ * the reason it rewrites every copy rather than only the root one.
  */
 describe("version", () => {
   // `create-silo-plugin` is not merely tidy here: `SiloRange` derives the
@@ -22,15 +23,21 @@ describe("version", () => {
     "packages/create-silo-plugin/package.json",
   ];
 
-  test("every workspace manifest agrees with the root", async () => {
+  // The API description names the release it describes; it sat at 1.6.0
+  // through 1.6.1 and 1.6.2 while nothing checked it.
+  const openApi = "resources/openapi.json";
+
+  test("every workspace manifest and the API description agree with the root", async () => {
     const versions: Record<string, string> = {};
     for (const manifest of manifests) {
       versions[manifest] = JSON.parse(await Bun.file(manifest).text()).version;
     }
+    versions[openApi] = JSON.parse(await Bun.file(openApi).text()).info.version;
 
     // Asserted as a whole object so a failure names which file disagreed and
     // with what, rather than reporting the first mismatch and stopping.
-    expect(versions).toEqual(Object.fromEntries(manifests.map((m) => [m, PackageVersion])));
+    const files = [...manifests, openApi];
+    expect(versions).toEqual(Object.fromEntries(files.map((file) => [file, PackageVersion])));
   });
 
   test("the runtime version derives from the root manifest", () => {

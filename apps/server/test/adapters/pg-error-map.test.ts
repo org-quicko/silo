@@ -89,9 +89,14 @@ describe("PgErrorMap", () => {
   });
 
   test("a certificate the handshake refused is a TLS failure, even when the driver gives no reason", () => {
-    // Bun raises these as plain Errors: OpenSSL's code, or nothing at all for a host name mismatch.
+    // Bun raises these as plain Errors: OpenSSL's code, and for a host name mismatch
+    // ERR_TLS_CERT_ALTNAME_INVALID (Bun 1.4.4) or nothing at all (Bun 1.4.2).
     const untrusted = Object.assign(new Error("unable to verify the first certificate"), {
       code: "UNABLE_TO_VERIFY_LEAF_SIGNATURE",
+      errno: 0,
+    });
+    const otherHost = Object.assign(new Error("Hostname/IP does not match certificate's altnames"), {
+      code: "ERR_TLS_CERT_ALTNAME_INVALID",
       errno: 0,
     });
     const blank = Object.assign(new Error(""), { errno: 0 });
@@ -99,9 +104,11 @@ describe("PgErrorMap", () => {
     const translated = PgErrorMap.translate(untrusted, "verify-full");
     expect(failureOf(translated)).toBe("tls");
     expect((translated as Error).message).toContain("unable to verify the first certificate");
-    expect((PgErrorMap.translate(blank, "verify-full") as Error).message).toContain(
-      "does not name the host"
-    );
+    for (const mismatch of [otherHost, blank]) {
+      expect((PgErrorMap.translate(mismatch, "verify-full") as Error).message).toContain(
+        "does not name the host"
+      );
+    }
     // With TLS off there is no handshake, so a blank error is not guessed to be one.
     expect(PgErrorMap.translate(blank)).toBe(blank);
   });

@@ -1,7 +1,11 @@
 import fs from "fs/promises";
 
+/** One place the version is written down: the file, how to read it, and the text that holds it. */
+type VersionField = { file: string; read: (json: any) => unknown; pattern: RegExp };
+
 /**
- * Sets silo's version everywhere it is written down.
+ * Sets silo's version everywhere it is written down: the manifests below and
+ * `resources/openapi.json`'s `info.version`.
  *
  *   bun run set-version 0.2.0
  *
@@ -48,6 +52,27 @@ export class SetVersion {
     "packages/create-silo-plugin/package.json",
   ];
 
+  /** A manifest's own `version`: the first line that declares one, so a
+   *  `version` nested in a dependency range or a script cannot be hit instead. */
+  private static readonly manifestVersion = /(^\s*"version"\s*:\s*")([^"]*)(")/m;
+
+  /** `info.version`: the `version` inside the `info` object, before anything nested in it. */
+  private static readonly infoVersion = /("info"\s*:\s*\{[^{}]*?"version"\s*:\s*")([^"]*)(")/;
+
+  /** The manifests, then the HTTP API description, which names the release it describes. */
+  private static readonly fields: readonly VersionField[] = [
+    ...SetVersion.manifests.map((file) => ({
+      file,
+      read: (json: any) => json.version,
+      pattern: SetVersion.manifestVersion,
+    })),
+    {
+      file: "resources/openapi.json",
+      read: (json: any) => json.info?.version,
+      pattern: SetVersion.infoVersion,
+    },
+  ];
+
   /** A version some workflow builds: MAJOR.MINOR.PATCH for `release.yml`, or
    *  that plus `-alpha` or `-alpha.N` for `release-docker-snapshot.yml`'s
    *  `v*-alpha*` filter. Any other suffix (`-rc.1`, `-beta`) matches neither,
@@ -62,9 +87,10 @@ export class SetVersion {
       throw new Error(`"${version}" is not a version any workflow builds — expected MAJOR.MINOR.PATCH (e.g. 1.2.3) for a release, or MAJOR.MINOR.PATCH-alpha[.N] (e.g. 1.2.3-alpha) for an alpha image; -rc, -beta and other suffixes are refused`);
     }
 
-    for (const manifest of SetVersion.manifests) {
-      const before = await SetVersion.rewrite(manifest, version);
-      console.log(`${manifest.padEnd(22)} ${before} -> ${version}`);
+    const width = Math.max(...SetVersion.fields.map((field) => field.file.length));
+    for (const field of SetVersion.fields) {
+      const before = await SetVersion.rewrite(field, version);
+      console.log(`${field.file.padEnd(width)} ${before} -> ${version}`);
     }
 
     // An alpha tag reaches only the snapshot workflow: one amd64 image in
@@ -84,24 +110,23 @@ ${lane}
   }
 
   /**
-   * Rewrites the `version` field in place, by text rather than by reparsing.
+   * Rewrites one version in place, by text rather than by reparsing.
    *
    * `JSON.parse` then `JSON.stringify` would reformat the whole file — key
    * order survives, but indentation, the trailing newline and any deliberate
    * spacing do not, and a version bump that reflows three manifests is a
-   * version bump nobody can review.
+   * version bump nobody can review. The text found must hold the version the
+   * parse reads, so a pattern that lands on the wrong field stops the run.
    */
-  private static async rewrite(manifest: string, version: string): Promise<string> {
-    const source = await Bun.file(manifest).text();
-    const current = JSON.parse(source).version;
-    if (typeof current !== "string") throw new Error(`${manifest} has no "version" field`);
+  private static async rewrite(field: VersionField, version: string): Promise<string> {
+    const source = await Bun.file(field.file).text();
+    const current = field.read(JSON.parse(source));
+    if (typeof current !== "string") throw new Error(`${field.file} has no version where one is expected`);
 
-    // Anchored to the first line that declares it, so a `version` nested in a
-    // dependency range or a script cannot be hit instead.
-    const field = /(^\s*"version"\s*:\s*")([^"]*)(")/m;
-    if (!field.test(source)) throw new Error(`could not locate the "version" field in ${manifest}`);
+    const found = source.match(field.pattern);
+    if (!found || found[2] !== current) throw new Error(`could not locate the version field in ${field.file}`);
 
-    await fs.writeFile(manifest, source.replace(field, `$1${version}$3`), "utf8");
+    await fs.writeFile(field.file, source.replace(field.pattern, `$1${version}$3`), "utf8");
     return current;
   }
 }

@@ -121,7 +121,8 @@ describe("moving a whole instance", () => {
       const message = await AsyncChecks.refusal(
         Importer.importDir(destination, archive, { grants: ImportGrants.fromClaims([Claims.Root]) })
       );
-      expect(message).toMatch(/moves a whole instance and carries "_system\/_(audit|plugins)"; only "silo import"/);
+      // Whichever move-only collection the archive lists first; directory order differs by OS.
+      expect(message).toMatch(/moves a whole instance and carries "_system\/_(audit|plugins|transfers)"; only "silo import"/);
       expect((await destination.list(Scope.System, SystemCollections.Audit, { limit: 1, offset: 0 })).total).toBe(0);
     } finally {
       await destination.close();

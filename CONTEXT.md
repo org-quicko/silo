@@ -16,7 +16,7 @@ and every decision (D1–D113) are indexed in [IMPLEMENTATION.md](IMPLEMENTATION
 
 ## Where things stand
 
-*Last updated: 2026-10-19. Version 1.6.0 (root `package.json`, D28).*
+*Last updated: 2026-11-16. Version 1.6.3 (root `package.json`, D28).*
 
 **Stack.** Bun + TypeScript in one workspace: `apps/server` (CLI, Hono HTTP
 API, core, adapters), `apps/admin` (React, embedded in the executable),
@@ -131,16 +131,17 @@ one); `docs/` is the public Mintlify site.
   are in [milestones.md](resources/design/milestones.md) §12.
   [IDEAS.md](IDEAS.md) holds loose ideas.
 
-**Most recent changes:** a populated collection's schema can now change to
-one every entry satisfies: a save checks the entries under the write lock and
-stops at the first that fails with a generic `409`, and the admin's schema
-editor is no longer read-only (D70, rewritten in place). A saved schema also
-shows in the admin without a reload. The release note is
-[resources/release-notes/1.6.2.md](resources/release-notes/1.6.2.md).
-Version numbers: silo's five manifests
+**Most recent changes:** silo has a logo, drawn from the designer's SVG:
+`SiloMark` in the admin, `favicon.svg`, `favicon.ico` and
+`apple-touch-icon.png` in `apps/admin/public/`, and the docs site's logo and
+favicon. CI, the release executables and the Docker image run Bun 1.4.4, and
+`PgErrorMap` reads Bun 1.4.4's code for a certificate that does not name the
+host. The release note is
+[resources/release-notes/1.6.3.md](resources/release-notes/1.6.3.md).
+Version numbers: silo's five manifests and `openapi.json`'s `info.version`
 through `set-version`, and by hand the three clients (from TypeScript 1.1.2,
-Java 1.1.0 and Dart 1.0.0), both first-party plugins (from 1.0.0), `bun.lock`,
-the client install snippets and `openapi.json`'s `info.version`. The 1.6.0
+Java 1.1.0 and Dart 1.0.0), both first-party plugins (from 1.0.0), `bun.lock`
+and the client install snippets. The 1.6.0
 release note covers features and fixes, plus the Java client's binary break,
 the one breaking change; what the trash changes for operators (public bucket
 links, read keys, turning it off, the Strapi plugin) is on the public trash

@@ -1,6 +1,6 @@
 {
   "name": "silo",
-  "version": "1.6.2",
+  "version": "1.6.3",
   "description": "A minimal, self-hostable headless CMS in TypeScript on Bun and Hono",
   "private": true,
   "type": "module",

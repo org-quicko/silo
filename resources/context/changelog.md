@@ -4,6 +4,37 @@
 > The *current* state is [CONTEXT.md](../../CONTEXT.md); this is how it got
 > there.
 
+- **1.6.3 has a release note (2026-11-16).**
+  `resources/release-notes/1.6.3.md` covers the logo, the move to Bun 1.4.4
+  and the Postgres host-name message that move needed. The versions were set
+  to 1.6.3 in `726bd04`. `openapi.json`'s `info.version`, left at 1.6.0
+  through 1.6.1 and 1.6.2, is 1.6.3 too, and `bun run set-version` now
+  writes it with the five manifests: a pattern of its own finds `version`
+  inside `info`, and each rewrite checks that the text it found holds the
+  version the parse reads. `version.test.ts` checks `info.version` against
+  the root manifest, so a stale copy fails the suite.
+
+- **CI and releases run Bun 1.4.4 (2026-11-16).** `BUN_VERSION` moves from
+  1.4.2 to 1.4.4 in `test.yml`, `release.yml`, `release-docker-snapshot.yml`,
+  `release-silo-client.yml` and the `Dockerfile`, so the suite runs on the
+  runtime developers already had and the release binary and image ship it.
+  The `test` workflow had also failed on Linux at
+  `instance-move.test.ts` "a move loads only through the CLI": the refusal
+  names the first move-only collection the archive lists, ext4 listed
+  `_transfers` first, and the test's pattern allowed only `_audit` and
+  `_plugins`, from before D111 made the transfer ledger move-only. It now
+  allows all three. NTFS lists names in order, which is why it passed on
+  Windows.
+
+- **A Postgres certificate for another host is named as such again on Bun
+  1.4.4 (2026-11-16).** Bun 1.4.2 raised a host name mismatch as an empty
+  `Error`, which `PgErrorMap` read as "does not name the host". Bun 1.4.4
+  raises it with code `ERR_TLS_CERT_ALTNAME_INVALID` and OpenSSL's text, so
+  that text reached the operator instead and `postgres-tls.test.ts` failed.
+  `PgErrorMap.certificate` now reads the code as the same case, and keeps the
+  empty-error path for older Bun. `pg-error-map.test.ts` covers both shapes;
+  `resources/design/storage.md` §6.6 says which Bun raises which.
+
 - **The admin shows silo's logo (2026-11-16).** `SiloMark` drew a generic
   three-ellipse barrel; it now draws the logo, two rims joined by an S,
   from the designer's SVG with its two paths unchanged. It takes `color`

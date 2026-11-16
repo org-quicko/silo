@@ -973,9 +973,10 @@ Measured against a TLS-only cluster built for the test:
   accepted, `ERR_POSTGRES_TLS_NOT_AVAILABLE`, or the plain-text refusal above.
   It is never retried and a start fails at once, since waiting changes none of
   them. The driver raises a certificate failure as a plain `Error` carrying
-  OpenSSL's code, and a host name the certificate does not name as an `Error`
-  with no message and no code at all; with TLS on, `PgErrorMap` reads the
-  second as that, and says so.
+  OpenSSL's code. A host name the certificate does not name is an `Error`
+  with code `ERR_TLS_CERT_ALTNAME_INVALID` since Bun 1.4.4, and with no
+  message and no code at all before it; with TLS on, `PgErrorMap` reads
+  either as that, and says so in its own words.
 
 A pooler in transaction mode cannot keep a session lock, so PgBouncer needs
 session mode, and it refuses the two timeout parameters unless they are in its

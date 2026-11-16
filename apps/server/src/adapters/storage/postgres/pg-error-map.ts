@@ -104,11 +104,16 @@ export class PgErrorMap {
   }
 
   /**
+   * Bun's code for a certificate that does not name the host (Bun 1.4.4). Bun
+   * 1.4.2 raised the same failure with an empty message and no code.
+   */
+  private static readonly OtherHost = "ERR_TLS_CERT_ALTNAME_INVALID";
+
+  /**
    * The TLS handshake failed. The driver raises these as plain `Error`s, not
    * its own type: a verification failure carries OpenSSL's code
    * (`UNABLE_TO_VERIFY_LEAF_SIGNATURE`), and a host name the certificate does
-   * not name carries nothing at all — an empty message and no code (measured,
-   * Bun 1.4.2).
+   * not name carries `OtherHost` or, before Bun 1.4.4, nothing at all.
    */
   private static isHandshakeFailure(error: unknown): error is Error {
     if (!(error instanceof Error) || error.constructor !== Error) return false;
@@ -118,12 +123,13 @@ export class PgErrorMap {
   }
 
   private static certificate(error: Error, tls: PgTlsMode): PgUnavailableError {
-    const reason =
-      error.message !== ""
+    const namesOtherHost =
+      PgErrorMap.label(error) === PgErrorMap.OtherHost || (error.message === "" && tls === "verify-full");
+    const reason = namesOtherHost
+      ? "it does not name the host [storage] url connects to"
+      : error.message !== ""
         ? error.message
-        : tls === "verify-full"
-          ? "it does not name the host [storage] url connects to"
-          : "the driver gave no reason";
+        : "the driver gave no reason";
     return new PgUnavailableError(
       `the Postgres server's certificate was not accepted (${reason}); check sslmode and sslrootcert in [storage] url`,
       "tls"
