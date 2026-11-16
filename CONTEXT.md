@@ -114,7 +114,8 @@ one); `docs/` is the public Mintlify site.
   one is a message under the field, not a logout. Deployed on its own to
   Vercel, `apps/admin/public/vercel.json` (copied into `dist/` by the build)
   gives it the fallback to `index.html` that silo's server has, so a deep link
-  loads.
+  loads. The logo is `SiloMark` in the app and `public/favicon.*` in the tab
+  ([repo-map.md](resources/context/repo-map.md) says how they relate).
 - **Distribution.** Compiled executables, signed checksums, a Homebrew tap, a
   dnf repository, and a multi-arch image on Docker Hub and GHCR (D26–D28, D90).
   Only `vX.Y.Z` tags release. `packaging/compose/` runs silo beside Postgres.

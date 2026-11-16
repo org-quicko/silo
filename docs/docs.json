@@ -15,10 +15,10 @@
     "light": "#f7ecd7",
     "dark": "#090908"
   },
-  "favicon": "https://media.brand.dev/3c86dcae-d9b2-4fa7-8432-496158d12e8d.png",
+  "favicon": "/favicon.svg",
   "logo": {
-    "light": "https://media.brand.dev/a72bd5b8-a024-4f56-95b7-db12d663ac9a.svg",
-    "dark": "https://media.brand.dev/a72bd5b8-a024-4f56-95b7-db12d663ac9a.svg"
+    "light": "/logo/light.svg",
+    "dark": "/logo/dark.svg"
   },
   "navbar": {
     "primary": {

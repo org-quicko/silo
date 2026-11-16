@@ -4,6 +4,22 @@
 > The *current* state is [CONTEXT.md](../../CONTEXT.md); this is how it got
 > there.
 
+- **The admin shows silo's logo (2026-11-16).** `SiloMark` drew a generic
+  three-ellipse barrel; it now draws the logo, two rims joined by an S,
+  from the designer's SVG with its two paths unchanged. It takes `color`
+  (default `currentColor`) instead of `stroke`, and is `aria-hidden`. The
+  sidebar header shows it bare at 24px in `--sidebar-text`, and the Server
+  Browser at 30px in `--text`; the accent tile and the accent-bordered box
+  it sat in are gone, so it follows the light and dark themes. `public/favicon.svg` was still Vite's template
+  icon; it is now the logo, dark or white with the browser's colour scheme.
+  `favicon.ico` and `apple-touch-icon.png` are new, linked from `index.html`,
+  and embedded in the binary with the rest of `dist/`. Vite's unused
+  template sprite `public/icons.svg` is deleted. The docs site showed Bun's
+  logo and favicon, from `media.brand.dev` URLs in `docs.json`; it now uses
+  the designer's two files as `docs/logo/light.svg` and `dark.svg`, and the
+  mark on a tile as `docs/favicon.svg`, replacing the Mintlify starter kit's
+  placeholders.
+
 - **A populated collection's schema can change to one its entries satisfy
   (2026-10-19, D70 rewritten in place).** A save used to be refused whenever
   the collection held an entry and the validating shape changed. Now

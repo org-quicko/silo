@@ -94,6 +94,23 @@ a 404; silo's own server does this in `server.ts`, with the shell from
 Vercel reads it. The binary embeds it with the rest of `dist/`, so silo also
 serves it at `/vercel.json`; it holds only the rewrite rule.
 
+The logo's source is the designer's SVG: two filled outlines on a 294px
+square. `docs/logo/light.svg` (`#161616`) and `docs/logo/dark.svg` (white)
+are those files unchanged, and every other copy reuses the two paths as
+they are. `components/brand/SiloMark.tsx` fills them with `currentColor` and
+crops the canvas to the mark. `public/favicon.svg` crops to a square around
+the mark and fills it dark, or white when the browser is dark.
+`favicon.ico` (16, 32 and 48px) and `apple-touch-icon.png` (180px) are the
+white mark on the dark `--bg` tile, because a bare mark on a transparent
+raster disappears on half the tab colours. A new export of the logo means
+updating all of them.
+
+In the Mintlify site in `docs/`, `logo/light.svg` shows in light mode and
+`logo/dark.svg` in dark mode; Mintlify's schema describes the keys the other
+way round. `favicon.svg` is the white mark on a tile in the site's
+`#090908`. It is one file because the preview writes a light/dark pair's two
+sets over each other, and the dark one wins.
+
 ## `packages/`
 
 | Path | What it is |

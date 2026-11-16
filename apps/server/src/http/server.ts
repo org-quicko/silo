@@ -360,7 +360,7 @@ export class SiloServer {
    * Vite content-hashes everything it emits under `/assets/`, so those URLs
    * name one immutable body for all time and can be cached as such. Nothing
    * else can: `index.html` is the file that points at the current hashes, and
-   * the two SVGs keep their names across builds.
+   * the icons copied from `public/` keep their names across builds.
    */
   private static cacheHeaders(requestPath: string): Record<string, string> {
     return requestPath.startsWith("/assets/")

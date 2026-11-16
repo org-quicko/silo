@@ -76,9 +76,7 @@
   height: 36px;
   align-items: center;
   justify-content: center;
-  border: 1px solid var(--accent);
-  border-radius: 8px;
-  background: var(--panel);
+  color: var(--text);
 }
 
 .brandText {

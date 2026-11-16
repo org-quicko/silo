@@ -57,8 +57,7 @@
   flex: none;
   align-items: center;
   justify-content: center;
-  border-radius: 8px;
-  background: var(--accent);
+  color: var(--sidebar-text);
 }
 
 .brandName {

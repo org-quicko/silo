@@ -88,7 +88,7 @@ export function ServerManager({
       <header className={styles.header}>
         <div className={styles.brand}>
           <div className={styles.logo}>
-            <SiloMark size={28} stroke="var(--accent)" />
+            <SiloMark size={30} />
           </div>
           <div className={styles.brandText}>
             <h1>Silo CMS</h1>

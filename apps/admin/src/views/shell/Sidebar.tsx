@@ -155,7 +155,7 @@ export function Sidebar({
       <div className={styles.header}>
         <Link to={Routes.collections(serverId, scope.project, scope.env)} className={styles.brand} title="Silo">
           <div className={styles.brandLogo}>
-            <SiloMark size={16} />
+            <SiloMark size={24} />
           </div>
           <span className={styles.brandName}>silo</span>
           {version && <span className={styles.version}>v{version}</span>}
