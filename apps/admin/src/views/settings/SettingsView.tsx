@@ -38,8 +38,8 @@ interface SettingsViewProps {
 }
 
 /**
- * The settings shell: a nav column scoped by group (project / environment /
- * server / application) and whichever page the URL names.
+ * The settings shell: a nav column scoped by group (server / project /
+ * environment) and whichever page the URL names.
  */
 export function SettingsView({ server, servers, route, onUpdateServer, onDeleteServer, onBack }: SettingsViewProps) {
   const { id: serverId, url, apiKey } = server
@@ -305,7 +305,7 @@ export function SettingsView({ server, servers, route, onUpdateServer, onDeleteS
         )}
 
         {route.view === 'server-settings' && route.section === 'appearance' && (
-          <AppearancePage serverName={server.name} />
+          <AppearancePage server={server} />
         )}
       </div>
     </div>

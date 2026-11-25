@@ -66,6 +66,7 @@ describe('Routes.parse', () => {
   test.each([
     ['/', 'the root'],
     ['/servers/s1', 'a server with no page'],
+    ['/servers/%/settings/appearance', 'malformed percent-encoding'],
     ['/servers/s1/settings/bogus', 'an unknown server section'],
     ['/servers/s1/projects/acme/settings/bogus', 'an unknown project section'],
     ['/servers/s1/projects/acme/environments/prod/settings/bogus', 'an unknown env section'],
@@ -276,5 +277,28 @@ describe('Routes.legacy', () => {
       // And the replacement must not itself be an alias, or App would loop.
       expect(Routes.legacy(to!, remembered)).toBeNull()
     }
+  })
+
+  test('malformed percent-encoding does not throw during legacy checks', () => {
+    expect(Routes.legacy('/servers/%/settings/general', remembered)).toBeNull()
+  })
+})
+
+describe('Routes.resolve', () => {
+  const remembered = () => ({ project: 'acme', env: 'prod' })
+
+  test('resolves a legacy bookmark directly to its target route in one pass', () => {
+    const resolved = Routes.resolve('/servers/s1/settings/general', remembered)
+    expect(resolved).toEqual({
+      legacy: '/servers/s1/settings/appearance',
+      route: { view: 'server-settings', serverId: 's1', section: 'appearance' },
+    })
+  })
+
+  test('returns null route without throwing for malformed URLs', () => {
+    expect(Routes.resolve('/servers/%/settings/appearance', remembered)).toEqual({
+      legacy: null,
+      route: null,
+    })
   })
 })

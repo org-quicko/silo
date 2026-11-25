@@ -9,6 +9,7 @@ import { ACCESS_TEXT, type SessionBadge } from './session-badge'
 import { PlatformKeys } from '../../utils/platform-keys'
 import { useThemeMode } from '../../utils/use-theme-mode'
 import { ThemeManager } from '../../utils/theme-manager'
+import { ToastManager } from '../../utils/toast-manager'
 import styles from './Sidebar.module.css'
 
 const DEFAULT_WIDTH = 248
@@ -47,7 +48,7 @@ export function Sidebar({
   onScopeChange?: (next: ScopeRef) => void
   onOpenServerBrowser?: () => void
 }) {
-  const mode = useThemeMode()
+  const mode = useThemeMode(serverId)
   const [width, setWidth] = useState<number>(() => {
     const stored = localStorage.getItem(SIDEBAR_WIDTH_KEY)
     if (stored) {
@@ -303,7 +304,11 @@ export function Sidebar({
           <button
             type="button"
             className={styles.themeToggleBtn}
-            onClick={() => ThemeManager.setMode(mode === 'light' ? 'dark' : 'light')}
+            onClick={() => {
+              if (!ThemeManager.setMode(mode === 'light' ? 'dark' : 'light', serverId)) {
+                ToastManager.show('Theme mode changed for this session (browser storage unavailable)')
+              }
+            }}
             title={mode === 'light' ? 'Switch to dark mode' : 'Switch to light mode'}
             aria-label={mode === 'light' ? 'Switch to dark mode' : 'Switch to light mode'}
           >

@@ -21,13 +21,13 @@ import type { SettingsRoute } from '../../router/route'
 import { Routes } from '../../router/routes'
 import { useThemeMode } from '../../utils/use-theme-mode'
 import { ThemeManager } from '../../utils/theme-manager'
+import { ToastManager } from '../../utils/toast-manager'
 import { ScopeSwitcher } from './ScopeSwitcher'
 import styles from './SettingsNav.module.css'
 import { SettingsNavItem } from './SettingsNavItem'
 
 /**
- * Three groups, ordered outside-in: the server that hosts everything, the
- * projects it holds, and this browser.
+ * Two groups, ordered outside-in: the server and the projects it holds.
  *
  * Scope nests the way the data does. One project's pages hang off the project
  * index, and one environment's hang off that project's environment list —
@@ -83,7 +83,7 @@ export function SettingsNav({
   // Projects itself has no collapse of its own — it is the one group always
   // worth seeing into.
   const [environmentOpen, setEnvironmentOpen] = useState(false)
-  const mode = useThemeMode()
+  const mode = useThemeMode(serverId)
 
   return (
     <div className={styles.navColumn}>
@@ -113,7 +113,11 @@ export function SettingsNav({
         <button
           type="button"
           className={styles.headerIcon}
-          onClick={() => ThemeManager.setMode(mode === 'light' ? 'dark' : 'light')}
+          onClick={() => {
+            if (!ThemeManager.setMode(mode === 'light' ? 'dark' : 'light', serverId)) {
+              ToastManager.show('Theme mode changed for this session (browser storage unavailable)')
+            }
+          }}
           title={mode === 'light' ? 'Switch to dark mode' : 'Switch to light mode'}
           aria-label={mode === 'light' ? 'Switch to dark mode' : 'Switch to light mode'}
         >
@@ -165,6 +169,12 @@ export function SettingsNav({
             icon={<ServerIcon size={15} />}
             title="Connection"
             active={serverSection === 'connection'}
+          />
+          <SettingsNavItem
+            to={Routes.serverSettings(serverId, 'appearance')}
+            icon={<Palette size={15} />}
+            title="Appearance"
+            active={serverSection === 'appearance'}
           />
         </div>
 
@@ -248,17 +258,6 @@ export function SettingsNav({
               <span className={styles.groupPending}>Create a project to configure one.</span>
             )}
           </div>
-        </div>
-
-
-        <div className={styles.group}>
-          <span className={styles.groupLabel}>Application</span>
-          <SettingsNavItem
-            to={Routes.serverSettings(serverId, 'appearance')}
-            icon={<Palette size={15} />}
-            title="Appearance"
-            active={serverSection === 'appearance'}
-          />
         </div>
       </nav>
     </div>

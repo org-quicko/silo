@@ -1,9 +1,11 @@
-import React, { useState, useEffect } from 'react'
+import React, { useState, useEffect, useRef } from 'react'
 import { RotateCcw, Sun, Moon } from 'lucide-react'
 import { Button } from '../../../components/buttons/Button'
 import { Breadcrumb } from '../../../components/navigation/Breadcrumb'
 import { TopBar } from '../../shell/TopBar'
-import { ThemeManager, type ThemeSettings, type ThemePreset, type ThemeMode } from '../../../utils/theme-manager'
+import type { Server } from '../../servers/server'
+import { ThemeManager, type ThemePreset, type ThemeMode } from '../../../utils/theme-manager'
+import { useThemeSettings } from '../../../utils/use-theme-mode'
 import { ToastManager } from '../../../utils/toast-manager'
 import { SettingsPageHead } from '../parts/SettingsPageHead'
 import { SettingsRow } from '../parts/SettingsRow'
@@ -13,86 +15,76 @@ import ledger from '../parts/SettingsLedger.module.css'
 import styles from './AppearancePage.module.css'
 
 /**
- * Theme and typeface for the admin, stored in this browser.
+ * Theme and typeface for one saved server, stored locally in this browser.
  *
  * Nothing here reaches the server, so nothing here has a Save: every control
- * applies on the spot and Reset at the bottom puts it all back. That is also
- * why the page carries no scope chip — "this browser" is in the breadcrumb,
- * and every row on the page has the same answer.
+ * applies on the spot and Reset at the bottom puts this server back to defaults.
  */
-export function AppearancePage({ serverName }: { serverName: string }) {
-  const [settings, setSettings] = useState<ThemeSettings>(() => ThemeManager.getSettings())
+export function AppearancePage({ server }: { server: Server }) {
+  const settings = useThemeSettings(server.id)
   const [customFontInput, setCustomFontInput] = useState('')
   const [customHexInput, setCustomHexInput] = useState(settings.accent)
+  const appliedAccentRef = useRef(settings.accent)
 
   useEffect(() => {
     ThemeManager.loadPresetFonts()
   }, [])
 
   useEffect(() => {
-    return ThemeManager.subscribe((newSettings) => {
-      setSettings(newSettings)
-      setCustomHexInput(newSettings.accent)
+    return ThemeManager.subscribe((newSettings, changedServerId) => {
+      if (changedServerId !== server.id) return
+      // Only overwrite the custom hex draft when the applied accent itself changes
+      // (e.g. preset click, mode switch, Apply, or another tab) so editing the font
+      // does not discard an unapplied hex draft.
+      if (newSettings.accent !== appliedAccentRef.current) {
+        appliedAccentRef.current = newSettings.accent
+        setCustomHexInput(newSettings.accent)
+      }
     })
-  }, [])
+  }, [server.id])
 
-  useEffect(() => {
-    setCustomHexInput(settings.accent)
-  }, [settings.accent])
-
-  const applied = (what: string) => ToastManager.show(what)
+  const applied = (what: string, persisted: boolean) =>
+    ToastManager.show(persisted ? what : `${what} (not saved — browser storage unavailable)`)
 
   const selectMode = (mode: ThemeMode) => {
-    ThemeManager.setMode(mode)
-    const updated = ThemeManager.getSettings()
-    setSettings(updated)
-    setCustomHexInput(updated.accent)
-    applied(mode === 'light' ? 'Light mode applied' : 'Dark mode applied')
+    const persisted = ThemeManager.setMode(mode, server.id)
+    applied(mode === 'light' ? 'Light mode applied' : 'Dark mode applied', persisted)
   }
 
   const selectFont = (fontName: string) => {
-    ThemeManager.setFont(fontName)
-    setSettings((prev) => ({ ...prev, font: fontName }))
+    const persisted = ThemeManager.setFont(fontName, server.id)
     setCustomFontInput('')
-    applied(`${fontName} applied`)
+    applied(`${fontName} applied`, persisted)
   }
 
   const applyCustomFont = (event: React.FormEvent) => {
     event.preventDefault()
     const font = customFontInput.trim()
     if (!font) return
-    ThemeManager.setFont(font)
-    setSettings((prev) => ({ ...prev, font }))
-    applied(`${font} applied`)
+    const persisted = ThemeManager.setFont(font, server.id)
+    applied(`${font} applied`, persisted)
   }
 
   const selectTheme = (theme: ThemePreset) => {
-    ThemeManager.setTheme(theme.name)
-    setSettings((prev) => ({
-      ...prev,
-      theme: theme.name,
-      accent: theme.accent,
-      sidebar: theme.sidebar,
-      sidebarHover: theme.sidebarHover,
-    }))
-    setCustomHexInput(theme.accent)
-    applied(`${theme.name} applied`)
+    const persisted = ThemeManager.setTheme(theme.name, server.id)
+    applied(`${theme.name} applied`, persisted)
   }
 
   const applyHex = (value: string) => {
     const hex = ThemeManager.formatHex(value)
     if (!hex) return
-    ThemeManager.setAccent(hex)
-    setSettings((prev) => ({ ...prev, accent: hex, theme: 'Custom' }))
-    applied('Accent applied')
+    const persisted = ThemeManager.setAccent(hex, server.id)
+    appliedAccentRef.current = hex
+    setCustomHexInput(hex)
+    applied('Accent applied', persisted)
   }
 
   const reset = () => {
-    const defaults = ThemeManager.reset()
-    setSettings(defaults)
+    const defaults = ThemeManager.reset(server.id)
     setCustomFontInput('')
+    appliedAccentRef.current = defaults.accent
     setCustomHexInput(defaults.accent)
-    applied('Appearance reset')
+    applied('Appearance reset', ThemeManager.isLastWritePersisted())
   }
 
   return (
@@ -100,15 +92,16 @@ export function AppearancePage({ serverName }: { serverName: string }) {
       <TopBar />
 
       <div className="content">
-        <Breadcrumb
-          crumbs={[{ label: serverName }, { label: 'This browser' }, { label: 'Appearance' }]}
+        <Breadcrumb crumbs={[{ label: server.name }, { label: 'Appearance' }]} />
+        <SettingsPageHead
+          title="Appearance"
+          sub="Stored in this browser for this server."
         />
-        <SettingsPageHead title="Appearance" />
 
         <SettingsSection title="Theme">
           <SettingsRow
             label="Theme mode"
-            help="Switch between dark and parchment light appearance for this browser."
+            help="Switch between dark and parchment light appearance for this server."
             inline
           >
             <button
@@ -122,7 +115,7 @@ export function AppearancePage({ serverName }: { serverName: string }) {
             </button>
           </SettingsRow>
 
-          <SettingsRow label="Presets" help="Choose a theme for Silo on this device." inline>
+          <SettingsRow label="Presets" help="Choose a theme for this server in this browser." inline>
             <div className={styles.swatches}>
               {ThemeManager.getPresets(settings.mode).map((theme) => (
                 <button

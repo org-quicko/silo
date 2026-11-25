@@ -65,7 +65,7 @@ export function SchemaEditorView({
   const [showDelete, setShowDelete] = useState(false)
   const [deleting, setDeleting] = useState(false)
   const [deleteError, setDeleteError] = useState('')
-  const mode = useThemeMode()
+  const mode = useThemeMode(serverId)
 
   // Escape is Cancel, unless the delete dialog is up — that one's Escape closes
   // the dialog rather than the page under it.

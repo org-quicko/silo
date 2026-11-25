@@ -1,33 +1,38 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useMemo, useState } from 'react'
 import { api } from './api/silo-api'
 import { ToastHost } from './components/feedback/ToastHost'
 import { Routes } from './router/routes'
-import { router, useLocation, useRoute } from './router/router'
+import { router, useLocation } from './router/router'
 import { useDocumentTitle } from './router/use-document-title'
 import { store } from './store/store'
 import { ScopeMemory } from './utils/scope-memory'
+import { ThemeManager } from './utils/theme-manager'
 import { ServerManager } from './views/servers/ServerManager'
-import type { Server } from './views/servers/server'
+import { ServerStorage, type Server } from './views/servers/server'
 import { SettingsView } from './views/settings/SettingsView'
 import { ShortcutsHost } from './views/shell/ShortcutsHost'
 import { Workspace } from './views/Workspace'
 
-const SERVERS_KEY = 'silo_servers'
 const ACTIVE_KEY = 'silo_active_server_id'
 
 export default function App() {
   const location = useLocation()
-  const route = useRoute()
+  const { route, legacy } = useMemo(
+    () => Routes.resolve(location, (id) => ScopeMemory.get(id)),
+    [location],
+  )
 
-  const [servers, setServers] = useState<Server[]>(() => {
-    const stored = localStorage.getItem(SERVERS_KEY)
-    return stored ? JSON.parse(stored) : []
-  })
+  const [servers, setServers] = useState<Server[]>(() => ServerStorage.read())
 
   const serverId = route && route.view !== 'servers' ? route.serverId : null
   const server = servers.find((s) => s.id === serverId) ?? null
+  const activeServerId = server?.id ?? null
 
   useDocumentTitle(route, server?.name ?? null)
+
+  useLayoutEffect(() => {
+    ThemeManager.setActiveServer(activeServerId)
+  }, [activeServerId])
 
   // The store is emptied on the way out: the next key to hold these cache
   // entries may be a different one, and a key's claims decide what its answers
@@ -50,7 +55,6 @@ export default function App() {
   // before settings were split by scope is rewritten to its replacement first,
   // so an old bookmark lands on the right page rather than the gate.
   useEffect(() => {
-    const legacy = Routes.legacy(location, (id) => ScopeMemory.get(id))
     if (legacy) {
       router.navigate(legacy, { replace: true })
       return
@@ -62,7 +66,7 @@ export default function App() {
     if (route.view !== 'servers' && !server) {
       router.navigate(Routes.servers(), { replace: true })
     }
-  }, [location, route, server, servers])
+  }, [legacy, route, server])
 
   // Remembered only so a bare "/" can resolve; the URL is the source of truth.
   useEffect(() => {
@@ -71,7 +75,7 @@ export default function App() {
 
   const saveServers = (list: Server[]) => {
     setServers(list)
-    localStorage.setItem(SERVERS_KEY, JSON.stringify(list))
+    ServerStorage.write(list)
   }
 
   const updateServer = (next: Server) => {
@@ -91,6 +95,7 @@ export default function App() {
     saveServers(servers.filter((item) => item.id !== id))
     if (localStorage.getItem(ACTIVE_KEY) === id) localStorage.removeItem(ACTIVE_KEY)
     ScopeMemory.forget(id)
+    ThemeManager.forget(id)
   }
 
   const content = !route || route.view === 'servers' || !server ? (
@@ -110,6 +115,7 @@ export default function App() {
     />
   ) : route.view === 'server-settings' || route.view === 'project-settings' || route.view === 'env-settings' ? (
     <SettingsView
+      key={server.id}
       server={server}
       servers={servers}
       route={route}

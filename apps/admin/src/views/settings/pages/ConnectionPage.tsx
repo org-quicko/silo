@@ -194,7 +194,7 @@ export function ConnectionPage({
             title="Forget this server"
             blast={
               <>
-                Removes <strong>{server.name}</strong> from this browser's saved connections.
+                Removes <strong>{server.name}</strong> and its saved appearance from this browser.
                 Everything hosted on the instance stays exactly as it is.
               </>
             }
@@ -208,8 +208,8 @@ export function ConnectionPage({
 
       {/*
         No typed confirmation here, unlike deleting a project or an
-        environment: this forgets a connection in this browser and destroys
-        nothing on the server, so it is undone by re-entering the URL and key.
+        environment: this forgets a connection and its browser-local settings
+        without touching anything on the server.
       */}
       {isConfirmingDelete && (
         <Modal onClose={() => setIsConfirmingDelete(false)}>
@@ -220,8 +220,8 @@ export function ConnectionPage({
             <ModalCopy>
               <h3>Forget this server?</h3>
               <ModalBody>
-                <b>{server.name}</b> is removed from this browser's saved connections. Everything
-                hosted on the instance itself stays exactly as it is.
+                <b>{server.name}</b> and its saved browser appearance are removed from this
+                browser. Everything hosted on the instance itself stays exactly as it is.
               </ModalBody>
             </ModalCopy>
           </ModalHeader>

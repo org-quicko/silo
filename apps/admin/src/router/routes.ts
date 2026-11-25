@@ -127,7 +127,8 @@ export class Routes {
   /** `null` for anything unrecognised (including `/`); the caller redirects. */
   static parse(location: string): Route | null {
     const [pathname, search = ''] = location.split('?')
-    const segs = pathname.split('/').filter(Boolean).map(decodeURIComponent)
+    const segs = Routes.decodeSegments(pathname)
+    if (!segs) return null
 
     if (segs.length === 1 && segs[0] === 'servers') return { view: 'servers' }
     if (segs[0] !== 'servers' || segs.length < 3) return null
@@ -165,8 +166,8 @@ export class Routes {
    * gate, which is where a scope gets chosen.
    */
   static legacy(location: string, scopeFor: (serverId: string) => ScopeRef | null): string | null {
-    const segs = location.split('?')[0].split('/').filter(Boolean).map(decodeURIComponent)
-    if (segs[0] !== 'servers' || segs.length < 3) return null
+    const segs = Routes.decodeSegments(location.split('?')[0])
+    if (!segs || segs[0] !== 'servers' || segs.length < 3) return null
     const serverId = segs[1]
 
     // Pre-instance-global media URLs: /servers/:id/projects/:project/environments/:env/media[/:folder*]
@@ -183,7 +184,7 @@ export class Routes {
     if (segs[2] !== 'settings') return null
 
     const section = segs[3]
-    // "General" was the appearance page; it is app-wide, so it stays unscoped.
+    // "General" was the appearance page; it is server-level rather than project-scoped.
     if (section === 'general') return Routes.serverSettings(serverId, 'appearance')
     // A bare `/settings` never named a scope, and the project index needs none.
     if (section === undefined) return Routes.serverSettings(serverId, 'projects')
@@ -197,7 +198,27 @@ export class Routes {
     return Routes.projectSettings(serverId, scope.project, 'environments')
   }
 
+  /**
+   * Resolves a URL once, applying any legacy rewrite before parsing so both
+   * bootstrap and the first render agree on the destination route.
+   */
+  static resolve(
+    location: string,
+    scopeFor: (serverId: string) => ScopeRef | null,
+  ): { route: Route | null; legacy: string | null } {
+    const legacy = Routes.legacy(location, scopeFor)
+    return { route: Routes.parse(legacy ?? location), legacy }
+  }
+
   // ---- internals ----
+
+  private static decodeSegments(pathname: string): string[] | null {
+    try {
+      return pathname.split('/').filter(Boolean).map(decodeURIComponent)
+    } catch {
+      return null
+    }
+  }
 
   private static parseServerSettings(serverId: string, segs: string[]): Route | null {
     const section = segs[3]
