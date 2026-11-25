@@ -1,14 +1,15 @@
-import { useEffect, useState } from 'react'
-import { ThemeManager, type ThemeMode } from './theme-manager'
+import { useCallback, useSyncExternalStore } from 'react'
+import { ThemeManager, type ThemeMode, type ThemeSettings } from './theme-manager'
 
-export function useThemeMode(): ThemeMode {
-  const [mode, setMode] = useState<ThemeMode>(() => ThemeManager.getSettings().mode)
+export function useThemeSettings(serverId?: string | null): ThemeSettings {
+  const subscribe = useCallback(
+    (onStoreChange: () => void) => ThemeManager.subscribe(() => onStoreChange()),
+    [],
+  )
+  const getSnapshot = () => ThemeManager.getSettings(serverId)
+  return useSyncExternalStore(subscribe, getSnapshot, getSnapshot)
+}
 
-  useEffect(() => {
-    return ThemeManager.subscribe((settings) => {
-      setMode(settings.mode)
-    })
-  }, [])
-
-  return mode
+export function useThemeMode(serverId?: string | null): ThemeMode {
+  return useThemeSettings(serverId).mode
 }

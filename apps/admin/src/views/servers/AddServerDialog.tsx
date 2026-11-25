@@ -166,7 +166,7 @@ export function AddServerDialog({ server, initialError = '', onSave, onForget, o
 
           {confirmingForget ? (
             <div className={styles.modalActions}>
-              <span className={styles.modalConfirm}>Remove from this browser only?</span>
+              <span className={styles.modalConfirm}>Remove connection &amp; local appearance?</span>
               <Button type="button" variant="secondary" onClick={() => setConfirmingForget(false)}>
                 Keep
               </Button>

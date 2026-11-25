@@ -24,8 +24,11 @@ export interface ThemePreset {
   sidebarHover: string
 }
 
+type ThemeListener = (settings: ThemeSettings, serverId: string | null) => void
+
 export class ThemeManager {
-  private static readonly STORAGE_KEY = 'silo_appearance_settings'
+  private static readonly LEGACY_STORAGE_KEY = 'silo_appearance_settings'
+  private static readonly STORAGE_PREFIX = 'silo_appearance_settings:'
   private static readonly LINK_ID = 'silo-google-font'
   private static readonly PRESETS_LINK_ID = 'silo-google-font-presets'
 
@@ -41,7 +44,21 @@ export class ThemeManager {
   public static readonly DEFAULT_LIGHT_SIDEBAR = '#f8fafd'
   public static readonly DEFAULT_LIGHT_SIDEBAR_HOVER = '#edf2f7'
 
-  private static listeners = new Set<(settings: ThemeSettings) => void>()
+  private static activeServerId: string | null = null
+  private static listeners = new Set<ThemeListener>()
+  private static snapshotCache = new Map<string, ThemeSettings>()
+  private static memoryOverrides = new Map<string, ThemeSettings>()
+  private static attachedWindow: EventTarget | null = null
+  private static lastWritePersisted = true
+
+  private static readonly DEFAULT_SNAPSHOT: ThemeSettings = Object.freeze({
+    font: ThemeManager.DEFAULT_FONT,
+    accent: ThemeManager.DEFAULT_ACCENT,
+    theme: ThemeManager.DEFAULT_THEME,
+    sidebar: ThemeManager.DEFAULT_SIDEBAR,
+    sidebarHover: ThemeManager.DEFAULT_SIDEBAR_HOVER,
+    mode: ThemeManager.DEFAULT_MODE,
+  })
 
   public static readonly FONT_PRESETS: FontPreset[] = [
     { name: 'Hanken Grotesk', category: 'Sans-Serif' },
@@ -96,145 +113,222 @@ export class ThemeManager {
     return [...ThemeManager.DARK_PRESETS, ...ThemeManager.LIGHT_PRESETS]
   }
 
-  public static getPresets(mode?: ThemeMode): ThemePreset[] {
-    const activeMode = mode || ThemeManager.getSettings().mode
+  public static storageKey(serverId: string): string {
+    return `${ThemeManager.STORAGE_PREFIX}${serverId}`
+  }
+
+  public static getActiveServerId(): string | null {
+    return ThemeManager.activeServerId
+  }
+
+  public static isLastWritePersisted(): boolean {
+    return ThemeManager.lastWritePersisted
+  }
+
+  public static setActiveServer(serverId: string | null): void {
+    const normalized = serverId || null
+    const changed = ThemeManager.activeServerId !== normalized
+    ThemeManager.activeServerId = normalized
+    const settings = ThemeManager.getSettings(normalized)
+    ThemeManager.applyFont(settings.font)
+    ThemeManager.repaint(settings)
+    if (changed) {
+      ThemeManager.emit(settings, normalized)
+    }
+  }
+
+  public static getPresets(mode?: ThemeMode, serverId?: string | null): ThemePreset[] {
+    const activeMode = mode || ThemeManager.getSettings(serverId).mode
     return activeMode === 'light' ? ThemeManager.LIGHT_PRESETS : ThemeManager.DARK_PRESETS
   }
 
-  public static getSettings(): ThemeSettings {
-    const defaults: ThemeSettings = {
-      font: ThemeManager.DEFAULT_FONT,
-      accent: ThemeManager.DEFAULT_ACCENT,
-      theme: ThemeManager.DEFAULT_THEME,
-      sidebar: ThemeManager.DEFAULT_SIDEBAR,
-      sidebarHover: ThemeManager.DEFAULT_SIDEBAR_HOVER,
-      mode: ThemeManager.DEFAULT_MODE,
+  public static getSettings(serverId?: string | null): ThemeSettings {
+    const targetId = ThemeManager.resolveServerId(serverId)
+    if (!targetId) return ThemeManager.DEFAULT_SNAPSHOT
+
+    const override = ThemeManager.memoryOverrides.get(targetId)
+    if (override) {
+      return ThemeManager.cacheSnapshot(targetId, override)
     }
-    try {
-      const raw = localStorage.getItem(ThemeManager.STORAGE_KEY)
-      if (raw) {
-        const parsed = JSON.parse(raw)
-        return {
-          font: parsed.font || defaults.font,
-          accent: parsed.accent || defaults.accent,
-          theme: parsed.theme || defaults.theme,
-          sidebar: parsed.sidebar || defaults.sidebar,
-          sidebarHover: parsed.sidebarHover || defaults.sidebarHover,
-          mode: parsed.mode === 'light' ? 'light' : 'dark',
-        }
-      }
-    } catch {
-      /* ignore storage failure */
-    }
-    return defaults
+
+    const stored = ThemeManager.readServerEntry(targetId)
+    return ThemeManager.cacheSnapshot(targetId, ThemeManager.sanitize(stored))
   }
 
-  public static setFont(fontName: string): void {
+  public static setFont(fontName: string, serverId?: string | null): boolean {
     const trimmed = fontName.trim() || ThemeManager.DEFAULT_FONT
-    const updated = { ...ThemeManager.getSettings(), font: trimmed }
-    ThemeManager.saveSettings(updated)
-    ThemeManager.applyFont(trimmed)
-    ThemeManager.emit(updated)
+    return ThemeManager.update(
+      serverId,
+      (current) => ({ ...current, font: trimmed }),
+      { applyFont: true, repaint: false },
+    )
   }
 
-  public static setTheme(themeName: string): void {
+  public static setTheme(themeName: string, serverId?: string | null): boolean {
     const preset = ThemeManager.THEME_PRESETS.find((t) => t.name === themeName)
-    if (!preset) return
-    const updated: ThemeSettings = {
-      ...ThemeManager.getSettings(),
-      theme: preset.name,
-      accent: preset.accent,
-      sidebar: preset.sidebar,
-      sidebarHover: preset.sidebarHover,
-    }
-    ThemeManager.saveSettings(updated)
-    ThemeManager.repaint(updated)
-    ThemeManager.emit(updated)
+    if (!preset) return true
+    return ThemeManager.update(
+      serverId,
+      (current) => ({
+        ...current,
+        theme: preset.name,
+        accent: preset.accent,
+        sidebar: preset.sidebar,
+        sidebarHover: preset.sidebarHover,
+      }),
+      { applyFont: false, repaint: true },
+    )
   }
 
-  public static setAccent(colorHex: string): void {
+  public static setAccent(colorHex: string, serverId?: string | null): boolean {
     const formatted = ThemeManager.formatHex(colorHex) || ThemeManager.DEFAULT_ACCENT
-    const updated: ThemeSettings = { ...ThemeManager.getSettings(), accent: formatted, theme: 'Custom' }
-    ThemeManager.saveSettings(updated)
-    ThemeManager.repaint(updated)
-    ThemeManager.emit(updated)
+    return ThemeManager.update(
+      serverId,
+      (current) => ({ ...current, accent: formatted, theme: 'Custom' }),
+      { applyFont: false, repaint: true },
+    )
   }
 
-  public static setMode(mode: ThemeMode): void {
-    const current = ThemeManager.getSettings()
-    if (current.mode === mode) return
+  public static setMode(mode: ThemeMode, serverId?: string | null): boolean {
+    return ThemeManager.update(
+      serverId,
+      (current) => {
+        if (current.mode === mode) return null
 
-    let nextTheme = current.theme
-    let nextAccent = current.accent
-    let nextSidebar = current.sidebar
-    let nextSidebarHover = current.sidebarHover
+        let nextTheme = current.theme
+        let nextAccent = current.accent
+        let nextSidebar = current.sidebar
+        let nextSidebarHover = current.sidebarHover
 
-    if (mode === 'light') {
-      const targetName = ThemeManager.PRESET_MAP_DARK_TO_LIGHT[current.theme] || ThemeManager.DEFAULT_LIGHT_THEME
-      const lightPreset = ThemeManager.LIGHT_PRESETS.find((p) => p.name === targetName) || ThemeManager.LIGHT_PRESETS[0]
-      if (current.theme !== 'Custom') {
-        nextTheme = lightPreset.name
-        nextAccent = lightPreset.accent
-        nextSidebar = lightPreset.sidebar
-        nextSidebarHover = lightPreset.sidebarHover
-      }
+        if (mode === 'light') {
+          const targetName = ThemeManager.PRESET_MAP_DARK_TO_LIGHT[current.theme] || ThemeManager.DEFAULT_LIGHT_THEME
+          const lightPreset = ThemeManager.LIGHT_PRESETS.find((p) => p.name === targetName) || ThemeManager.LIGHT_PRESETS[0]
+          if (current.theme !== 'Custom') {
+            nextTheme = lightPreset.name
+            nextAccent = lightPreset.accent
+            nextSidebar = lightPreset.sidebar
+            nextSidebarHover = lightPreset.sidebarHover
+          }
+        } else {
+          const targetName = ThemeManager.PRESET_MAP_LIGHT_TO_DARK[current.theme] || ThemeManager.DEFAULT_THEME
+          const darkPreset = ThemeManager.DARK_PRESETS.find((p) => p.name === targetName) || ThemeManager.DARK_PRESETS[0]
+          if (current.theme !== 'Custom') {
+            nextTheme = darkPreset.name
+            nextAccent = darkPreset.accent
+            nextSidebar = darkPreset.sidebar
+            nextSidebarHover = darkPreset.sidebarHover
+          }
+        }
+
+        return {
+          ...current,
+          mode,
+          theme: nextTheme,
+          accent: nextAccent,
+          sidebar: nextSidebar,
+          sidebarHover: nextSidebarHover,
+        }
+      },
+      { applyFont: false, repaint: true },
+    )
+  }
+
+  public static reset(serverId?: string | null): ThemeSettings {
+    const targetId = ThemeManager.resolveServerId(serverId)
+    const defaults = ThemeManager.DEFAULT_SNAPSHOT
+    if (!targetId) {
+      ThemeManager.lastWritePersisted = true
+      return defaults
+    }
+
+    const persisted = ThemeManager.removeServerEntry(targetId)
+    ThemeManager.lastWritePersisted = persisted
+    if (persisted) {
+      ThemeManager.memoryOverrides.delete(targetId)
     } else {
-      const targetName = ThemeManager.PRESET_MAP_LIGHT_TO_DARK[current.theme] || ThemeManager.DEFAULT_THEME
-      const darkPreset = ThemeManager.DARK_PRESETS.find((p) => p.name === targetName) || ThemeManager.DARK_PRESETS[0]
-      if (current.theme !== 'Custom') {
-        nextTheme = darkPreset.name
-        nextAccent = darkPreset.accent
-        nextSidebar = darkPreset.sidebar
-        nextSidebarHover = darkPreset.sidebarHover
-      }
+      ThemeManager.memoryOverrides.set(targetId, defaults)
     }
+    ThemeManager.snapshotCache.set(targetId, defaults)
 
-    const updated: ThemeSettings = {
-      ...current,
-      mode,
-      theme: nextTheme,
-      accent: nextAccent,
-      sidebar: nextSidebar,
-      sidebarHover: nextSidebarHover,
+    if (ThemeManager.activeServerId === targetId) {
+      ThemeManager.applyFont(defaults.font)
+      ThemeManager.repaint(defaults)
     }
-    ThemeManager.saveSettings(updated)
-    ThemeManager.repaint(updated)
-    ThemeManager.emit(updated)
-  }
-
-  public static reset(): ThemeSettings {
-    const defaults: ThemeSettings = {
-      font: ThemeManager.DEFAULT_FONT,
-      accent: ThemeManager.DEFAULT_ACCENT,
-      theme: ThemeManager.DEFAULT_THEME,
-      sidebar: ThemeManager.DEFAULT_SIDEBAR,
-      sidebarHover: ThemeManager.DEFAULT_SIDEBAR_HOVER,
-      mode: ThemeManager.DEFAULT_MODE,
-    }
-    ThemeManager.saveSettings(defaults)
-    ThemeManager.applyFont(defaults.font)
-    ThemeManager.repaint(defaults)
-    ThemeManager.emit(defaults)
+    ThemeManager.emit(defaults, targetId)
     return defaults
   }
 
-  public static subscribe(listener: (settings: ThemeSettings) => void): () => void {
+  public static forget(serverId: string): void {
+    const hadOverride = ThemeManager.memoryOverrides.has(serverId)
+    const hadStored = ThemeManager.hasStoredServerEntry(serverId)
+    ThemeManager.memoryOverrides.delete(serverId)
+    ThemeManager.snapshotCache.delete(serverId)
+
+    if (!hadOverride && !hadStored) return
+
+    if (!ThemeManager.removeServerEntry(serverId)) {
+      ThemeManager.memoryOverrides.set(serverId, ThemeManager.DEFAULT_SNAPSHOT)
+    }
+    if (ThemeManager.activeServerId === serverId) {
+      ThemeManager.applyFont(ThemeManager.DEFAULT_SNAPSHOT.font)
+      ThemeManager.repaint(ThemeManager.DEFAULT_SNAPSHOT)
+      ThemeManager.emit(ThemeManager.DEFAULT_SNAPSHOT, serverId)
+    }
+  }
+
+  public static subscribe(listener: ThemeListener): () => void {
     ThemeManager.listeners.add(listener)
     return () => ThemeManager.listeners.delete(listener)
   }
 
-  private static emit(settings: ThemeSettings): void {
+  private static emit(settings: ThemeSettings, serverId: string | null): void {
     for (const listener of ThemeManager.listeners) {
       try {
-        listener(settings)
+        listener(settings, serverId)
       } catch {
         /* ignore listener failure */
       }
     }
   }
 
-  public static init(): void {
-    const settings = ThemeManager.getSettings()
+  /**
+   * Seeds existing saved servers once from the legacy app-wide key, then removes
+   * that key so future connections start on defaults and older tabs cannot overwrite
+   * per-server entries.
+   */
+  public static migrateLegacy(serverIds: readonly string[]): void {
+    try {
+      const raw = localStorage.getItem(ThemeManager.LEGACY_STORAGE_KEY)
+      if (!raw) return
+      const parsed = JSON.parse(raw)
+      if (ThemeManager.isLegacyFlatSettings(parsed)) {
+        const legacy = ThemeManager.sanitize(parsed)
+        const serialized = JSON.stringify(legacy)
+        const seen = new Set<string>()
+        for (const id of serverIds) {
+          if (!id || seen.has(id)) continue
+          seen.add(id)
+          const key = ThemeManager.storageKey(id)
+          if (localStorage.getItem(key) === null) {
+            localStorage.setItem(key, serialized)
+            ThemeManager.snapshotCache.delete(id)
+          }
+        }
+      }
+      localStorage.removeItem(ThemeManager.LEGACY_STORAGE_KEY)
+    } catch {
+      /* ignore malformed legacy data or blocked storage */
+    }
+  }
+
+  public static init(serverId: string | null = null, knownServerIds: readonly string[] = []): void {
+    ThemeManager.snapshotCache.clear()
+    ThemeManager.memoryOverrides.clear()
+    ThemeManager.lastWritePersisted = true
+    ThemeManager.activeServerId = serverId || null
+    ThemeManager.migrateLegacy(knownServerIds)
+    ThemeManager.attachStorageListener()
+    const settings = ThemeManager.getSettings(ThemeManager.activeServerId)
     ThemeManager.applyFont(settings.font)
     ThemeManager.repaint(settings)
     ThemeManager.loadPresetFonts()
@@ -253,6 +347,134 @@ export class ThemeManager {
       link.href = `https://fonts.googleapis.com/css2?${query}&display=swap`
       document.head.appendChild(link)
     }
+  }
+
+  private static attachStorageListener(): void {
+    if (typeof window === 'undefined' || typeof window.addEventListener !== 'function') {
+      ThemeManager.attachedWindow = null
+      return
+    }
+    if (ThemeManager.attachedWindow === window) return
+    window.addEventListener('storage', ThemeManager.handleStorageEvent)
+    ThemeManager.attachedWindow = window
+  }
+
+  private static handleStorageEvent = (event: StorageEvent): void => {
+    if (event.storageArea && typeof localStorage !== 'undefined' && event.storageArea !== localStorage) {
+      return
+    }
+    if (event.key === null) {
+      ThemeManager.memoryOverrides.clear()
+      ThemeManager.snapshotCache.clear()
+      if (!ThemeManager.activeServerId) return
+      const settings = ThemeManager.getSettings(ThemeManager.activeServerId)
+      ThemeManager.applyFont(settings.font)
+      ThemeManager.repaint(settings)
+      ThemeManager.emit(settings, ThemeManager.activeServerId)
+      return
+    }
+
+    if (!event.key.startsWith(ThemeManager.STORAGE_PREFIX)) return
+    const changedId = event.key.slice(ThemeManager.STORAGE_PREFIX.length)
+    if (!changedId) return
+
+    ThemeManager.memoryOverrides.delete(changedId)
+    ThemeManager.snapshotCache.delete(changedId)
+    const settings = ThemeManager.getSettings(changedId)
+    if (ThemeManager.activeServerId === changedId) {
+      ThemeManager.applyFont(settings.font)
+      ThemeManager.repaint(settings)
+    }
+    ThemeManager.emit(settings, changedId)
+  }
+
+  private static resolveServerId(serverId?: string | null): string | null {
+    return (serverId !== undefined ? serverId : ThemeManager.activeServerId) || null
+  }
+
+  private static update(
+    serverId: string | null | undefined,
+    updater: (current: ThemeSettings) => ThemeSettings | null,
+    effects: { applyFont: boolean; repaint: boolean },
+  ): boolean {
+    const targetId = ThemeManager.resolveServerId(serverId)
+    if (!targetId) return true
+
+    const current = ThemeManager.getSettings(targetId)
+    const updated = updater(current)
+    if (!updated) return true
+
+    const persisted = ThemeManager.writeServerEntry(targetId, updated)
+    ThemeManager.lastWritePersisted = persisted
+    if (persisted) {
+      ThemeManager.memoryOverrides.delete(targetId)
+    } else {
+      ThemeManager.memoryOverrides.set(targetId, updated)
+    }
+
+    const committed = ThemeManager.cacheSnapshot(targetId, updated)
+    if (ThemeManager.activeServerId === targetId) {
+      if (effects.applyFont) ThemeManager.applyFont(committed.font)
+      if (effects.repaint) ThemeManager.repaint(committed)
+    }
+    ThemeManager.emit(committed, targetId)
+    return persisted
+  }
+
+  private static cacheSnapshot(serverId: string, candidate: ThemeSettings): ThemeSettings {
+    const cached = ThemeManager.snapshotCache.get(serverId)
+    if (
+      cached &&
+      cached.font === candidate.font &&
+      cached.accent === candidate.accent &&
+      cached.theme === candidate.theme &&
+      cached.sidebar === candidate.sidebar &&
+      cached.sidebarHover === candidate.sidebarHover &&
+      cached.mode === candidate.mode
+    ) {
+      return cached
+    }
+    const frozen = Object.freeze({ ...candidate })
+    ThemeManager.snapshotCache.set(serverId, frozen)
+    return frozen
+  }
+
+  private static defaults(mode: ThemeMode = ThemeManager.DEFAULT_MODE): ThemeSettings {
+    if (mode === 'light') {
+      const light = ThemeManager.LIGHT_PRESETS[0]
+      return {
+        font: ThemeManager.DEFAULT_FONT,
+        accent: light.accent,
+        theme: light.name,
+        sidebar: light.sidebar,
+        sidebarHover: light.sidebarHover,
+        mode: 'light',
+      }
+    }
+    return { ...ThemeManager.DEFAULT_SNAPSHOT }
+  }
+
+  private static isLegacyFlatSettings(value: unknown): value is Partial<ThemeSettings> {
+    if (!value || typeof value !== 'object' || Array.isArray(value)) return false
+    const record = value as Record<string, unknown>
+    return ['font', 'accent', 'theme', 'sidebar', 'sidebarHover', 'mode'].some(
+      (field) => typeof record[field] === 'string',
+    )
+  }
+
+  private static sanitize(raw?: Partial<ThemeSettings> | null): ThemeSettings {
+    const mode: ThemeMode = raw?.mode === 'light' ? 'light' : 'dark'
+    const defaults = ThemeManager.defaults(mode)
+    if (!raw) return defaults
+    const font = typeof raw.font === 'string' && raw.font.trim() ? raw.font.trim() : defaults.font
+    const accent = typeof raw.accent === 'string' ? ThemeManager.formatHex(raw.accent) || defaults.accent : defaults.accent
+    const theme = typeof raw.theme === 'string' && raw.theme.trim() ? raw.theme : defaults.theme
+    const sidebar = typeof raw.sidebar === 'string' && raw.sidebar.trim() ? raw.sidebar : defaults.sidebar
+    const sidebarHover =
+      typeof raw.sidebarHover === 'string' && raw.sidebarHover.trim()
+        ? raw.sidebarHover
+        : defaults.sidebarHover
+    return { font, accent, theme, sidebar, sidebarHover, mode }
   }
 
   /** Applies accent, color scheme, and sidebar tint together — every setter above funnels
@@ -281,7 +503,10 @@ export class ThemeManager {
     // Typed by the user, so each word is encoded: a `&` or `#` would otherwise
     // end the family and rewrite the rest of the query.
     const formattedFamily = fontName.trim().split(/\s+/).map(encodeURIComponent).join('+')
-    link.href = `https://fonts.googleapis.com/css2?family=${formattedFamily}:wght@300;400;500;600;700&display=swap`
+    const nextHref = `https://fonts.googleapis.com/css2?family=${formattedFamily}:wght@300;400;500;600;700&display=swap`
+    if (link.href !== nextHref) {
+      link.href = nextHref
+    }
 
     document.documentElement.style.setProperty(
       '--font-ui',
@@ -306,11 +531,42 @@ export class ThemeManager {
     document.documentElement.style.setProperty('--accent-ink', ink)
   }
 
-  private static saveSettings(settings: ThemeSettings): void {
+  private static readServerEntry(serverId: string): Partial<ThemeSettings> | null {
     try {
-      localStorage.setItem(ThemeManager.STORAGE_KEY, JSON.stringify(settings))
+      const raw = localStorage.getItem(ThemeManager.storageKey(serverId))
+      if (!raw) return null
+      const parsed = JSON.parse(raw)
+      return parsed && typeof parsed === 'object' && !Array.isArray(parsed)
+        ? (parsed as Partial<ThemeSettings>)
+        : null
     } catch {
-      /* ignore storage failure */
+      return null
+    }
+  }
+
+  private static hasStoredServerEntry(serverId: string): boolean {
+    try {
+      return localStorage.getItem(ThemeManager.storageKey(serverId)) !== null
+    } catch {
+      return false
+    }
+  }
+
+  private static writeServerEntry(serverId: string, settings: ThemeSettings): boolean {
+    try {
+      localStorage.setItem(ThemeManager.storageKey(serverId), JSON.stringify(settings))
+      return true
+    } catch {
+      return false
+    }
+  }
+
+  private static removeServerEntry(serverId: string): boolean {
+    try {
+      localStorage.removeItem(ThemeManager.storageKey(serverId))
+      return true
+    } catch {
+      return false
     }
   }
 
