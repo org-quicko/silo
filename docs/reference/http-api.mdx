@@ -12,7 +12,7 @@ The server listens on `http://localhost:8090` by default. Change it with the `--
 
 ## Authentication
 
-Every route except `GET /api/health` requires a valid API key. Silo has no users or sessions — only keys with explicit claims.
+Discovery routes (`/openapi.json`, `/mcp`, `/llms.txt`), `GET /api/health`, public media streaming (`/media/{id}`), media catalog reads, and public collections (without `"x-silo-auth": true`) are readable without a key. Every other route — including `POST /api/mcp` — requires a valid API key. Silo has no users or sessions — only keys with explicit claims.
 
 <CodeGroup>
 
@@ -33,6 +33,14 @@ curl http://localhost:8090/api/projects/default/envs/prod/collections/posts \
 </Note>
 
 ## Routes
+
+### Discovery
+
+| Method | Path | Description |
+|--------|------|-------------|
+| `GET` | `/openapi.json` | Complete OpenAPI 3.1 specification — unauthenticated (`GET`/`HEAD` CORS) |
+| `GET` | `/mcp` | Open listing of all MCP tools, input schemas, transport metadata, and instructions — unauthenticated (`POST` returns `405` pointing to `POST /api/mcp`) |
+| `GET` | `/llms.txt` | Plain-text Markdown guide for LLMs and agents — unauthenticated |
 
 ### Health & Session
 

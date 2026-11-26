@@ -4,6 +4,23 @@
 > The *current* state is [CONTEXT.md](../../CONTEXT.md); this is how it got
 > there.
 
+- **Open discovery endpoints at the server root (2026-11-25, D114).**
+  `DiscoveryRoutes` registers three unauthenticated `GET`/`HEAD` routes before
+  the Admin SPA fallback: `GET /openapi.json` serves the checked-in
+  `resources/openapi.json` via `OpenApiDocument` (bundled by static import for
+  source runs, tests from any directory, and `bun build --compile` binaries,
+  and copied in `Dockerfile`), `GET /mcp` returns `McpCatalogView`
+  (`{ server, endpoint, transport, auth, instructions, tools }`) from the shared
+  `McpToolCatalog`, and `GET /llms.txt` renders `LlmsTxt` explaining how to use
+  `/openapi.json`, `/mcp`, `POST /api/mcp`, API keys/claims, queries,
+  concurrency, variables, media, and trash. All three enable cross-origin `GET`/
+  `HEAD`, set `nosniff` and `Cache-Control: no-cache`, and return `405`
+  (`Allow: GET, HEAD`) to mutating methods (with `POST /mcp` directing callers
+  to `POST /api/mcp`). `MediaTools` (`list_media`,
+  `get_media`) also dropped the stale `Needs media:read.` note (retired in D58),
+  and `resources/openapi.json`, `resources/guide/`, `resources/design/`, and
+  `docs/` are updated in step.
+
 - **1.6.3 has a release note (2026-11-16).**
   `resources/release-notes/1.6.3.md` covers the logo, the move to Bun 1.4.4
   and the Postgres host-name message that move needed. The versions were set

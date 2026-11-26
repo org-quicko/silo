@@ -3,6 +3,8 @@ export type { JsonRpcId, JsonRpcRequest, JsonRpcResponse, JsonRpcError } from ".
 export { McpProtocol } from "./mcp-protocol";
 export type { McpTool, McpToolRequest, McpToolAnnotations } from "./mcp-tool";
 export type { McpToolResult, McpToolContent } from "./mcp-tool-result";
+export { McpCatalogView } from "./mcp-catalog-view";
+export type { McpCatalogViewPayload } from "./mcp-catalog-view";
 export { McpToolCatalog } from "./mcp-tool-catalog";
 export { McpServer } from "./mcp-server";
 export { McpRoutes } from "./mcp-routes";

@@ -142,6 +142,7 @@ one line here.
 | D111 | Apply: `POST …/transfers/{id}/apply` writes the plan as one commit with a `_transfers` ledger row, or nothing (`409 stale_preview`); files first under saved free keys, taken back on failure; startup settles interrupted applies; existing assets never changed |
 | D112 | Admin env Data Transfer can read another saved server with a pasted, never-stored key checked against its `/api/session` first; Preview prepares, Apply applies, and a preparation is cancelled on any way out |
 | D113 | A delete goes to the trash: `_trash` receipts and `_trash_items` records in `Scope.System`, six `/api/trash` routes, `[trash] enabled` / `retention_days` (on, 30 days); reading follows the origin's read claim, restoring asks for write claims at the destination, and `trash:purge` is the one new claim |
+| D114 | Unauthenticated root discovery endpoints: `GET /openapi.json` (the checked-in OpenAPI spec), `GET /mcp` (the MCP tool catalog and transport/auth metadata), and `GET /llms.txt` (agent guide), with `GET`/`HEAD` CORS and `405` on mutating methods; `POST /api/mcp` stays key-gated |
 
 ## 3. Scope
 

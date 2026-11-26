@@ -36,6 +36,7 @@ COPY packages/shared/src/ ./packages/shared/src/
 RUN bun install --frozen-lockfile --production
 
 COPY --chown=bun:bun apps/server/src/ ./apps/server/src/
+COPY --chown=bun:bun resources/openapi.json ./resources/openapi.json
 COPY --chown=bun:bun --from=ui /app/apps/admin/dist ./apps/admin/dist
 
 ARG SILO_VERSION=""

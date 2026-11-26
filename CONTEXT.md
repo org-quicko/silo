@@ -12,11 +12,11 @@ A minimal, self-hostable headless CMS. You define collections with JSON Schema
 and get generated admin forms and a CRUD API. You can move all the data
 anywhere with export/import. What sets it apart is **portability**: standard
 schemas, pluggable storage, and one command to clone an instance. The vision
-and every decision (D1–D113) are indexed in [IMPLEMENTATION.md](IMPLEMENTATION.md).
+and every decision (D1–D114) are indexed in [IMPLEMENTATION.md](IMPLEMENTATION.md).
 
 ## Where things stand
 
-*Last updated: 2026-11-16. Version 1.6.3 (root `package.json`, D28).*
+*Last updated: 2026-11-25. Version 1.6.3 (root `package.json`, D28).*
 
 **Stack.** Bun + TypeScript in one workspace: `apps/server` (CLI, Hono HTTP
 API, core, adapters), `apps/admin` (React, embedded in the executable),
@@ -102,10 +102,11 @@ one); `docs/` is the public Mintlify site.
   [resources/guide/configuration.md](resources/guide/configuration.md) lists
   every setting.
 - **API surface.** REST under `/api`
-  ([resources/openapi.json](resources/openapi.json) is hand-written and must be
-  kept in step), MCP at `POST /api/mcp` plus the `silo mcp` stdio bridge
-  (D86), and clients for TypeScript (D61, D71), Java (D69, D87) and Dart
-  (D91).
+  ([resources/openapi.json](resources/openapi.json) is hand-written, kept in
+  step by hand, and served openly at `GET /openapi.json`), MCP at
+  `POST /api/mcp` plus the `silo mcp` stdio bridge (D86), open MCP tool
+  listing at `GET /mcp`, `GET /llms.txt` for agent discovery (D114),
+  and clients for TypeScript (D61, D71), Java (D69, D87) and Dart (D91).
 - **Admin UI.** A server manager, then collections, entries, media, trash,
   transfer and settings. Server state lives in one stale-while-revalidate
   store (D53). A saved server whose key is refused opens prefilled in the
@@ -131,7 +132,12 @@ one); `docs/` is the public Mintlify site.
   are in [milestones.md](resources/design/milestones.md) §12.
   [IDEAS.md](IDEAS.md) holds loose ideas.
 
-**Most recent changes:** silo has a logo, drawn from the designer's SVG:
+**Most recent changes:** silo now serves open discovery endpoints at the root
+without authentication (D114): `GET /openapi.json` serves the checked-in
+OpenAPI 3.1 document, `GET /mcp` lists the MCP tool catalog and transport
+metadata, and `GET /llms.txt` explains how to use both alongside the REST API,
+while `POST /api/mcp` remains key-gated. Before that, silo gained its logo,
+drawn from the designer's SVG:
 `SiloMark` in the admin, `favicon.svg`, `favicon.ico` and
 `apple-touch-icon.png` in `apps/admin/public/`, and the docs site's logo and
 favicon. CI, the release executables and the Docker image run Bun 1.4.4, and

@@ -6,6 +6,14 @@ description: "Silo is an MCP server at POST /api/mcp. Connect Claude Code, Claud
 
 Silo speaks MCP (Model Context Protocol) at `POST /api/mcp`, using the same API key as the HTTP API. The key's claims decide exactly what the AI client may do — a call the key is not allowed to make comes back as a refusal that names the missing claim, so the model can reason about what went wrong. There is nothing extra to install and nothing extra to start.
 
+## Open discovery
+
+Before configuring an API key, AI agents and developers can inspect Silo's capabilities openly at the server root (no authentication required):
+
+- **`GET /mcp`** — JSON listing of all MCP tools (`name`, `title`, `description`, `inputSchema`, `annotations`), transport details, authentication rules, and server instructions (`POST /mcp` returns `405` pointing to `POST /api/mcp`).
+- **`GET /openapi.json`** — The complete OpenAPI 3.1 HTTP specification.
+- **`GET /llms.txt`** — Plain-text Markdown instructions explaining how to discover and use `/openapi.json`, `/mcp`, `POST /api/mcp`, and the REST API.
+
 ## Transport options
 
 Two transports are available. Use the URL transport when your client can send an HTTP header. Use `silo mcp` when your client can only spawn a local process.

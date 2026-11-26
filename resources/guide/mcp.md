@@ -7,6 +7,16 @@ as Claude Code, Claude Desktop, Codex and Cursor call tools on another program.
 A running silo speaks it at `POST /api/mcp`, with the same API key you use for
 the HTTP API. There is nothing else to install and nothing else to start.
 
+For unauthenticated inspection before or without an API key, every running
+instance also exposes:
+
+- `GET /mcp`: the full MCP tool catalog (`name`, `title`, `description`,
+  `inputSchema`, `annotations`), transport details, auth requirements, and
+  server instructions (`POST /mcp` returns `405` pointing to `POST /api/mcp`).
+- `GET /openapi.json`: the complete OpenAPI 3.1 HTTP specification.
+- `GET /llms.txt`: a concise plain-text Markdown guide telling AI agents how to
+  use `/openapi.json`, `/mcp`, and `/api/mcp`.
+
 Every tool call is one request on a route in [http-api.md](http-api.md), made
 with the key the client was given. The key's claims decide what the client may
 do, tool by tool, and a refused call tells the model which claim is missing.

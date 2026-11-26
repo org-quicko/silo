@@ -24,7 +24,7 @@ Every error Silo returns — whether a bad request, a missing resource, or an un
 | `401` | `unauthorized` | No key was presented, or the key was not found |
 | `403` | `forbidden` | A key was present but lacks the required claim for this operation |
 | `404` | `not_found` | The requested resource does not exist, or it is a trash item the key may not see |
-| `405` | `method_not_allowed` | Only returned by `GET` or `DELETE` on `/api/mcp`, which only accepts `POST` |
+| `405` | `method_not_allowed` | Returned by `GET` or `DELETE` on `/api/mcp` (which only accepts `POST`), and mutating methods (`POST`, `PUT`, `PATCH`, `DELETE`) on `/openapi.json`, `/mcp`, and `/llms.txt` (which only accept `GET` and `HEAD`) |
 | `409` | `conflict` | Revision mismatch on `PUT`/`DELETE`, a schema change that an existing entry does not satisfy, or a trash restore that is blocked |
 | `413` | `payload_too_large` | Request body exceeds `[http] max_json_body_size_mb` (default 4 MB) |
 | `413` | `archive_too_large` | Import archive exceeds `[transfer] max_archive_size_mb` or would unpack beyond `[transfer] max_extracted_size_mb` |
