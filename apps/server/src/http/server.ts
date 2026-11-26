@@ -25,7 +25,8 @@ import { ConfigSupervisor, MediaPolicySupervisor, MediaStorageSupervisor } from 
 import { ConfigLoader } from "../config/config-loader";
 import { UiAssets } from "./ui-assets";
 import { Observability } from "../observability";
-import { McpRoutes } from "../mcp";
+import { McpRoutes, McpToolCatalog } from "../mcp";
+import { DiscoveryRoutes } from "./routes/discovery-routes";
 
 /** How to build the app. An options object rather than a fourth and fifth
  *  positional argument, two of which would be bare booleans. */
@@ -189,7 +190,12 @@ export class SiloServer {
 
     // MCP over HTTP (D86). After the route table, because every tool call is
     // dispatched back through this same app and lands on a route above.
-    McpRoutes.register(app, { version: this.version });
+    const mcpCatalog = McpToolCatalog.default();
+    McpRoutes.register(app, { version: this.version, catalog: mcpCatalog });
+
+    // Openly listed OpenAPI spec, MCP tool catalog, and llms.txt at the root,
+    // before the SPA fallback so crawlers and clients never get index.html.
+    DiscoveryRoutes.register(app, { version: this.version, catalog: mcpCatalog });
 
     // Global Error Handler
     app.onError((err, c) => {

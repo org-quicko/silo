@@ -9,8 +9,10 @@ version. CORS is enabled for `/api/*`. It is also enabled for `GET` and
 with `fetch`.
 
 [resources/openapi.json](../openapi.json) is the same API as an OpenAPI 3.1
-description. Open it in Swagger UI or Redoc, or give it to a code generator to
-make a client. This page is the short version that you read.
+description, and every running instance serves it openly at `GET /openapi.json`
+alongside `GET /mcp` and `GET /llms.txt` for AI agents and code
+generators. Open `/openapi.json` in Swagger UI or Redoc, or give it to a code
+generator to make a client. This page is the short version that you read.
 
 Present a key as `Authorization: Bearer <key>` or `X-Api-Key: <key>`.
 
@@ -18,6 +20,9 @@ Present a key as `Authorization: Bearer <key>` or `X-Api-Key: <key>`.
 |--------|------|-------|
 | `GET` | `/api/health` | liveness and version, never authenticated |
 | `GET` | `/api/session` | current key label, prefix, and effective claims |
+| `GET` | `/openapi.json` | this API's OpenAPI 3.1 specification, unauthenticated (`GET`/`HEAD` CORS) |
+| `GET` | `/mcp` | open listing of all MCP tools, input schemas, transport metadata, and instructions, unauthenticated (`POST` answers `405` pointing to `POST /api/mcp`) |
+| `GET` | `/llms.txt` | plain-text Markdown guide for LLMs and agents, unauthenticated |
 | `POST` | `/api/mcp` | MCP over Streamable HTTP: one JSON-RPC message, or a batch, in; the reply out. Needs a key. `GET` and `DELETE` answer `405`. See [mcp.md](mcp.md) |
 | `GET` / `POST` | `/api/projects` | list projects visible to the key / create `{id}` |
 | `PATCH` | `/api/projects/{project}` | rename a project, and rewrite the claims that name it (`?dry_run=true`) |
@@ -385,7 +390,7 @@ admin tabs from overwriting each other in silence.
 ```
 
 The codes are `validation_failed` (400), `unauthorized` (401), `forbidden`
-(403), `not_found` (404), `method_not_allowed` (405, only from `/api/mcp`),
+(403), `not_found` (404), `method_not_allowed` (405, from `GET`/`DELETE` on `/api/mcp` and mutating methods on `/openapi.json`, `/mcp`, or `/llms.txt`),
 `conflict` (409), `payload_too_large` (413), `archive_too_large` (413),
 `too_many_transfers` (429), `internal` (500) and `busy` (503). Validation
 details carry JSON Pointer paths from the validator.

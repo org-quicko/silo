@@ -11,6 +11,9 @@ Hono web framework on Bun. JSON everywhere. Admin UI served at `/`; API under `/
 |--------|------|-------|
 | GET | `/api/health` | liveness + version |
 | GET | `/api/session` | authenticated key label, prefix, and effective claims |
+| GET | `/openapi.json` | open OpenAPI 3.1 specification (D114, unauthenticated, `GET`/`HEAD` CORS) |
+| GET | `/mcp` | open MCP tool catalog and transport/auth metadata (D114, unauthenticated; `POST` is `405`) |
+| GET | `/llms.txt` | unauthenticated plain-text Markdown guide for AI agents and LLMs (D114) |
 | GET / POST | `/api/projects` | list projects as `{id, name}` (filtered by claims) / create one. `id` is the record's ULID; `name` is what every path addresses (D51) |
 | PATCH | `/api/projects/{project}` | rename (`{name}`), bound to `?expected_id=`, previewable with `?dry_run=true` (`RenamePermissions` at `{project}/*/*`, at **both** names — D51) |
 | PATCH | `/api/projects/{project}/envs/{env}` | rename an environment, same shape and reach `{project}/{env}/*` (D51) |
@@ -1073,6 +1076,14 @@ configured has nothing to call and should learn that at connect time, not as
 nineteen refusals. OAuth is not offered; the key is the credential, and every
 client silo documents has a place for a bearer header or an environment
 variable.
+
+**Open discovery without a key (D114).** Keeping `POST /api/mcp` key-gated and `GET /api/mcp` at `405` follows Streamable HTTP, while leaving an unauthenticated agent with no way to discover the API schema or available tools. `DiscoveryRoutes` therefore serves three unauthenticated `GET`/`HEAD` routes at the server root, before the Admin SPA fallback:
+
+- `GET /openapi.json` serves the checked-in `resources/openapi.json` (`OpenApiDocument`, imported as JSON so source runs, tests, Docker, and `bun build --compile` binaries all serve the same spec with no disk read per request).
+- `GET /mcp` answers `McpCatalogView.build`: `{ server, endpoint, transport, auth, instructions, tools }` derived from the same `McpToolCatalog` instance that serves `POST /api/mcp`.
+- `GET /llms.txt` renders `LlmsTxt` dynamically from that catalog, the server version, and the request's origin (`RequestUtils.getBaseUrl`, sanitized via `URL`), summarizing discovery links, auth and claims, MCP setup and workflow, and HTTP API conventions.
+
+All three enable cross-origin `GET`/`HEAD`, set `X-Content-Type-Options: nosniff` and `Cache-Control: no-cache`, and return `405` (`Allow: GET, HEAD`) to mutating methods so they never fall through to `index.html` (and `POST /mcp` points callers to `POST /api/mcp`).
 
 **No SDK.** `@modelcontextprotocol/sdk` would bring zod and a transport layer
 to do what `McpRoutes` and `McpServer` do in two short files: parse JSON-RPC,

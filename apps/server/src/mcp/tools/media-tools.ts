@@ -13,7 +13,7 @@ export class MediaTools {
       name: "list_media",
       title: "List media",
       description:
-        "Page through the media library's catalog records: id, filename, folder, tags, content type, size and url. An entry refers to an asset as silo://media/<id>. Needs media:read.",
+        "Page through the media library's catalog records: id, filename, folder, tags, content type, size and url. An entry refers to an asset as silo://media/<id>. Open to any valid key (no claim required).",
       inputSchema: ToolSchemas.object({
         q: { type: "string", description: "Text to match against filenames and tags." },
         folder: { type: "string", description: "Folder path to list, e.g. images/hero." },
@@ -48,7 +48,7 @@ export class MediaTools {
     return {
       name: "get_media",
       title: "Get media",
-      description: "One asset's catalog record by id. Needs media:read.",
+      description: "One asset's catalog record by id. Open to any valid key (no claim required).",
       inputSchema: ToolSchemas.object({ id: ToolSchemas.MediaId }, ["id"]),
       annotations: { readOnlyHint: true, openWorldHint: false },
       request: (args) => ({ method: "GET", path: `/api/media/${ToolPaths.text(args, "id")}` }),

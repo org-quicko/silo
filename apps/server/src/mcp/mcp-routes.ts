@@ -14,10 +14,10 @@ import { McpToolRunner } from "./mcp-tool-runner";
 export class McpRoutes {
   static readonly Path = "/api/mcp";
 
-  static register(app: Hono, options: { version: string }): void {
+  static register(app: Hono, options: { version: string; catalog?: McpToolCatalog }): void {
     const server = new McpServer({
       version: options.version,
-      catalog: McpToolCatalog.default(),
+      catalog: options.catalog ?? McpToolCatalog.default(),
       runner: new McpToolRunner(app),
     });
 
