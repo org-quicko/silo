@@ -11,7 +11,7 @@ export function Modal({
 }: {
   onClose: () => void
   children: ReactNode
-  size?: 'md' | 'lg'
+  size?: 'md' | 'lg' | 'xl'
 }) {
   const modalId = useId()
   const onCloseRef = useRef(onClose)
@@ -40,7 +40,7 @@ export function Modal({
       <div
         role="dialog"
         aria-modal="true"
-        className={`${styles.dialog} ${size === 'lg' ? styles.large : ''}`}
+        className={`${styles.dialog} ${size === 'lg' ? styles.large : size === 'xl' ? styles.xlarge : ''}`}
         onMouseDown={(event) => event.stopPropagation()}
       >
         {children}

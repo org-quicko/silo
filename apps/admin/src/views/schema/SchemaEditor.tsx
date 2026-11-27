@@ -1,15 +1,15 @@
 import { SchemaAccess } from '@silo/shared/schema-access'
 import { Button } from '../../components/buttons/Button'
 import { Breadcrumb } from '../../components/navigation/Breadcrumb'
-import { useEffect, useLayoutEffect, useRef, useState } from 'react'
-import CodeMirror from '@uiw/react-codemirror'
-import { json as jsonLang } from '@codemirror/lang-json'
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { Check, AlertCircle, List, Code2 } from 'lucide-react'
 import { Claims } from '@silo/shared/claims'
 import { CollectionName } from '@silo/shared/collection-name'
 import { api } from '../../api/silo-api'
 import type { Collection } from '../../api/types/collection'
 import type { ScopeRef } from '../../api/types/scope-ref'
+import type { JsonCodeEditorHandle } from '../../components/json/JsonCodeEditor'
+import { JsonSyntax } from '../../components/json/json-syntax'
 import { Routes } from '../../router/routes'
 import { Toggle } from '../../components/controls/Toggle'
 import { Segmented } from '../../components/controls/Segmented'
@@ -21,10 +21,10 @@ import { DiscardChangesModal } from '../DiscardChangesModal'
 import { useDirtyGuard } from '../use-dirty-guard'
 import { useEscapeToDiscard } from '../use-escape-to-discard'
 import { useSaveShortcut } from '../use-save-shortcut'
-import { useThemeMode } from '../../utils/use-theme-mode'
 import { CollectionNameMessage } from './collection-name-message'
 import { CollectionRail } from './CollectionRail'
 import { FieldList } from './FieldList'
+import { SchemaCodePane } from './SchemaCodePane'
 import { SchemaSaveGuard } from './schema-save-guard'
 import styles from './SchemaEditor.module.css'
 import { useSchemaDraft, type SchemaEditorMode } from './use-schema-draft'
@@ -85,7 +85,7 @@ export function SchemaEditorView({
   const [deleting, setDeleting] = useState(false)
   const [deleteError, setDeleteError] = useState('')
   const [saveGuard] = useState(() => new SchemaSaveGuard())
-  const mode = useThemeMode(serverId)
+  const schemaCodeRef = useRef<JsonCodeEditorHandle | null>(null)
 
   useEffect(() => {
     saveGuard.mount()
@@ -213,6 +213,10 @@ export function SchemaEditorView({
   }
 
   const valid = draft.parsed.ok
+  const codeDiagnostic = useMemo(
+    () => (draft.mode === 'code' ? JsonSyntax.diagnose(draft.text, { allowEmpty: false }) : null),
+    [draft.mode, draft.text],
+  )
   useSaveShortcut(save, !saving && valid)
 
   return (
@@ -402,24 +406,35 @@ export function SchemaEditorView({
             onAddField={draft.addField}
           />
         ) : (
-          <div className={styles.codeEditor}>
-            <CodeMirror
-              value={draft.text}
-              height="420px"
-              theme={mode}
-              editable={!saving}
-              readOnly={saving}
-              extensions={[jsonLang()]}
-              onChange={(value) => draft.setText(value)}
-            />
-          </div>
+          <SchemaCodePane
+            serverId={serverId}
+            collectionName={collection?.name || name || 'untitled'}
+            text={draft.text}
+            disabled={saving}
+            diagnostic={codeDiagnostic}
+            editorRef={schemaCodeRef}
+            onChange={(value) => draft.setText(value)}
+          />
         )}
 
         <div className={styles.footer}>
           <span className={`${styles.validity} ${valid ? '' : styles.invalid}`}>
             {valid ? <Check size={14} /> : <AlertCircle size={14} />}
-            {valid ? `Schema is valid · ${draft.fieldCount} ${draft.fieldCount === 1 ? 'field' : 'fields'}` : 'Invalid JSON'}
+            {valid
+              ? `Schema is valid · ${draft.fieldCount} ${draft.fieldCount === 1 ? 'field' : 'fields'}`
+              : codeDiagnostic
+                ? `Line ${codeDiagnostic.line}, Col ${codeDiagnostic.column} · ${codeDiagnostic.message}`
+                : 'Invalid JSON'}
           </span>
+          {!valid && codeDiagnostic && (
+            <button
+              type="button"
+              className={styles.jumpError}
+              onClick={() => schemaCodeRef.current?.jumpToError()}
+            >
+              Jump to error
+            </button>
+          )}
         </div>
       </div>
             </div>

@@ -15,8 +15,8 @@ export class MediaValue {
   private static readonly ImageExtensions = /\.(png|jpe?g|gif|svg|webp|ico|avif)$/i
 
   /** The id this field points at, whichever recognised form the value is in. */
-  static idOf(value: string | undefined): string | null {
-    return value ? MediaRef.canonicalId(value) : null
+  static idOf(value: unknown): string | null {
+    return typeof value === 'string' && value ? MediaRef.canonicalId(value) : null
   }
 
   /**
@@ -28,16 +28,16 @@ export class MediaValue {
    * pre-D23 relative path is rooted there; anything already absolute is left
    * exactly as it is, including a bucket URL the field may hold.
    */
-  static previewUrl(value: string | undefined, baseUrl: string): string {
-    if (!value) return ''
+  static previewUrl(value: unknown, baseUrl: string): string {
+    if (typeof value !== 'string' || !value) return ''
 
     const id = MediaValue.idOf(value)
     if (id) return MediaFileUrl.forId(id, baseUrl)
     return MediaFileUrl.join(value, baseUrl)
   }
 
-  static looksLikeImage(value: string | undefined): boolean {
-    if (!value) return false
+  static looksLikeImage(value: unknown): boolean {
+    if (typeof value !== 'string' || !value) return false
     return Boolean(
       MediaValue.idOf(value) ||
         MediaValue.ImageExtensions.test(value) ||
@@ -49,12 +49,55 @@ export class MediaValue {
 
   /** What to call the file. The resolved asset knows; otherwise fall back to
    *  the reference, then to the last path segment with its hash stripped. */
-  static displayName(value: string, asset: MediaAsset | null): string {
+  static displayName(value: unknown, asset: MediaAsset | null): string {
     if (asset) return asset.filename
+    if (typeof value !== 'string') return ''
     if (MediaRef.is(value)) return MediaRef.idOf(value)
 
     const last = value.split('/').pop() || value
     return last.replace(/^[0-9a-f]{16,}_/i, '')
+  }
+
+  /**
+   * Normalizes resolved media URLs back to canonical `silo://media/<id>` tokens
+   * structurally, matching the server's write-path `MediaRefs.canonicalize`.
+   */
+  static canonicalize<T>(data: T): T {
+    return MediaValue.rewriteCanonical(data, 0, new Map()) as T
+  }
+
+  private static rewriteCanonical(
+    value: unknown,
+    depth: number,
+    seen: Map<object, unknown>,
+  ): unknown {
+    if (depth > 64) return value
+    if (typeof value === 'string') {
+      return MediaRef.canonical(value) ?? value
+    }
+    if (!value || typeof value !== 'object') return value
+
+    const cached = seen.get(value as object)
+    if (cached !== undefined) return cached
+
+    if (Array.isArray(value)) {
+      const out: unknown[] = []
+      seen.set(value as object, out)
+      for (const item of value) out.push(MediaValue.rewriteCanonical(item, depth + 1, seen))
+      return out
+    }
+
+    const out: Record<string, unknown> = Object.create(null)
+    seen.set(value as object, out)
+    for (const [key, item] of Object.entries(value as Record<string, unknown>)) {
+      Object.defineProperty(out, key, {
+        value: MediaValue.rewriteCanonical(item, depth + 1, seen),
+        enumerable: true,
+        writable: true,
+        configurable: true,
+      })
+    }
+    return out
   }
 
   /**

@@ -16,7 +16,7 @@ export function TagsWidget(props: any) {
     <div className={styles.input}>
       {tags.map((t, i) => (
         <span key={i} className={styles.tag}>
-          {t}
+          {typeof t === 'string' ? t : JSON.stringify(t)}
           {!locked && (
             <button type="button" className={styles.remove} onClick={() => onChange(tags.filter((_, j) => j !== i))}>
               ✕

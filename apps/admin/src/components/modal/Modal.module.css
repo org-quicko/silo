@@ -31,6 +31,13 @@
   width: 640px;
 }
 
+.xlarge {
+  display: flex;
+  width: min(1040px, 92vw);
+  max-height: 88vh;
+  flex-direction: column;
+}
+
 .dialog h3 {
   margin: 0;
   color: var(--text);
@@ -82,6 +89,11 @@
 
   .large {
     width: 100%;
+  }
+
+  .xlarge {
+    width: 100%;
+    max-height: 92vh;
   }
 }
 

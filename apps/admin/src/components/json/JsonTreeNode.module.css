@@ -1,0 +1,235 @@
+.node {
+  display: flex;
+  flex-direction: column;
+}
+
+.row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 5px 6px;
+  border-radius: var(--r-1);
+  transition: background-color 0.1s;
+}
+
+.row:hover {
+  background: color-mix(in oklab, var(--panel-2) 65%, transparent);
+}
+
+.keySlot {
+  display: flex;
+  min-width: 150px;
+  flex: 0 1 220px;
+  align-items: flex-start;
+  gap: 4px;
+}
+
+.disclosure,
+.disclosureSpacer {
+  display: inline-flex;
+  width: 20px;
+  height: 28px;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+}
+
+.disclosure {
+  padding: 0;
+  border: 0;
+  border-radius: var(--r-1);
+  background: transparent;
+  color: var(--text-3);
+  cursor: pointer;
+}
+
+.disclosure:hover {
+  background: var(--panel-2);
+  color: var(--text);
+}
+
+.indexBadge {
+  display: inline-flex;
+  height: 28px;
+  align-items: center;
+  padding: 0 7px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-1);
+  background: var(--panel);
+  color: var(--text-3);
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+}
+
+.keyInputWrap {
+  display: flex;
+  min-width: 0;
+  flex: 1;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.keyInput {
+  width: 100%;
+  min-width: 0;
+  height: 28px;
+  padding: 4px 8px;
+  border: 1px solid var(--line-2);
+  border-radius: var(--r-1);
+  outline: none;
+  background: var(--panel);
+  color: var(--text);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  font-weight: 500;
+}
+
+.keyInput:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px color-mix(in oklab, var(--accent) 18%, transparent);
+}
+
+.keyInput:disabled {
+  opacity: 0.72;
+  cursor: not-allowed;
+}
+
+.keyInputInvalid {
+  border-color: var(--bad);
+}
+
+.keyError {
+  color: var(--bad);
+  font-size: 11px;
+}
+
+.valueSlot {
+  display: flex;
+  min-width: 200px;
+  flex: 1 1 260px;
+  align-items: flex-start;
+  gap: 7px;
+  padding-top: 2px;
+}
+
+.containerMeta {
+  display: flex;
+  min-height: 24px;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.containerSummary {
+  color: var(--text-3);
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+}
+
+.quickAdd {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 3px 7px;
+  border: 1px dashed var(--line-2);
+  border-radius: var(--r-1);
+  background: transparent;
+  color: var(--text-2);
+  font-family: var(--font-ui);
+  font-size: 11px;
+  font-weight: 500;
+  cursor: pointer;
+}
+
+.quickAdd:hover {
+  border-color: var(--accent-line);
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+
+.actions {
+  display: inline-flex;
+  height: 28px;
+  flex: none;
+  align-items: center;
+  gap: 2px;
+  margin-left: auto;
+  opacity: 0.45;
+  transition: opacity 0.12s;
+}
+
+.row:hover .actions,
+.row:focus-within .actions {
+  opacity: 1;
+}
+
+.iconAction {
+  display: inline-flex;
+  width: 24px;
+  height: 24px;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: 1px solid transparent;
+  border-radius: var(--r-1);
+  background: transparent;
+  color: var(--text-3);
+  cursor: pointer;
+}
+
+.iconAction:hover:not(:disabled) {
+  border-color: var(--line-2);
+  background: var(--panel-2);
+  color: var(--text);
+}
+
+.iconAction:disabled {
+  opacity: 0.3;
+  cursor: not-allowed;
+}
+
+.dangerAction:hover:not(:disabled) {
+  border-color: color-mix(in oklab, var(--bad) 36%, transparent);
+  background: var(--bad-soft);
+  color: var(--bad);
+}
+
+.children {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 4px 0 6px 14px;
+  margin-left: 15px;
+  border-left: 1px solid color-mix(in oklab, var(--line-2) calc(100% - (var(--depth, 1) - 1) * 14%), var(--accent));
+}
+
+.emptyBranch {
+  padding: 4px 8px;
+  color: var(--text-3);
+  font-size: 11.5px;
+  font-style: italic;
+}
+
+.branchAdd {
+  display: inline-flex;
+  align-self: flex-start;
+  align-items: center;
+  gap: 5px;
+  margin: 4px 0 0 6px;
+  padding: 4px 9px;
+  border: 1px dashed var(--line-2);
+  border-radius: var(--r-1);
+  background: transparent;
+  color: var(--text-2);
+  font-family: var(--font-ui);
+  font-size: 11.5px;
+  font-weight: 500;
+  cursor: pointer;
+}
+
+.branchAdd:hover {
+  border-color: var(--accent-line);
+  background: var(--accent-soft);
+  color: var(--accent);
+}

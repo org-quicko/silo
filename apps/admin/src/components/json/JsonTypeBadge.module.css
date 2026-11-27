@@ -1,0 +1,77 @@
+.badge {
+  display: inline-flex;
+  height: 24px;
+  flex: none;
+  align-items: center;
+  padding: 0 7px;
+  border: 1px solid var(--line-2);
+  border-radius: var(--r-1);
+  background: var(--panel-2);
+  color: var(--text-2);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 500;
+  line-height: 1;
+}
+
+.select {
+  padding-right: 18px;
+  outline: none;
+  appearance: none;
+  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='10' height='10' viewBox='0 0 24 24' fill='none' stroke='%238890a0' stroke-width='2.2' stroke-linecap='round' stroke-linejoin='round'><path d='m6 9 6 6 6-6'/></svg>");
+  background-repeat: no-repeat;
+  background-position: right 5px center;
+  cursor: pointer;
+}
+
+.select:focus {
+  border-color: var(--accent);
+}
+
+.object {
+  border-color: var(--accent-line);
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+
+.array {
+  border-color: color-mix(in oklab, var(--warn) 34%, transparent);
+  background: var(--warn-soft);
+  color: var(--warn);
+}
+
+.string {
+  border-color: color-mix(in oklab, var(--ok) 32%, transparent);
+  background: var(--ok-soft);
+  color: var(--ok);
+}
+
+.number {
+  border-color: color-mix(in oklab, #38bdf8 34%, transparent);
+  background: color-mix(in oklab, #38bdf8 12%, transparent);
+  color: #38bdf8;
+}
+
+.boolean {
+  border-color: color-mix(in oklab, #c084fc 34%, transparent);
+  background: color-mix(in oklab, #c084fc 12%, transparent);
+  color: #c084fc;
+}
+
+.null {
+  border-color: var(--line-2);
+  background: var(--panel-2);
+  color: var(--text-3);
+}
+
+:root[data-theme='light'] .number {
+  border-color: color-mix(in oklab, #0369a1 28%, transparent);
+  background: color-mix(in oklab, #0284c7 10%, transparent);
+  color: #0369a1;
+}
+
+:root[data-theme='light'] .boolean {
+  border-color: color-mix(in oklab, #7e22ce 28%, transparent);
+  background: color-mix(in oklab, #9333ea 10%, transparent);
+  color: #7e22ce;
+}

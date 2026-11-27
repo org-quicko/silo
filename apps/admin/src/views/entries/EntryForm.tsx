@@ -186,7 +186,8 @@ export function EntryForm({
               <EntryJsonEditor
                 key={form.formSession}
                 serverId={serverId}
-                value={form.formData}
+                text={form.jsonText}
+                validation={form.jsonValidation}
                 disabled={!form.canSave || form.saving}
                 editorRef={form.jsonEditorRef}
                 onChange={form.handleJsonChange}

@@ -24,6 +24,8 @@
         "@rjsf/validator-ajv8": "^6.11.1",
         "@silo/shared": "workspace:*",
         "@uiw/react-codemirror": "^4.25.13",
+        "ajv": "^8.20.0",
+        "ajv-formats": "^3.0.1",
         "lucide-react": "^1.80.0",
         "react": "^19.3.1",
         "react-dom": "^19.3.1",

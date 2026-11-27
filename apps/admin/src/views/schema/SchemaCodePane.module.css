@@ -1,0 +1,65 @@
+.root {
+  display: flex;
+  flex-direction: column;
+}
+
+.subtoolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px 12px;
+  padding: 7px 14px;
+  border-bottom: 1px solid var(--line);
+  background: var(--bg);
+}
+
+.hint {
+  color: var(--text-3);
+  font-size: 11.5px;
+}
+
+.modalFooter {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px 12px;
+  padding: 10px 14px;
+  color: var(--ok);
+  font-size: 12px;
+}
+
+.modalFooterInvalid {
+  background: var(--bad-soft);
+  color: var(--bad);
+}
+
+.modalStatus {
+  display: flex;
+  min-width: 0;
+  flex: 1;
+  align-items: center;
+  gap: 8px;
+}
+
+.modalStatus svg {
+  flex: none;
+}
+
+.jumpButton {
+  flex: none;
+  padding: 3px 8px;
+  border: 1px solid color-mix(in oklab, var(--bad) 38%, transparent);
+  border-radius: var(--r-1);
+  background: transparent;
+  color: var(--bad);
+  font-family: var(--font-ui);
+  font-size: 11.5px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.jumpButton:hover {
+  background: color-mix(in oklab, var(--bad) 14%, transparent);
+}

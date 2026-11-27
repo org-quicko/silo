@@ -1,18 +1,7 @@
 import { MediaField } from '@silo/shared/media-field'
+import { SchemaDeref } from '../schema/schema-deref'
 import { SchemaType } from '../schema/schema-type'
 import { SiloRefs } from '../schema/silo-refs'
-
-// derefLocal follows an internal `#/...` pointer within the resolved root
-// schema (SiloRefs rewrites collection refs to such pointers). Returns null
-// when the pointer doesn't resolve.
-function derefLocal(ref: string, root: any): any {
-  let cur = root
-  for (const raw of ref.slice(1).split('/').slice(1)) {
-    if (!cur || typeof cur !== 'object') return null
-    cur = cur[raw.replace(/~1/g, '/').replace(/~0/g, '~')]
-  }
-  return cur ?? null
-}
 
 // buildUiSchema selects widgets for constructs RJSF wouldn't style the way the
 // design wants: string arrays → chips, markdown strings → mini editor, and
@@ -35,7 +24,7 @@ export function buildUiSchema(schema: any, root: any = schema): any {
     let p = props[key]
     if (!p || typeof p !== 'object') continue
     if (typeof p.$ref === 'string') {
-      const target = p.$ref.startsWith('#') ? derefLocal(p.$ref, root) : null
+      const target = p.$ref.startsWith('#') ? SchemaDeref.local(p.$ref, root) : null
       if (!target || typeof target !== 'object') {
         ui[key] = { 'ui:field': 'json' }
         continue
@@ -59,7 +48,7 @@ export function buildUiSchema(schema: any, root: any = schema): any {
       if (p.items?.[SiloRefs.markerKey]) {
         ui[key] = { items: { 'ui:field': 'json' } }
       } else {
-        const itemTarget = p.items.$ref.startsWith('#') ? derefLocal(p.items.$ref, root) : null
+        const itemTarget = p.items.$ref.startsWith('#') ? SchemaDeref.local(p.items.$ref, root) : null
         if (itemTarget && typeof itemTarget === 'object') {
           const itemUi = buildUiSchema(itemTarget, root)
           if (Object.keys(itemUi).length > 0) ui[key] = { items: itemUi }

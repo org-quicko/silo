@@ -16,7 +16,7 @@ and every decision (D1–D115) are indexed in [IMPLEMENTATION.md](IMPLEMENTATION
 
 ## Where things stand
 
-*Last updated: 2026-11-26. Version 1.6.3 (root `package.json`, D28).*
+*Last updated: 2026-11-27. Version 1.6.3 (root `package.json`, D28).*
 
 **Stack.** Bun + TypeScript in one workspace: `apps/server` (CLI, Hono HTTP
 API, core, adapters), `apps/admin` (React, embedded in the executable),
@@ -125,8 +125,14 @@ one); `docs/` is the public Mintlify site.
   (with URL `?cols=` precedence), clamps stale trailing pages after deletes,
   and restores the exact originating list URL on return from an entry.
   `EntryMapper` decodes flat wire entries losslessly (preserving user `data`
-  fields), `JsonField` uses CodeMirror, and `EntryForm` offers a `Form | JSON`
-  toggle (`EntryJsonEditor`). `MediaPickerDialog` paginates and filters the
+  fields), `JsonField` provides a dual-mode Visual Tree (`JsonVisualEditor`) +
+  CodeMirror IDE (`JsonCodeEditor`) for `any` and fallback fields, and
+  `EntryForm` offers a `Form | JSON` toggle (`EntryJsonEditor`) with strict
+  client-side JSON Schema validation (`EntryJsonSchema`, `EntryJsonValidator`,
+  `FormCompatibility`) that blocks undeclared keys and schema violations while
+  keeping `any`/`{ type: "object" }` fields open, sharing `components/json/`
+  diagnostics (`JsonLocation`), formatting/compact/sort-key/wrap/copy tools,
+  and `xl` expand modals with `SchemaEditor`'s Code tab (`SchemaCodePane`). `MediaPickerDialog` paginates and filters the
   full library by folder and MIME prefix with stale-response protection and
   folder-targeted upload, while `MediaWidget` supports `media:create`-gated
   single-file drag-and-drop and clipboard paste. Deployed on its own to
@@ -149,7 +155,19 @@ one); `docs/` is the public Mintlify site.
   are in [milestones.md](resources/design/milestones.md) §12.
   [IDEAS.md](IDEAS.md) holds loose ideas.
 
-**Most recent changes:** Entries now support revision-checked `PATCH` via RFC 7396
+**Most recent changes:** `EntryJsonEditor` in `apps/admin` now enforces strict
+client-side JSON Schema validation via `EntryJsonSchema` (`unevaluatedProperties: false`
+at structured 2020-12 use-sites, `additionalProperties: false` on Draft-07 objects,
+keeping `any` / `{ type: "object" }` open), `EntryJsonValidator` (Ajv 2020-12 &
+Draft-07 with `ownProperties: true` and exact `JsonLocation` pointer spans),
+`FormCompatibility` mode-switch checks, and multi-diagnostic CodeMirror highlights
+with clickable error jumping. Before that, `JsonField` in `apps/admin` gained a dual-mode
+Visual Tree (`JsonVisualEditor`, `JsonTreeNode`, `JsonPrimitiveInput`,
+`JsonTypeBadge`) + rich CodeMirror editor (`JsonCodeEditor`,
+`JsonDiagnosticsExtension`, `JsonToolbar`, `JsonExpandModal` over `Modal`
+`size="xl"`), backed by `JsonSyntax` and `JsonValue`, and shares the upgraded
+CodeMirror diagnostics, formatting/compact/sort-key/wrap/copy toolbar, and
+expand modal with `EntryJsonEditor` and `SchemaCodePane`. Before that, entries now support revision-checked `PATCH` via RFC 7396
 `MergePatch` across server core (`EntryService.patch`), `EntriesRoutes`
 (`entries:read` + `entries:update`, `If-Match`/`?rev=`, `?variables=raw`),
 OpenAPI/`llms.txt`, and `CollectionHandle.patch` in the TypeScript (`EntryPatch`),

@@ -1,0 +1,107 @@
+.stringWrap {
+  display: flex;
+  min-width: 0;
+  flex: 1;
+  align-items: flex-start;
+  gap: 5px;
+}
+
+.input,
+.textarea {
+  width: 100%;
+  min-width: 0;
+  padding: 5px 8px;
+  border: 1px solid var(--line-2);
+  border-radius: var(--r-1);
+  outline: none;
+  background: var(--panel);
+  color: var(--text);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  line-height: 1.45;
+  transition: border-color 0.12s, box-shadow 0.12s;
+}
+
+.input {
+  height: 28px;
+}
+
+.textarea {
+  min-height: 54px;
+  resize: vertical;
+}
+
+.input::placeholder,
+.textarea::placeholder {
+  color: var(--text-3);
+}
+
+.input:focus,
+.textarea:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px color-mix(in oklab, var(--accent) 18%, transparent);
+}
+
+.input:disabled,
+.textarea:disabled {
+  opacity: 0.7;
+  cursor: not-allowed;
+}
+
+.numberInput {
+  max-width: 180px;
+}
+
+.invalid {
+  border-color: var(--bad);
+  box-shadow: 0 0 0 2px color-mix(in oklab, var(--bad) 16%, transparent);
+}
+
+.modeToggle {
+  display: inline-flex;
+  width: 26px;
+  height: 28px;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: 1px solid var(--line-2);
+  border-radius: var(--r-1);
+  background: var(--panel-2);
+  color: var(--text-3);
+  cursor: pointer;
+}
+
+.modeToggle:hover {
+  border-color: var(--accent-line);
+  color: var(--text);
+}
+
+.modeToggleActive {
+  border-color: var(--accent-line);
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+
+.booleanWrap {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 28px;
+}
+
+.booleanLabel {
+  color: var(--text-2);
+  font-family: var(--font-mono);
+  font-size: 12px;
+}
+
+.nullValue {
+  display: inline-flex;
+  align-items: center;
+  min-height: 28px;
+  color: var(--text-3);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  font-style: italic;
+}
