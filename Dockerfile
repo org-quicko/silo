@@ -7,7 +7,7 @@
 #
 # The admin key is printed to the container logs on first run.
 
-ARG BUN_VERSION=1.4.4
+ARG BUN_VERSION=1.4.5
 
 # ---- Stage 1: build the admin UI ----
 FROM oven/bun:${BUN_VERSION}-alpine AS ui
