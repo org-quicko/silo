@@ -14,9 +14,9 @@
     "@silo/shared": "workspace:*",
     "ajv": "^8.20.0",
     "ajv-formats": "^3.0.1",
-    "hono": "^4.13.22",
+    "hono": "^4.13.23",
     "semver": "^7.8.6",
-    "tar": "^7.5.23",
+    "tar": "^7.5.24",
     "ulidx": "^2.4.1"
   },
   "devDependencies": {
