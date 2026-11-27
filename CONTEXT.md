@@ -12,11 +12,11 @@ A minimal, self-hostable headless CMS. You define collections with JSON Schema
 and get generated admin forms and a CRUD API. You can move all the data
 anywhere with export/import. What sets it apart is **portability**: standard
 schemas, pluggable storage, and one command to clone an instance. The vision
-and every decision (D1–D114) are indexed in [IMPLEMENTATION.md](IMPLEMENTATION.md).
+and every decision (D1–D115) are indexed in [IMPLEMENTATION.md](IMPLEMENTATION.md).
 
 ## Where things stand
 
-*Last updated: 2026-11-25. Version 1.6.3 (root `package.json`, D28).*
+*Last updated: 2026-11-26. Version 1.6.3 (root `package.json`, D28).*
 
 **Stack.** Bun + TypeScript in one workspace: `apps/server` (CLI, Hono HTTP
 API, core, adapters), `apps/admin` (React, embedded in the executable),
@@ -36,7 +36,10 @@ one); `docs/` is the public Mintlify site.
   enforced on every write path, and a populated collection's schema can
   change only to one every entry satisfies (D70); imports and transfers in
   merge mode still refuse any change of shape over entries. Filters use a JSONPath subset (D29). Environment
-  variables are substituted as `{{NAME}}` on read (D57).
+  variables are substituted as `{{NAME}}` on read (D57). Entries also support
+  revision-checked partial updates (`PATCH`) via RFC 7396 `MergePatch` over
+  stored raw data, preserving untouched `{{NAME}}` templates and valid media
+  references while requiring both `entries:read` and `entries:update` (D115).
 - **Storage.** SQLite (default; scans run on a read worker, D81), plain files
   (whose layout *is* the export format, D5) and Postgres (D93–D96: pool,
   retries, owner lock, TLS, native search; hardened by a stress review in
@@ -106,13 +109,27 @@ one); `docs/` is the public Mintlify site.
   step by hand, and served openly at `GET /openapi.json`), MCP at
   `POST /api/mcp` plus the `silo mcp` stdio bridge (D86), open MCP tool
   listing at `GET /mcp`, `GET /llms.txt` for agent discovery (D114),
-  and clients for TypeScript (D61, D71), Java (D69, D87) and Dart (D91).
+  and clients for TypeScript (D61, D71), Java (D69, D87) and Dart (D91) —
+  including `PATCH` (`patch()`) on collections across all three clients (D115).
 - **Admin UI.** A server manager, then collections, entries, media, trash,
   transfer and settings. Server state lives in one stale-while-revalidate
   store (D53). A saved server whose key is refused opens prefilled in the
   server dialog, so the key is replaced there. A source key pasted for a copy
   is checked against the source's `/api/session` before any read, so a refused
-  one is a message under the field, not a logout. Deployed on its own to
+  one is a message under the field, not a logout. Entry and schema editors guard
+  unsaved edits across navigation, browser back, unload, Discard and `Esc`
+  (`DiscardChangesModal`), bind `⌘S`/`Ctrl+S` to save, and lock an entry's
+  `(data, rev)` baseline once dirty while flagging newer server revisions
+  (`ReloadRevisionModal`). The entries list provides debounced inline search
+  (`?q=`), persists columns and page size per collection in `localStorage`
+  (with URL `?cols=` precedence), clamps stale trailing pages after deletes,
+  and restores the exact originating list URL on return from an entry.
+  `EntryMapper` decodes flat wire entries losslessly (preserving user `data`
+  fields), `JsonField` uses CodeMirror, and `EntryForm` offers a `Form | JSON`
+  toggle (`EntryJsonEditor`). `MediaPickerDialog` paginates and filters the
+  full library by folder and MIME prefix with stale-response protection and
+  folder-targeted upload, while `MediaWidget` supports `media:create`-gated
+  single-file drag-and-drop and clipboard paste. Deployed on its own to
   Vercel, `apps/admin/public/vercel.json` (copied into `dist/` by the build)
   gives it the fallback to `index.html` that silo's server has, so a deep link
   loads. The logo is `SiloMark` in the app and `public/favicon.*` in the tab
@@ -132,7 +149,21 @@ one); `docs/` is the public Mintlify site.
   are in [milestones.md](resources/design/milestones.md) §12.
   [IDEAS.md](IDEAS.md) holds loose ideas.
 
-**Most recent changes:** silo now serves open discovery endpoints at the root
+**Most recent changes:** Entries now support revision-checked `PATCH` via RFC 7396
+`MergePatch` across server core (`EntryService.patch`), `EntriesRoutes`
+(`entries:read` + `entries:update`, `If-Match`/`?rev=`, `?variables=raw`),
+OpenAPI/`llms.txt`, and `CollectionHandle.patch` in the TypeScript (`EntryPatch`),
+Dart and Java clients (D115). In the admin UI, entry and schema editors guard
+unsaved edits (`useDirtyGuard`, `BrowserRouter.block`, `DiscardChangesModal`),
+add `⌘S`/`Ctrl+S` save, and lock an entry's `(data, rev)` baseline with stale
+revision warnings and conflict preservation (`EntryBaseline`, `ReloadRevisionModal`);
+the entries list gains inline debounced `?q=` search, persisted column/page-size
+preferences (`EntriesPreferences`), page clamping, and exact return URL memory
+(`ListReturnMemory`); `EntryMapper.fromApiEntry` is strictly flat (preserving
+sibling `data` fields), `JsonField` upgrades to CodeMirror, and `EntryForm`
+adds a `Form | JSON` mode (`EntryJsonEditor`/`EntryJsonDocument`); and the
+media field adds paginated/folder/MIME-filtered `MediaPickerDialog` browsing
+plus `media:create`-gated drop and paste upload in `MediaWidget`. Before that, silo now serves open discovery endpoints at the root
 without authentication (D114): `GET /openapi.json` serves the checked-in
 OpenAPI 3.1 document, `GET /mcp` lists the MCP tool catalog and transport
 metadata, and `GET /llms.txt` explains how to use both alongside the REST API,

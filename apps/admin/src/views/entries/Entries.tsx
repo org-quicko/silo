@@ -1,5 +1,5 @@
 import { Breadcrumb } from '../../components/navigation/Breadcrumb'
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useLocation } from '../../router/router'
 import { ArrowUpDown, ArrowDown, ArrowUp, TriangleAlert } from 'lucide-react'
 import { Claims } from '@silo/shared/claims'
@@ -7,6 +7,7 @@ import { JsonPath } from '@silo/shared/json-path'
 import type { CollectionPermission } from '@silo/shared/collection-permission'
 import { api } from '../../api/silo-api'
 import { Formatters } from '../../utils/formatters'
+import { store } from '../../store/store'
 import { TrashUndo } from '../trash/trash-undo'
 import type { Collection } from '../../api/types/collection'
 import type { Entry } from '../../api/types/entry'
@@ -22,6 +23,7 @@ import { SmartSearch } from '../search/SmartSearch'
 import { Pagination } from '../../components/data/Pagination'
 import { Columns } from './columns'
 import { DeleteEntryModal } from './DeleteEntryModal'
+import { EntriesPreferences } from './entries-preferences'
 import { EntriesTable } from './EntriesTable'
 import { EmptyCollection } from './EmptyCollection'
 import { EntriesHeader } from './EntriesHeader'
@@ -33,8 +35,6 @@ import { useEntriesData } from './use-entries-data'
 import { useMediaColumns } from './use-media-columns'
 import { useScrollMemory } from './use-scroll-memory'
 import styles from './Entries.module.css'
-
-const DEFAULT_PAGE_SIZE = 50
 
 interface Props {
   serverId: string
@@ -50,6 +50,10 @@ interface Props {
   /** Changes when something outside this table restored an entry into it — the
    *  undo toast from the entry form, which navigated away before it fired. */
   refreshToken?: string
+  /** Entry id to highlight and focus when returning from `EntryForm`. */
+  focusEntryId?: string | null
+  /** Active router navigation id so focus restoration runs once per arrival. */
+  navigationKey?: number
   /** Text, filter, sort, page and column selection live in the URL, so a view is linkable. */
   query: ListQuery
   onQueryChange: (next: ListQuery, replace?: boolean) => void
@@ -69,6 +73,8 @@ export function EntriesView({
   claims,
   session,
   refreshToken,
+  focusEntryId,
+  navigationKey,
   query,
   onQueryChange,
   onEditSchema,
@@ -76,32 +82,44 @@ export function EntriesView({
   onEditEntry,
   onChanged,
 }: Props) {
+  const prefKey = EntriesPreferences.key(serverId, scope.project, scope.env, collection.name)
+  const [prefsState, setPrefsState] = useState(() => ({
+    key: prefKey,
+    prefs: EntriesPreferences.read(prefKey),
+  }))
+  if (prefsState.key !== prefKey) {
+    setPrefsState({ key: prefKey, prefs: EntriesPreferences.read(prefKey) })
+  }
+
   const [menuId, setMenuId] = useState<string | null>(null)
   const [showFilter, setShowFilter] = useState(false)
   const [focusRow, setFocusRow] = useState<number | undefined>(undefined)
   const [showColumns, setShowColumns] = useState(false)
   const [toDelete, setToDelete] = useState<Entry | null>(null)
-  const [pageSize, setPageSize] = useState(DEFAULT_PAGE_SIZE)
 
+  const latestQueryRef = useRef(query)
+  useEffect(() => {
+    latestQueryRef.current = query
+  }, [query])
+
+  const pageSize = prefsState.prefs.pageSize
   const { desc } = query
   const offset = (query.page - 1) * pageSize
   const searching = query.q.trim() !== ''
 
-  // Memoised on the URL string, not recomputed per render: `parsed.filter` is a
-  // fresh object out of `JSON.parse`, and it is a dependency of the loader
-  // effect below. Without this, every response re-renders, every render mints a
-  // new filter identity, and the effect fires again — a filtered view would
-  // re-request itself forever. This is the same class of defect P3 hit with the
-  // `scope` prop; it is cheap to reintroduce and invisible until you watch the
-  // network panel.
   const parsed = useMemo(() => UrlFilter.parse(query.filter), [query.filter])
   const draft = useMemo(() => FilterModel.fromFilter(parsed.filter), [parsed.filter])
 
   const schemaColumns = EntryLabels.schemaColumns(collection.schema)
   const { primary, sub } = EntryLabels.pickPrimary(schemaColumns, collection.schema)
-  const excludeFromColumns = [primary, sub].filter((c): c is string => c != null)
+  const excludeFromColumns = [primary, sub].filter((column): column is string => column != null)
   const eligibleColumns = Columns.eligible(collection.schema, excludeFromColumns)
-  const extra = Columns.parse(query.cols, collection.schema, excludeFromColumns) ?? Columns.defaults(collection.schema, excludeFromColumns)
+  const urlCols = Columns.parse(query.cols, collection.schema, excludeFromColumns)
+  const storedCols = urlCols
+    ? null
+    : Columns.parseStored(prefsState.prefs.cols, collection.schema, excludeFromColumns)
+  const extra = urlCols ?? storedCols ?? Columns.defaults(collection.schema, excludeFromColumns)
+
   const can = (permission: CollectionPermission) =>
     Claims.has(claims, Claims.collection(scope.project, scope.env, collection.name, permission))
   const canCreate = can(Claims.CollectionEntriesCreate)
@@ -126,10 +144,14 @@ export function EntriesView({
     refreshToken,
   })
 
-  // Opening a row and coming back should land where you left, not at the top
-  // of a list you had scrolled a long way down. Keyed on the URL, which already
-  // names the page, sort, filter and search, so each of those remembers its own
-  // place; held until the rows are there to scroll past.
+  useEffect(() => {
+    if (loading || error) return
+    const clamped = EntriesPreferences.clampPage(query.page, pageSize, total)
+    if (clamped !== query.page) {
+      onQueryChange({ ...latestQueryRef.current, page: clamped }, true)
+    }
+  }, [loading, error, query.page, pageSize, total, onQueryChange])
+
   const location = useLocation()
   const contentRef = useScrollMemory(location, entries.length > 0)
 
@@ -156,45 +178,68 @@ export function EntriesView({
     setFocusRow(undefined)
     setShowFilter(true)
   }
-  const editFilterRow = (i: number) => {
-    setFocusRow(i)
+  const editFilterRow = (index: number) => {
+    setFocusRow(index)
     setShowFilter(true)
   }
-  const removeFilterRow = (i: number) => {
+  const removeFilterRow = (index: number) => {
     if (!draft) return
-    applyFilter({ ...draft, rows: draft.rows.filter((_, at) => at !== i) })
+    applyFilter({ ...draft, rows: draft.rows.filter((_, at) => at !== index) })
   }
 
-  const toggleColumn = (next: string[]) =>
-    onQueryChange({ ...query, cols: Columns.stringify(next, collection.schema, excludeFromColumns) })
+  const toggleColumn = (next: string[]) => {
+    const encoded = Columns.stringify(next, collection.schema, excludeFromColumns)
+    const nextCols = encoded === null ? null : next
+    EntriesPreferences.writeCols(prefKey, nextCols)
+    setPrefsState((current) => ({
+      key: prefKey,
+      prefs: { ...current.prefs, cols: nextCols },
+    }))
+    onQueryChange({ ...query, cols: encoded })
+  }
+
+  const handleSearchChange = (nextQuery: string) => {
+    const latest = latestQueryRef.current
+    if (nextQuery === latest.q) return
+    onQueryChange({ ...latest, q: nextQuery, page: 1 }, true)
+  }
 
   const goToPage = (page: number) => onQueryChange({ ...query, page })
   const lastPage = Math.max(1, Math.ceil(total / pageSize))
 
   const doDelete = async () => {
     if (!toDelete) return
+    const epochAtStart = store.sessionEpoch()
     try {
       const trashId = await api.entries.delete(url, apiKey, scope, collection.name, toDelete.id, toDelete.rev)
+      if (store.sessionEpoch() !== epochAtStart) return
       const subject = label(toDelete)
       setToDelete(null)
       await reload()
+      if (store.sessionEpoch() !== epochAtStart) return
       onChanged()
       TrashUndo.offer(trashId, subject, url, apiKey, () => {
-        void reload().then(onChanged)
+        if (store.sessionEpoch() !== epochAtStart) return
+        void reload().then(() => {
+          if (store.sessionEpoch() === epochAtStart) onChanged()
+        })
       })
     } catch (caught: any) {
+      if (store.sessionEpoch() !== epochAtStart) return
       alert(caught.message || 'Delete failed')
     }
   }
 
   const label = (entry: Entry) => EntryLabels.of(entry, primary, collection.schema)
 
-  // The whole page from the keyboard: a cursor over the rows, and one key for
-  // every action the toolbar and the row menu offer. A dialog takes the
-  // keyboard away while it is open, since it has its own.
+  const entryIds = useMemo(() => entries.map((item) => item.id), [entries])
+
   const { cursor, setCursor } = useEntriesKeyboard({
     rowCount: entries.length,
     active: !toDelete,
+    entryIds,
+    focusEntryId,
+    navigationKey,
     onOpen: (index) => onEditEntry(entries[index]),
     onDelete: (index) => canDelete && setToDelete(entries[index]),
     onNew: () => canCreate && onNewEntry(),
@@ -215,11 +260,6 @@ export function EntriesView({
   })
   const conditions = draft ? draft.rows.filter(FilterModel.isComplete).length : 0
 
-  // Real, not guessed: on the untouched first page (no search, no filter, no
-  // chosen sort) row zero of the default newest-first order *is* the
-  // collection's most recently updated entry. Any other view state has no
-  // honest single answer, so the line is simply omitted rather than shown
-  // from a page that cannot back it.
   const lastUpdated =
     !searching && !parsed.filter && !query.sort && query.page === 1 && entries.length > 0
       ? Formatters.relativeTime(entries[0].updated_at)
@@ -275,7 +315,10 @@ export function EntriesView({
         ) : (
           <>
             <EntriesToolbar
+              collectionName={collection.name}
               schema={collection.schema}
+              search={query.q}
+              onSearchChange={handleSearchChange}
               draft={draft}
               rawFilter={query.filter}
               showBuilder={showFilter}
@@ -352,9 +395,15 @@ export function EntriesView({
                   total={total}
                   pageSize={pageSize}
                   page={query.page}
+                  pageSizeOptions={[...EntriesPreferences.AllowedPageSizes]}
                   onPageChange={goToPage}
                   onPageSizeChange={(next) => {
-                    setPageSize(next)
+                    const normalized = EntriesPreferences.normalizePageSize(next)
+                    EntriesPreferences.writePageSize(prefKey, normalized)
+                    setPrefsState((current) => ({
+                      key: prefKey,
+                      prefs: { ...current.prefs, pageSize: normalized },
+                    }))
                     goToPage(1)
                   }}
                 />

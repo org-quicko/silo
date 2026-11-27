@@ -1,4 +1,4 @@
-import { useCallback } from 'react'
+import { useCallback, useEffect, useRef } from 'react'
 import type { Filter } from '@silo/shared/filter'
 import type { ScopeRef } from '../../api/types/scope-ref'
 import type { SearchSnippet } from '../../api/types/search-snippet'
@@ -75,16 +75,21 @@ export function useEntriesData({
     { keepPrevious: true, watch: refreshToken },
   )
 
-  const reload = useCallback(
-    () =>
-      key
-        ? store
-            .refresh(key, () => EntriesPageRequest.load(url, apiKey, scope, collection, query))
-            .then(() => undefined)
-        : Promise.resolve(),
+  const sessionEpochRef = useRef<number | null>(null)
+  useEffect(() => {
+    sessionEpochRef.current = store.sessionEpoch()
+  }, [serverId, apiKey])
+
+  const reload = useCallback(() => {
+    if (!key) return Promise.resolve()
+    if (sessionEpochRef.current !== null && store.sessionEpoch() !== sessionEpochRef.current) {
+      return Promise.resolve()
+    }
+    return store
+      .refresh(key, () => EntriesPageRequest.load(url, apiKey, scope, collection, query))
+      .then(() => undefined)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [key, url, apiKey, collection],
-  )
+  }, [key, url, apiKey, collection])
 
   // A failure empties the table rather than keeping what `keepPrevious` holds.
   // That answer was for a different query, and a list under a message saying it

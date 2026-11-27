@@ -9,6 +9,7 @@ final class TransportRequest {
     this.path, {
     this.query = const {},
     this.body,
+    this.headers = const {},
     this.options = const RequestOptions(),
     this.cachePolicy,
     this.evicts,
@@ -18,6 +19,7 @@ final class TransportRequest {
   final String path;
   final Map<String, Object?> query;
   final Object? body;
+  final Map<String, String> headers;
   final RequestOptions options;
   final CachePolicy? cachePolicy;
   final String? evicts;

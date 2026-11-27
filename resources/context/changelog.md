@@ -4,6 +4,154 @@
 > The *current* state is [CONTEXT.md](../../CONTEXT.md); this is how it got
 > there.
 
+- **Revision-checked entry PATCH via RFC 7396 Merge Patch (2026-11-26, D115).**
+  `EntryService.patch` and `EntriesRoutes` (`PATCH /api/projects/:project/environments/:env/collections/:name/:id`
+  and `/envs/` alias) add partial entry updates so callers can change fields
+  without a full-document `PUT` or accidental `{{NAME}}` template resolution.
+  Patches must be plain JSON objects free of `ReservedFieldNames`; the service
+  reads the stored raw entry, verifies `expectedRev` early, applies
+  `MergePatch.applyToObject` onto `current.data` (preserving untouched
+  `{{NAME}}` templates and valid `silo://media/<id>` references, deleting keys
+  set to `null`, replacing arrays whole), and runs the standard `commitUpdate`
+  pipeline (`beforeValidate`, `prepare` capturing a schema snapshot tied to
+  `SchemaRegistry.currentGeneration()` and retrying superseded generations
+  without calling `invalidate()`, `beforeWrite`, then inside `withWriteLock`:
+  authoritative `assertRev`,
+  `current.rev === previewEntry.rev && current.seq === previewEntry.seq`
+  protection against same-revision overwrites without exposing internal `seq`
+  in the `ConflictError` message, `store.findCollection` re-check +
+  re-validation if the schema or registry generation changed while hooks ran —
+  invalidating only on direct store schema drift so concurrent writers do not
+  escalate generations, and protecting `create()` against `A -> B -> A` schema
+  oscillation while `SchemaValidator.invalidate()` and
+  `RemoteSchemaLoader.invalidate()` swap `cache = new Map()` to isolate obsolete
+  in-flight compilations —
+  `MediaReferenceGuard.assertReferencable` which still rejects untouched
+  dangling media refs, `store.put`, `derivedIndex`, and `afterWrite`).
+  Because the response returns untouched fields, the route requires an API key
+  and both `Claims.CollectionEntriesRead` and `Claims.CollectionEntriesUpdate`,
+  expects `If-Match` or `?rev=`, accepts only `application/merge-patch+json` or
+  `application/json` (rejecting missing or `text/plain` `Content-Type` with
+  `400 ValidationError`), and honours `?variables=raw`. Mirrored as
+  `CollectionHandle.patch` (with `EntryPatch<Fields>` in `packages/silo-client`,
+  case-insensitive header merging in `Transport.buildHeaders`, cache eviction,
+  and `RouteInventory` parity across TypeScript, Dart and Java) alongside
+  `resources/openapi.json` (`patchEntry`), `llms-txt.ts`,
+  `resources/guide/http-api.md`, `resources/design/http-api.md`,
+  `packages/silo-client/README.md`, and `entry-patch.test.ts` (core and HTTP
+  across `sqlite`, `fs`, and `PgTestDatabase` Postgres parity).
+- **Guarded entry/schema editing, stale revision detection, and Save shortcut
+  (2026-11-26).** `BrowserRouter.block` intercepts `navigate` (unless
+  `{ force: true }`) and `popstate` (reverting and resuming browser history
+  positions), paired with `useDirtyGuard` (`beforeunload`, `DiscardChangesModal`),
+  `useEscapeToDiscard` (yielding when `[role="dialog"], [aria-modal="true"]`
+  is open on `Modal`), and LIFO `ModalStack` (`modal-stack.ts`) so Escape closes
+  only the topmost stacked dialog and unsaved edits in `EntryForm` and
+  `SchemaEditorView` are never discarded silently. `SaveShortcut` and
+  `useSaveShortcut` wire `⌘S`/`Ctrl+S` (updating `ShortcutsDialog`), with
+  synchronous `savingRef`, frozen controls during `saving`, unconditional
+  `onMutated` cache/count invalidation (`afterEntriesChange` also bumping
+  `entriesRefresh` and calling `store.recordMutation` so `useScopeMutationVersion`
+  refreshes newly mounted shells after same-key Settings detours) vs guarded
+  `onSaved`/`onDeleted` navigation (`mountedRef`, action token, and `Workspace`
+  `store.sessionEpoch()` / visit checks — with `App` keying `Workspace` on
+  `server.apiKey` and registering `api.setUnauthorizedHandler` in
+  `useLayoutEffect` before child passive effects run, `HttpTransport` binding
+  `unauthorizedHandler` to `authEpoch` + `sessionKey` (and exposing
+  `currentAuthEpoch()` for `PluginsApi.installArchive`'s `fetchRaw` upload) so
+  late 401s from a previous key never disconnect the active session, and
+  `Store.clearEpoch` / `sessionEpoch()` + `settle` clearing orphaned
+  `loading: true` reads and gating `Entries.tsx`, `useEntriesData`, and
+  `TrashUndo.offer` across API key switches, returning silently if a session
+  changed while `restore()` was already in flight),
+  `SchemaSaveGuard` (`schema-save-guard.ts`) locking `saving` across both
+  `persist()` and `RenameForm` `Confirm` (`runCommit` via `useRenameFlow`/
+  `RenameForm`) through post-save refresh/navigation while validating
+  `isCurrent(runToken)`, making `save()` and `removeCollection()` mutually
+  exclusive, gating `RenameForm` via `RenameEligibility` (`rename-eligibility.ts`,
+  re-checking `!dirty && !saving && !deleting` pre-lock `allowed` after dry-run
+  preview fetch, auto-clearing idle open previews if dirty, and separating
+  commit-time `canCommit` (`canRename && !dirtyRef.current`) inside `runCommit`
+  before rename), and
+  `SchemaRedirectGuard` (`schema-redirect-guard.ts`, wired into `useRouteGuard`
+  and `Workspace` via `onMutationStart`/`onMutationEnd` with monotonic
+  `PendingSchemaScope.mutationId` ownership and `SchemaRedirectGuard.release`)
+  suppressing missing-collection redirects when `refreshCollections()` settles
+  ahead of `store.refresh(schema)` during save/rename/delete without letting
+  stale completions clear a newer visit's guard even across Browser Back. `EntryBaseline` binds `(data, rev)` atomically: clean
+  SWR refreshes adopt newer entries (skipping adoption while `mediaUploading`
+  so active uploads survive without resetting the form session), while dirty
+  drafts (including invalid `JsonField` or `EntryJsonEditor` syntax) lock
+  `baseline.rev`, warn when `entry.rev > baseline.rev` with
+  `ReloadRevisionModal`, preserve drafts on `409 Conflict` with a background
+  `store.refresh`, and drive the extracted `EntrySystemRail` via `useEntryForm`
+  (`use-entry-form.ts`). `SchemaDirty` tracks `SchemaEditorView` dirtiness
+  across new collection `name`, `fields`, `text`, `auth`, and invalid JSON
+  syntax (`CollectionRail` shows the unsaved indicator).
+- **Inline collection search, persisted entries layout, page clamping, and
+  navigation-scoped list return (2026-11-26).** `EntriesToolbar` adds a
+  debounced (200ms) inline search input and Clear button (`Enter` commits
+  immediately, `Esc` clears or blurs) wired to `query.q` (`replace: true`,
+  `page: 1`), surfacing the existing collection `/search` and snippet view
+  directly in the toolbar. `EntriesPreferences` (`localStorage`, keyed by
+  `(serverId, scope, collection)`, with `try/catch`-guarded global storage
+  access, resilient in-memory fallback, and live React state in `EntriesView`)
+  persists chosen extra columns (`Columns.parseStored`) and `pageSize`
+  (`10/25/50/100` in `Pagination`), while letting explicit URL `?cols=` override
+  stored defaults so shared links keep their layout. `EntriesPreferences.clampPage`
+  rewrites `page` back onto the last valid page if deletions leave
+  `offset >= total`, and `ListReturnMemory` (storing `{ returnTo, focusEntryId }`
+  under a per-navigation `returnToken` in `BrowserRouter` `history.state`, with
+  `try/catch`-guarded `sessionStorage` + in-memory fallback) restores both the
+  exact originating list URL (`?q=`, `?filter=`, `?sort=`, `?page=`, `?cols=`)
+  and the keyboard row cursor (`focusEntryId` via `useEntriesKeyboard`) across
+  Save, Discard, Delete, Breadcrumbs, and Back/Forward without leaking onto
+  `⌘K` jumps.
+- **Lossless EntryMapper, CodeMirror JsonField, and Form/JSON entry editor
+  (2026-11-26).** `EntryMapper.fromApiEntry` used to unwrap `item.data` and
+  strip `collection` heuristically, corrupting entries whose schema had a user
+  field named `data` or `collection`; it now strictly decodes flat
+  `EntryUtils.toApiResponse` payloads (`id`, `rev`, `seq`, `created_at`,
+  `updated_at`, `...data`) while `EntryMapper.fromEnvelope` handles explicit
+  envelopes. `JsonField` moves from a plain `<textarea>` to CodeMirror
+  (`@uiw/react-codemirror`, `@codemirror/lang-json`, `useThemeMode`), adding a
+  `Format` button, inline parse errors, non-clobbering external `formData` sync
+  when valid, and path-keyed (`fieldPathId.path`) `onJsonValidityChange`
+  reporting so `seo_meta` vs `seo.meta` never collide (blocking both Form submit
+  and `Form -> JSON` mode switches via `EntryBaseline.planModeSwitch` and
+  focusing the offending `JsonField`). `EntryJsonDocument` (requiring plain
+  objects free of `ReservedFieldNames` and using `Object.fromEntries` so own
+  `__proto__` keys survive formatting) and `EntryJsonEditor` power a
+  `Form | JSON` `Segmented` toggle in `useEntryForm`/`EntryForm`, blocking
+  `Form -> JSON` switches when any `MediaWidget` upload is pending (and
+  disabling the toggle during save/upload), blocking invalid `JSON -> Form`
+  switches or submits with inline error + focus, skipping
+  `MediaValue.omitUnresolved` in JSON mode so explicit non-media `null`s
+  survive, and setting RJSF `emptyObjectFields: 'skipDefaults'` and
+  `constAsDefaults: 'never'` (`EntryBaseline.defaultFormStateBehavior`) when
+  editing an existing entry or after editing JSON so `JSON -> Form` never
+  injects schema defaults into `{}`.
+- **Full-library MediaPickerDialog and drop/paste upload in MediaWidget
+  (2026-11-26).** `MediaPickerQuery` and `RequestSequence` replace the flat
+  100-item fetch in `useMediaPicker`/`MediaPickerDialog` with `Pagination`
+  (`24`/`48`/`96`), folder filtering (`api.media.listFolders`, `recursive: true`
+  when browsing all folders and `false` within a folder), MIME prefix filtering
+  (`All`, `Images`, `Video`, `Audio`, `PDF`, `Text`), automatic page-1 reset on
+  filter changes, immediate `listSequenceRef` invalidation on query intent
+  changes (preventing earlier in-flight responses during the 250ms search
+  debounce from calling `clampPage`), a dedicated `uploadSequenceRef` guard
+  (invalidated on `choose`, `closePicker`, `openPicker`, and `cancelUpload`,
+  with asset cards disabled while uploading), and folder-targeted uploads.
+  `MediaDrop`, `MediaUploadPending` (`media-upload-pending.ts`), and
+  `MediaWidget` add single-file drag-and-drop onto both the empty `.dropzone`
+  and `.selectedCard` plus root `onPaste` (acting only when
+  `clipboardData.files.length > 0` so text paste in `manualInput` is untouched),
+  gate all upload affordances on `Claims.MediaCreate` via `formContext.claims`,
+  keep existing values intact behind a dismissible `uploadError` banner on
+  failure, and report per-instance (`useId()`) pending upload state via
+  `onMediaUploadPendingChange` (scoped to `(url, apiKey)` and cleared on
+  unmount) so `EntryForm` waits before saving or switching to JSON mode.
+
 - **Open discovery endpoints at the server root (2026-11-25, D114).**
   `DiscoveryRoutes` registers three unauthenticated `GET`/`HEAD` routes before
   the Admin SPA fallback: `GET /openapi.json` serves the checked-in

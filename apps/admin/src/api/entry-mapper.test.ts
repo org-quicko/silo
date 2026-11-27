@@ -44,8 +44,54 @@ describe('EntryMapper.fromApiEntry', () => {
     expect(mapped.data.collection).toBe('spring/summer')
   })
 
-  test('an already-enveloped entry passes through', () => {
+  test('an entry with sibling fields and an object-valued data property keeps everything intact', () => {
     const mapped = EntryMapper.fromApiEntry(
+      {
+        id: '01M2',
+        rev: 2,
+        title: 'Payload Spec',
+        collection: 'docs',
+        data: { nested: true, count: 3 },
+        created_at: '2026-09-10T06:25:55.699Z',
+        updated_at: '2026-09-10T06:25:55.699Z',
+      },
+      'articles',
+    )
+
+    expect(mapped.collection).toBe('articles')
+    expect(mapped.data).toEqual({
+      title: 'Payload Spec',
+      collection: 'docs',
+      data: { nested: true, count: 3 },
+    })
+  })
+
+  test('an entry with sibling fields and an array-valued data property keeps everything intact', () => {
+    const mapped = EntryMapper.fromApiEntry(
+      {
+        id: '01M3',
+        rev: 3,
+        title: 'Series',
+        collection: 'series',
+        data: ['alpha', 'beta'],
+        created_at: '2026-09-10T06:25:55.699Z',
+        updated_at: '2026-09-10T06:25:55.699Z',
+      },
+      'reports',
+    )
+
+    expect(mapped.collection).toBe('reports')
+    expect(mapped.data).toEqual({
+      title: 'Series',
+      collection: 'series',
+      data: ['alpha', 'beta'],
+    })
+  })
+})
+
+describe('EntryMapper.fromEnvelope', () => {
+  test('passes through an explicit enveloped entry', () => {
+    const mapped = EntryMapper.fromEnvelope(
       {
         id: '01M2',
         collection: 'posts',
@@ -58,8 +104,31 @@ describe('EntryMapper.fromApiEntry', () => {
       'ignored',
     )
 
-    expect(mapped.collection).toBe('posts')
-    expect(mapped.seq).toBe(9)
-    expect(mapped.data).toEqual({ title: 'Hello' })
+    expect(mapped).toEqual({
+      id: '01M2',
+      collection: 'posts',
+      rev: 2,
+      seq: 9,
+      created_at: '2026-09-10T06:25:55.699Z',
+      updated_at: '2026-09-10T06:25:55.699Z',
+      data: { title: 'Hello' },
+    })
+  })
+
+  test('uses fallbackCollection when envelope omits collection', () => {
+    const mapped = EntryMapper.fromEnvelope(
+      {
+        id: '01M4',
+        rev: 1,
+        created_at: '2026-09-10T06:25:55.699Z',
+        updated_at: '2026-09-10T06:25:55.699Z',
+        data: { title: 'Fallback' },
+      },
+      'notes',
+    )
+
+    expect(mapped.collection).toBe('notes')
+    expect(mapped.seq).toBe(0)
+    expect(mapped.data).toEqual({ title: 'Fallback' })
   })
 })

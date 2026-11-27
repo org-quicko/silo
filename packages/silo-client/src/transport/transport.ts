@@ -132,10 +132,22 @@ export class Transport {
   }
 
   private buildHeaders(request: TransportRequest, isUpload: boolean): Record<string, string> {
-    const headers: Record<string, string> = { ...this.options.headers, ...request.headers };
-    if (this.options.key) headers["Authorization"] = `Bearer ${this.options.key}`;
-    if (!isUpload && request.body !== undefined && !("Content-Type" in headers)) {
-      headers["Content-Type"] = "application/json";
+    const byLowerName = new Map<string, [string, string]>();
+    for (const source of [this.options.headers, request.headers]) {
+      if (!source) continue;
+      for (const [name, value] of Object.entries(source)) {
+        byLowerName.set(name.toLowerCase(), [name, value]);
+      }
+    }
+    if (this.options.key) {
+      byLowerName.set("authorization", ["Authorization", `Bearer ${this.options.key}`]);
+    }
+    if (!isUpload && request.body !== undefined && !byLowerName.has("content-type")) {
+      byLowerName.set("content-type", ["Content-Type", "application/json"]);
+    }
+    const headers: Record<string, string> = {};
+    for (const [name, value] of byLowerName.values()) {
+      headers[name] = value;
     }
     return headers;
   }

@@ -143,6 +143,7 @@ one line here.
 | D112 | Admin env Data Transfer can read another saved server with a pasted, never-stored key checked against its `/api/session` first; Preview prepares, Apply applies, and a preparation is cancelled on any way out |
 | D113 | A delete goes to the trash: `_trash` receipts and `_trash_items` records in `Scope.System`, six `/api/trash` routes, `[trash] enabled` / `retention_days` (on, 30 days); reading follows the origin's read claim, restoring asks for write claims at the destination, and `trash:purge` is the one new claim |
 | D114 | Unauthenticated root discovery endpoints: `GET /openapi.json` (the checked-in OpenAPI spec), `GET /mcp` (the MCP tool catalog and transport/auth metadata), and `GET /llms.txt` (agent guide), with `GET`/`HEAD` CORS and `405` on mutating methods; `POST /api/mcp` stays key-gated |
+| D115 | Revision-checked entry `PATCH` (`.../collections/{name}/{id}`): RFC 7396 `MergePatch` over stored raw `current.data` (preserving untouched `{{NAME}}` and valid media refs); requires `entries:read` + `entries:update`, `If-Match`/`?rev=`, supports `?variables=raw`, and is mirrored in `CollectionHandle.patch` across TS, Dart and Java clients |
 
 ## 3. Scope
 

@@ -90,6 +90,17 @@
 
 .railActions { display: flex; flex-direction: column; gap: 10px; }
 
+.unsaved {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  color: var(--warn);
+  font-size: 12px;
+}
+
+.unsavedDot { width: 6px; height: 6px; border-radius: 99px; background: var(--warn); }
+
 .metadataGroup { display: flex; flex-direction: column; gap: 12px; }
 
 .metadataLabel {
@@ -122,6 +133,13 @@
 
 .validity { display: flex; align-items: center; gap: 7px; color: var(--ok); font-size: 12px; }
 .invalid { color: var(--bad); }
+
+.builderFieldset {
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
 
 .builder {
   display: flex;

@@ -113,7 +113,7 @@ public final class CollectionHandle<F> {
   }
 
   public Entry<F> create(F fields, RequestOptions options) {
-    return write("POST", ApiPath.entries(scope.project(), scope.environment(), name), fields, null, options);
+    return write("POST", ApiPath.entries(scope.project(), scope.environment(), name), fields, null, options, null);
   }
 
   /**
@@ -126,7 +126,27 @@ public final class CollectionHandle<F> {
   }
 
   public Entry<F> replace(String id, long rev, F fields, RequestOptions options) {
-    return write("PUT", ApiPath.entry(scope.project(), scope.environment(), name, id), fields, rev, options);
+    return write("PUT", ApiPath.entry(scope.project(), scope.environment(), name, id), fields, rev, options, null);
+  }
+
+  public Entry<F> patch(String id, long rev, Map<String, ?> patch) {
+    return patch(id, rev, patch, RequestOptions.none());
+  }
+
+  /**
+   * Partial update via RFC 7396 JSON Merge Patch: omitted fields keep their
+   * stored values, nested objects merge recursively, arrays replace whole, and
+   * {@code null} deletes a member. {@code rev} is required, and a stale one raises
+   * {@link in.org.quicko.silo.client.errors.ConflictException}.
+   */
+  public Entry<F> patch(String id, long rev, Map<String, ?> patch, RequestOptions options) {
+    return write(
+        "PATCH",
+        ApiPath.entry(scope.project(), scope.environment(), name, id),
+        patch,
+        rev,
+        options,
+        "application/merge-patch+json");
   }
 
   public Optional<String> delete(String id, long rev) {
@@ -172,17 +192,23 @@ public final class CollectionHandle<F> {
             .build()));
   }
 
-  /** Both writes ask for the stored templates back, so what returns is what was
+  /** Writes ask for the stored templates back, so what returns is what was
    *  sent rather than a resolved snapshot of it. */
-  private Entry<F> write(String method, String path, F fields, Long rev, RequestOptions options) {
-    JsonNode row = scope.transport().json(
-        TransportRequest.of(method, path)
-            .query("rev", rev)
-            .query("variables", "raw")
-            .body(fields)
-            .options(options)
-            .evicts(entries())
-            .build());
+  private Entry<F> write(
+      String method,
+      String path,
+      Object body,
+      Long rev,
+      RequestOptions options,
+      String contentType) {
+    TransportRequest.Builder builder = TransportRequest.of(method, path)
+        .query("rev", rev)
+        .query("variables", "raw")
+        .body(body)
+        .options(options)
+        .evicts(entries());
+    if (contentType != null) builder.header("Content-Type", contentType);
+    JsonNode row = scope.transport().json(builder.build());
     return EntryMapper.read(row, fieldsType, scope.transport().codec());
   }
 

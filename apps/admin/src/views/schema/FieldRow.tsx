@@ -8,6 +8,7 @@ interface Props {
   expanded: boolean
   /** This row is the one being dragged, so it fades out of the list under it. */
   dragging: boolean
+  disabled?: boolean
   onToggle: () => void
   onDragStart: () => void
   onDragEnd: () => void
@@ -16,7 +17,16 @@ interface Props {
 }
 
 /** One collapsed row of the visual builder: what the field is, at a glance. */
-export function FieldRow({ field, expanded, dragging, onToggle, onDragStart, onDragEnd, onDragOverRow }: Props) {
+export function FieldRow({
+  field,
+  expanded,
+  dragging,
+  disabled = false,
+  onToggle,
+  onDragStart,
+  onDragEnd,
+  onDragOverRow,
+}: Props) {
   // One line, whatever the field holds: a seventeen-value enum otherwise wrapped
   // the row to ten lines, and a single unbreakable value ran under the badges.
   const summary = SchemaFieldSummary.describe(field)
@@ -28,7 +38,7 @@ export function FieldRow({ field, expanded, dragging, onToggle, onDragStart, onD
       role="button"
       tabIndex={0}
       aria-expanded={expanded}
-      draggable
+      draggable={!disabled}
       onDragStart={(event) => {
         event.dataTransfer.effectAllowed = 'move'
         onDragStart()

@@ -1,7 +1,7 @@
 import { SchemaAccess } from '@silo/shared/schema-access'
 import { Button } from '../../components/buttons/Button'
 import { Breadcrumb } from '../../components/navigation/Breadcrumb'
-import { useState } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import CodeMirror from '@uiw/react-codemirror'
 import { json as jsonLang } from '@codemirror/lang-json'
 import { Check, AlertCircle, List, Code2 } from 'lucide-react'
@@ -17,11 +17,15 @@ import { DangerConfirm } from '../../components/modal/DangerConfirm'
 import { TopBar } from '../shell/TopBar'
 import { SmartSearch } from '../search/SmartSearch'
 import { RenameForm } from '../settings/rename/RenameForm'
+import { DiscardChangesModal } from '../DiscardChangesModal'
+import { useDirtyGuard } from '../use-dirty-guard'
 import { useEscapeToDiscard } from '../use-escape-to-discard'
+import { useSaveShortcut } from '../use-save-shortcut'
 import { useThemeMode } from '../../utils/use-theme-mode'
 import { CollectionNameMessage } from './collection-name-message'
 import { CollectionRail } from './CollectionRail'
 import { FieldList } from './FieldList'
+import { SchemaSaveGuard } from './schema-save-guard'
 import styles from './SchemaEditor.module.css'
 import { useSchemaDraft, type SchemaEditorMode } from './use-schema-draft'
 
@@ -38,9 +42,20 @@ interface Props {
   /** URL to return to on cancel — the breadcrumbs link back to it. */
   backTo: string
   entryCount: number | null
-  onSaved: (name: string) => void
+  onMutationStart?: () => number | null
+  onMutationEnd?: (mutationIdAtStart: number | null) => void
+  onMutated?: (name: string) => void
+  onSaved: (
+    name: string,
+    isCurrent: () => boolean,
+    mutationIdAtStart?: number | null,
+  ) => void | Promise<void>
   onCancel: () => void
-  onDeleted: () => void
+  onDeletedMutated?: () => void
+  onDeleted: (
+    isCurrent: () => boolean,
+    mutationIdAtStart?: number | null,
+  ) => void | Promise<void>
 }
 
 export function SchemaEditorView({
@@ -53,8 +68,12 @@ export function SchemaEditorView({
   claims,
   backTo: _backTo,
   entryCount,
+  onMutationStart,
+  onMutationEnd,
+  onMutated,
   onSaved,
   onCancel,
+  onDeletedMutated,
   onDeleted,
 }: Props) {
   const draft = useSchemaDraft(collection)
@@ -65,11 +84,25 @@ export function SchemaEditorView({
   const [showDelete, setShowDelete] = useState(false)
   const [deleting, setDeleting] = useState(false)
   const [deleteError, setDeleteError] = useState('')
+  const [saveGuard] = useState(() => new SchemaSaveGuard())
   const mode = useThemeMode(serverId)
 
-  // Escape is Cancel, unless the delete dialog is up — that one's Escape closes
-  // the dialog rather than the page under it.
-  useEscapeToDiscard(onCancel, !showDelete)
+  useEffect(() => {
+    saveGuard.mount()
+    return () => {
+      saveGuard.unmount()
+    }
+  }, [saveGuard])
+
+  const dirty = draft.isDirty(name)
+  const dirtyRef = useRef(dirty)
+  useLayoutEffect(() => {
+    dirtyRef.current = dirty
+  }, [dirty])
+  const guard = useDirtyGuard(dirty)
+
+  // Escape is Discard, unless the delete dialog or discard confirmation is up.
+  useEscapeToDiscard(() => guard.requestDiscard(onCancel), !showDelete && !guard.confirming)
 
   const canChangeAccess =
     !collection ||
@@ -111,6 +144,7 @@ export function SchemaEditorView({
 
 
   const save = async () => {
+    if (saveGuard.isSaving() || saveGuard.isDeleting()) return
     setError('')
     const finalName = collection?.name || name.trim()
     if (!finalName) {
@@ -130,36 +164,56 @@ export function SchemaEditorView({
       setError('The JSON is not valid, so it cannot be saved.')
       return
     }
-    setSaving(true)
-    try {
-      if (collection) await api.collections.putSchema(url, apiKey, scope, finalName, schema)
-      else await api.collections.create(url, apiKey, scope, finalName, schema)
-      onSaved(finalName)
-    } catch (caught: any) {
-      setError(caught.message || 'Failed to save schema')
-    } finally {
-      setSaving(false)
-    }
+    await saveGuard.runSave({
+      persist: async () => {
+        if (collection) await api.collections.putSchema(url, apiKey, scope, finalName, schema)
+        else await api.collections.create(url, apiKey, scope, finalName, schema)
+        onMutated?.(finalName)
+      },
+      onSuccess: (isCurrent) => {
+        guard.disarm()
+        return onSaved(finalName, isCurrent)
+      },
+      onStateChange: setSaving,
+      onError: (caught) => {
+        setError(caught instanceof Error && caught.message ? caught.message : 'Failed to save schema')
+      },
+    })
   }
 
   const removeCollection = async () => {
-    if (!collection) return
-    setDeleting(true)
+    if (!collection || saveGuard.isDeleting() || saveGuard.isSaving()) return
     setDeleteError('')
+    let mutationIdAtStart: number | null = null
     try {
-      // The confirmation explicitly covers the schema and every entry, so the
-      // destructive action is the force-delete variant rather than a button
-      // that only happens to work for empty, unreferenced collections.
-      await api.collections.delete(url, apiKey, scope, collection.name, true)
-      setShowDelete(false)
-      onDeleted()
-    } catch (caught: any) {
-      setDeleteError(caught.message || 'Failed to delete collection')
-      setDeleting(false)
+      await saveGuard.runDelete({
+        remove: async () => {
+          mutationIdAtStart = onMutationStart?.() ?? null
+          // The confirmation explicitly covers the schema and every entry, so the
+          // destructive action is the force-delete variant rather than a button
+          // that only happens to work for empty, unreferenced collections.
+          await api.collections.delete(url, apiKey, scope, collection.name, true)
+          onDeletedMutated?.()
+        },
+        onSuccess: (isCurrent) => {
+          setShowDelete(false)
+          guard.disarm()
+          return onDeleted(isCurrent, mutationIdAtStart)
+        },
+        onStateChange: setDeleting,
+        onError: (caught) => {
+          setDeleteError(
+            caught instanceof Error && caught.message ? caught.message : 'Failed to delete collection',
+          )
+        },
+      })
+    } finally {
+      onMutationEnd?.(mutationIdAtStart)
     }
   }
 
   const valid = draft.parsed.ok
+  useSaveShortcut(save, !saving && valid)
 
   return (
     <>
@@ -211,6 +265,7 @@ export function SchemaEditorView({
             className="input mono"
             placeholder="e.g. blog_posts"
             value={name}
+            disabled={saving}
             onChange={(e) => setName(e.target.value.toLowerCase().replace(/[^a-z0-9_-]/g, ''))}
           />
           {CollectionNameMessage.of(name) ? (
@@ -234,10 +289,22 @@ export function SchemaEditorView({
           <label className="field-label">Collection name</label>
           <RenameForm
             subject={{ noun: 'collection', currentName: collection.name, id: collection.id }}
-            allowed={canRename}
-            unavailableReason={`This key cannot rename ${collection.name}. A rename retires the old name and introduces a new one, and repoints every schema that references it.`}
-            rename={(next, dryRun) =>
-              api.collections.rename(
+            allowed={canRename && !dirty && !saving && !deleting}
+            canCommit={() => canRename && !dirtyRef.current}
+            unavailableReason={
+              dirty
+                ? 'Save or discard your unsaved schema changes before renaming this collection.'
+                : saving
+                  ? 'Saving schema changes…'
+                  : `This key cannot rename ${collection.name}. A rename retires the old name and introduces a new one, and repoints every schema that references it.`
+            }
+            rename={async (next, dryRun) => {
+              if (!dryRun && dirtyRef.current) {
+                throw new Error(
+                  'Save or discard your unsaved schema changes before renaming this collection.',
+                )
+              }
+              const result = await api.collections.rename(
                 url,
                 apiKey,
                 scope,
@@ -246,8 +313,32 @@ export function SchemaEditorView({
                 collection.id,
                 dryRun,
               )
+              if (!dryRun) onMutated?.(next)
+              return result
+            }}
+            runCommit={(commit) =>
+              saveGuard
+                .runCommit({
+                  run: async (isCurrent) => {
+                    if (!canRename || dirtyRef.current) {
+                      await commit(isCurrent, null)
+                      return
+                    }
+                    const mutationIdAtStart = onMutationStart?.() ?? null
+                    try {
+                      await commit(isCurrent, mutationIdAtStart)
+                    } finally {
+                      onMutationEnd?.(mutationIdAtStart)
+                    }
+                  },
+                  onStateChange: setSaving,
+                })
+                .then(() => undefined)
             }
-            onRenamed={onSaved}
+            onRenamed={(nextName, isCurrent, mutationIdAtStart) => {
+              guard.disarm()
+              return onSaved(nextName, isCurrent ?? (() => true), mutationIdAtStart)
+            }}
             validate={CollectionNameMessage.of}
           />
         </div>
@@ -271,7 +362,13 @@ export function SchemaEditorView({
             Require an API key to read entries (<span className="mono">{SchemaAccess.AuthKeyword}</span>).
           </span>
         </div>
-        <Toggle size="sm" on={draft.requiresAuth} onChange={draft.setRequiresAuth} disabled={!canChangeAccess} title={canChangeAccess ? undefined : 'Missing access:update claim'} />
+        <Toggle
+          size="sm"
+          on={draft.requiresAuth}
+          onChange={draft.setRequiresAuth}
+          disabled={!canChangeAccess || saving}
+          title={canChangeAccess ? undefined : 'Missing access:update claim'}
+        />
       </div>
 
       <div className={styles.card}>
@@ -283,6 +380,7 @@ export function SchemaEditorView({
           <Segmented
             value={draft.mode}
             variant="compact"
+            disabled={saving}
             onChange={switchMode}
             options={[
               { value: 'visual', label: <><List size={13} /> Visual</> },
@@ -296,6 +394,7 @@ export function SchemaEditorView({
             fields={draft.fields}
             collections={collections}
             expanded={draft.expanded}
+            disabled={saving}
             onExpand={draft.setExpanded}
             onChangeField={draft.updateField}
             onMoveField={draft.moveField}
@@ -308,6 +407,8 @@ export function SchemaEditorView({
               value={draft.text}
               height="420px"
               theme={mode}
+              editable={!saving}
+              readOnly={saving}
               extensions={[jsonLang()]}
               onChange={(value) => draft.setText(value)}
             />
@@ -330,8 +431,11 @@ export function SchemaEditorView({
             fieldCount={draft.fieldCount}
             entryCount={entryCount}
             requiresAuth={draft.requiresAuth}
+            dirty={dirty}
+            saving={saving}
             canDelete={canDelete}
             onDelete={() => {
+              if (saving) return
               setDeleteError('')
               setShowDelete(true)
             }}
@@ -340,7 +444,7 @@ export function SchemaEditorView({
                 <Button variant="primary" onClick={save} disabled={saving || !valid}>
                   {saving ? 'Saving…' : collection ? 'Save schema' : 'Create collection'}
                 </Button>
-                <Button variant="secondary" onClick={onCancel}>
+                <Button variant="secondary" disabled={saving} onClick={() => guard.requestDiscard(onCancel)}>
                   Cancel
                 </Button>
               </>
@@ -348,6 +452,13 @@ export function SchemaEditorView({
           />
         </div>
       </div>
+
+      {guard.confirming && (
+        <DiscardChangesModal
+          onKeepEditing={guard.cancelDiscard}
+          onDiscard={guard.confirmDiscard}
+        />
+      )}
 
       {showDelete && collection && (
         <DangerConfirm

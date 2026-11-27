@@ -118,4 +118,77 @@ describe('Store', () => {
     expect(store.state('a').value).toBeNull()
     expect(heard).toBe(1)
   })
+
+  test('in-flight dispatch started before clear() never settles into the post-clear store', async () => {
+    const store = new Store()
+    let finishOld!: (value: string) => void
+    const oldLoad = store.dispatch(
+      'a',
+      () =>
+        new Promise<string>((resolve) => {
+          finishOld = resolve
+        }),
+    )
+
+    store.clear()
+    finishOld('old-key-secret')
+    await oldLoad
+
+    expect(store.state<string>('a').value).toBeNull()
+    expect(store.state<string>('a').loading).toBe(false)
+  })
+
+  test('invalidating an in-flight request clears loading when the stale request finishes with no replacement running', async () => {
+    const store = new Store()
+    let finishFirst!: (value: string) => void
+    const first = store.dispatch(
+      'a',
+      () =>
+        new Promise<string>((resolve) => {
+          finishFirst = resolve
+        }),
+    )
+    expect(store.state('a').loading).toBe(true)
+
+    store.invalidate('a')
+    finishFirst('stale')
+    await first
+
+    expect(store.state<string>('a').value).toBeNull()
+    expect(store.state('a').loading).toBe(false)
+  })
+
+  test('sessionEpoch increments on clear() and gates cross-mount recordMutation signals', () => {
+    const store = new Store()
+    const scopeKey = 'srv/default/production'
+    const epochAtStart = store.sessionEpoch()
+    expect(epochAtStart).toBe(0)
+    expect(store.mutationVersion(scopeKey)).toBe(0)
+
+    // First listener unmounts (simulating Settings visit), then a new Workspace
+    // listener mounts under the same credential session before the slow write finishes.
+    let firstHeard = 0
+    const stopFirst = store.subscribeMutation(scopeKey, () => {
+      firstHeard += 1
+    })
+    stopFirst()
+
+    let secondHeard = 0
+    const stopSecond = store.subscribeMutation(scopeKey, () => {
+      secondHeard += 1
+    })
+
+    expect(store.recordMutation(scopeKey, epochAtStart)).toBe(true)
+    expect(firstHeard).toBe(0)
+    expect(secondHeard).toBe(1)
+    expect(store.mutationVersion(scopeKey)).toBe(1)
+
+    // Once credentials change (`clear()`), the stale epoch must not signal again.
+    store.clear()
+    expect(store.sessionEpoch()).toBe(epochAtStart + 1)
+    expect(store.recordMutation(scopeKey, epochAtStart)).toBe(false)
+    expect(secondHeard).toBe(1)
+    expect(store.mutationVersion(scopeKey)).toBe(1)
+    stopSecond()
+  })
 })

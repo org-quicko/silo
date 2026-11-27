@@ -47,6 +47,7 @@ public final class RouteInventory {
       "POST /api/projects/:project/envs/:env/collections/:name",
       "GET /api/projects/:project/envs/:env/collections/:name/:id",
       "PUT /api/projects/:project/envs/:env/collections/:name/:id",
+      "PATCH /api/projects/:project/envs/:env/collections/:name/:id",
       "DELETE /api/projects/:project/envs/:env/collections/:name/:id",
       "GET /api/projects/:project/envs/:env/collections/:name/search",
       "GET /api/projects/:project/envs/:env/search",

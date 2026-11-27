@@ -12,6 +12,8 @@ interface Props {
   fieldCount: number
   entryCount: number | null
   requiresAuth: boolean
+  dirty: boolean
+  saving?: boolean
   canDelete: boolean
   onDelete: () => void
   /** Save and Cancel. A page's actions belong with the page, not in the top bar. */
@@ -26,6 +28,8 @@ export function CollectionRail({
   fieldCount,
   entryCount,
   requiresAuth,
+  dirty,
+  saving = false,
   canDelete,
   onDelete,
   actions,
@@ -60,10 +64,15 @@ export function CollectionRail({
 
       {/* Every action the page has, in one block under what it is acting on. */}
       <div className={styles.railActions}>
+        {dirty && (
+          <span className={styles.unsaved}>
+            <span className={styles.unsavedDot} /> Unsaved changes
+          </span>
+        )}
         {actions}
         {collection && canDelete && (
           <>
-            <Button variant="dangerGhost" onClick={onDelete}>
+            <Button variant="dangerGhost" disabled={saving} onClick={onDelete}>
               <Trash2 size={14} /> Delete collection
             </Button>
             <span className={styles.railCaption}>

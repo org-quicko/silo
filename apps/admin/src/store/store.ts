@@ -32,6 +32,45 @@ export class Store {
    *  epoch writes nothing — that is what stops a read started before a save
    *  from putting the pre-save answer back. */
   private readonly epochs = new Map<string, number>()
+  /** Per-scope monotonic counters + listeners notified when a write completes
+   *  under the active credential session, surviving Workspace unmounts (e.g.
+   *  Settings visits). */
+  private readonly mutationVersions = new Map<string, number>()
+  private readonly mutationListeners = new Map<string, Set<() => void>>()
+  /** Bumped by `clear()`. A request that started before `clear()` must never
+   *  settle into a subsequent API key session's cache. */
+  private clearEpoch = 0
+
+  /** Monotonic credential-session counter incremented by `clear()`. */
+  sessionEpoch(): number {
+    return this.clearEpoch
+  }
+
+  mutationVersion(scopeKey: string): number {
+    return this.mutationVersions.get(scopeKey) ?? 0
+  }
+
+  subscribeMutation(scopeKey: string, listener: () => void): () => void {
+    const observers = this.mutationListeners.get(scopeKey) ?? new Set<() => void>()
+    observers.add(listener)
+    this.mutationListeners.set(scopeKey, observers)
+    return () => {
+      observers.delete(listener)
+      if (observers.size === 0) this.mutationListeners.delete(scopeKey)
+    }
+  }
+
+  /** Notifies mounted views in `scopeKey` that a write succeeded, unless
+   *  `clear()` changed the session since `epochAtStart`. */
+  recordMutation(scopeKey: string, epochAtStart?: number): boolean {
+    if (epochAtStart !== undefined && this.clearEpoch !== epochAtStart) return false
+    this.mutationVersions.set(scopeKey, this.mutationVersion(scopeKey) + 1)
+    const observers = this.mutationListeners.get(scopeKey)
+    if (observers) {
+      for (const listener of [...observers]) listener()
+    }
+    return true
+  }
 
   state<T>(key: string | null): ResourceState<T> {
     if (key === null) return Store.blank
@@ -60,13 +99,25 @@ export class Store {
     if (fresh) return Promise.resolve(current.value)
 
     const epoch = this.epoch(key)
+    const clearAtStart = this.clearEpoch
     const running = this.running.get(key)
     if (running && running.epoch === epoch) return running.request as Promise<T | null>
 
     this.write(key, { ...current, loading: true, error: null })
     const request = load().then(
-      (value) => this.settle(key, epoch, { value, loading: false, error: null, loadedAt: Date.now() }),
-      (caught) => this.settle(key, epoch, { ...this.state<T>(key), loading: false, error: Store.messageOf(caught) }),
+      (value) =>
+        this.settle(key, epoch, clearAtStart, {
+          value,
+          loading: false,
+          error: null,
+          loadedAt: Date.now(),
+        }),
+      (caught) =>
+        this.settle(key, epoch, clearAtStart, {
+          ...this.state<T>(key),
+          loading: false,
+          error: Store.messageOf(caught),
+        }),
     )
     this.running.set(key, { epoch, request })
     return request
@@ -106,6 +157,7 @@ export class Store {
   /** Forgets everything. Called when the session ends: the next key holder may
    *  be a different API key, whose claims decide what its answers contain. */
   clear(): void {
+    this.clearEpoch += 1
     const keys = [...this.states.keys()]
     this.states.clear()
     this.running.clear()
@@ -115,9 +167,21 @@ export class Store {
     }
   }
 
-  private settle<T>(key: string, epoch: number, next: ResourceState<T>): T | null {
+  private settle<T>(
+    key: string,
+    epoch: number,
+    clearAtStart: number,
+    next: ResourceState<T>,
+  ): T | null {
+    if (this.clearEpoch !== clearAtStart) return null
     if (this.running.get(key)?.epoch === epoch) this.running.delete(key)
-    if (this.epoch(key) !== epoch) return this.state<T>(key).value
+    if (this.epoch(key) !== epoch) {
+      const current = this.states.get(key) as ResourceState<T> | undefined
+      if (!this.running.has(key) && current?.loading) {
+        this.write(key, { ...current, loading: false })
+      }
+      return this.state<T>(key).value
+    }
     this.write(key, next)
     return next.value
   }

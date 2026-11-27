@@ -1,4 +1,5 @@
-import { ArrowDown, ArrowUp } from 'lucide-react'
+import { useEffect, useRef, useState } from 'react'
+import { ArrowDown, ArrowUp, Search, X } from 'lucide-react'
 import { Button } from '../../components/buttons/Button'
 import { FilterModel, type FilterDraft } from '../../query/filter-model'
 import { PathLabel } from '../../query/path-label'
@@ -7,8 +8,14 @@ import { FilterBuilder } from './FilterBuilder'
 import { FilterChips } from './FilterChips'
 import styles from './Entries.module.css'
 
+const SEARCH_DEBOUNCE_MS = 200
+
 interface Props {
+  collectionName: string
   schema: any
+  search: string
+  onSearchChange: (next: string) => void
+
   /** Null when the URL carries a filter the visual builder cannot draw. */
   draft: FilterDraft | null
   /** The raw filter string, shown to the builder when `draft` is null. */
@@ -34,9 +41,12 @@ interface Props {
   onChangeColumns: (columns: string[]) => void
 }
 
-/** Filters, sort, column choice and the result count, above the table. */
+/** Inline search, filters, sort, and column choice above the table. */
 export function EntriesToolbar({
+  collectionName,
   schema,
+  search,
+  onSearchChange,
   draft,
   rawFilter,
   showBuilder,
@@ -56,8 +66,95 @@ export function EntriesToolbar({
   onCloseColumns,
   onChangeColumns,
 }: Props) {
+  const [draftSearch, setDraftSearch] = useState(search)
+  const [prevSearch, setPrevSearch] = useState(search)
+  const timerRef = useRef<number | null>(null)
+  const latestSearchCommit = useRef(onSearchChange)
+
+  if (search !== prevSearch) {
+    setPrevSearch(search)
+    setDraftSearch(search)
+  }
+
+  useEffect(() => {
+    latestSearchCommit.current = onSearchChange
+  }, [onSearchChange])
+
+  useEffect(() => {
+    if (timerRef.current !== null) {
+      window.clearTimeout(timerRef.current)
+      timerRef.current = null
+    }
+  }, [search])
+
+  useEffect(() => {
+    return () => {
+      if (timerRef.current !== null) window.clearTimeout(timerRef.current)
+    }
+  }, [])
+
+  const handleInput = (nextValue: string) => {
+    setDraftSearch(nextValue)
+    if (timerRef.current !== null) window.clearTimeout(timerRef.current)
+    timerRef.current = window.setTimeout(() => {
+      timerRef.current = null
+      latestSearchCommit.current(nextValue)
+    }, SEARCH_DEBOUNCE_MS)
+  }
+
+  const flushSearch = (nextValue: string) => {
+    if (timerRef.current !== null) {
+      window.clearTimeout(timerRef.current)
+      timerRef.current = null
+    }
+    latestSearchCommit.current(nextValue)
+  }
+
+  const clearSearch = () => {
+    setDraftSearch('')
+    flushSearch('')
+  }
+
   return (
     <div className={styles.toolbar}>
+      <div className={styles.searchBox}>
+        <Search size={14} className={styles.searchIcon} />
+        <input
+          type="text"
+          className={styles.searchInput}
+          placeholder={`Search ${collectionName}…`}
+          value={draftSearch}
+          onChange={(event) => handleInput(event.target.value)}
+          onKeyDown={(event) => {
+            if (event.key === 'Enter') {
+              event.preventDefault()
+              flushSearch(draftSearch)
+              return
+            }
+            if (event.key === 'Escape') {
+              if (draftSearch !== '') {
+                event.preventDefault()
+                clearSearch()
+              } else {
+                event.currentTarget.blur()
+              }
+            }
+          }}
+          aria-label={`Search ${collectionName}`}
+        />
+        {draftSearch !== '' && (
+          <button
+            type="button"
+            className={styles.searchClear}
+            onClick={clearSearch}
+            aria-label="Clear search"
+            title="Clear search"
+          >
+            <X size={12} />
+          </button>
+        )}
+      </div>
+
       <div className={styles.filterAnchor}>
         {draft !== null ? (
           <FilterChips

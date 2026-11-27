@@ -43,12 +43,14 @@ export default function App() {
     router.navigate(Routes.servers())
   }, [])
 
-  // A stored key can be revoked out from under an open session; a 401 on any
-  // authenticated call routes the app back to the welcome gate.
-  useEffect(() => {
-    api.setUnauthorizedHandler(disconnect)
-    return () => api.setUnauthorizedHandler(null)
-  }, [disconnect])
+  // Registered in a layout effect so `authEpoch` and the handler update
+  // before any child passive `useEffect` (e.g. `useCollections`, Settings)
+  // dispatches initial requests under the new session.
+  const sessionKey = server ? `${server.id}:${server.apiKey}` : null
+  useLayoutEffect(() => {
+    api.setUnauthorizedHandler(disconnect, sessionKey)
+    return () => api.setUnauthorizedHandler(null, null)
+  }, [disconnect, sessionKey])
 
   // Resolve "/" (and anything unparseable) to /servers, and drop
   // links pointing at a server this browser no longer knows about. A URL from
@@ -128,7 +130,7 @@ export default function App() {
     />
   ) : (
     <Workspace
-      key={`${server.id}:${'project' in route ? `${route.project}/${route.env}` : 'media'}`}
+      key={`${server.id}:${server.apiKey}:${'project' in route ? `${route.project}/${route.env}` : 'media'}`}
       server={server}
       servers={servers}
       route={route}

@@ -1,5 +1,6 @@
 import { api } from '../../api/silo-api'
-import { ToastManager } from '../../utils/toast-manager'
+import { store } from '../../store/store'
+import { ToastManager, type ToastAction } from '../../utils/toast-manager'
 
 /**
  * The toast a delete leaves behind (D113).
@@ -20,24 +21,41 @@ export class TrashUndo {
     url: string,
     apiKey: string,
     onRestored: () => void,
+    dependencies?: {
+      restore?: (url: string, apiKey: string, trashId: string) => Promise<unknown>
+      sessionEpoch?: () => number
+      showToast?: (message: string, options?: { action?: ToastAction; durationMs?: number }) => void
+    },
   ): void {
+    const showToast =
+      dependencies?.showToast ?? ((message, options) => ToastManager.show(message, options))
     if (!trashId) {
-      ToastManager.show(`Deleted ${subject}.`)
+      showToast(`Deleted ${subject}.`)
       return
     }
 
-    ToastManager.show(`Moved ${subject} to trash.`, {
+    const restore =
+      dependencies?.restore ?? ((targetUrl, key, id) => api.trash.restore(targetUrl, key, id))
+    const currentEpoch = dependencies?.sessionEpoch ?? (() => store.sessionEpoch())
+    const epochAtOffer = currentEpoch()
+
+    showToast(`Moved ${subject} to trash.`, {
       action: {
         label: 'Undo',
         onClick: () => {
-          void api.trash
-            .restore(url, apiKey, trashId)
+          if (currentEpoch() !== epochAtOffer) {
+            showToast('Session changed — undo skipped.')
+            return
+          }
+          void restore(url, apiKey, trashId)
             .then(() => {
-              ToastManager.show(`Restored ${subject}.`)
+              if (currentEpoch() !== epochAtOffer) return
+              showToast(`Restored ${subject}.`)
               onRestored()
             })
             .catch((caught: unknown) => {
-              ToastManager.show(
+              if (currentEpoch() !== epochAtOffer) return
+              showToast(
                 caught instanceof Error ? caught.message : `Could not restore ${subject}.`,
               )
             })

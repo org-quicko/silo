@@ -9,6 +9,7 @@ import { router } from './router'
 export function Link({
   to,
   replace = false,
+  state,
   className,
   style,
   title,
@@ -18,6 +19,7 @@ export function Link({
 }: {
   to: string
   replace?: boolean
+  state?: Record<string, unknown>
   className?: string
   style?: CSSProperties
   title?: string
@@ -30,7 +32,7 @@ export function Link({
     if (e.defaultPrevented || e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return
     e.preventDefault()
     onNavigate?.()
-    router.navigate(to, { replace })
+    router.navigate(to, { replace, state })
   }
   return (
     <a href={to} className={className} style={style} title={title} aria-current={ariaCurrent} onClick={onClick}>

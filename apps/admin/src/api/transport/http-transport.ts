@@ -13,22 +13,37 @@ import type { ValidationDetail } from '@silo/shared/validation-detail'
  */
 export class HttpTransport {
   private unauthorizedHandler: (() => void) | null = null
+  private sessionKey: string | null = null
+  private authEpoch = 0
 
   /** A stored key can be revoked out from under an open session; a 401 on any
-   *  authenticated call routes the app back to the welcome gate. */
-  setUnauthorizedHandler(handler: (() => void) | null): void {
+   *  authenticated call routes the app back to the welcome gate. Tracking
+   *  `authEpoch` ensures a late 401 from a previous key never disconnects the
+   *  newly active session. */
+  setUnauthorizedHandler(handler: (() => void) | null, sessionKey: string | null = null): void {
+    if (this.unauthorizedHandler !== handler || this.sessionKey !== sessionKey) {
+      this.authEpoch += 1
+    }
     this.unauthorizedHandler = handler
+    this.sessionKey = sessionKey
+  }
+
+  /** Monotonic counter incremented whenever the unauthorized handler/session
+   *  changes, for callers invoking `fetchRaw` + `fail` explicitly. */
+  currentAuthEpoch(): number {
+    return this.authEpoch
   }
 
   /** Constructs a typed Silo client instance wired with the shared 401 handler. */
   silo(url: string, key?: string): Silo {
+    const authEpochAtStart = this.authEpoch
     return new Silo({
       url: HttpTransport.baseUrl(url),
       key: key || undefined,
       fetch: async (input, init) => {
         const response = await fetch(input, init)
         if (response.status === 401) {
-          this.unauthorizedHandler?.()
+          this.notifyUnauthorized(authEpochAtStart)
         }
         return response
       },
@@ -48,11 +63,12 @@ export class HttpTransport {
 
   /** An authenticated request, decoded by content type. */
   async request<T>(url: string, key: string, path: string, init?: RequestInit): Promise<T> {
+    const authEpochAtStart = this.authEpoch
     const response = await fetch(`${HttpTransport.baseUrl(url)}${path}`, {
       ...init,
       headers: HttpTransport.authHeaders(key, init?.headers as any),
     })
-    if (!response.ok) throw await this.fail(response)
+    if (!response.ok) throw await this.fail(response, authEpochAtStart)
 
     if (response.status === 204) return undefined as T
 
@@ -73,6 +89,7 @@ export class HttpTransport {
     init: RequestInit,
     onProgress: (progress: Progress) => void,
   ): Promise<Result> {
+    const authEpochAtStart = this.authEpoch
     const response = await this.fetchRaw(url, path, {
       ...init,
       headers: HttpTransport.authHeaders(key, {
@@ -80,7 +97,7 @@ export class HttpTransport {
         Accept: ProgressReader.ContentType,
       }),
     })
-    if (!response.ok) throw await this.fail(response)
+    if (!response.ok) throw await this.fail(response, authEpochAtStart)
     return ProgressReader.read<Result, Progress>(response, onProgress)
   }
 
@@ -95,11 +112,12 @@ export class HttpTransport {
     path: string,
     init?: RequestInit,
   ): Promise<Headers> {
+    const authEpochAtStart = this.authEpoch
     const response = await fetch(`${HttpTransport.baseUrl(url)}${path}`, {
       ...init,
       headers: HttpTransport.authHeaders(key, init?.headers as any),
     })
-    if (!response.ok) throw await this.fail(response)
+    if (!response.ok) throw await this.fail(response, authEpochAtStart)
     return response.headers
   }
 
@@ -110,10 +128,16 @@ export class HttpTransport {
   }
 
   /** Turns a failed response into an `ApiError`, and fires the 401 handler. */
-  async fail(response: Response): Promise<ApiError> {
+  async fail(response: Response, authEpochAtStart = this.authEpoch): Promise<ApiError> {
     const error = await HttpTransport.parseError(response)
-    if (error.status === 401) this.unauthorizedHandler?.()
+    if (error.status === 401) this.notifyUnauthorized(authEpochAtStart)
     return error
+  }
+
+  private notifyUnauthorized(authEpochAtStart: number): void {
+    if (this.authEpoch === authEpochAtStart) {
+      this.unauthorizedHandler?.()
+    }
   }
 
   static async parseError(response: Response): Promise<ApiError> {

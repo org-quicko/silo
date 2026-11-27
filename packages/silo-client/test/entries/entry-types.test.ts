@@ -5,6 +5,9 @@ import type { Entry } from "../../src/entries/entry";
 interface Post {
   title: string;
   status: "draft" | "published";
+  subtitle?: string;
+  tags: string[];
+  meta: { author: string; year: number };
 }
 
 /**
@@ -13,7 +16,11 @@ interface Post {
  * a row is the author's fields and the envelope in one flat object, and a
  * typed collection types its filter.
  */
-function typeOnlyAssertions(posts: CollectionHandle<Post>, entry: Entry<Post>): void {
+function typeOnlyAssertions(
+  posts: CollectionHandle<Post>,
+  untyped: CollectionHandle,
+  entry: Entry<Post>,
+): void {
   // @ts-expect-error -- "stauts" is not `keyof Post`, so a typed filter must not accept it.
   posts.filter.field("stauts");
 
@@ -33,7 +40,20 @@ function typeOnlyAssertions(posts: CollectionHandle<Post>, entry: Entry<Post>): 
   entry.save();
 
   // @ts-expect-error -- `rev` is required by replace(), so it cannot be skipped.
-  posts.replace(entry.id, { title: "x", status: "draft" });
+  posts.replace(entry.id, { title: "x", status: "draft", tags: [], meta: { author: "a", year: 2026 } });
+
+  // Merge patch accepts partial fields, nested partial objects, whole-array
+  // replacements, and `null` to delete a member, plus arbitrary records when untyped.
+  void posts.patch(entry.id, entry.rev, { title: "New" });
+  void posts.patch(entry.id, entry.rev, { subtitle: null, tags: ["cms"], meta: { author: "Ada" } });
+  void posts.patch(entry.id, entry.rev, { meta: null });
+  void untyped.patch(entry.id, entry.rev, { anything: true, nested: { gone: null } });
+
+  // @ts-expect-error -- `rev` is required by patch(), so it cannot be skipped.
+  posts.patch(entry.id, { title: "x" });
+
+  // @ts-expect-error -- unknown fields are rejected on a typed collection patch.
+  posts.patch(entry.id, entry.rev, { stauts: "published" });
 
   void [title, status, id, rev, createdAt];
 }

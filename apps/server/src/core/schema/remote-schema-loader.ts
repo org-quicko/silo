@@ -10,7 +10,9 @@ export class RemoteSchemaLoader {
   private cache: Map<string, any> = new Map();
 
   invalidate(): void {
-    this.cache.clear();
+    // Replace rather than clear in place so in-flight fetches write only into
+    // their superseded generation map.
+    this.cache = new Map();
   }
 
   async load(uri: string): Promise<any> {
@@ -23,7 +25,8 @@ export class RemoteSchemaLoader {
       throw new ValidationError(`unsupported $ref scheme in "${uri}": only http(s) and silo:// are allowed`);
     }
 
-    const cached = this.cache.get(uri);
+    const cacheForGeneration = this.cache;
+    const cached = cacheForGeneration.get(uri);
     if (cached !== undefined) {
       return cached;
     }
@@ -41,7 +44,7 @@ export class RemoteSchemaLoader {
     } catch (caught: any) {
       throw new ValidationError(`fetching remote schema "${uri}": ${caught.message}`);
     }
-    this.cache.set(uri, document);
+    cacheForGeneration.set(uri, document);
     return document;
   }
 }

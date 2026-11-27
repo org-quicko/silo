@@ -30,7 +30,30 @@
 
 /* The column already spaces its children; the shared page head must not add
    a second gap under itself. */
-.pageHead { margin-bottom: 0; }
+.pageHead {
+  align-items: center;
+  margin-bottom: 0;
+}
+
+.staleBanner {
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.staleMessage {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 10px;
+}
+
+.bannerAction {
+  flex: none;
+}
+
+.deleteError {
+  margin: 14px 22px 0;
+}
 
 .group { display: flex; flex-direction: column; gap: 12px; }
 

@@ -7,6 +7,12 @@ export interface EntriesKeyboardOptions {
   rowCount: number
   /** False while a dialog owns the keyboard, so nothing reaches the page behind it. */
   active: boolean
+  /** Current page entry ids, used to restore row focus onto `focusEntryId`. */
+  entryIds?: readonly string[]
+  /** Entry id to restore keyboard focus onto when returning from `EntryForm`. */
+  focusEntryId?: string | null
+  /** Active router navigation id so focus restoration runs once per arrival. */
+  navigationKey?: number
   /** The row cursor, by index — `null` when no row is under it. */
   onOpen: (index: number) => void
   onDelete: (index: number) => void
@@ -34,16 +40,35 @@ export interface EntriesKeyboardState {
  */
 export function useEntriesKeyboard(options: EntriesKeyboardOptions): EntriesKeyboardState {
   const [cursor, setCursor] = useState<number | null>(null)
+  const [consumedNavKey, setConsumedNavKey] = useState<number | null>(null)
   const latest = useRef(options)
-  latest.current = options
+
+  useEffect(() => {
+    latest.current = options
+  })
+
+  if (
+    options.focusEntryId &&
+    options.entryIds &&
+    options.entryIds.length > 0 &&
+    consumedNavKey !== (options.navigationKey ?? null)
+  ) {
+    const targetIndex = options.entryIds.indexOf(options.focusEntryId)
+    setConsumedNavKey(options.navigationKey ?? null)
+    if (targetIndex !== -1) setCursor(targetIndex)
+  }
 
   // A shorter page (a filter, the last page) must not leave the cursor past the
   // end. Adjusting during render is React's own answer to state derived from
   // props, and it keeps one render from pointing at a row that is not there.
-  if (cursor !== null && cursor >= options.rowCount) setCursor(options.rowCount === 0 ? null : options.rowCount - 1)
+  if (cursor !== null && cursor >= options.rowCount) {
+    setCursor(options.rowCount === 0 ? null : options.rowCount - 1)
+  }
 
   const cursorRef = useRef<number | null>(cursor)
-  cursorRef.current = cursor
+  useEffect(() => {
+    cursorRef.current = cursor
+  }, [cursor])
 
   useEffect(() => {
     const move = (delta: number) =>

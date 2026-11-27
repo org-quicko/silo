@@ -34,7 +34,9 @@ export class SchemaValidator {
   }
 
   invalidate(): void {
-    this.cache.clear();
+    // Replace the cache map rather than clearing in place so an in-flight
+    // `compileFrom` from an older generation cannot populate the new map.
+    this.cache = new Map();
     this.remoteLoader.invalidate();
   }
 
@@ -91,7 +93,8 @@ export class SchemaValidator {
     // check it again, since system writes do not come through here.
     PortableData.assert(data);
 
-    let validateFn = this.cache.get(cacheKey);
+    const cacheForGeneration = this.cache;
+    let validateFn = cacheForGeneration.get(cacheKey);
     if (!validateFn) {
       const all = await schemas();
       if (!all.has(collection)) {
@@ -99,7 +102,7 @@ export class SchemaValidator {
       }
       try {
         validateFn = await this.compileFrom(all, collection);
-        this.cache.set(cacheKey, validateFn);
+        cacheForGeneration.set(cacheKey, validateFn);
       } catch (caught: any) {
         throw new Error(`compiling schema for "${collection}": ${SchemaValidator.refError(caught)}`);
       }

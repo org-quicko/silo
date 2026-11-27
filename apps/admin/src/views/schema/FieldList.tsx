@@ -13,6 +13,7 @@ interface Props {
   collections: readonly { name: string }[]
   /** The index whose editor is open, or null. */
   expanded: number | null
+  disabled?: boolean
   onExpand: (index: number | null) => void
   onChangeField: (index: number, patch: Partial<SchemaField>) => void
   onMoveField: (from: number, to: number) => void
@@ -25,6 +26,7 @@ export function FieldList({
   fields,
   collections,
   expanded,
+  disabled = false,
   onExpand,
   onChangeField,
   onMoveField,
@@ -36,42 +38,52 @@ export function FieldList({
   const [dragging, setDragging] = useState<number | null>(null)
 
   return (
-    <div className={styles.builder}>
-      {fields.length === 0 && (
-        <div className={styles.emptyFields}>
-          No fields yet — add one below.
-        </div>
-      )}
+    <fieldset disabled={disabled} className={styles.builderFieldset}>
+      <div className={styles.builder}>
+        {fields.length === 0 && (
+          <div className={styles.emptyFields}>
+            No fields yet — add one below.
+          </div>
+        )}
 
-      {fields.map((field, index) => (
-        <div key={index}>
-          <FieldRow
-            field={field}
-            expanded={expanded === index}
-            dragging={dragging === index}
-            onToggle={() => onExpand(expanded === index ? null : index)}
-            onDragStart={() => setDragging(index)}
-            onDragEnd={() => setDragging(null)}
-            onDragOverRow={() => {
-              if (dragging === null || dragging === index) return
-              onMoveField(dragging, index)
-              setDragging(index)
-            }}
-          />
-          {expanded === index && (
-            <FieldEditor
+        {fields.map((field, index) => (
+          <div key={index}>
+            <FieldRow
               field={field}
-              collections={collections}
-              onChange={(patch) => onChangeField(index, patch)}
-              onRemove={() => onRemoveField(index)}
+              expanded={expanded === index}
+              dragging={dragging === index}
+              disabled={disabled}
+              onToggle={() => onExpand(expanded === index ? null : index)}
+              onDragStart={() => {
+                if (!disabled) setDragging(index)
+              }}
+              onDragEnd={() => setDragging(null)}
+              onDragOverRow={() => {
+                if (disabled || dragging === null || dragging === index) return
+                onMoveField(dragging, index)
+                setDragging(index)
+              }}
             />
-          )}
-        </div>
-      ))}
+            {expanded === index && (
+              <FieldEditor
+                field={field}
+                collections={collections}
+                disabled={disabled}
+                onChange={(patch) => {
+                  if (!disabled) onChangeField(index, patch)
+                }}
+                onRemove={() => {
+                  if (!disabled) onRemoveField(index)
+                }}
+              />
+            )}
+          </div>
+        ))}
 
-      <Button variant="dashed" onClick={onAddField}>
-        <Plus size={15} /> Add field
-      </Button>
-    </div>
+        <Button variant="dashed" disabled={disabled} onClick={onAddField}>
+          <Plus size={15} /> Add field
+        </Button>
+      </div>
+    </fieldset>
   )
 }

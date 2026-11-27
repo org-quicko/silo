@@ -15,6 +15,7 @@ import in.org.quicko.silo.client.support.Post;
 import in.org.quicko.silo.client.support.RecordedRequest;
 import in.org.quicko.silo.client.support.StubHttp;
 import java.time.Instant;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import org.junit.jupiter.api.BeforeEach;
@@ -91,6 +92,19 @@ class EntriesTest {
     assertEquals(
         "/api/projects/acme/envs/prod/collections/posts/01ABC?rev=3&variables=raw",
         replaced.target());
+
+    Map<String, Object> delta = new LinkedHashMap<>();
+    delta.put("status", "published");
+    delta.put("subtitle", null);
+    server.enqueueJson(Row);
+    posts().patch("01ABC", 4, delta);
+    RecordedRequest patched = server.lastRequest();
+    assertEquals("PATCH", patched.method());
+    assertEquals(
+        "/api/projects/acme/envs/prod/collections/posts/01ABC?rev=4&variables=raw",
+        patched.target());
+    assertTrue(patched.contentType().startsWith("application/merge-patch+json"));
+    assertTrue(patched.body().contains("\"subtitle\":null"));
   }
 
   @Test

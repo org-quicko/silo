@@ -290,19 +290,20 @@ describe("Collection data caching", () => {
     expect((await posts.list(secondQuery)).entries).toEqual(second.entries);
   });
 
-  test.each(["create", "replace", "delete", "rename", "delete schema"])(
+  test.each(["create", "replace", "patch", "delete", "rename", "delete schema"])(
     "%s invalidates all collection entries and pages while preserving sibling collections",
     async (operation) => {
       const clock = spyOn(performance, "now").mockReturnValue(1_000);
       try {
         let title = "Original";
         respond = (request) => {
+          const pathname = new URL(request.url).pathname;
           if (request.method === "DELETE") return new Response(null, { status: 204 });
-          if (request.method === "PATCH") return Response.json({
+          if (request.method === "PATCH" && pathname.endsWith("/posts")) return Response.json({
             id: "collection-id", from: "posts", to: "renamed", rewritten_claims: [], pattern_affected_claims: [],
           });
           const entry = { id: "first", rev: 1, title };
-          return Response.json(new URL(request.url).pathname.endsWith("/posts")
+          return Response.json(pathname.endsWith("/posts")
             ? { data: [entry], total: 2, limit: 1, offset: 0 }
             : entry);
         };
@@ -318,6 +319,7 @@ describe("Collection data caching", () => {
         switch (operation) {
           case "create": await posts.create({ title: "New" }); break;
           case "replace": await posts.replace("first", 1, { title: "New" }); break;
+          case "patch": await posts.patch("first", 1, { title: "New" }); break;
           case "delete": await posts.delete("first", 1); break;
           case "rename": await posts.rename("renamed"); break;
           case "delete schema": await posts.schema.delete(); break;

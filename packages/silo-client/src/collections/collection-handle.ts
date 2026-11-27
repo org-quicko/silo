@@ -2,6 +2,7 @@ import type { Entry } from "../entries/entry.js";
 import type { EntryListQuery } from "../entries/entry-list-query.js";
 import type { EntryPage } from "../entries/entry-page.js";
 import type { EntryPageStream } from "../entries/entry-page-stream.js";
+import type { EntryPatch } from "../entries/entry-patch.js";
 import type { EntryReadOptions } from "../entries/entry-read-options.js";
 import { EntryReader } from "../entries/entry-reader.js";
 import type { EntryStream } from "../entries/entry-stream.js";
@@ -81,6 +82,29 @@ export class CollectionHandle<Fields = Record<string, unknown>> {
     );
   }
 
+  /**
+   * Partial update via [RFC 7396](https://www.rfc-editor.org/rfc/rfc7396) JSON
+   * Merge Patch: omitted fields stay untouched (preserving `{{NAME}}` variables
+   * and valid media references), nested objects merge recursively, arrays
+   * replace whole, and `null` deletes a member. `rev` is required and a stale
+   * one throws `ConflictError`.
+   */
+  patch(
+    id: string,
+    rev: number,
+    patch: EntryPatch<Fields>,
+    options: RequestOptions = {},
+  ): Promise<Entry<Fields>> {
+    return this.write(
+      "PATCH",
+      ApiPath.entry(this.scope.project, this.scope.environment, this.name, id),
+      patch,
+      rev,
+      options,
+      "application/merge-patch+json",
+    );
+  }
+
   /** Answers the trash receipt's id, or null when the delete was permanent or
    *  the instance keeps no trash (D113). */
   async delete(id: string, rev: number, options: RequestOptions = {}): Promise<string | null> {
@@ -114,24 +138,24 @@ export class CollectionHandle<Fields = Record<string, unknown>> {
     return RenameReport.fromWire(payload);
   }
 
-  /** Both writes ask for the stored templates back, so what returns is what
+  /** Writes ask for the stored templates back, so what returns is what
    *  was sent rather than a resolved snapshot of it. */
   private write(
-    method: "POST" | "PUT",
+    method: "POST" | "PUT" | "PATCH",
     path: string,
-    fields: Fields,
+    body: unknown,
     rev: number | undefined,
     options: RequestOptions,
+    contentType?: string,
   ): Promise<Entry<Fields>> {
-    return this.scope.transport.json<Entry<Fields>>(
-      TransportRequest.of(method, path)
-        .query("rev", rev)
-        .query("variables", "raw")
-        .body(fields)
-        .options(options)
-        .evicts(this.entries())
-        .build(),
-    );
+    const request = TransportRequest.of(method, path)
+      .query("rev", rev)
+      .query("variables", "raw")
+      .body(body)
+      .options(options)
+      .evicts(this.entries());
+    if (contentType) request.header("Content-Type", contentType);
+    return this.scope.transport.json<Entry<Fields>>(request.build());
   }
 
   private entries(): string {

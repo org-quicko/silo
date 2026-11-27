@@ -110,6 +110,7 @@ final class Transport {
     final url = Uri.parse('$_url${request.path}${QueryString.build(request.query)}');
     final headers = {
       ..._options.headers,
+      ...request.headers,
       if (_options.key case final key? when key.isNotEmpty) 'Authorization': 'Bearer $key',
     };
 
@@ -122,7 +123,9 @@ final class Transport {
 
     final built = http.AbortableRequest(request.method, url, abortTrigger: abortTrigger)..headers.addAll(headers);
     if (request.body case final body?) {
-      built.headers.putIfAbsent('content-type', () => 'application/json');
+      if (!built.headers.keys.any((name) => name.toLowerCase() == 'content-type')) {
+        built.headers['content-type'] = 'application/json';
+      }
       built.bodyBytes = utf8.encode(jsonEncode(body));
     }
     return built;

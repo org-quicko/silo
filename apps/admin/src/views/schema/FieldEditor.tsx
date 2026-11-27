@@ -13,12 +13,13 @@ interface Props {
   /** Ref targets: names only — choosing one writes a `silo://` URL, and
    *  nothing here reads the target's schema. */
   collections: readonly { name: string }[]
+  disabled?: boolean
   onChange: (patch: Partial<SchemaField>) => void
   onRemove: () => void
 }
 
 /** The expanded panel under a field row: everything about one property. */
-export function FieldEditor({ field, collections, onChange, onRemove }: Props) {
+export function FieldEditor({ field, collections, disabled = false, onChange, onRemove }: Props) {
   const isReference = field.kind === 'ref' || field.kind === 'ref-array'
 
   return (
@@ -86,6 +87,7 @@ export function FieldEditor({ field, collections, onChange, onRemove }: Props) {
         <Toggle
           size="sm"
           on={field.required}
+          disabled={disabled}
           onChange={(required) => onChange({ required })}
         />
       </div>
