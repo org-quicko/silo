@@ -4,6 +4,15 @@
 > The *current* state is [CONTEXT.md](../../CONTEXT.md); this is how it got
 > there.
 
+- **1.7.0 has a release note and runs on Bun 1.4.5 (2026-11-27).**
+  `resources/release-notes/1.7.0.md` covers entry `PATCH`, open discovery
+  endpoints, admin entry/schema editing, collection search and saved layout,
+  full-library media picking and drop/paste upload, per-server appearance,
+  and the move to Bun 1.4.5. `BUN_VERSION` moves from 1.4.4 to 1.4.5 in
+  `test.yml`, `release.yml`, `release-docker-snapshot.yml`,
+  `release-silo-client.yml` and `Dockerfile` (plus the pin comment in
+  `create-silo-plugin-worker.test.ts`).
+
 - **Strict client-side schema validation in `EntryJsonEditor` (`apps/admin`,
   2026-11-27).** Added `EntryJsonSchema` (`entry-json-schema.ts`,
   `entry-json-schema.test.ts`), `EntryJsonValidator` (`entry-json-validator.ts`,

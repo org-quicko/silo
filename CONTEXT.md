@@ -16,7 +16,7 @@ and every decision (D1–D115) are indexed in [IMPLEMENTATION.md](IMPLEMENTATION
 
 ## Where things stand
 
-*Last updated: 2026-11-27. Version 1.6.3 (root `package.json`, D28).*
+*Last updated: 2026-11-27. Version 1.7.0 (root `package.json`, D28).*
 
 **Stack.** Bun + TypeScript in one workspace: `apps/server` (CLI, Hono HTTP
 API, core, adapters), `apps/admin` (React, embedded in the executable),
@@ -155,7 +155,7 @@ one); `docs/` is the public Mintlify site.
   are in [milestones.md](resources/design/milestones.md) §12.
   [IDEAS.md](IDEAS.md) holds loose ideas.
 
-**Most recent changes:** `EntryJsonEditor` in `apps/admin` now enforces strict
+**Most recent changes:** CI, the release executables and the Docker image run Bun 1.4.5, and the 1.7.0 release note is [resources/release-notes/1.7.0.md](resources/release-notes/1.7.0.md). Before that, `EntryJsonEditor` in `apps/admin` now enforces strict
 client-side JSON Schema validation via `EntryJsonSchema` (`unevaluatedProperties: false`
 at structured 2020-12 use-sites, `additionalProperties: false` on Draft-07 objects,
 keeping `any` / `{ type: "object" }` open), `EntryJsonValidator` (Ajv 2020-12 &
