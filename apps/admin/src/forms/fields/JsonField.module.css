@@ -5,10 +5,13 @@
   background: var(--ink-2);
 }
 
+.editorInvalid { border-color: var(--bad); }
+
 .notice {
   display: flex;
   align-items: center;
-  gap: 8px;
+  justify-content: space-between;
+  gap: 10px;
   padding: 7px 12px;
   border-bottom: 1px solid var(--line);
   background: color-mix(in oklab, var(--warn) 9%, transparent);
@@ -16,24 +19,34 @@
   font-size: 12px;
 }
 
-.notice svg { flex: none; color: var(--warn); }
+.noticeCopy {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 8px;
+}
+
+.noticeCopy svg { flex: none; color: var(--warn); }
 
 /* An "any" field is not a failure to render one, so it carries no warning tint. */
 .plain { background: var(--panel); }
-.plain svg { color: var(--text-3); }
+.plain .noticeCopy svg { color: var(--text-3); }
 
-.area {
-  width: 100%;
-  min-height: 108px;
-  padding: 13px 15px;
-  border: 0;
-  outline: 0;
-  background: transparent;
-  color: var(--text-2);
-  font-family: var(--font-mono);
-  font-size: 12.5px;
-  line-height: 1.7;
-  resize: vertical;
+.code { background: var(--ink-2); }
+.code :global(.cm-editor) { background: var(--ink-2); font-family: var(--font-mono); font-size: 12.5px; }
+.code :global(.cm-editor.cm-focused) { outline: none; }
+.code :global(.cm-gutters) { border-right: 1px solid var(--line); background: var(--bg); color: var(--text-3); }
+.code :global(.cm-scroller) { line-height: 1.7; }
+
+.errorBar {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 8px 12px;
+  border-top: 1px solid color-mix(in oklab, var(--bad) 26%, transparent);
+  background: var(--bad-soft);
+  color: var(--bad);
+  font-size: 12px;
 }
 
-.invalid { color: var(--bad); }
+.errorBar svg { flex: none; }

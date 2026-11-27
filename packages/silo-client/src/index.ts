@@ -53,6 +53,7 @@ export { EntryPageStream } from "./entries/entry-page-stream.js";
 export { EntryReader } from "./entries/entry-reader.js";
 export type { Entry } from "./entries/entry.js";
 export type { EntryEnvelope } from "./entries/entry-envelope.js";
+export type { EntryPatch } from "./entries/entry-patch.js";
 export type { EntryListQuery } from "./entries/entry-list-query.js";
 export type { EntryReadOptions } from "./entries/entry-read-options.js";
 

@@ -47,17 +47,21 @@ void main() {
     stub
       ..json(row('01A'))
       ..json(row('01B'))
+      ..json(row('01A', rev: 2))
+      ..json(row('01A', rev: 2))
       ..empty()
       ..json(row('01A'));
     final silo = stub.silo(cache: on);
 
     await posts(silo).get('01A');
     await posts(silo, 'posts-archive').get('01B');
-    await posts(silo).delete('01A', 1);
+    await posts(silo).patch('01A', 1, {'title': 'Patched'});
+    await posts(silo).get('01A');
+    await posts(silo).delete('01A', 2);
     await posts(silo).get('01A');
     await posts(silo, 'posts-archive').get('01B');
 
-    expect(stub.requests, hasLength(4));
+    expect(stub.requests, hasLength(6));
   });
 
   test('a trash restore drops every collection, since a chain can reach any', () async {

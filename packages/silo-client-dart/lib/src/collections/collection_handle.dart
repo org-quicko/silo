@@ -67,6 +67,24 @@ final class CollectionHandle<F> {
   Future<Entry<F>> replace(String id, int rev, F fields, [RequestOptions options = const RequestOptions()]) =>
       _write('PUT', ApiPath.entry(_scope.project, _scope.environment, name, id), fields, rev, options);
 
+  /// Partial update via RFC 7396 JSON Merge Patch: omitted keys keep their
+  /// stored values, nested maps merge recursively, lists replace whole, and
+  /// `null` deletes a member. [rev] is required; a stale one throws
+  /// `ConflictException`.
+  Future<Entry<F>> patch(
+    String id,
+    int rev,
+    Map<String, Object?> patch, [
+    RequestOptions options = const RequestOptions(),
+  ]) => _writePayload(
+    'PATCH',
+    ApiPath.entry(_scope.project, _scope.environment, name, id),
+    patch,
+    rev,
+    options,
+    const {'content-type': 'application/merge-patch+json'},
+  );
+
   /// Answers the trash receipt's id, or null when the delete was permanent or
   /// the instance keeps no trash (D113).
   Future<String?> delete(String id, int rev, [RequestOptions options = const RequestOptions()]) async =>
@@ -100,13 +118,24 @@ final class CollectionHandle<F> {
       );
 
   /// Asks for the stored templates back, so what returns is what was sent.
-  Future<Entry<F>> _write(String method, String path, F fields, int? rev, RequestOptions options) async {
+  Future<Entry<F>> _write(String method, String path, F fields, int? rev, RequestOptions options) =>
+      _writePayload(method, path, _converter.toJson(fields), rev, options);
+
+  Future<Entry<F>> _writePayload(
+    String method,
+    String path,
+    Map<String, Object?> body,
+    int? rev,
+    RequestOptions options, [
+    Map<String, String> headers = const {},
+  ]) async {
     final row = await _scope.transport.json(
       TransportRequest(
         method,
         path,
         query: {'rev': ?rev, 'variables': 'raw'},
-        body: _converter.toJson(fields),
+        body: body,
+        headers: headers,
         options: options,
         evicts: _entries,
       ),

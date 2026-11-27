@@ -71,7 +71,7 @@ windows and raw/resolved reads have different keys. Each client owns its cache;
 used directly; treat them as immutable for the client's lifetime. A custom
 `fetch` must keep its routing and authentication stable for that client.
 
-Successful collection `create()`, `replace()`, `delete()`, `rename()` and
+Successful collection `create()`, `replace()`, `patch()`, `delete()`, `rename()` and
 `schema.delete()` invalidate the affected collection's entries and pages. A
 successful `trash.restore()` invalidates every cached entry and page, because a
 chain restore can bring entries back to any collection. Failed writes preserve
@@ -163,12 +163,17 @@ Writes are calls on the collection, and each one takes the revision it expects:
 ```ts
 await movies.create(fields)
 await movies.replace(id, rev, fields)
+await movies.patch(id, rev, { status: "published", subtitle: null })
 await movies.delete(id, rev)
 ```
 
 `rev` is the revision the row reported. If it is out of date the call raises
 `ConflictError`. A fresh read gives you the current one. `replace` needs
-every field, because the route replaces the whole entry.
+every field, because the route replaces the whole entry. `patch` sends an
+[RFC 7396](https://www.rfc-editor.org/rfc/rfc7396) JSON Merge Patch
+(`application/merge-patch+json`): omitted fields stay untouched (preserving
+stored `{{VARIABLE}}` templates and valid media references), nested objects
+merge recursively, arrays replace whole, and `null` deletes a member.
 
 ### Reading an entry you plan to edit
 

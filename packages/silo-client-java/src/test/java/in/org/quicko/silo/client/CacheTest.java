@@ -123,14 +123,16 @@ class CacheTest {
 
   @Test
   void dropsTheCollectionWhenThisClientWritesToIt() {
-    server.enqueueJson(Row).enqueueJson(Row).enqueueJson(Row);
+    server.enqueueJson(Row).enqueueJson(Row).enqueueJson(Row).enqueueJson(Row).enqueueJson(Row);
     CollectionHandle<Post> posts = cachedPosts();
 
     posts.get("01ABC");
     posts.replace("01ABC", 3, new Post());
     posts.get("01ABC");
+    posts.patch("01ABC", 4, Map.of("title", "Patched"));
+    posts.get("01ABC");
 
-    assertEquals(3, server.requestCount(), "a read after a write must not answer from before it");
+    assertEquals(5, server.requestCount(), "a read after a write must not answer from before it");
   }
 
   @Test

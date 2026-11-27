@@ -192,12 +192,13 @@ export class PluginsApi {
       form.append(field, Array.isArray(value) ? value.join(',') : String(value))
     }
 
+    const authEpochAtStart = this.transport.currentAuthEpoch()
     const response = await this.transport.fetchRaw(url, '/api/plugins/install', {
       method: 'POST',
       headers: HttpTransport.authHeaders(key),
       body: form,
     })
-    if (!response.ok) throw await this.transport.fail(response)
+    if (!response.ok) throw await this.transport.fail(response, authEpochAtStart)
     return (await response.json()) as PluginInstallResponse
   }
 

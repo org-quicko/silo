@@ -105,6 +105,35 @@ describe("CollectionHandle.create / replace", () => {
     );
   });
 
+  test("patch() sends PATCH with application/merge-patch+json, rev, ?variables=raw, and null deletions intact", async () => {
+    const stubFetch = new StubFetch();
+    stubFetch.enqueue(StubResponse.json(entryPayload({ rev: 6, status: "published" })));
+    const posts = new CollectionHandle<Post & { subtitle?: string }>(scopeOf(stubFetch), "posts");
+
+    const updated = await posts.patch("01J8 x", 5, { status: "published", subtitle: null });
+
+    expect(stubFetch.received[0].method).toBe("PATCH");
+    expect(stubFetch.received[0].url).toBe(
+      "http://localhost:8090/api/projects/acme/envs/prod/collections/posts/01J8%20x?rev=5&variables=raw",
+    );
+    expect(stubFetch.received[0].headers["content-type"]).toBe("application/merge-patch+json");
+    expect(JSON.parse(stubFetch.received[0].body ?? "{}")).toEqual({
+      status: "published",
+      subtitle: null,
+    });
+    expect(updated.rev).toBe(6);
+  });
+
+  test("patch() propagates ConflictError on stale rev", async () => {
+    const stubFetch = new StubFetch();
+    stubFetch.enqueue(StubResponse.errorBody(409, "conflict", "stale revision"));
+    const posts = new CollectionHandle<Post>(scopeOf(stubFetch), "posts");
+
+    await expect(posts.patch("01J8 x", 3, { status: "published" })).rejects.toBeInstanceOf(
+      ConflictError,
+    );
+  });
+
   test("a stale rev is a ConflictError, and a raw re-read gives the one to retry with", async () => {
     const stubFetch = new StubFetch();
     stubFetch.enqueue(StubResponse.errorBody(409, "conflict", "stale revision"));

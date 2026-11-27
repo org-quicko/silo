@@ -7,9 +7,60 @@
 .emptyActions { display: flex; align-items: center; gap: 10px; margin-top: 22px; }
 
 .apiHint { margin-top: 20px; padding: 5px 10px; border: 1px solid var(--line); border-radius: 6px; color: var(--text-3); font-family: var(--font-ui); font-size: 11px; }
-/* Wraps: the filter chips are the first item and there can be several. */
+/* Wraps: the search box and filter chips sit first and there can be several. */
 .toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin-bottom: 14px; }
 .toolbarSpacer { flex: 1; }
+
+.searchBox {
+  display: flex;
+  width: 230px;
+  max-width: 100%;
+  height: 30px;
+  align-items: center;
+  gap: 6px;
+  padding: 0 8px;
+  border: 1px solid var(--line-2);
+  border-radius: var(--radius-sm);
+  background: var(--panel);
+  transition: border-color 0.12s, box-shadow 0.12s;
+}
+
+.searchBox:focus-within {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px color-mix(in oklab, var(--accent) 20%, transparent);
+}
+
+.searchIcon { flex: none; color: var(--text-3); }
+
+.searchInput {
+  min-width: 0;
+  flex: 1;
+  border: 0;
+  outline: none;
+  background: transparent;
+  color: var(--text);
+  font-family: var(--font-ui);
+  font-size: 12px;
+}
+
+.searchInput::placeholder { color: var(--text-3); }
+
+.searchClear {
+  display: inline-flex;
+  width: 18px;
+  height: 18px;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--text-3);
+  cursor: pointer;
+}
+
+.searchClear:hover { background: var(--panel-2); color: var(--text); }
 
 /* The read-only stand-in for a filter the builder will not redraw. A button,
    not a span — clicking it opens the panel that explains why. */

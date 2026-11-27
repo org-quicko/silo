@@ -34,6 +34,7 @@ void main() {
     stub
       ..json(row('01A', fields: {'title': 'Hello', 'status': 'draft'}))
       ..json(row('01A', rev: 2, fields: {'title': 'Hello', 'status': 'published'}))
+      ..json(row('01A', rev: 3, fields: {'title': 'Patched', 'status': 'published'}))
       ..empty();
 
     final created = await posts.create(const Post('Hello', 'draft'));
@@ -46,9 +47,16 @@ void main() {
     expect(stub.last.url.query, 'rev=1&variables=raw');
     expect(replaced.fields.status, 'published');
 
-    await posts.delete(replaced.id, replaced.rev);
+    final patched = await posts.patch(replaced.id, replaced.rev, {'title': 'Patched', 'subtitle': null});
+    expect(stub.last.method, 'PATCH');
+    expect(stub.last.url.query, 'rev=2&variables=raw');
+    expect(stub.last.headers['content-type'], startsWith('application/merge-patch+json'));
+    expect(stub.lastBody, {'title': 'Patched', 'subtitle': null});
+    expect(patched.fields.title, 'Patched');
+
+    await posts.delete(patched.id, patched.rev);
     expect(stub.last.method, 'DELETE');
-    expect(stub.last.url.query, 'rev=2');
+    expect(stub.last.url.query, 'rev=3');
   });
 
   test('sends the filter as JSON and the sort as its string, in the order set', () async {

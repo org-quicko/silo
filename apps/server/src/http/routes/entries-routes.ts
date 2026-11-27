@@ -1,6 +1,8 @@
 import type { Context } from "hono";
 import { SchemaAccess } from "@silo/shared/schema-access";
 import { Claims } from "@silo/shared/claims";
+import type { Entry } from "../../core/domain/entry";
+import type { Scope } from "../../core/domain/scope";
 import { SiloService } from "../../core/services/silo-service";
 import { ValidationError } from "@silo/shared/validation-error";
 import { QueryUtils } from "../../core/query/query-utils";
@@ -84,11 +86,7 @@ export class EntriesRoutes {
       );
       const data = await c.req.json();
       const e = await service.entries.create(scope, name, data, RouteAuth.getWriteContext(c));
-      const links = await service.media.links(RequestUtils.getBaseUrl(c), e);
-      const values = RequestUtils.wantsRawVariables(c)
-        ? undefined
-        : await service.variables.forPayload(scope, e);
-      return c.json(EntryUtils.toApiResponse(e, collection.schema, links, values), 201);
+      return c.json(await EntriesRoutes.entryResponse(c, service, scope, collection.schema, e), 201);
     };
 
     app.post("/api/projects/:project/environments/:env/collections/:name", createHandler);
@@ -108,11 +106,7 @@ export class EntriesRoutes {
         !SchemaAccess.requiresAuth(collection.schema),
       );
       const e = await service.entries.get(scope, name, id);
-      const links = await service.media.links(RequestUtils.getBaseUrl(c), e);
-      const values = RequestUtils.wantsRawVariables(c)
-        ? undefined
-        : await service.variables.forPayload(scope, e);
-      return c.json(EntryUtils.toApiResponse(e, collection.schema, links, values));
+      return c.json(await EntriesRoutes.entryResponse(c, service, scope, collection.schema, e));
     };
 
     app.get("/api/projects/:project/environments/:env/collections/:name/:id", getHandler);
@@ -133,15 +127,52 @@ export class EntriesRoutes {
       const rev = RouteAuth.getExpectedRev(c);
       const data = await c.req.json();
       const e = await service.entries.update(scope, name, id, data, rev, RouteAuth.getWriteContext(c));
-      const links = await service.media.links(RequestUtils.getBaseUrl(c), e);
-      const values = RequestUtils.wantsRawVariables(c)
-        ? undefined
-        : await service.variables.forPayload(scope, e);
-      return c.json(EntryUtils.toApiResponse(e, collection.schema, links, values));
+      return c.json(await EntriesRoutes.entryResponse(c, service, scope, collection.schema, e));
     };
 
     app.put("/api/projects/:project/environments/:env/collections/:name/:id", updateHandler);
     app.put("/api/projects/:project/envs/:env/collections/:name/:id", updateHandler);
+
+    const patchHandler = async (c: Context) => {
+      const scope = RouteAuth.getScope(c);
+      const name = c.req.param("name") || "";
+      const id = c.req.param("id") || "";
+      RouteAuth.requireKey(c);
+      const collection = await service.collections.get(scope, name);
+      // Both claims are required because the response includes untouched fields
+      // that an update-only key could not read via GET.
+      RouteAuth.requireCollectionClaim(
+        c,
+        scope.project,
+        scope.env,
+        name,
+        Claims.CollectionEntriesRead,
+      );
+      RouteAuth.requireCollectionClaim(
+        c,
+        scope.project,
+        scope.env,
+        name,
+        Claims.CollectionEntriesUpdate,
+      );
+      const rev = RouteAuth.getExpectedRev(c);
+      const wantsRaw = RequestUtils.wantsRawVariables(c);
+      const patch = await EntriesRoutes.readJsonBody(c);
+      const entry = await service.entries.patch(
+        scope,
+        name,
+        id,
+        patch,
+        rev,
+        RouteAuth.getWriteContext(c),
+      );
+      return c.json(
+        await EntriesRoutes.entryResponse(c, service, scope, collection.schema, entry, wantsRaw),
+      );
+    };
+
+    app.patch("/api/projects/:project/environments/:env/collections/:name/:id", patchHandler);
+    app.patch("/api/projects/:project/envs/:env/collections/:name/:id", patchHandler);
 
     const deleteHandler = async (c: Context) => {
       const scope = RouteAuth.getScope(c);
@@ -171,5 +202,33 @@ export class EntriesRoutes {
 
     app.delete("/api/projects/:project/environments/:env/collections/:name/:id", deleteHandler);
     app.delete("/api/projects/:project/envs/:env/collections/:name/:id", deleteHandler);
+  }
+
+  private static async entryResponse(
+    c: Context,
+    service: SiloService,
+    scope: Scope,
+    schema: unknown,
+    entry: Entry,
+    wantsRaw = RequestUtils.wantsRawVariables(c),
+  ) {
+    const links = await service.media.links(RequestUtils.getBaseUrl(c), entry);
+    const values = wantsRaw ? undefined : await service.variables.forPayload(scope, entry);
+    return EntryUtils.toApiResponse(entry, schema, links, values);
+  }
+
+  private static async readJsonBody(c: Context): Promise<unknown> {
+    const contentType = (c.req.header("content-type") || "").split(";")[0]?.trim().toLowerCase();
+    if (contentType !== "application/json" && contentType !== "application/merge-patch+json") {
+      throw new ValidationError(
+        `unsupported Content-Type "${contentType || "(missing)"}": want "application/merge-patch+json" or "application/json"`,
+      );
+    }
+    const raw = await c.req.text();
+    try {
+      return JSON.parse(raw);
+    } catch {
+      throw new ValidationError("invalid JSON body");
+    }
   }
 }

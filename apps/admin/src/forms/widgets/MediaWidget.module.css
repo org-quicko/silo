@@ -1,4 +1,7 @@
 .root {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
   width: 100%;
   min-width: 0;
 }
@@ -14,7 +17,14 @@
   padding: 10px;
   border: 1px solid var(--line);
   border-radius: var(--radius-sm);
+  outline: none;
   background: var(--panel);
+  transition: border-color 0.15s, background-color 0.15s, box-shadow 0.15s;
+}
+
+.selectedCard:focus-visible,
+.dropzone:focus-visible {
+  border-color: var(--accent);
 }
 
 .selectedThumb {
@@ -80,8 +90,17 @@
   padding: 16px;
   border: 1px dashed var(--line);
   border-radius: var(--radius-sm);
+  outline: none;
   background: var(--panel);
   text-align: center;
+  transition: border-color 0.15s, background-color 0.15s, box-shadow 0.15s;
+}
+
+.dragActive {
+  border-color: var(--accent);
+  border-style: dashed;
+  background: var(--accent-soft);
+  box-shadow: 0 0 0 2px var(--accent-line);
 }
 
 .dropzoneHint {
@@ -116,6 +135,40 @@
   margin-top: 4px;
 }
 
+.errorBanner {
+  justify-content: space-between;
+}
+
+.pickerBanner {
+  justify-content: space-between;
+  margin: 0 22px 12px;
+}
+
+.bannerMessage {
+  flex: 1;
+  min-width: 0;
+  color: var(--text);
+  overflow-wrap: anywhere;
+}
+
+.bannerDismiss {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  padding: 3px;
+  border: 0;
+  border-radius: var(--r-1);
+  background: transparent;
+  color: var(--text-3);
+  cursor: pointer;
+}
+
+.bannerDismiss:hover {
+  background: color-mix(in oklab, var(--bad) 18%, transparent);
+  color: var(--text);
+}
+
 .pickerHeader {
   flex-flow: row wrap;
   align-items: center;
@@ -138,9 +191,18 @@
   font-size: 12px;
 }
 
+.controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin: 12px 22px 14px;
+}
+
 .search {
   position: relative;
-  margin: 12px 22px 16px;
+  flex: 1 1 200px;
+  min-width: 0;
 }
 
 .search > svg {
@@ -152,12 +214,53 @@
   pointer-events: none;
 }
 
-.searchInput { padding-left: 30px; }
+.searchInput {
+  height: 34px;
+  padding: 6px 28px 6px 30px;
+  font-size: 13px;
+}
+
+.searchClear {
+  position: absolute;
+  top: 50%;
+  right: 6px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 3px;
+  border: 0;
+  border-radius: var(--r-1);
+  transform: translateY(-50%);
+  background: transparent;
+  color: var(--text-3);
+  cursor: pointer;
+}
+
+.searchClear:hover {
+  background: var(--panel-2);
+  color: var(--text);
+}
+
+.filterSelect {
+  width: auto;
+  min-width: 120px;
+  max-width: 180px;
+  height: 34px;
+  padding: 6px 28px 6px 10px;
+  font-size: 12.5px;
+  cursor: pointer;
+}
+
+.filterActive {
+  border-color: color-mix(in oklab, var(--accent) 45%, transparent);
+  background-color: var(--accent-soft);
+  color: var(--text);
+}
 
 .list {
   min-height: 180px;
   max-height: min(48vh, 360px);
-  padding: 0 22px;
+  padding: 0 22px 14px;
   overflow-y: auto;
 }
 
@@ -189,9 +292,14 @@
   transition: border-color 0.15s, transform 0.1s;
 }
 
-.card:hover {
+.card:hover:not(:disabled) {
   transform: translateY(-1px);
   border-color: var(--accent);
+}
+
+.card:disabled {
+  cursor: not-allowed;
+  opacity: 0.6;
 }
 
 .selected {
@@ -239,14 +347,18 @@
 
 .pickerActions {
   justify-content: flex-end;
-  margin-top: 16px;
+  margin-top: 0;
+  padding-top: 14px;
+  border-top: 1px solid var(--line);
 }
 
 .pickerActions > * { flex: 0 0 auto; }
 
 @media (max-width: 720px) {
   .pickerHeader { padding-inline: 16px; }
-  .search { margin-inline: 16px; }
+  .controls { margin-inline: 16px; }
+  .pickerBanner { margin-inline: 16px; }
   .list { padding-inline: 16px; }
   .pickerActions { padding-inline: 16px; }
+  .filterSelect { flex: 1 1 130px; max-width: none; }
 }

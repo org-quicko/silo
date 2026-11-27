@@ -41,7 +41,10 @@ function groups(): Group[] {
     },
     {
       label: 'Editors',
-      rows: [[['Esc'], 'Discard and go back']],
+      rows: [
+        [[`${PlatformKeys.command()}S`], 'Save entry / schema'],
+        [['Esc'], 'Discard (confirms if unsaved)'],
+      ],
     },
   ]
 }

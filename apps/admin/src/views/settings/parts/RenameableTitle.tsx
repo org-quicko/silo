@@ -27,6 +27,7 @@ export function RenameableTitle({ subject, allowed, rename, onRenamed }: Props) 
   const [draft, setDraft] = useState(subject.currentName)
   const flow = useRenameFlow({
     subject,
+    allowed,
     rename,
     onRenamed: async (name) => {
       setEditing(false)

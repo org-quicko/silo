@@ -40,15 +40,29 @@ export class Columns {
 
   /**
    * Reads the `cols` URL param against the current schema — `null` when absent
-   * or naming nothing usable, so the caller falls back to `defaults`.
+   * or naming nothing usable, so the caller falls back to stored or `defaults`.
    *
    * Deduplicated because the parameter is hand-editable: a repeated name would
    * otherwise render the same column twice under the same React key.
    */
   static parse(raw: string | null, schema: any, exclude: readonly string[]): string[] | null {
     if (!raw) return null
+    return Columns.parseStored(
+      raw.split(',').map((segment) => segment.trim()),
+      schema,
+      exclude,
+    )
+  }
+
+  /** Validates a stored column list against the current schema and exclusions. */
+  static parseStored(
+    names: readonly string[] | null | undefined,
+    schema: any,
+    exclude: readonly string[],
+  ): string[] | null {
+    if (!names || names.length === 0) return null
     const props = schema?.properties ?? {}
-    const picked = [...new Set(raw.split(',').map((s) => s.trim()))].filter(
+    const picked = [...new Set(names.map((name) => name.trim()))].filter(
       (name) => name && props[name] && !exclude.includes(name),
     )
     return picked.length > 0 ? picked.slice(0, Columns.MaxSelected) : null

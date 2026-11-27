@@ -49,8 +49,8 @@ export class SiloApi {
 
   /** A stored key can be revoked out from under an open session; a 401 on any
    *  authenticated call routes the app back to the welcome gate. */
-  setUnauthorizedHandler(handler: (() => void) | null): void {
-    this.transport.setUnauthorizedHandler(handler)
+  setUnauthorizedHandler(handler: (() => void) | null, sessionKey: string | null = null): void {
+    this.transport.setUnauthorizedHandler(handler, sessionKey)
   }
 }
 

@@ -44,7 +44,7 @@ Present a key as `Authorization: Bearer <key>` or `X-Api-Key: <key>`.
 | `PATCH` | `/api/projects/{project}/envs/{env}/collections/{name}` | rename a collection (`?dry_run=true`) |
 | `GET` / `PUT` / `DELETE` | `/api/projects/{project}/envs/{env}/collections/{name}/schema` | fetch / update / delete a schema |
 | `GET` / `POST` | `/api/projects/{project}/envs/{env}/collections/{name}` | list entries (filter, sort, paginate) / create |
-| `GET` / `PUT` / `DELETE` | `/api/projects/{project}/envs/{env}/collections/{name}/{id}` | read / full replace / delete |
+| `GET` / `PUT` / `PATCH` / `DELETE` | `/api/projects/{project}/envs/{env}/collections/{name}/{id}` | read / full replace / RFC 7396 merge patch / delete |
 | `GET` | `/api/export?include=&media=` | stream a `tar.gz` archive, whole or narrowed |
 | `POST` | `/api/import?mode=&include=&media=` | accept a `tar.gz` archive |
 | `POST` | `/api/copy` | pull and import another running silo |
@@ -376,12 +376,38 @@ them by hand.
 The expiry is stamped on each item when you delete it. If you shorten
 `retention_days` later, content already in the trash keeps the date it was given.
 
-## Optimistic concurrency
+## Optimistic concurrency & partial updates
 
-`PUT` and `DELETE` on an entry require the revision you expect, as
+`PUT`, `PATCH`, and `DELETE` on an entry require the revision you expect, as
 `If-Match: "3"` or `?rev=3`. Every entry response carries its current `rev`, so
 send back the one you read. A mismatch returns `409`, which is what stops two
 admin tabs from overwriting each other in silence.
+
+`PUT` replaces the entire entry. `PATCH` accepts `application/merge-patch+json`
+or `application/json` and applies an [RFC 7396](https://www.rfc-editor.org/rfc/rfc7396)
+JSON Merge Patch over the stored raw entry:
+
+- Omitted fields keep their stored values — including untouched `{{NAME}}`
+  variable templates and valid `silo://media/<id>` references.
+- Nested plain objects merge recursively.
+- Arrays are replaced **whole**, never merged element-by-element.
+- Setting a member to `null` **deletes** that member rather than storing `null`.
+  Clearing an optional field removes it; sending `null` for a `required` field
+  fails schema validation (`400`).
+- `PATCH` requires both `entries:read` and `entries:update` claims because the
+  response returns the full entry including untouched fields.
+- If the entry already holds a dangling `silo://media/<id>` reference from an
+  earlier forced media delete, an unrelated `PATCH` is still refused until the
+  patch replaces or clears that reference with `null`.
+- Supports `?variables=raw` on the response just like `GET`, `POST`, and `PUT`.
+
+```sh
+curl -X PATCH "http://localhost:8090/api/projects/default/envs/prod/collections/posts/01J8…?variables=raw" \
+  -H "Authorization: Bearer $SILO_KEY" \
+  -H "Content-Type: application/merge-patch+json" \
+  -H 'If-Match: "3"' \
+  -d '{"status": "published", "subtitle": null, "tags": ["release", "cms"]}'
+```
 
 ## Errors
 

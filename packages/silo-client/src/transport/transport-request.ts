@@ -52,6 +52,11 @@ class Builder {
     return this;
   }
 
+  header(name: string, value: string): this {
+    this.request.headers = { ...this.request.headers, [name]: value };
+    return this;
+  }
+
   options(options: RequestOptions): this {
     this.request.signal = options.signal;
     this.request.timeoutMilliseconds = options.timeoutMilliseconds;

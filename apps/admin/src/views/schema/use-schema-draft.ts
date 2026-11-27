@@ -3,6 +3,7 @@ import { SchemaAccess } from '@silo/shared/schema-access'
 import type { Collection } from '../../api/types/collection'
 import { SchemaDraft } from '../../schema/schema-draft'
 import type { SchemaField } from '../../schema/schema-field'
+import { SchemaDirty } from './schema-dirty'
 
 /** Which half of the editor is in front. */
 export type SchemaEditorMode = 'visual' | 'code'
@@ -63,6 +64,19 @@ export function useSchemaDraft(collection: Collection | null) {
     return true
   }
 
+  const isDirty = (name: string): boolean =>
+    SchemaDirty.check({
+      isNew: !collection,
+      name,
+      text,
+      initialText: initial.text,
+      fields,
+      initialFields: initial.fields,
+      auth,
+      initialAuth: initial.auth,
+      parsedOk: parsed.ok,
+    })
+
   return {
     mode,
     text,
@@ -79,6 +93,7 @@ export function useSchemaDraft(collection: Collection | null) {
     requiresAuth: mode === 'visual' ? auth : parsed.auth,
     setRequiresAuth,
     switchMode,
+    isDirty,
     updateField: (index: number, patch: Partial<SchemaField>) =>
       applyFields(fields.map((field, at) => (at === index ? { ...field, ...patch } : field))),
     addField: () => {

@@ -98,6 +98,53 @@ describe("Transport: request bodies", () => {
     expect(stubFetch.received[0].headers["content-type"]).toBe("application/json");
   });
 
+  test("merges client and request headers case-insensitively and avoids duplicate Content-Type", async () => {
+    const capturedHeaders: Array<Record<string, string> | undefined> = [];
+    const capturingFetch: FetchFunction = async (_input, init) => {
+      capturedHeaders.push(init?.headers as Record<string, string> | undefined);
+      return StubResponse.json({ id: "1" });
+    };
+    const transport = new Transport({
+      url: "http://localhost:8090",
+      key: "secret",
+      headers: {
+        authorization: "Bearer stale",
+        "X-Trace": "from-client",
+        "content-type": "application/json",
+      },
+      fetch: capturingFetch,
+    });
+
+    await transport.json({
+      method: "PATCH",
+      path: "/api/projects/default/envs/prod/collections/posts/1",
+      headers: {
+        "x-trace": "from-request",
+        "Content-Type": "application/merge-patch+json",
+      },
+      body: { title: "Updated" },
+    });
+
+    expect(capturedHeaders[0]).toEqual({
+      Authorization: "Bearer secret",
+      "x-trace": "from-request",
+      "Content-Type": "application/merge-patch+json",
+    });
+
+    // Lowercase `content-type` from client options also suppresses defaulting `Content-Type`.
+    await transport.json({
+      method: "POST",
+      path: "/api/projects/default/envs/prod/collections/posts",
+      body: { title: "Created" },
+    });
+
+    expect(capturedHeaders[1]).toEqual({
+      Authorization: "Bearer secret",
+      "X-Trace": "from-client",
+      "content-type": "application/json",
+    });
+  });
+
   test("upload never sets Content-Type by hand, so the runtime supplies the multipart boundary", async () => {
     const stubFetch = new StubFetch();
     stubFetch.enqueue(StubResponse.json({ id: "1" }, 201));

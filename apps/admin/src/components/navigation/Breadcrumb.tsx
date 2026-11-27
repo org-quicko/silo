@@ -5,6 +5,7 @@ export interface Crumb {
   label: string
   /** Renders the crumb as a link; the last crumb is normally left plain. */
   to?: string
+  state?: Record<string, unknown>
   onClick?: () => void
 }
 
@@ -24,7 +25,7 @@ export function Breadcrumb({ crumbs }: { crumbs: Crumb[] }) {
           <span key={i} className={styles.crumbPart}>
             {i > 0 && <span className={styles.separator}>/</span>}
             {c.to && !current ? (
-              <Link to={c.to} className={className}>
+              <Link to={c.to} state={c.state} className={className}>
                 {c.label}
               </Link>
             ) : (

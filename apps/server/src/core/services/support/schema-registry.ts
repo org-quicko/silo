@@ -15,9 +15,15 @@ import { SchemaValidator, type SchemaValidatorOptions } from "../../schema/schem
 export class SchemaRegistry {
   private readonly validator: SchemaValidator;
   private readonly invalidationListeners: Array<() => void> = [];
+  private generation = 0;
 
   constructor(store: Storage, options: SchemaValidatorOptions = {}) {
     this.validator = new SchemaValidator(store, options);
+  }
+
+  /** Monotonic counter bumped whenever cached schemas are invalidated. */
+  currentGeneration(): number {
+    return this.generation;
   }
 
   /** The canonical `$id` a collection's schema is bundled under. */
@@ -32,6 +38,7 @@ export class SchemaRegistry {
 
   /** Drops every cache derived from schema content. */
   invalidate(): void {
+    this.generation += 1;
     this.validator.invalidate();
     for (const listener of this.invalidationListeners) listener();
   }

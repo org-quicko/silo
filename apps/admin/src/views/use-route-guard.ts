@@ -6,6 +6,7 @@ import type { Route } from '../router/route'
 import { router } from '../router/router'
 import { Routes } from '../router/routes'
 import { CollectionVisits } from '../utils/collection-visits'
+import { SchemaRedirectGuard, type PendingSchemaScope } from './schema/schema-redirect-guard'
 
 /**
  * Resolves routes that can only be settled once the collections and the key's
@@ -21,6 +22,7 @@ export function useRouteGuard(
   collections: CollectionSummary[],
   serverId: string,
   scope: ScopeRef,
+  pendingSchemaRedirect: PendingSchemaScope | null = null,
 ): void {
   useEffect(() => {
     if (!ready) return
@@ -50,11 +52,19 @@ export function useRouteGuard(
       return
     }
 
-    const named = 'collection' in route ? route.collection : null
-    if (named && !collections.some((collection) => collection.name === named)) {
+    if (
+      SchemaRedirectGuard.shouldRedirectMissingCollection({
+        route,
+        collections,
+        serverId,
+        scope,
+        pending: pendingSchemaRedirect,
+        currentNavId: router.getNavId(),
+      })
+    ) {
       router.navigate(collectionsUrl, { replace: true })
     }
-  }, [ready, claims, route, collections, serverId, scope.project, scope.env])
+  }, [ready, claims, route, collections, serverId, scope.project, scope.env, pendingSchemaRedirect])
 }
 
 /** The most recently visited collection that still exists, else the first

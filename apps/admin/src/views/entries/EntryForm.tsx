@@ -1,60 +1,33 @@
-import { Button } from '../../components/buttons/Button'
-import { CopyIconButton } from '../../components/buttons/CopyIconButton'
-import { Breadcrumb } from '../../components/navigation/Breadcrumb'
-import { useEffect, useMemo, useRef, useState } from 'react'
 import Form from '@rjsf/core'
 import validator from '@rjsf/validator-ajv8'
-import { Trash2 } from 'lucide-react'
-import { Claims } from '@silo/shared/claims'
-import type { ValidationDetail } from '@silo/shared/validation-detail'
-import { api } from '../../api/silo-api'
-import { ApiError, ValidationFailedError } from '../../api/api-error'
-import { Formatters } from '../../utils/formatters'
+import { AlertTriangle, Code2, List, Trash2 } from 'lucide-react'
 import type { Collection } from '../../api/types/collection'
 import type { Entry } from '../../api/types/entry'
 import type { ScopeRef } from '../../api/types/scope-ref'
-import { Routes } from '../../router/routes'
+import type { SessionInfo } from '../../api/types/session-info'
+import { Button } from '../../components/buttons/Button'
+import { Segmented } from '../../components/controls/Segmented'
 import { Modal } from '../../components/modal/Modal'
 import { ModalActions } from '../../components/modal/ModalActions'
 import { ModalBody } from '../../components/modal/ModalBody'
 import { ModalCopy } from '../../components/modal/ModalCopy'
+import { ModalError } from '../../components/modal/ModalError'
 import { ModalHeader } from '../../components/modal/ModalHeader'
 import { ModalIcon } from '../../components/modal/ModalIcon'
 import { ModalSubject } from '../../components/modal/ModalSubject'
-import { slateTemplates, slateWidgets, slateFields } from '../../forms/theme'
-import { buildUiSchema } from '../../forms/build-ui-schema'
-import { FormSchema } from '../../forms/form-schema'
-import { MediaValue } from '../../forms/widgets/media-value'
-import { SiloRefs } from '../../schema/silo-refs'
-import { useVariables } from '../../store/use-variables'
-import { ToastManager } from '../../utils/toast-manager'
-import type { SessionInfo } from '../../api/types/session-info'
-import { TrashCopy } from '../trash/trash-copy'
-import { TrashUndo } from '../trash/trash-undo'
-import { TopBar } from '../shell/TopBar'
+import { Breadcrumb } from '../../components/navigation/Breadcrumb'
+import { slateFields, slateTemplates, slateWidgets } from '../../forms/theme'
+import { Routes } from '../../router/routes'
+import { Formatters } from '../../utils/formatters'
+import { DiscardChangesModal } from '../DiscardChangesModal'
 import { SmartSearch } from '../search/SmartSearch'
-import { useEscapeToDiscard } from '../use-escape-to-discard'
+import { TopBar } from '../shell/TopBar'
+import { TrashCopy } from '../trash/trash-copy'
+import { EntryJsonEditor } from './EntryJsonEditor'
+import { EntrySystemRail } from './EntrySystemRail'
+import { ReloadRevisionModal } from './ReloadRevisionModal'
+import { useEntryForm } from './use-entry-form'
 import styles from './EntryForm.module.css'
-
-// Convert server ValidationDetails (JSON Pointer paths) into RJSF extraErrors.
-function toExtraErrors(details?: ValidationDetail[]): any {
-  const root: any = {}
-  for (const d of details || []) {
-    const parts = d.path.split('/').filter(Boolean)
-    let node = root
-    if (parts.length === 0) {
-      node.__errors = [...(node.__errors || []), d.message]
-      continue
-    }
-    for (let i = 0; i < parts.length; i++) {
-      const key = parts[i]
-      node[key] = node[key] || {}
-      node = node[key]
-    }
-    node.__errors = [...(node.__errors || []), d.message]
-  }
-  return root
-}
 
 interface Props {
   serverId: string
@@ -69,12 +42,16 @@ interface Props {
   claims: string[]
   /** URL of the collection's entry list — the breadcrumbs link back to it. */
   backTo: string
-  onSaved: () => void
+  /** Optional history state passed when navigating back via the collection breadcrumb. */
+  backState?: Record<string, unknown>
+  /** Unconditional cache/count invalidation callback when create/update/delete succeeds. */
+  onMutated?: () => void
+  onSaved: (isCurrent: () => boolean) => void
   onCancel: () => void
   /** Read for whether this delete is recoverable, which is an instance
    *  setting rather than something the form can assume (D113). */
   session: SessionInfo | null
-  onDeleted: () => void
+  onDeleted: (isCurrent: () => boolean) => void
   /** Called when the undo toast puts the entry back. The form has navigated
    *  away by then, so the list it returned to is what needs refreshing. */
   onRestored: () => void
@@ -90,112 +67,28 @@ export function EntryForm({
   scope,
   claims,
   backTo,
+  backState,
+  onMutated,
   onSaved,
   onCancel,
   session,
   onDeleted,
   onRestored,
 }: Props) {
-  // SiloRefs inlines silo://collections/* refs as internal pointers (RJSF and
-  // its ajv8 validator only follow #/... pointers) and strips $schema, which
-  // the draft-07 ajv8 meta-schema would trip over. FormSchema then marks the
-  // properties that constrain nothing, which RJSF drops on sight. The server
-  // remains the authoritative validator (full 2020-12, remote refs if enabled).
-  const schema = useMemo(
-    () => FormSchema.forEntry(SiloRefs.resolveForForm(collection.name, collection.schema)),
-    [collection],
-  )
-  const uiSchema = useMemo(() => buildUiSchema(schema), [schema])
-  const initial = useMemo(() => entry?.data ?? {}, [entry])
-
-  // Read from the store, so opening ten entries in a row costs one request
-  // (D57). The entry itself is fetched `variables=raw`, which is what makes the
-  // form edit the `{{NAME}}` somebody typed rather than a snapshot of what it
-  // resolved to; these are what the affordance shows *beside* that text.
-  const { variables } = useVariables(serverId, url, apiKey, scope)
-  const variableContext = useMemo(
-    () => ({
-      variables,
-      env: scope.env,
-      manageHref: Routes.envSettings(serverId, scope.project, scope.env, 'variables'),
-    }),
-    [variables, serverId, scope.project, scope.env],
-  )
-
-  const [formData, setFormData] = useState<any>(initial)
-  const [extraErrors, setExtraErrors] = useState<any>(undefined)
-  const [formError, setFormError] = useState('')
-  const [dirty, setDirty] = useState(false)
-  const [saving, setSaving] = useState(false)
-  const [showDelete, setShowDelete] = useState(false)
-  const formRef = useRef<any>(null)
-  // RJSF injects schema defaults via an onChange right after mount; capture that
-  // as the "clean" baseline so a fresh form isn't reported dirty on load.
-  const mountedRef = useRef(false)
-  const baselineRef = useRef(JSON.stringify(initial))
-  useEffect(() => {
-    const id = setTimeout(() => {
-      mountedRef.current = true
-    }, 0)
-    return () => clearTimeout(id)
-  }, [])
-
-  // Escape is Discard, unless the delete dialog is up — that one's Escape closes
-  // the dialog rather than the page under it.
-  useEscapeToDiscard(onCancel, !showDelete)
-
-  const canSave = Claims.has(
+  const form = useEntryForm({
+    serverId,
+    collection,
+    url,
+    entry,
+    apiKey,
+    scope,
     claims,
-    Claims.collection(
-      scope.project,
-      scope.env,
-      collection.name,
-      entry ? Claims.CollectionEntriesUpdate : Claims.CollectionEntriesCreate,
-    ),
-  )
-  const canDelete = !!entry && Claims.has(
-    claims,
-    Claims.collection(scope.project, scope.env, collection.name, Claims.CollectionEntriesDelete),
-  )
-
-  const handleSubmit = async ({ formData: rawData }: any) => {
-    setSaving(true)
-    setFormError('')
-    setExtraErrors(undefined)
-    // A media field that reads back `null` (D48: its asset was force-deleted)
-    // is omitted here rather than sent as `null` — the media schema rejects
-    // `null` outright, which would fail the save on a field nobody touched.
-    const data = MediaValue.omitUnresolved(rawData, schema)
-    try {
-      if (entry) await api.entries.update(url, apiKey, scope, collection.name, entry.id, entry.rev, data)
-      else await api.entries.create(url, apiKey, scope, collection.name, data)
-      ToastManager.show(entry ? 'Entry updated' : 'Entry created')
-      onSaved()
-    } catch (caught: any) {
-      if ((caught instanceof ValidationFailedError || caught instanceof ApiError) && caught.details && caught.details.length) {
-        setExtraErrors(toExtraErrors(caught.details))
-        setFormError('')
-      } else {
-        setFormError(caught.message || 'Failed to save entry')
-      }
-    } finally {
-      setSaving(false)
-    }
-  }
-
-  const doDelete = async () => {
-    if (!entry) return
-    try {
-      const trashId = await api.entries.delete(url, apiKey, scope, collection.name, entry.id, entry.rev)
-      setShowDelete(false)
-      // The toast outlives the route change, so the callback refreshes the
-      // list the form returned to rather than this form.
-      TrashUndo.offer(trashId, 'entry', url, apiKey, onRestored)
-      onDeleted()
-    } catch (caught: any) {
-      alert(caught.message || 'Delete failed')
-    }
-  }
+    onMutated,
+    onSaved,
+    onCancel,
+    onDeleted,
+    onRestored,
+  })
 
   return (
     <>
@@ -214,17 +107,11 @@ export function EntryForm({
       <div className={`content ${styles.content}`}>
         <div className={styles.shell}>
           <div className={styles.main}>
-            {/* Crumbs and heading are one block, so the column's gap falls after
-                the pair and the heading lands exactly where the entries list
-                puts the collection name. A title that moves between pages reads
-                as the page jumping. */}
             <div>
               <Breadcrumb
                 crumbs={[
                   { label: 'Collections', to: Routes.collections(serverId, scope.project, scope.env) },
-                  { label: collection.name, to: backTo },
-                  // The id in full: the crumb is how a reader reads an entry's
-                  // id off the page, and a truncated one names nothing.
+                  { label: collection.name, to: backTo, state: backState },
                   { label: entry ? entry.id : 'New entry' },
                 ]}
               />
@@ -232,126 +119,119 @@ export function EntryForm({
                 <div className="page-title-group">
                   <h2 className="page-title">{entry ? 'Edit entry' : 'New entry'}</h2>
                 </div>
+                <Segmented
+                  value={form.editorMode}
+                  variant="compact"
+                  disabled={form.saving || form.mediaUploading}
+                  onChange={form.switchMode}
+                  options={[
+                    { value: 'form', label: <><List size={13} /> Form</> },
+                    { value: 'json', label: <><Code2 size={13} /> JSON</> },
+                  ]}
+                />
               </div>
             </div>
-            {formError && (
-              <div className="banner banner-bad">
-                <span>{formError}</span>
-              </div>
-            )}
-            <Form
-              ref={formRef}
-              schema={schema}
-              uiSchema={uiSchema}
-              validator={validator}
-              formData={formData}
-              templates={slateTemplates as any}
-              widgets={slateWidgets as any}
-              fields={slateFields as any}
-              extraErrors={extraErrors}
-              // `minItems` is a rule about what may be saved, not an instruction
-              // to open the form with that many blank rows. RJSF's default seeds
-              // them, which on the chips widget draws an item with no text and
-              // only a remove button, and would save a `null` into the list.
-              experimental_defaultFormStateBehavior={{ arrayMinItems: { populate: 'never' } }}
-              // One error surface, not two. The browser's own validation refuses
-              // a submit with a bubble of its own wording, which reaches neither
-              // the banner nor the field — so a range or a format failed
-              // differently from a length, and differently again from the same
-              // rule refused by the server. Ajv answers all of them here, in the
-              // wording the API would have sent back.
-              noHtml5Validate
-              showErrorList="top"
-              disabled={!canSave}
-              formContext={{ url, apiKey, variables: variableContext }}
-              onChange={(e: any) => {
-                const s = JSON.stringify(e.formData)
-                setFormData(e.formData)
-                // Pre-interaction emits (default injection) reset the baseline.
-                if (!mountedRef.current) {
-                  baselineRef.current = s
-                  setDirty(false)
-                  return
-                }
-                setDirty(s !== baselineRef.current)
-              }}
-              onSubmit={handleSubmit}
-            >
-              <></>
-            </Form>
-          </div>
 
-          <div className={styles.rail}>
-            {entry ? (
-              <div className={styles.group}>
-                <span className={styles.label}>SYSTEM</span>
-                <SystemRow name="id" value={entry.id} copy={entry.id} copyLabel="Copy entry id" />
-                <SystemRow
-                  name="created"
-                  value={Formatters.fullDateTime(entry.created_at)}
-                  copy={entry.created_at}
-                  copyLabel="Copy created timestamp"
-                  hint={entry.created_at}
-                />
-                <SystemRow
-                  name="updated"
-                  value={Formatters.fullDateTime(entry.updated_at)}
-                  copy={entry.updated_at}
-                  copyLabel="Copy updated timestamp"
-                  hint={`${entry.updated_at} (${Formatters.relativeTime(entry.updated_at)})`}
-                />
-                <SystemRow
-                  name="revision"
-                  value={`v${entry.rev}`}
-                  copy={String(entry.rev)}
-                  copyLabel="Copy revision number"
-                />
-              </div>
-            ) : (
-              <div className={styles.group}>
-                <span className={styles.label}>NEW ENTRY</span>
-                <p className={`${styles.caption} ${styles.captionLeft}`}>
-                  Fields are generated from the <b>{collection.name}</b> schema. silo validates on save; the id,
-                  revision, and timestamps are assigned automatically.
-                </p>
-              </div>
-            )}
-
-            {/* Every action the page has, in one block under what it is acting
-                on: the top bar belongs to the scope-wide search. */}
-            <div className={styles.divider} />
-            <div className={styles.actions}>
-              {dirty && (
-                <span className={styles.unsaved}>
-                  <span className={styles.unsavedDot} /> Unsaved changes
-                </span>
-              )}
-              {canSave && (
-                <Button variant="primary" onClick={() => formRef.current?.submit()} disabled={saving}>
-                  {saving ? 'Saving…' : 'Save entry'}
-                </Button>
-              )}
-              <Button variant="secondary" onClick={onCancel}>
-                Discard
-              </Button>
-              {entry && canDelete && (
-                <>
-                  <Button variant="dangerGhost" onClick={() => setShowDelete(true)}>
-                    <Trash2 size={14} /> Delete entry
-                  </Button>
-                  <span className={styles.caption}>
-                    Deleting removes the row and bumps the collection revision.{' '}
-                    {TrashCopy.reassurance(session)}
+            {form.stale && entry && form.baseline.rev !== null && (
+              <div className={`banner banner-warn ${styles.staleBanner}`} role="alert">
+                <span className={styles.staleMessage}>
+                  <AlertTriangle size={16} />
+                  <span>
+                    Revision {entry.rev} is available. You're editing revision {form.baseline.rev} — review or reload
+                    before saving
                   </span>
-                </>
-              )}
-            </div>
+                </span>
+                <Button
+                  type="button"
+                  variant="secondary"
+                  size="sm"
+                  disabled={form.saving}
+                  className={styles.bannerAction}
+                  onClick={() => form.setShowReloadConfirm(true)}
+                >
+                  Reload
+                </Button>
+              </div>
+            )}
+
+            {form.formError && (
+              <div className="banner banner-bad" role="alert">
+                <span>{form.formError}</span>
+              </div>
+            )}
+
+            {form.editorMode === 'form' ? (
+              <Form
+                key={form.formSession}
+                ref={form.formRef}
+                schema={form.schema}
+                uiSchema={form.uiSchema}
+                validator={validator}
+                formData={form.formData}
+                templates={slateTemplates as any}
+                widgets={slateWidgets as any}
+                fields={slateFields as any}
+                extraErrors={form.extraErrors}
+                experimental_defaultFormStateBehavior={form.defaultFormStateBehavior}
+                noHtml5Validate
+                showErrorList="top"
+                disabled={!form.canSave || form.saving}
+                formContext={form.formContext}
+                onChange={form.handleFormChange}
+                onSubmit={form.handleFormSubmit}
+              >
+                <></>
+              </Form>
+            ) : (
+              <EntryJsonEditor
+                key={form.formSession}
+                serverId={serverId}
+                value={form.formData}
+                disabled={!form.canSave || form.saving}
+                editorRef={form.jsonEditorRef}
+                onChange={form.handleJsonChange}
+              />
+            )}
           </div>
+
+          <EntrySystemRail
+            entry={entry}
+            baselineRev={form.baseline.rev}
+            collectionName={collection.name}
+            session={session}
+            dirty={form.dirty}
+            saving={form.saving}
+            saveDisabled={form.mediaUploading}
+            canSave={form.canSave}
+            canDelete={form.canDelete}
+            onSave={form.submitEntry}
+            onDiscard={form.discard}
+            onDelete={() => {
+              form.setDeleteError('')
+              form.setShowDelete(true)
+            }}
+          />
         </div>
       </div>
 
-      {showDelete && entry && (
-        <Modal onClose={() => setShowDelete(false)}>
+      {form.guard.confirming && (
+        <DiscardChangesModal
+          onKeepEditing={form.guard.cancelDiscard}
+          onDiscard={form.guard.confirmDiscard}
+        />
+      )}
+
+      {form.showReloadConfirm && entry && form.baseline.rev !== null && (
+        <ReloadRevisionModal
+          latestRev={entry.rev}
+          baselineRev={form.baseline.rev}
+          onCancel={() => form.setShowReloadConfirm(false)}
+          onConfirm={form.reloadLatest}
+        />
+      )}
+
+      {form.showDelete && entry && (
+        <Modal onClose={form.deleting ? () => {} : () => form.setShowDelete(false)}>
           <ModalHeader>
             <ModalIcon tone="bad">
               <Trash2 size={20} />
@@ -367,50 +247,24 @@ export function EntryForm({
           <ModalSubject
             mark={collection.name.charAt(0).toUpperCase()}
             title={Formatters.shortId(entry.id)}
-            subtitle={`rev v${entry.rev}`}
+            subtitle={`rev v${form.baseline.rev ?? entry.rev}`}
           />
+          {form.deleteError && <ModalError className={styles.deleteError}>{form.deleteError}</ModalError>}
           <ModalActions>
-            <Button variant="secondary" onClick={() => setShowDelete(false)}>
+            <Button
+              type="button"
+              variant="secondary"
+              disabled={form.deleting}
+              onClick={() => form.setShowDelete(false)}
+            >
               Cancel
             </Button>
-            <Button variant="danger" onClick={doDelete}>
-              {TrashCopy.enabled(session) ? 'Move to trash' : 'Delete entry'}
+            <Button type="button" variant="danger" disabled={form.deleting} onClick={form.doDelete}>
+              {form.deleting ? 'Deleting…' : TrashCopy.enabled(session) ? 'Move to trash' : 'Delete entry'}
             </Button>
           </ModalActions>
         </Modal>
       )}
     </>
-  )
-}
-
-/**
- * One fact of the rail's SYSTEM block, stated whole and copyable. A timestamp
- * reads in the browser's own zone while it copies the ISO string the API
- * stores, which is the form a filter or a request wants; `hint` carries that
- * raw value on hover.
- */
-function SystemRow({
-  name,
-  value,
-  copy,
-  copyLabel,
-  hint,
-}: {
-  name: string
-  value: string
-  copy: string
-  copyLabel: string
-  hint?: string
-}) {
-  return (
-    <div className={styles.row}>
-      <span className={styles.key}>{name}</span>
-      <span className={styles.valueGroup}>
-        <span className={styles.value} title={hint}>
-          {value}
-        </span>
-        <CopyIconButton text={copy} label={copyLabel} />
-      </span>
-    </div>
   )
 }
