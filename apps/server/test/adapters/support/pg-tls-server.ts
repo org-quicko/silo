@@ -95,7 +95,15 @@ export class PgTlsServer {
     fs.rmSync(this.dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 });
   }
 
-  /** EC keys, since RSA generation is what would make this slow. */
+  /**
+   * EC keys, since RSA generation is what would make this slow.
+   *
+   * LibreSSL (macOS `/usr/bin/openssl`) defaults to explicit EC curve
+   * parameters and SHA-1 signatures, and ignores `-subj` when `prompt = no` is
+   * set in the config; `ec_param_enc:named_curve`, `-sha256`, and omitting
+   * `prompt = no` keep the generated certificates valid under both LibreSSL
+   * and OpenSSL 3/4.
+   */
   private static async certificates(openssl: string, dir: string): Promise<void> {
     const config = path.join(dir, "openssl.cnf");
     fs.writeFileSync(
@@ -103,9 +111,7 @@ export class PgTlsServer {
       [
         "[req]",
         "distinguished_name = dn",
-        "prompt = no",
         "[dn]",
-        "CN = silo test",
         "[ca]",
         "basicConstraints = critical,CA:TRUE",
         "keyUsage = critical,keyCertSign,cRLSign",
@@ -123,18 +129,26 @@ export class PgTlsServer {
       ].join("\n")
     );
     const at = (name: string) => path.join(dir, name);
-    const key = ["-newkey", "ec", "-pkeyopt", "ec_paramgen_curve:prime256v1", "-nodes"];
+    const key = [
+      "-newkey",
+      "ec",
+      "-pkeyopt",
+      "ec_paramgen_curve:prime256v1",
+      "-pkeyopt",
+      "ec_param_enc:named_curve",
+      "-nodes",
+    ];
     for (const [name, subject] of [["ca", "/CN=silo test ca"], ["rogue", "/CN=silo rogue ca"]]) {
-      await PgTlsServer.run([openssl, "req", "-x509", "-config", config, "-extensions", "ca", ...key,
+      await PgTlsServer.run([openssl, "req", "-x509", "-sha256", "-config", config, "-extensions", "ca", ...key,
         "-days", "2", "-subj", subject, "-keyout", at(`${name}.key`), "-out", at(`${name}.crt`)]);
     }
     for (const [name, subject, extensions, serial] of [
       ["server", "/CN=localhost", "server", "2"],
       ["client", "/CN=silo_cert", "client", "3"],
     ]) {
-      await PgTlsServer.run([openssl, "req", "-new", "-config", config, ...key, "-subj", subject,
+      await PgTlsServer.run([openssl, "req", "-new", "-sha256", "-config", config, ...key, "-subj", subject,
         "-keyout", at(`${name}.key`), "-out", at(`${name}.csr`)]);
-      await PgTlsServer.run([openssl, "x509", "-req", "-in", at(`${name}.csr`), "-CA", at("ca.crt"),
+      await PgTlsServer.run([openssl, "x509", "-req", "-sha256", "-in", at(`${name}.csr`), "-CA", at("ca.crt"),
         "-CAkey", at("ca.key"), "-set_serial", serial, "-days", "2", "-extfile", config,
         "-extensions", extensions, "-out", at(`${name}.crt`)]);
     }
