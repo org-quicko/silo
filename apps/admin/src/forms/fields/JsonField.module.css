@@ -5,13 +5,48 @@
   background: var(--ink-2);
 }
 
-.editorInvalid { border-color: var(--bad); }
+.editorInvalid {
+  border-color: var(--bad);
+}
+
+.header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px 12px;
+  padding: 7px 10px;
+  border-bottom: 1px solid var(--line);
+  background: var(--panel);
+}
+
+.headerLeft {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.summaryPill {
+  padding: 2px 7px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-1);
+  background: var(--panel-2);
+  color: var(--text-3);
+  font-family: var(--font-mono);
+  font-size: 11px;
+}
+
+.summaryInvalid {
+  border-color: color-mix(in oklab, var(--bad) 32%, transparent);
+  background: var(--bad-soft);
+  color: var(--bad);
+}
 
 .notice {
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  gap: 10px;
+  gap: 8px;
   padding: 7px 12px;
   border-bottom: 1px solid var(--line);
   background: color-mix(in oklab, var(--warn) 9%, transparent);
@@ -19,29 +54,22 @@
   font-size: 12px;
 }
 
-.noticeCopy {
-  display: flex;
-  min-width: 0;
-  align-items: center;
-  gap: 8px;
+.notice svg {
+  flex: none;
+  color: var(--warn);
 }
 
-.noticeCopy svg { flex: none; color: var(--warn); }
-
-/* An "any" field is not a failure to render one, so it carries no warning tint. */
-.plain { background: var(--panel); }
-.plain .noticeCopy svg { color: var(--text-3); }
-
-.code { background: var(--ink-2); }
-.code :global(.cm-editor) { background: var(--ink-2); font-family: var(--font-mono); font-size: 12.5px; }
-.code :global(.cm-editor.cm-focused) { outline: none; }
-.code :global(.cm-gutters) { border-right: 1px solid var(--line); background: var(--bg); color: var(--text-3); }
-.code :global(.cm-scroller) { line-height: 1.7; }
+.noticeCopy {
+  min-width: 0;
+  flex: 1;
+}
 
 .errorBar {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
-  gap: 7px;
+  justify-content: space-between;
+  gap: 8px;
   padding: 8px 12px;
   border-top: 1px solid color-mix(in oklab, var(--bad) 26%, transparent);
   background: var(--bad-soft);
@@ -49,4 +77,31 @@
   font-size: 12px;
 }
 
-.errorBar svg { flex: none; }
+.errorCopy {
+  display: flex;
+  min-width: 0;
+  flex: 1;
+  align-items: center;
+  gap: 7px;
+}
+
+.errorCopy svg {
+  flex: none;
+}
+
+.jumpButton {
+  flex: none;
+  padding: 3px 8px;
+  border: 1px solid color-mix(in oklab, var(--bad) 38%, transparent);
+  border-radius: var(--r-1);
+  background: transparent;
+  color: var(--bad);
+  font-family: var(--font-ui);
+  font-size: 11.5px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.jumpButton:hover {
+  background: color-mix(in oklab, var(--bad) 14%, transparent);
+}

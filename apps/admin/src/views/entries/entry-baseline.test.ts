@@ -3,7 +3,10 @@ import { getDefaultFormState, type RJSFSchema } from '@rjsf/utils'
 import validator from '@rjsf/validator-ajv8'
 import { ConflictError } from '../../api/api-error'
 import type { Entry } from '../../api/types/entry'
+import { buildUiSchema } from '../../forms/build-ui-schema'
+import { FormSchema } from '../../forms/form-schema'
 import { EntryBaseline } from './entry-baseline'
+import { EntryJsonValidator } from './entry-json-validator'
 
 function sampleEntry(rev: number, data: Record<string, unknown>): Entry {
   return {
@@ -218,5 +221,132 @@ describe('EntryBaseline SWR adoption & stale detection', () => {
     expect(EntryBaseline.isConflictError(new ConflictError('conflict', 'r', 'p'))).toBe(true)
     expect(EntryBaseline.isConflictError({ status: 409, message: 'conflict' })).toBe(true)
     expect(EntryBaseline.isConflictError(new Error('other'))).toBe(false)
+  })
+})
+
+describe('EntryBaseline strict JSON mode integration', () => {
+  test('new entry with required title and free-form data enforces strict top-level keys without false dirty state', () => {
+    const rawSchema = {
+      type: 'object',
+      required: ['title'],
+      properties: {
+        title: { type: 'string' },
+        data: {},
+        tags: { type: 'array' },
+      },
+    }
+    const formSchema = FormSchema.forEntry(rawSchema)
+    const uiSchema = buildUiSchema(formSchema)
+    const jsonValidator = new EntryJsonValidator('test', rawSchema)
+    const baseline = EntryBaseline.create(null)
+
+    // 1. Open `{}` in JSON mode: missing `title` fails validation, yet is NOT unrepresentable or dirty.
+    const emptyCheck = jsonValidator.validate('{}')
+    expect(emptyCheck.ok).toBe(false)
+    expect(emptyCheck.kind).toBe('schema')
+    expect(emptyCheck.unrepresentable).toBe(false)
+    expect(
+      EntryBaseline.isDirty({
+        formData: emptyCheck.data,
+        baselineData: baseline.data,
+        mode: 'json',
+        invalidJsonFieldCount: 0,
+        jsonUnrepresentable: emptyCheck.unrepresentable,
+      }),
+    ).toBe(false)
+
+    // 2. Can switch back to Form mode to fill `title` despite missing required field.
+    expect(
+      EntryBaseline.planModeSwitch({
+        from: 'json',
+        to: 'form',
+        invalidJsonFieldCount: 0,
+        jsonText: '{}',
+        validation: emptyCheck,
+        canSave: true,
+        formSchema,
+        uiSchema,
+      }),
+    ).toEqual({ ok: true, action: 'toForm', data: {} })
+
+    // 3. Adding nested keys inside free-form `data` plus unknown top-level `new` blocks Save & switch,
+    // marks dirty, and protects against SWR adoption.
+    const withUnknownText = JSON.stringify(
+      {
+        title: 't',
+        new: 'data',
+        data: { user: { name: 'Alice', age: 30, address: { street: '123 Main St', city: 'Anytown' } } },
+      },
+      null,
+      2,
+    )
+    const withUnknown = jsonValidator.validate(withUnknownText)
+    expect(withUnknown.ok).toBe(false)
+    expect(withUnknown.hasUnknownProperties).toBe(true)
+    expect(withUnknown.diagnostics).toHaveLength(1)
+    expect(withUnknown.diagnostics[0].message).toContain('"new"')
+    expect(
+      EntryBaseline.isDirty({
+        formData: withUnknown.data,
+        baselineData: baseline.data,
+        mode: 'json',
+        invalidJsonFieldCount: 0,
+        jsonUnrepresentable: withUnknown.unrepresentable,
+      }),
+    ).toBe(true)
+    expect(
+      EntryBaseline.planModeSwitch({
+        from: 'json',
+        to: 'form',
+        invalidJsonFieldCount: 0,
+        jsonText: withUnknownText,
+        validation: withUnknown,
+        canSave: true,
+        formSchema,
+        uiSchema,
+      }).ok,
+    ).toBe(false)
+
+    // 4. Read-only users can still return to Form mode, while object items in `tags` block writable switch.
+    expect(
+      EntryBaseline.planModeSwitch({
+        from: 'json',
+        to: 'form',
+        invalidJsonFieldCount: 0,
+        jsonText: withUnknownText,
+        validation: withUnknown,
+        canSave: false,
+        formSchema,
+        uiSchema,
+      }).ok,
+    ).toBe(true)
+
+    const badTagsText = JSON.stringify({ title: 't', tags: [{ a: 1 }] })
+    const badTags = jsonValidator.validate(badTagsText)
+    expect(badTags.ok).toBe(true)
+    expect(
+      EntryBaseline.planModeSwitch({
+        from: 'json',
+        to: 'form',
+        invalidJsonFieldCount: 0,
+        jsonText: badTagsText,
+        validation: badTags,
+        canSave: true,
+        formSchema,
+        uiSchema,
+      }).ok,
+    ).toBe(false)
+
+    // 5. Removing `new` yields valid payload preserving nested `data`.
+    const cleanText = JSON.stringify({
+      title: 't',
+      data: { user: { name: 'Alice', age: 30, address: { street: '123 Main St', city: 'Anytown' } } },
+    })
+    const clean = jsonValidator.validate(cleanText)
+    expect(clean.ok).toBe(true)
+    expect(clean.data).toEqual({
+      title: 't',
+      data: { user: { name: 'Alice', age: 30, address: { street: '123 Main St', city: 'Anytown' } } },
+    })
   })
 })

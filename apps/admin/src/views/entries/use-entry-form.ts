@@ -20,6 +20,7 @@ import { useEscapeToDiscard } from '../use-escape-to-discard'
 import { useSaveShortcut } from '../use-save-shortcut'
 import { EntryBaseline, type EntryEditorMode } from './entry-baseline'
 import { EntryJsonDocument } from './entry-json-document'
+import { EntryJsonValidator } from './entry-json-validator'
 
 export interface UseEntryFormOptions {
   serverId: string
@@ -63,6 +64,10 @@ export function useEntryForm({
     [collection],
   )
   const uiSchema = useMemo(() => buildUiSchema(schema), [schema])
+  const entryJsonValidator = useMemo(
+    () => new EntryJsonValidator(collection.name, collection.schema),
+    [collection.name, collection.schema],
+  )
 
   const { variables } = useVariables(serverId, url, apiKey, scope)
   const variableContext = useMemo(
@@ -78,7 +83,6 @@ export function useEntryForm({
   const [baseline, setBaseline] = useState(() => EntryBaseline.create(entry))
   const [formData, setFormData] = useState<Record<string, any>>(() => baseline.data)
   const [jsonText, setJsonText] = useState(() => EntryJsonDocument.format(baseline.data))
-  const [jsonError, setJsonError] = useState<string | null>(null)
   const [hasEditedJson, setHasEditedJson] = useState(false)
   const [invalidJsonKeys, setInvalidJsonKeys] = useState<Set<string>>(() => new Set())
   const [pendingMediaKeys, setPendingMediaKeys] = useState<Set<string>>(() => new Set())
@@ -124,12 +128,19 @@ export function useEntryForm({
     scheduleSettle()
   }, [formSession, scheduleSettle])
 
+  const jsonValidation = useMemo(
+    () => entryJsonValidator.validate(jsonText),
+    [entryJsonValidator, jsonText],
+  )
+  const activeFormData =
+    editorMode === 'json' && jsonValidation.data !== null ? jsonValidation.data : formData
+
   const dirty = EntryBaseline.isDirty({
-    formData,
+    formData: activeFormData,
     baselineData: baseline.data,
     mode: editorMode,
     invalidJsonFieldCount: editorMode === 'form' ? invalidJsonKeys.size : 0,
-    jsonError,
+    jsonUnrepresentable: editorMode === 'json' ? jsonValidation.unrepresentable : false,
   })
   const mediaUploading = pendingMediaKeys.size > 0
 
@@ -147,7 +158,6 @@ export function useEntryForm({
     setBaseline(nextBaseline)
     setFormData(nextBaseline.data)
     setJsonText(EntryJsonDocument.format(nextBaseline.data))
-    setJsonError(null)
     setHasEditedJson(false)
     setInvalidJsonKeys(new Set())
     setPendingMediaKeys(new Set())
@@ -161,7 +171,6 @@ export function useEntryForm({
     setBaseline(nextBaseline)
     setFormData(nextBaseline.data)
     setJsonText(EntryJsonDocument.format(nextBaseline.data))
-    setJsonError(null)
     setHasEditedJson(false)
     setInvalidJsonKeys(new Set())
     setPendingMediaKeys(new Set())
@@ -357,14 +366,12 @@ export function useEntryForm({
       return
     }
 
-    const parsed = EntryJsonDocument.parse(jsonText)
-    if (!parsed.ok) {
-      setJsonError(parsed.error)
-      setFormError(parsed.error)
+    if (!jsonValidation.ok || jsonValidation.data === null) {
+      setFormError(jsonValidation.error || 'Fix JSON validation errors before saving.')
       jsonEditorRef.current?.focus()
       return
     }
-    void savePayload(parsed.data, 'json')
+    void savePayload(jsonValidation.data, 'json')
   }
 
   useSaveShortcut(submitEntry, canSave && !saving && !mediaUploading)
@@ -377,13 +384,16 @@ export function useEntryForm({
       mediaUploading: pendingMediaKeys.size > 0,
       invalidJsonFieldCount: invalidJsonKeys.size,
       jsonText,
+      validation: editorMode === 'json' ? jsonValidation : undefined,
+      canSave,
+      formSchema: schema,
+      uiSchema,
     })
     if (!plan.ok) {
       setFormError(plan.error)
       if (plan.target === 'jsonField') {
         focusFirstInvalidJsonField()
       } else if (plan.target === 'jsonEditor') {
-        setJsonError(plan.error)
         jsonEditorRef.current?.focus()
       }
       return
@@ -393,30 +403,20 @@ export function useEntryForm({
     if (plan.action === 'noop') return
     if (plan.action === 'toJson') {
       setJsonText(EntryJsonDocument.format(formData))
-      setJsonError(null)
       setEditorMode('json')
       return
     }
 
-    setJsonError(null)
     setExtraErrors(undefined)
     setFormData(plan.data)
     if (!dirty) scheduleSettle()
     setEditorMode('form')
   }
 
-  const handleJsonChange = (
-    nextText: string,
-    parsed: Record<string, any> | null,
-    error: string | null,
-  ) => {
+  const handleJsonChange = (nextText: string) => {
     setHasEditedJson(true)
     setJsonText(nextText)
-    setJsonError(error)
-    if (parsed !== null) {
-      setFormData(parsed)
-      if (formError) setFormError('')
-    }
+    if (formError) setFormError('')
   }
 
   const doDelete = async () => {
@@ -458,7 +458,9 @@ export function useEntryForm({
     uiSchema,
     editorMode,
     baseline,
-    formData,
+    formData: activeFormData,
+    jsonText,
+    jsonValidation,
     formError: displayedFormError,
     extraErrors,
     saving,

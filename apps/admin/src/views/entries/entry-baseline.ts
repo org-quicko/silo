@@ -2,6 +2,8 @@ import type { ValidationDetail } from '@silo/shared/validation-detail'
 import { ConflictError } from '../../api/api-error'
 import type { Entry } from '../../api/types/entry'
 import { EntryJsonDocument } from './entry-json-document'
+import type { EntryJsonValidationResult } from './entry-json-validator'
+import { FormCompatibility } from './form-compatibility'
 
 export type EntryEditorMode = 'form' | 'json'
 
@@ -57,6 +59,10 @@ export class EntryBaseline {
     mediaUploading?: boolean
     invalidJsonFieldCount: number
     jsonText: string
+    validation?: EntryJsonValidationResult
+    canSave?: boolean
+    formSchema?: any
+    uiSchema?: any
   }): ModeSwitchResult {
     if (options.from === options.to) return { ok: true, action: 'noop' }
     if (options.to === 'json') {
@@ -75,6 +81,46 @@ export class EntryBaseline {
         }
       }
       return { ok: true, action: 'toJson' }
+    }
+
+    if (options.validation) {
+      if (
+        options.validation.kind === 'syntax' ||
+        options.validation.kind === 'document' ||
+        options.validation.data === null
+      ) {
+        return {
+          ok: false,
+          target: 'jsonEditor',
+          error: options.validation.error || 'Invalid JSON',
+        }
+      }
+
+      if (options.canSave !== false) {
+        if (options.validation.hasUnknownProperties) {
+          return {
+            ok: false,
+            target: 'jsonEditor',
+            error: 'Remove unknown fields not declared in the schema before switching to Form mode.',
+          }
+        }
+        if (options.formSchema && options.uiSchema) {
+          const compatibility = FormCompatibility.check(
+            options.validation.data,
+            options.formSchema,
+            options.uiSchema,
+          )
+          if (!compatibility.ok) {
+            return {
+              ok: false,
+              target: 'jsonEditor',
+              error: compatibility.error || 'Value cannot be edited in Form mode.',
+            }
+          }
+        }
+      }
+
+      return { ok: true, action: 'toForm', data: options.validation.data }
     }
 
     const parsed = EntryJsonDocument.parse(options.jsonText)
@@ -127,10 +173,15 @@ export class EntryBaseline {
     baselineData: unknown
     mode: EntryEditorMode
     invalidJsonFieldCount: number
-    jsonError: string | null
+    jsonError?: string | null
+    jsonUnrepresentable?: boolean
   }): boolean {
     if (options.invalidJsonFieldCount > 0) return true
-    if (options.mode === 'json' && options.jsonError !== null) return true
+    const unrepresentable =
+      options.jsonUnrepresentable !== undefined
+        ? options.jsonUnrepresentable
+        : options.mode === 'json' && options.jsonError !== null && options.jsonError !== undefined
+    if (options.mode === 'json' && unrepresentable) return true
     return !EntryBaseline.isDataEqual(options.formData, options.baselineData)
   }
 

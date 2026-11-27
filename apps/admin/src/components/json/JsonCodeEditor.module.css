@@ -1,0 +1,112 @@
+.root {
+  background: var(--ink-2);
+}
+
+.root :global(.cm-editor) {
+  background: var(--ink-2);
+  font-family: var(--font-mono);
+  font-size: 12.5px;
+}
+
+.root :global(.cm-editor.cm-focused) {
+  outline: none;
+}
+
+.root :global(.cm-gutters) {
+  border-right: 1px solid var(--line);
+  background: var(--bg);
+  color: var(--text-3);
+}
+
+.root :global(.cm-scroller) {
+  line-height: 1.7;
+}
+
+.root :global(.cm-activeLine) {
+  background: color-mix(in oklab, var(--panel-2) 65%, transparent);
+}
+
+.root :global(.cm-activeLineGutter) {
+  background: var(--panel-2);
+  color: var(--text-2);
+}
+
+.root :global(.cm-json-error-gutter) {
+  width: 14px;
+}
+
+.root :global(.cm-json-error-dot) {
+  display: inline-block;
+  width: 7px;
+  height: 7px;
+  border-radius: 99px;
+  background: var(--bad);
+  vertical-align: middle;
+}
+
+.root :global(.cm-json-error-line) {
+  background: color-mix(in oklab, var(--bad) 10%, transparent);
+}
+
+.root :global(.cm-json-error-mark) {
+  text-decoration: underline wavy var(--bad);
+  text-underline-offset: 3px;
+}
+
+.root :global(.cm-tooltip.cm-json-error-tooltip) {
+  max-width: 340px;
+  padding: 8px 10px;
+  border: 1px solid color-mix(in oklab, var(--bad) 45%, var(--line-2));
+  border-radius: var(--radius-sm);
+  background: var(--panel);
+  color: var(--text);
+  font-family: var(--font-ui);
+  font-size: 12px;
+  line-height: 1.45;
+  box-shadow: var(--shadow-modal);
+}
+
+.root :global(.cm-json-error-tooltip-loc) {
+  margin-bottom: 2px;
+  color: var(--bad);
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  font-weight: 600;
+}
+
+.root :global(.cm-json-error-tooltip-msg) {
+  color: var(--text-2);
+  overflow-wrap: anywhere;
+}
+
+.root :global(.cm-panels) {
+  border-color: var(--line);
+  background: var(--panel);
+  color: var(--text);
+}
+
+.root :global(.cm-panel.cm-search) {
+  padding: 6px 10px;
+  font-family: var(--font-ui);
+  font-size: 12px;
+}
+
+.root :global(.cm-panel.cm-search input),
+.root :global(.cm-panel.cm-search button) {
+  border: 1px solid var(--line-2);
+  border-radius: var(--r-1);
+  background: var(--panel-2);
+  color: var(--text);
+  font-family: var(--font-ui);
+  font-size: 12px;
+}
+
+.root :global(.cm-panel.cm-search input:focus) {
+  border-color: var(--accent);
+  outline: none;
+}
+
+.root :global(.cm-panel.cm-search button:hover) {
+  border-color: var(--accent-line);
+  background: var(--panel-3);
+}

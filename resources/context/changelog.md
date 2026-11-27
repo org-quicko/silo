@@ -4,6 +4,43 @@
 > The *current* state is [CONTEXT.md](../../CONTEXT.md); this is how it got
 > there.
 
+- **Strict client-side schema validation in `EntryJsonEditor` (`apps/admin`,
+  2026-11-27).** Added `EntryJsonSchema` (`entry-json-schema.ts`,
+  `entry-json-schema.test.ts`), `EntryJsonValidator` (`entry-json-validator.ts`,
+  `entry-json-validator.test.ts`), `FormCompatibility` (`form-compatibility.ts`,
+  `form-compatibility.test.ts`), and `JsonLocation` (`json-location.ts`,
+  `json-location.test.ts`) using `ajv`/`ajv-formats` (`Ajv2020` for 2020-12,
+  `Ajv` for Draft-07, `ownProperties: true`). Structured object use-sites are
+  strictly closed (`unevaluatedProperties: false` in 2020-12,
+  `additionalProperties: false` on non-composed Draft-07 objects) while `any`
+  (`{}`) and free-form `{ type: "object" }` fields remain open. `useEntryForm`
+  owns `jsonText` and `jsonValidation` as a single source of truth so invalid
+  JSON or undeclared keys block Save (and unknown keys / widget-incompatible
+  values like object items in `TagsWidget` block `JSON -> Form` for writable
+  users) without falsely marking clean `{}` drafts dirty, while
+  `JsonDiagnosticsExtension` and `EntryJsonEditor` display multi-diagnostic
+  underlines, span-aware tooltips, and a clickable error list.
+
+- **Dual-mode Visual Tree and rich CodeMirror JSON editor (`apps/admin`,
+  2026-11-27).** Replaced the minimal JSON/any editor with a shared suite in
+  `apps/admin/src/components/json/`: `JsonSyntax` (`json-syntax.ts`,
+  `json-syntax.test.ts`), `JsonValue` (`json-value.ts`, `json-value.test.ts`),
+  `JsonDiagnosticsExtension` (line highlight, wavy mark, error gutter dot,
+  hover tooltip, and `jumpTo` via `@uiw/react-codemirror`'s single state copy),
+  `JsonCodeEditor` (bracket matching, code folding, `⌘F`/`Ctrl+F` search,
+  line-wrap toggle, and inline diagnostics), `JsonToolbar` (non-submitting
+  Format, Compact, Sort keys, Wrap, Copy, and Expand actions),
+  `JsonExpandModal` (backed by `Modal` `size="xl"`), and the Visual Tree
+  builder (`JsonVisualEditor`, `JsonTreeNode`, `JsonPrimitiveInput`,
+  `JsonTypeBadge` supporting quick-start type creation, inline key renaming,
+  type coercion, collapse/expand, array reordering, duplication, and scalar
+  controls). `JsonField` defaults values of `<= 200` nodes to Visual mode and
+  larger payloads to Code mode while preserving `onJsonValidityChange` and
+  external `formData` sync; `EntryJsonEditor` adds reserved-key location
+  diagnostics, line/byte metrics, Compact/Sort keys/Wrap/Copy, and Expand
+  modal; and `SchemaEditor` delegates its Code tab to `SchemaCodePane` with
+  toolbar actions, Expand modal, and footer `Jump to error`.
+
 - **Revision-checked entry PATCH via RFC 7396 Merge Patch (2026-11-26, D115).**
   `EntryService.patch` and `EntriesRoutes` (`PATCH /api/projects/:project/environments/:env/collections/:name/:id`
   and `/envs/` alias) add partial entry updates so callers can change fields
